@@ -12,6 +12,21 @@ function requireAdmin(session: string | undefined) {
 	}
 }
 
+function toSafeIso(value: unknown, fallback?: unknown) {
+	const date = new Date(value as any);
+	if (!Number.isNaN(date.getTime())) {
+		return date.toISOString();
+	}
+	if (fallback) {
+		const fallbackDate = new Date(fallback as any);
+		if (!Number.isNaN(fallbackDate.getTime())) {
+			return fallbackDate.toISOString();
+		}
+	}
+	// Short expiry to force a refresh soon if Zoho returned an invalid date.
+	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
+}
+
 export const load: PageServerLoad = async ({ cookies }) => {
 	requireAdmin(cookies.get('admin_session'));
 	const clients = await listClients();
@@ -55,7 +70,7 @@ export const actions: Actions = {
 				user_id: tokens.user_id,
 				access_token: refreshed.access_token,
 				refresh_token: refreshed.refresh_token,
-				expires_at: new Date(refreshed.expires_at).toISOString(),
+				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
 				scope: tokens.scope
 			});
 		}
