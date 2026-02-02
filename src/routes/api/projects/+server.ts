@@ -1,46 +1,38 @@
 import { json, error } from '@sveltejs/kit';
-import { zohoApiCall, refreshAccessToken } from '$lib/server/zoho';
+import { getSession } from '$lib/server/db';
+import { getContactDeals } from '$lib/server/auth';
+import { refreshAccessToken } from '$lib/server/zoho';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ cookies }) => {
-	let accessToken = cookies.get('zoho_access_token');
-	const refreshToken = cookies.get('zoho_refresh_token');
+	const sessionId = cookies.get('portal_session');
 
-	if (!accessToken && !refreshToken) {
+	if (!sessionId) {
 		throw error(401, 'Not authenticated');
 	}
 
 	try {
-		// Attempt API call with current token
-		const deals = await zohoApiCall(accessToken!, '/Deals', {
-			method: 'GET'
-		});
-
-		return json(deals);
-	} catch (err) {
-		// Token expired, try refresh
-		if (refreshToken) {
-			try {
-				const newTokens = await refreshAccessToken(refreshToken);
-				
-				cookies.set('zoho_access_token', newTokens.access_token, {
-					path: '/',
-					httpOnly: true,
-					secure: true,
-					sameSite: 'lax',
-					maxAge: 60 * 60
-				});
-
-				// Retry with new token
-				const deals = await zohoApiCall(newTokens.access_token, '/Deals', {
-					method: 'GET'
-				});
-
-				return json(deals);
-			} catch (refreshErr) {
-				throw error(401, 'Token refresh failed');
-			}
+		// Get session from database
+		const session = await getSession(sessionId);
+		if (!session) {
+			throw error(401, 'Invalid session');
 		}
+
+		// Check if token expired
+		let accessToken = session.access_token;
+		if (new Date(session.expires_at) < new Date()) {
+			// Refresh token
+			const newTokens = await refreshAccessToken(session.refresh_token);
+			accessToken = newTokens.access_token;
+			// TODO: Update session in database with new tokens
+		}
+
+		// Fetch ONLY deals associated with this contact
+		const deals = await getContactDeals(accessToken, session.zoho_contact_id);
+
+		return json({ data: deals });
+	} catch (err) {
+		console.error('Failed to fetch projects:', err);
 		throw error(500, 'Failed to fetch projects');
 	}
 };
