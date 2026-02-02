@@ -31,19 +31,31 @@ const CONTACT_FIELDS = [
 ].join(',');
 
 
-const CLOSED_DEAL_STAGES = new Set([
-	'closed won',
-	'closed lost',
-	'closed',
-	'cancelled',
-	'canceled',
-	'completed',
-	'inactive'
+const ACTIVE_DEAL_STAGES = new Set([
+	'ballpark needed',
+	'ballpark',
+	'revision',
+	'ballpark review needed',
+	'ballpark review booked',
+	'pda needed',
+	'pda sent',
+	'design needed',
+	'design review needed',
+	'design review booked',
+	'redesign needed',
+	'estimate needed',
+	'estimate review needed',
+	'estimate review booked',
+	'estimate revision needed',
+	'quoted',
+	'contract needed',
+	'contract sent',
+	'project created'
 ]);
 
 function isActiveDealStage(stage: string | null | undefined) {
 	if (!stage) return false;
-	return !CLOSED_DEAL_STAGES.has(stage.trim().toLowerCase());
+	return ACTIVE_DEAL_STAGES.has(stage.trim().toLowerCase());
 }
 
 function mapContact(contact: any): ClientProfile {
@@ -307,4 +319,3 @@ export async function listContactsForActiveDeals(accessToken: string, apiDomain?
 	}
 	return results;
 }
-
