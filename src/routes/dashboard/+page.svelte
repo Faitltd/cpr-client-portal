@@ -8,6 +8,9 @@
 	onMount(async () => {
 		try {
 			const response = await fetch('/api/projects');
+			if (response.status === 401) {
+				throw new Error('Please login again');
+			}
 			if (!response.ok) throw new Error('Failed to fetch projects');
 			const data = await response.json();
 			projects = data.data || [];
@@ -21,8 +24,13 @@
 
 <div class="dashboard">
 	<header>
-		<h1>My Projects</h1>
-		<p>View and manage your renovation projects</p>
+		<div class="header-row">
+			<div>
+				<h1>My Projects</h1>
+				<p>View and manage your renovation projects</p>
+			</div>
+			<a class="account-link" href="/account">Account</a>
+		</div>
 	</header>
 
 	{#if loading}
@@ -30,7 +38,7 @@
 	{:else if error}
 		<div class="error">
 			<p>Error: {error}</p>
-			<a href="/auth/login">Please login again</a>
+			<a href="/auth/client">Please login again</a>
 		</div>
 	{:else if projects.length === 0}
 		<div class="empty">
@@ -60,6 +68,24 @@
 
 	header {
 		margin-bottom: 2rem;
+	}
+
+	.account-link {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.4rem 0.9rem;
+		border: 1px solid #d0d0d0;
+		border-radius: 999px;
+		text-decoration: none;
+		color: #1a1a1a;
+		background: #fff;
+	}
+
+	.header-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
 	}
 
 	.loading, .error, .empty {

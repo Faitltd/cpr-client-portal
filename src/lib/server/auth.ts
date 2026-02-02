@@ -1,31 +1,113 @@
 import { zohoApiCall } from './zoho';
-import { 
-	type Client, 
-	getClientByZohoId, 
-	upsertClient, 
-	getProjectsByClientId,
-	type Project 
-} from './db';
+import type { Client } from './db';
+import { dev } from '$app/environment';
+import { PORTAL_DEV_SHOW_ALL } from '$env/static/private';
+
+type ClientProfile = Omit<Client, 'id'>;
+
+type ClientProfileWithUser = ClientProfile & { zoho_user_id: string };
+
+type ZohoUser = { id: string; email?: string };
+
+const DEAL_FIELDS = [
+	'Deal_Name',
+	'Stage',
+	'Amount',
+	'Closing_Date',
+	'Created_Time',
+	'Modified_Time',
+	'Owner',
+	'Contact_Name',
+	'Account_Name'
+].join(',');
+
+const CONTACT_FIELDS = [
+	'First_Name',
+	'Last_Name',
+	'Full_Name',
+	'Email',
+	'Phone',
+	'Account_Name'
+].join(',');
+
+
+const CLOSED_DEAL_STAGES = new Set([
+	'closed won',
+	'closed lost',
+	'closed',
+	'cancelled',
+	'canceled',
+	'completed',
+	'inactive'
+]);
+
+function isActiveDealStage(stage: string | null | undefined) {
+	if (!stage) return false;
+	return !CLOSED_DEAL_STAGES.has(stage.trim().toLowerCase());
+}
+
+function mapContact(contact: any): ClientProfile {
+	const firstName = contact.First_Name || null;
+	const lastName = contact.Last_Name || null;
+	const fullName = contact.Full_Name || [firstName, lastName].filter(Boolean).join(' ') || null;
+
+	return {
+		zoho_contact_id: contact.id,
+		email: contact.Email,
+		first_name: firstName,
+		last_name: lastName,
+		full_name: fullName,
+		company: contact.Account_Name?.name || null,
+		phone: contact.Phone || null
+	};
+}
 
 /**
- * Get Zoho Contact ID from access token
+ * Fetch current Zoho CRM user (admin)
+ */
+export async function getZohoCurrentUser(accessToken: string, apiDomain?: string): Promise<ZohoUser> {
+	const response = await zohoApiCall(accessToken, '/users?type=CurrentUser', {}, apiDomain);
+	const user = response.users?.[0];
+	if (!user) {
+		throw new Error('No user found in Zoho response');
+	}
+	return { id: user.id, email: user.email };
+}
+
+/**
+ * Find Zoho contact by email (admin token)
+ */
+export async function findContactByEmail(accessToken: string, email: string, apiDomain?: string): Promise<ClientProfile | null> {
+	const search = await zohoApiCall(
+		accessToken,
+		`/Contacts/search?email=${encodeURIComponent(email)}&fields=${encodeURIComponent(CONTACT_FIELDS)}`,
+		{},
+		apiDomain
+	);
+
+	const contact = search.data?.[0];
+	if (!contact) return null;
+	return mapContact(contact);
+}
+
+/**
+ * Get Zoho Contact ID from access token (client-style OAuth)
  * Uses the /users?type=CurrentUser endpoint to identify the authenticated user
  */
-export async function getAuthenticatedContact(accessToken: string): Promise<Client> {
+export async function getAuthenticatedContact(accessToken: string, apiDomain?: string): Promise<ClientProfileWithUser> {
 	try {
-		// Get current user from Zoho CRM
-		const response = await zohoApiCall(accessToken, '/users?type=CurrentUser');
+		const response = await zohoApiCall(accessToken, '/users?type=CurrentUser', {}, apiDomain);
 		const user = response.users?.[0];
 
 		if (!user) {
 			throw new Error('No user found in Zoho response');
 		}
 
-		// For portal users, we need to find their Contact record
-		// Search by email to get the Contact ID
 		const contactSearch = await zohoApiCall(
 			accessToken,
-			`/Contacts/search?email=${encodeURIComponent(user.email)}`
+			`/Contacts/search?email=${encodeURIComponent(user.email)}&fields=${encodeURIComponent(CONTACT_FIELDS)}`,
+			{},
+			apiDomain
 		);
 
 		const contact = contactSearch.data?.[0];
@@ -33,29 +115,10 @@ export async function getAuthenticatedContact(accessToken: string): Promise<Clie
 			throw new Error('Contact record not found for user');
 		}
 
-		// Upsert the client in Supabase
-		const clientData = {
-			zoho_contact_id: contact.id,
-			email: contact.Email || user.email,
-			first_name: contact.First_Name || null,
-			last_name: contact.Last_Name || null,
-			phone: contact.Phone || null,
-			company: contact.Account_Name?.name || null,
-			address_street: contact.Mailing_Street || null,
-			address_city: contact.Mailing_City || null,
-			address_state: contact.Mailing_State || null,
-			address_zip: contact.Mailing_Zip || null,
-			portal_access_enabled: true,
-			last_login_at: new Date().toISOString(),
-			zoho_data: contact
+		return {
+			...mapContact(contact),
+			zoho_user_id: user.id
 		};
-
-		const client = await upsertClient(clientData);
-		if (!client) {
-			throw new Error('Failed to upsert client in database');
-		}
-
-		return client;
 	} catch (error) {
 		console.error('Failed to get authenticated contact:', error);
 		throw error;
@@ -63,67 +126,185 @@ export async function getAuthenticatedContact(accessToken: string): Promise<Clie
 }
 
 /**
- * Get client by Zoho Contact ID from database
+ * Filter deals to only show those related to the authenticated contact
  */
-export async function getClientFromDatabase(zohoContactId: string): Promise<Client | null> {
-	return getClientByZohoId(zohoContactId);
-}
-
-/**
- * Get deals/projects for a client
- * First tries to fetch from Zoho CRM, then syncs to local database
- */
-export async function getContactDeals(accessToken: string, contactId: string): Promise<Project[]> {
+export async function getContactDeals(accessToken: string, contactId: string, apiDomain?: string) {
+	// 1) Try search endpoint (most reliable without COQL)
 	try {
-		// Query deals where Contact_Name equals the authenticated contact
+		const criteria = `(Contact_Name:equals:${contactId})`;
+		const search = await zohoApiCall(
+			accessToken,
+			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
+			{},
+			apiDomain
+		);
+		if (search.data?.length) return search.data;
+	} catch (error) {
+		console.warn('Deals search failed, falling back to COQL');
+	}
+
+	// 2) Try COQL if enabled
+	try {
 		const query = {
-			select_query: `SELECT Deal_Name, Stage, Amount, Closing_Date, Created_Time, Modified_Time, Owner FROM Deals WHERE Contact_Name = '${contactId}' ORDER BY Modified_Time DESC LIMIT 100`
+			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Contact_Name = '${contactId}' ORDER BY Created_Time DESC`
 		};
 
-		const response = await zohoApiCall(accessToken, '/coql', {
-			method: 'POST',
-			body: JSON.stringify(query)
-		});
+		const response = await zohoApiCall(
+			accessToken,
+			'/coql',
+			{
+				method: 'POST',
+				body: JSON.stringify(query)
+			},
+			apiDomain
+		);
 
-		// Get client to link projects
-		const client = await getClientByZohoId(contactId);
-		if (!client) {
-			// If no client, just return empty - they need to authenticate first
-			return [];
-		}
-
-		// Return projects from local database
-		// In a full implementation, you'd sync the Zoho deals to the projects table
-		return getProjectsByClientId(client.id);
+		if (response.data?.length) return response.data;
 	} catch (error) {
-		// Fallback to standard API with filtering
-		console.warn('COQL query failed, falling back to standard API:', error);
-		
-		try {
-			const deals = await zohoApiCall(accessToken, '/Deals');
-			
-			// Client-side filtering if COQL not available
-			const filteredDeals = (deals.data || []).filter((deal: any) =>
-				deal.Contact_Name?.id === contactId
-			);
-
-			// Get client projects from database
-			const client = await getClientByZohoId(contactId);
-			if (client) {
-				return getProjectsByClientId(client.id);
-			}
-			return [];
-		} catch (fallbackError) {
-			console.error('Failed to get deals:', fallbackError);
-			return [];
-		}
+		console.warn('COQL query failed, falling back to standard API');
 	}
+
+	// 3) Fallback to standard list + client-side filter
+	const deals = await zohoApiCall(
+		accessToken,
+		`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
+		{},
+		apiDomain
+	);
+
+	const filtered = (deals.data || []).filter((deal: any) => deal.Contact_Name?.id === contactId);
+
+	if (filtered.length === 0 && dev && PORTAL_DEV_SHOW_ALL === 'true') {
+		return deals.data || [];
+	}
+
+	return filtered;
 }
 
 /**
- * Verify a client has portal access enabled
+ * Get documents/attachments for deals visible to contact
  */
-export async function verifyPortalAccess(zohoContactId: string): Promise<boolean> {
-	const client = await getClientByZohoId(zohoContactId);
-	return client?.portal_access_enabled ?? false;
+export async function getContactDocuments(accessToken: string, dealId: string, apiDomain?: string) {
+	return zohoApiCall(accessToken, `/Deals/${dealId}/Attachments`, {}, apiDomain);
 }
+
+/**
+ * Get notes for a specific deal
+ */
+export async function getDealNotes(accessToken: string, dealId: string, apiDomain?: string) {
+	return zohoApiCall(accessToken, `/Deals/${dealId}/Notes`, {}, apiDomain);
+}
+
+
+/**
+ * Fetch all Zoho contacts (admin) and map to client profiles
+ */
+export async function listAllContacts(accessToken: string, apiDomain?: string): Promise<ClientProfile[]> {
+	const perPage = 200;
+	let page = 1;
+	let more = true;
+	const results: ClientProfile[] = [];
+
+	while (more) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Contacts?fields=${encodeURIComponent(CONTACT_FIELDS)}&page=${page}&per_page=${perPage}`,
+			{},
+			apiDomain
+		);
+
+		const contacts = response.data || [];
+		for (const contact of contacts) {
+			if (contact.Email) {
+				results.push(mapContact(contact));
+			}
+		}
+
+		more = Boolean(response.info?.more_records);
+		page += 1;
+	}
+
+	return results;
+}
+
+async function listActiveDealContactIds(accessToken: string, apiDomain?: string): Promise<string[]> {
+	const perPage = 200;
+	let page = 1;
+	let more = true;
+	const ids = new Set<string>();
+
+	while (more) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals?fields=${encodeURIComponent('Stage,Contact_Name')}&page=${page}&per_page=${perPage}`,
+			{},
+			apiDomain
+		);
+
+		const deals = response.data || [];
+		for (const deal of deals) {
+			const stage = deal.Stage as string | undefined;
+			if (!isActiveDealStage(stage)) continue;
+			const contactId = deal.Contact_Name?.id;
+			if (contactId) ids.add(contactId);
+		}
+
+		more = Boolean(response.info?.more_records);
+		page += 1;
+	}
+
+	return Array.from(ids);
+}
+
+async function fetchContactsByIds(accessToken: string, ids: string[], apiDomain?: string): Promise<any[]> {
+	const results: any[] = [];
+	const chunkSize = 100;
+	for (let i = 0; i < ids.length; i += chunkSize) {
+		const chunk = ids.slice(i, i + chunkSize);
+		try {
+			const response = await zohoApiCall(
+				accessToken,
+				`/Contacts?ids=${chunk.join(',')}&fields=${encodeURIComponent(CONTACT_FIELDS)}`,
+				{},
+				apiDomain
+			);
+			const contacts = response.data || [];
+			results.push(...contacts);
+		} catch (error) {
+			for (const id of chunk) {
+				try {
+					const response = await zohoApiCall(
+						accessToken,
+						`/Contacts/${id}?fields=${encodeURIComponent(CONTACT_FIELDS)}`,
+						{},
+						apiDomain
+					);
+					const contact = response.data?.[0];
+					if (contact) results.push(contact);
+				} catch (err) {
+					console.warn('Failed to fetch contact', id, err);
+				}
+			}
+		}
+	}
+
+	return results;
+}
+
+/**
+ * Fetch contacts attached to active deals only
+ */
+export async function listContactsForActiveDeals(accessToken: string, apiDomain?: string): Promise<ClientProfile[]> {
+	const contactIds = await listActiveDealContactIds(accessToken, apiDomain);
+	if (contactIds.length == 0) return [];
+
+	const contacts = await fetchContactsByIds(accessToken, contactIds, apiDomain);
+	const results: ClientProfile[] = [];
+	for (const contact of contacts) {
+		if (contact.Email) {
+			results.push(mapContact(contact));
+		}
+	}
+	return results;
+}
+

@@ -1,34 +1,44 @@
 import { json, error } from '@sveltejs/kit';
-import { getSession } from '$lib/server/db';
+import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getContactDeals } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ cookies }) => {
-	const sessionId = cookies.get('portal_session');
+	const sessionToken = cookies.get('portal_session');
 
-	if (!sessionId) {
+	if (!sessionToken) {
 		throw error(401, 'Not authenticated');
 	}
 
 	try {
 		// Get session from database
-		const session = await getSession(sessionId);
+		const session = await getSession(sessionToken);
 		if (!session) {
 			throw error(401, 'Invalid session');
 		}
 
-		// Check if token expired
-		let accessToken = session.access_token;
-		if (new Date(session.expires_at) < new Date()) {
-			// Refresh token
-			const newTokens = await refreshAccessToken(session.refresh_token);
+		// Get Zoho tokens (admin connection)
+		const tokens = await getZohoTokens();
+		if (!tokens) {
+			throw error(500, 'Zoho tokens not configured');
+		}
+
+		let accessToken = tokens.access_token;
+		if (new Date(tokens.expires_at) < new Date()) {
+			const newTokens = await refreshAccessToken(tokens.refresh_token);
 			accessToken = newTokens.access_token;
-			// TODO: Update session in database with new tokens
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: newTokens.access_token,
+				refresh_token: newTokens.refresh_token,
+				expires_at: new Date(newTokens.expires_at).toISOString(),
+				scope: tokens.scope
+			});
 		}
 
 		// Fetch ONLY deals associated with this contact
-		const deals = await getContactDeals(accessToken, session.zoho_contact_id);
+		const deals = await getContactDeals(accessToken, session.client.zoho_contact_id);
 
 		return json({ data: deals });
 	} catch (err) {

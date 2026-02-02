@@ -1,141 +1,152 @@
--- CPR Client Portal - Supabase Schema
+-- CPR Client Portal Schema for Supabase
 -- Run this in your Supabase SQL Editor to create required tables
--- NOTE: This schema has already been deployed to the cpr-client-portal project
 
--- Enable UUID extension if not already enabled
+-- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ============================================================================
--- Zoho OAuth tokens table
--- Stores OAuth tokens for the admin Zoho CRM connection
--- ============================================================================
+-- Zoho admin tokens (optional, for background sync jobs)
 CREATE TABLE IF NOT EXISTS zoho_tokens (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
     access_token TEXT NOT NULL,
     refresh_token TEXT NOT NULL,
-    token_type TEXT DEFAULT 'Bearer',
-    expires_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     scope TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ============================================================================
--- Clients table (synced from Zoho CRM Contacts)
--- Stores client information for portal access
--- ============================================================================
+-- Clients (Zoho Contacts with portal access)
 CREATE TABLE IF NOT EXISTS clients (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     zoho_contact_id TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
+    password_hash TEXT,
     first_name TEXT,
     last_name TEXT,
-    full_name TEXT GENERATED ALWAYS AS (COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) STORED,
-    phone TEXT,
+    full_name TEXT GENERATED ALWAYS AS (
+        NULLIF(trim(concat_ws(' ', first_name, last_name)), '')
+    ) STORED,
     company TEXT,
-    address_street TEXT,
-    address_city TEXT,
-    address_state TEXT,
-    address_zip TEXT,
-    portal_access_enabled BOOLEAN DEFAULT false,
-    last_login_at TIMESTAMPTZ,
-    zoho_data JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    phone TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ============================================================================
--- Projects table (synced from Zoho CRM Deals)
--- Stores project/deal information linked to clients
--- ============================================================================
+-- Projects (Zoho Deals)
 CREATE TABLE IF NOT EXISTS projects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     zoho_deal_id TEXT UNIQUE NOT NULL,
     client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     stage TEXT,
-    status TEXT DEFAULT 'active',
-    amount DECIMAL(12,2),
-    start_date DATE,
-    expected_completion DATE,
-    actual_completion DATE,
-    description TEXT,
-    zoho_data JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    amount NUMERIC,
+    closing_date DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ============================================================================
--- Project documents table
--- Stores file attachments for projects
--- ============================================================================
+-- Project documents (Zoho Attachments)
 CREATE TABLE IF NOT EXISTS project_documents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    file_type TEXT,
+    zoho_attachment_id TEXT UNIQUE,
+    file_name TEXT,
     file_size INTEGER,
-    category TEXT DEFAULT 'general',
-    uploaded_by TEXT,
-    zoho_attachment_id TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    mime_type TEXT,
+    file_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ============================================================================
--- Client sessions table for portal authentication
--- Manages client login sessions
--- ============================================================================
+-- Client sessions
 CREATE TABLE IF NOT EXISTS client_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
     session_token TEXT UNIQUE NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
+    client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     ip_address TEXT,
     user_agent TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ============================================================================
--- Indexes for common queries
--- ============================================================================
-CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
-CREATE INDEX IF NOT EXISTS idx_clients_zoho_id ON clients(zoho_contact_id);
-CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);
-CREATE INDEX IF NOT EXISTS idx_projects_zoho_id ON projects(zoho_deal_id);
-CREATE INDEX IF NOT EXISTS idx_documents_project ON project_documents(project_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_client ON client_sessions(client_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_token ON client_sessions(session_token);
+-- Create indexes for faster lookups
+CREATE INDEX IF NOT EXISTS idx_clients_zoho_contact_id ON clients(zoho_contact_id);
+CREATE INDEX IF NOT EXISTS idx_projects_zoho_deal_id ON projects(zoho_deal_id);
+CREATE INDEX IF NOT EXISTS idx_project_documents_project_id ON project_documents(project_id);
+CREATE INDEX IF NOT EXISTS idx_client_sessions_session_token ON client_sessions(session_token);
+CREATE INDEX IF NOT EXISTS idx_client_sessions_client_id ON client_sessions(client_id);
 
--- ============================================================================
--- Row Level Security
--- ============================================================================
+-- Enable Row Level Security (RLS)
 ALTER TABLE zoho_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE project_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE client_sessions ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies: Service role bypass (for server-side operations)
-CREATE POLICY "Service role full access on zoho_tokens" ON zoho_tokens FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "Service role full access on clients" ON clients FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "Service role full access on projects" ON projects FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "Service role full access on project_documents" ON project_documents FOR ALL USING (auth.role() = 'service_role');
-CREATE POLICY "Service role full access on client_sessions" ON client_sessions FOR ALL USING (auth.role() = 'service_role');
+-- Create policies for service role access (your backend)
+CREATE POLICY "Service role can manage zoho_tokens"
+    ON zoho_tokens
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
 
--- ============================================================================
--- Updated_at trigger function
--- ============================================================================
+CREATE POLICY "Service role can manage clients"
+    ON clients
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role can manage projects"
+    ON projects
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role can manage project_documents"
+    ON project_documents
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role can manage client_sessions"
+    ON client_sessions
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+-- Function to auto-update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
--- Apply updated_at triggers
-CREATE TRIGGER update_zoho_tokens_updated_at BEFORE UPDATE ON zoho_tokens FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_clients_updated_at BEFORE UPDATE ON clients FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Triggers for auto-updating timestamps
+CREATE TRIGGER update_zoho_tokens_updated_at
+    BEFORE UPDATE ON zoho_tokens
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_clients_updated_at
+    BEFORE UPDATE ON clients
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_projects_updated_at
+    BEFORE UPDATE ON projects
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Comments for documentation
+COMMENT ON TABLE zoho_tokens IS 'Stores Zoho OAuth tokens for background sync jobs';
+COMMENT ON TABLE clients IS 'Stores CPR clients linked to Zoho CRM Contacts';
+COMMENT ON TABLE projects IS 'Stores projects linked to Zoho CRM Deals';
+COMMENT ON TABLE project_documents IS 'Stores documents linked to projects';
+COMMENT ON TABLE client_sessions IS 'Manages active portal sessions';

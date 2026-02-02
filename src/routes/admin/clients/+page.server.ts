@@ -1,0 +1,91 @@
+import { fail, redirect } from '@sveltejs/kit';
+import { hashPassword } from '$lib/server/password';
+import { listContactsForActiveDeals } from '$lib/server/auth';
+import { refreshAccessToken } from '$lib/server/zoho';
+import { isValidAdminSession } from '$lib/server/admin';
+import { getZohoTokens, listClients, setClientPassword, upsertClient, upsertZohoTokens } from '$lib/server/db';
+import type { Actions, PageServerLoad } from './$types';
+
+function requireAdmin(session: string | undefined) {
+	if (!isValidAdminSession(session)) {
+		throw redirect(302, '/admin/login');
+	}
+}
+
+export const load: PageServerLoad = async ({ cookies }) => {
+	requireAdmin(cookies.get('admin_session'));
+	const clients = await listClients();
+	const sorted = [...clients].sort((a, b) => {
+		const aName = (a.full_name || a.email || '').toLowerCase();
+		const bName = (b.full_name || b.email || '').toLowerCase();
+		return aName.localeCompare(bName);
+	});
+	return { clients: sorted };
+};
+
+export const actions: Actions = {
+	setPassword: async ({ request, cookies }) => {
+		requireAdmin(cookies.get('admin_session'));
+		const form = await request.formData();
+		const clientId = String(form.get('client_id') || '');
+		const password = String(form.get('password') || '');
+
+		if (!clientId) {
+			return fail(400, { message: 'Select a client.' });
+		}
+		if (password.length < 8) {
+			return fail(400, { message: 'Password must be at least 8 characters.' });
+		}
+
+		await setClientPassword(clientId, hashPassword(password));
+		return { message: 'Password updated.' };
+	},
+	sync: async ({ cookies }) => {
+		requireAdmin(cookies.get('admin_session'));
+		const tokens = await getZohoTokens();
+		if (!tokens) {
+			return fail(500, { message: 'Zoho is not connected yet.' });
+		}
+
+		let accessToken = tokens.access_token;
+		if (new Date(tokens.expires_at) < new Date()) {
+			const refreshed = await refreshAccessToken(tokens.refresh_token);
+			accessToken = refreshed.access_token;
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: refreshed.access_token,
+				refresh_token: refreshed.refresh_token,
+				expires_at: new Date(refreshed.expires_at).toISOString(),
+				scope: tokens.scope
+			});
+		}
+
+		let synced = 0;
+		let errors = 0;
+		const contacts = await listContactsForActiveDeals(accessToken);
+		const seenEmails = new Set<string>();
+		for (const contact of contacts) {
+			const email = contact.email?.toLowerCase();
+			if (!email) continue;
+			if (seenEmails.has(email)) {
+				errors += 1;
+				console.warn(`Duplicate email skipped: ${email}`);
+				continue;
+			}
+			seenEmails.add(email);
+			try {
+				await upsertClient(contact);
+				synced += 1;
+			} catch (err) {
+				errors += 1;
+				console.error('Failed to sync contact', contact.email, err);
+			}
+		}
+
+		const message = errors
+			? `Synced ${synced} contacts. ${errors} failed.`
+			: `Synced ${synced} contacts.`;
+
+		return { message };
+	}
+};

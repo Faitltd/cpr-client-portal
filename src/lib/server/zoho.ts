@@ -4,7 +4,7 @@ interface ZohoTokenResponse {
 	access_token: string;
 	refresh_token: string;
 	expires_in: number;
-	api_domain: string;
+	api_domain?: string;
 	token_type: string;
 }
 
@@ -12,6 +12,7 @@ interface ZohoToken {
 	access_token: string;
 	refresh_token: string;
 	expires_at: number;
+	api_domain?: string;
 }
 
 /**
@@ -41,7 +42,8 @@ export async function exchangeCodeForTokens(code: string, redirectUri: string): 
 	return {
 		access_token: data.access_token,
 		refresh_token: data.refresh_token,
-		expires_at: Date.now() + data.expires_in * 1000
+		expires_at: Date.now() + data.expires_in * 1000,
+		api_domain: data.api_domain
 	};
 }
 
@@ -71,15 +73,43 @@ export async function refreshAccessToken(refreshToken: string): Promise<ZohoToke
 	return {
 		access_token: data.access_token,
 		refresh_token: refreshToken,
-		expires_at: Date.now() + data.expires_in * 1000
+		expires_at: Date.now() + data.expires_in * 1000,
+		api_domain: data.api_domain
 	};
+}
+
+/**
+ * Retrieve token metadata (debugging)
+ */
+export async function getTokenInfo(accessToken: string) {
+	const origin = new URL(ZOHO_TOKEN_URL).origin;
+	const url = `${origin}/oauth/v2/token/info`;
+	const params = new URLSearchParams({ access_token: accessToken });
+	const response = await fetch(url, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: params
+	});
+	if (!response.ok) {
+		const error = await response.text();
+		throw new Error(`Token info failed: ${error}`);
+	}
+	return response.json();
 }
 
 /**
  * Make authenticated API call to Zoho CRM
  */
-export async function zohoApiCall(accessToken: string, endpoint: string, options: RequestInit = {}) {
-	const url = `${ZOHO_API_BASE}${endpoint}`;
+export async function zohoApiCall(
+	accessToken: string,
+	endpoint: string,
+	options: RequestInit = {},
+	apiDomain?: string
+) {
+	const base = apiDomain
+		? `${apiDomain.replace(/\/$/, '')}/crm/v8`
+		: ZOHO_API_BASE;
+	const url = `${base}${endpoint}`;
 	const response = await fetch(url, {
 		...options,
 		headers: {
@@ -88,6 +118,10 @@ export async function zohoApiCall(accessToken: string, endpoint: string, options
 			...options.headers
 		}
 	});
+
+	if (response.status === 204) {
+		return { data: [] };
+	}
 
 	if (!response.ok) {
 		const error = await response.text();

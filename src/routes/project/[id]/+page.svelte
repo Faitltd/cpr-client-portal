@@ -175,7 +175,8 @@
 	}
 
 	.notes {
-		space: 1rem;
+		display: grid;
+		gap: 1rem;
 	}
 
 	.note {

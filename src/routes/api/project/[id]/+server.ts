@@ -1,14 +1,14 @@
 import { json, error } from '@sveltejs/kit';
-import { getSession } from '$lib/server/db';
+import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { zohoApiCall, refreshAccessToken } from '$lib/server/zoho';
 import { getContactDocuments, getDealNotes } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
-	const sessionId = cookies.get('portal_session');
+	const sessionToken = cookies.get('portal_session');
 	const dealId = params.id;
 
-	if (!sessionId) {
+	if (!sessionToken) {
 		throw error(401, 'Not authenticated');
 	}
 
@@ -18,16 +18,28 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 	try {
 		// Get session from database
-		const session = await getSession(sessionId);
+		const session = await getSession(sessionToken);
 		if (!session) {
 			throw error(401, 'Invalid session');
 		}
 
-		// Check token expiry and refresh if needed
-		let accessToken = session.access_token;
-		if (new Date(session.expires_at) < new Date()) {
-			const newTokens = await refreshAccessToken(session.refresh_token);
+		// Get Zoho tokens
+		const tokens = await getZohoTokens();
+		if (!tokens) {
+			throw error(500, 'Zoho tokens not configured');
+		}
+
+		let accessToken = tokens.access_token;
+		if (new Date(tokens.expires_at) < new Date()) {
+			const newTokens = await refreshAccessToken(tokens.refresh_token);
 			accessToken = newTokens.access_token;
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: newTokens.access_token,
+				refresh_token: newTokens.refresh_token,
+				expires_at: new Date(newTokens.expires_at).toISOString(),
+				scope: tokens.scope
+			});
 		}
 
 		// Fetch deal details
@@ -39,7 +51,7 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		}
 
 		// Security: Verify this deal belongs to the authenticated contact
-		if (deal.Contact_Name?.id !== session.zoho_contact_id) {
+		if (deal.Contact_Name?.id !== session.client.zoho_contact_id) {
 			throw error(403, 'Access denied to this project');
 		}
 

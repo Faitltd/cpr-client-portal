@@ -4,11 +4,11 @@ Custom client portal for Custom Professional Renovations built with SvelteKit an
 
 ## Features
 
-- OAuth 2.0 authentication with Zoho CRM
+- Admin OAuth 2.0 connection with Zoho CRM
+- Client login via password (admin-managed)
 - Real-time project/deal access from Zoho CRM
-- Secure token management with refresh capability
-- Custom branded UI without Zoho portal constraints
-- Integration-ready for Zoho Books, Sign, and Projects
+- Server-side token storage in Supabase
+- Contact-specific data isolation
 
 ## Getting Started
 
@@ -17,6 +17,7 @@ Custom client portal for Custom Professional Renovations built with SvelteKit an
 - Node.js 20+
 - Zoho CRM account with API access
 - Zoho Developer Console application configured
+- Supabase project
 
 ### Setup
 
@@ -36,75 +37,69 @@ npm install
 cp .env.example .env
 ```
 
-4. Register your application in [Zoho Developer Console](https://api-console.zoho.com/):
+4. Register your application in Zoho Developer Console:
    - Application Type: Server-based
    - Authorized Redirect URI: `http://localhost:5173/auth/callback` (development)
-   - Required Scopes: `ZohoCRM.modules.contacts.READ,ZohoCRM.modules.deals.READ,ZohoCRM.modules.deals.UPDATE,ZohoCRM.modules.Attachments.READ`
+   - Required Scopes: `ZohoCRM.modules.contacts.READ,ZohoCRM.modules.deals.READ,ZohoCRM.modules.deals.UPDATE,ZohoCRM.modules.Attachments.READ,ZohoCRM.users.READ`
 
-5. Update `.env` with your Zoho credentials:
-   - `ZOHO_CLIENT_ID`: Your Client ID from Zoho Developer Console
-   - `ZOHO_CLIENT_SECRET`: Your Client Secret
-   - `ZOHO_REDIRECT_URI`: Must match registered redirect URI
+5. Update `.env` with your credentials:
+   - `ZOHO_CLIENT_ID`
+   - `ZOHO_CLIENT_SECRET`
+   - `ZOHO_REDIRECT_URI`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
 
-6. Run development server:
+6. Install Supabase schema:
+   - Run `supabase-schema.sql` in the Supabase SQL Editor
+
+7. Run development server:
 ```bash
 npm run dev
 ```
 
-7. Visit `http://localhost:5173` and test OAuth flow
+8. Connect Zoho (admin):
+   - Visit `http://localhost:5173/auth/login` once
+
+9. Client login:
+   - Visit `http://localhost:5173/auth/client`
+   - Enter email + password
+   - Admins can set/reset passwords at `/admin/login`
+
+## Password Login
+
+Clients sign in with a password (no email required). Passwords are stored as PBKDF2 hashes in `clients.password_hash`.
+
+- Or set a hash directly in Supabase if you are migrating existing users.
+
+## Admin Password Reset (No Email)
+
+Use `/admin/login` to sign in with the admin password and set/reset client passwords.
+
+- Set `PORTAL_ADMIN_PASSWORD` in `.env`.
+- Click "Sync Clients from Zoho" in `/admin/clients` to pull contacts tied to active deals.
+- Clients can then log in with email + password at `/auth/client`.
 
 ## Architecture
 
-### OAuth Flow
-1. Client clicks "Login" → `/auth/login`
-2. Redirects to Zoho OAuth with scopes
-3. User authorizes → Zoho redirects to `/auth/callback` with code
-4. Exchange code for access + refresh tokens
-5. Store tokens securely (HTTP-only cookies)
-6. Access portal with authenticated API calls
+### Admin OAuth
+1. Admin visits `/auth/login`
+2. Zoho redirects to `/auth/callback`
+3. Tokens stored in `zoho_tokens`
 
-### API Routes
-- `/auth/login` - Initiates OAuth flow
-- `/auth/callback` - Handles OAuth callback and token exchange
-- `/api/projects` - Fetches client deals from Zoho CRM
-- `/api/documents` - TODO: Retrieve attachments
-- `/api/timeline` - TODO: Pull notes and tasks
+### Client Login
+1. Admin sets a password at `/admin/login`
+2. Client logs in at `/auth/client` using email + password
+3. Successful login creates a session cookie
 
 ### Token Management
-- Access tokens stored in HTTP-only cookies (1 hour expiry)
-- Refresh tokens stored separately (30 day expiry)
-- Automatic token refresh on API call failures
-- TODO: Move to Supabase for persistent storage
-
-## Deployment
-
-### Docker Build
-```bash
-docker build -t cpr-portal .
-docker run -p 3000:3000 --env-file .env cpr-portal
-```
-
-### Cloud Run Deployment
-1. Update redirect URI in Zoho Console to production domain
-2. Configure production environment variables
-3. Deploy via GitHub Actions or manual push
-
-## Next Steps
-
-- [ ] Implement Supabase integration for token storage
-- [ ] Add document/attachment retrieval endpoint
-- [ ] Build project detail page with timeline
-- [ ] Integrate Zoho Sign for contract viewing
-- [ ] Add photo gallery for progress images
-- [ ] Implement change order request workflow
-- [ ] Setup production domain (portal.customprofreno.com)
-- [ ] Configure GitHub Actions for automated deployment
+- Zoho admin tokens stored in Supabase (`zoho_tokens`)
+- Client sessions stored in `client_sessions`
 
 ## Resources
 
-- [Zoho CRM API Documentation](https://www.zoho.com/crm/developer/docs/api/v8/)
-- [Zoho OAuth 2.0 Guide](https://www.zoho.com/accounts/protocol/oauth.html)
-- [SvelteKit Documentation](https://kit.svelte.dev/docs)
+- Zoho CRM API Documentation
+- Zoho OAuth 2.0 Guide
+- SvelteKit Documentation
 
 ## License
 

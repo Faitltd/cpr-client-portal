@@ -5,202 +5,242 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 	throw new Error('Missing Supabase environment variables');
 }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-// ============================================================================
-// TypeScript Interfaces for Supabase Tables
-// ============================================================================
-
-export interface ZohoToken {
-	id: string;
-	user_id: string;
-	access_token: string;
-	refresh_token: string;
-	token_type: string;
-	expires_at: string;
-	scope: string | null;
-	created_at: string;
-	updated_at: string;
-}
+export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+	auth: { persistSession: false }
+});
 
 export interface Client {
 	id: string;
 	zoho_contact_id: string;
 	email: string;
-	first_name: string | null;
-	last_name: string | null;
-	full_name: string;
-	phone: string | null;
-	company: string | null;
-	address_street: string | null;
-	address_city: string | null;
-	address_state: string | null;
-	address_zip: string | null;
-	portal_access_enabled: boolean;
-	last_login_at: string | null;
-	zoho_data: Record<string, unknown> | null;
-	created_at: string;
-	updated_at: string;
+	first_name?: string | null;
+	last_name?: string | null;
+	full_name?: string | null;
+	company?: string | null;
+	phone?: string | null;
 }
 
-export interface Project {
+export interface ClientAuth {
 	id: string;
-	zoho_deal_id: string;
-	client_id: string;
-	name: string;
-	stage: string | null;
-	status: string;
-	amount: number | null;
-	start_date: string | null;
-	expected_completion: string | null;
-	actual_completion: string | null;
-	description: string | null;
-	zoho_data: Record<string, unknown> | null;
-	created_at: string;
-	updated_at: string;
+	email: string;
+	password_hash: string | null;
 }
 
-export interface ProjectDocument {
-	id: string;
-	project_id: string;
-	name: string;
-	file_path: string;
-	file_type: string | null;
-	file_size: number | null;
-	category: string;
-	uploaded_by: string | null;
-	zoho_attachment_id: string | null;
-	created_at: string;
-}
-
-export interface ClientSession {
-	id: string;
-	client_id: string;
+export interface ClientSessionRecord {
 	session_token: string;
+	client_id: string;
 	expires_at: string;
-	ip_address: string | null;
-	user_agent: string | null;
-	created_at: string;
+	ip_address?: string | null;
+	user_agent?: string | null;
 }
 
-// ============================================================================
-// Database Helper Functions
-// ============================================================================
-
-// Zoho Tokens
-export async function getZohoToken(userId: string): Promise<ZohoToken | null> {
-	const { data, error } = await supabase
-		.from('zoho_tokens')
-		.select('*')
-		.eq('user_id', userId)
-		.single();
-	if (error) return null;
-	return data;
+export interface ClientSession extends ClientSessionRecord {
+	client: Client;
 }
 
-export async function upsertZohoToken(token: Partial<ZohoToken> & { user_id: string }): Promise<ZohoToken | null> {
-	const { data, error } = await supabase
-		.from('zoho_tokens')
-		.upsert(token, { onConflict: 'user_id' })
-		.select()
-		.single();
-	if (error) {
-		console.error('Error upserting Zoho token:', error);
-		return null;
-	}
-	return data;
+export interface ZohoTokens {
+	id: string;
+	user_id: string;
+	access_token: string;
+	refresh_token: string;
+	expires_at: string;
+	scope?: string | null;
 }
 
-// Clients
-export async function getClientByEmail(email: string): Promise<Client | null> {
+
+/**
+ * Store or update client record
+ */
+export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Client> {
+	const insertData = {
+		zoho_contact_id: clientData.zoho_contact_id,
+		email: clientData.email.toLowerCase(),
+		first_name: clientData.first_name ?? null,
+		last_name: clientData.last_name ?? null,
+		company: clientData.company ?? null,
+		phone: clientData.phone ?? null,
+		updated_at: new Date().toISOString()
+	};
+
 	const { data, error } = await supabase
 		.from('clients')
-		.select('*')
-		.eq('email', email)
+		.upsert([insertData], { onConflict: 'zoho_contact_id', defaultToNull: false })
+		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone')
 		.single();
-	if (error) return null;
-	return data;
+
+	if (error) throw new Error(`Client upsert failed: ${error.message}`);
+	return data as Client;
 }
 
-export async function getClientByZohoId(zohoContactId: string): Promise<Client | null> {
+/**
+ * Fetch client auth details by id
+ */
+export async function getClientAuthById(clientId: string): Promise<ClientAuth | null> {
 	const { data, error } = await supabase
 		.from('clients')
-		.select('*')
-		.eq('zoho_contact_id', zohoContactId)
+		.select('id, email, password_hash')
+		.eq('id', clientId)
 		.single();
-	if (error) return null;
-	return data;
+
+	if (error || !data) return null;
+	return data as ClientAuth;
 }
 
-export async function upsertClient(client: Partial<Client> & { zoho_contact_id: string; email: string }): Promise<Client | null> {
+/**
+ * Fetch client auth details by email
+ */
+export async function getClientAuthByEmail(email: string): Promise<ClientAuth | null> {
 	const { data, error } = await supabase
 		.from('clients')
-		.upsert(client, { onConflict: 'zoho_contact_id' })
-		.select()
+		.select('id, email, password_hash')
+		.ilike('email', email)
 		.single();
-	if (error) {
-		console.error('Error upserting client:', error);
-		return null;
-	}
-	return data;
+
+	if (error || !data) return null;
+	return data as ClientAuth;
 }
 
-// Projects
-export async function getProjectsByClientId(clientId: string): Promise<Project[]> {
-	const { data, error } = await supabase
-		.from('projects')
-		.select('*')
-		.eq('client_id', clientId)
-		.order('created_at', { ascending: false });
-	if (error) return [];
-	return data || [];
+/**
+ * Update client password hash
+ */
+export async function setClientPassword(clientId: string, passwordHash: string): Promise<void> {
+	const { error } = await supabase
+		.from('clients')
+		.update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+		.eq('id', clientId);
+
+	if (error) throw new Error(`Password update failed: ${error.message}`);
 }
 
-export async function getProjectByZohoId(zohoDealId: string): Promise<Project | null> {
-	const { data, error } = await supabase
-		.from('projects')
-		.select('*')
-		.eq('zoho_deal_id', zohoDealId)
-		.single();
-	if (error) return null;
-	return data;
+/**
+ * Create a new client session
+ */
+export async function createSession(sessionData: ClientSessionRecord): Promise<void> {
+	const { error } = await supabase
+		.from('client_sessions')
+		.insert(sessionData);
+
+	if (error) throw new Error(`Session create failed: ${error.message}`);
 }
 
-// Client Sessions
-export async function createClientSession(clientId: string, sessionToken: string, expiresAt: Date, ipAddress?: string, userAgent?: string): Promise<ClientSession | null> {
+/**
+ * Get session by session token with client data
+ */
+export async function getSession(sessionToken: string): Promise<ClientSession | null> {
 	const { data, error } = await supabase
 		.from('client_sessions')
+		.select(
+			`session_token,
+			 client_id,
+			 expires_at,
+			 clients (
+				id,
+				zoho_contact_id,
+				email,
+				first_name,
+				last_name,
+				full_name,
+				company,
+				phone
+			 )`
+		)
+		.eq('session_token', sessionToken)
+		.single();
+
+	if (error || !data || !data.clients) return null;
+
+	const client = Array.isArray(data.clients) ? data.clients[0] : data.clients;
+	if (!client) return null;
+
+	return {
+		session_token: data.session_token,
+		client_id: data.client_id,
+		expires_at: data.expires_at,
+		client: client as Client
+	};
+}
+
+/**
+ * Delete session (logout)
+ */
+export async function deleteSession(sessionToken: string): Promise<void> {
+	await supabase.from('client_sessions').delete().eq('session_token', sessionToken);
+}
+
+
+
+/**
+ * Fetch latest Zoho tokens
+ */
+export async function getZohoTokens(): Promise<ZohoTokens | null> {
+	const { data, error } = await supabase
+		.from('zoho_tokens')
+		.select('id, user_id, access_token, refresh_token, expires_at, scope')
+		.order('updated_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+
+	if (error || !data) return null;
+	return data as ZohoTokens;
+}
+
+/**
+ * Store or update Zoho tokens (single row)
+ */
+export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<ZohoTokens> {
+	const existing = await getZohoTokens();
+	const userId = tokens.user_id || existing?.user_id;
+
+	if (!userId) {
+		throw new Error('Zoho token insert failed: missing user_id');
+	}
+
+	if (existing?.id) {
+		const { data, error } = await supabase
+			.from('zoho_tokens')
+			.update({
+				user_id: userId,
+				access_token: tokens.access_token,
+				refresh_token: tokens.refresh_token,
+				expires_at: tokens.expires_at,
+				scope: tokens.scope ?? existing.scope,
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', existing.id)
+			.select()
+			.single();
+
+		if (error) throw new Error(`Zoho token update failed: ${error.message}`);
+		return data as ZohoTokens;
+	}
+
+	const { data, error } = await supabase
+		.from('zoho_tokens')
 		.insert({
-			client_id: clientId,
-			session_token: sessionToken,
-			expires_at: expiresAt.toISOString(),
-			ip_address: ipAddress || null,
-			user_agent: userAgent || null
+			user_id: userId,
+			access_token: tokens.access_token,
+			refresh_token: tokens.refresh_token,
+			expires_at: tokens.expires_at,
+			scope: tokens.scope ?? null,
+			updated_at: new Date().toISOString()
 		})
 		.select()
 		.single();
-	if (error) {
-		console.error('Error creating client session:', error);
-		return null;
-	}
-	return data;
+
+	if (error) throw new Error(`Zoho token insert failed: ${error.message}`);
+	return data as ZohoTokens;
 }
 
-export async function getClientSession(sessionToken: string): Promise<(ClientSession & { client: Client }) | null> {
+/**
+ * List clients for admin management
+ */
+export async function listClients(): Promise<Client[]> {
 	const { data, error } = await supabase
-		.from('client_sessions')
-		.select('*, client:clients(*)')
-		.eq('session_token', sessionToken)
-		.gt('expires_at', new Date().toISOString())
-		.single();
-	if (error) return null;
-	return data as (ClientSession & { client: Client });
-}
+		.from('clients')
+		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone')
+		.order('full_name', { ascending: true, nullsFirst: false })
+		.order('email', { ascending: true });
 
-export async function deleteClientSession(sessionToken: string): Promise<boolean> {
-	const { error } = await supabase
-		.from('client_sessions')
-		.delete()
-		.eq('session_token', sessionToken);
-	return !error;
+	if (error) throw new Error(`Client list failed: ${error.message}`);
+	return (data as Client[]) || [];
 }
