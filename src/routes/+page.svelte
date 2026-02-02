@@ -29,8 +29,8 @@
 	}
 
 	.logo-hero {
-		width: min(85vw, 900px);
-		height: min(70vh, 520px);
+		width: min(60vw, 630px);
+		height: min(50vh, 364px);
 		object-fit: contain;
 	}
 
