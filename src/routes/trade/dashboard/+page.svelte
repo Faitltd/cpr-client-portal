@@ -26,9 +26,15 @@
 	</header>
 
 	<div class="field-update">
-		<a href="https://creatorapp.zohopublic.com/customprofessionalrenovation/field-updates/report-perma/All_Active_Deals/8KnyCKWyrWSDZDBE4KBGU2PsRwVqerdOjwxNR2zXhhwSfPUHzX4aDGECJySKyRW6VOQ5kbKr8rR2k1uvb470Cxzsj9FgWdWGxeTe" target="_blank" rel="noreferrer">
-			Field Update
-		</a>
+		<iframe
+			title="Field Update"
+			height="500"
+			width="100%"
+			frameborder="0"
+			scrolling="auto"
+			allowtransparency="true"
+			src="https://creatorapp.zohopublic.com/customprofessionalrenovation/field-updates/report-embed/All_Active_Deals/8KnyCKWyrWSDZDBE4KBGU2PsRwVqerdOjwxNR2zXhhwSfPUHzX4aDGECJySKyRW6VOQ5kbKr8rR2k1uvb470Cxzsj9FgWdWGxeTe"
+		></iframe>
 	</div>
 
 	{#if data.warning}
@@ -76,19 +82,9 @@
 		margin-bottom: 1.5rem;
 	}
 
-	.field-update a {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.6rem 1.1rem;
-		border-radius: 999px;
-		background: #111827;
-		color: #fff;
-		text-decoration: none;
-		font-weight: 600;
-	}
-
-	.field-update a:hover {
-		background: #1f2937;
+	.field-update iframe {
+		border: none;
+		width: 100%;
 	}
 
 	.warning {
