@@ -54,16 +54,20 @@
 		<section class="overview">
 			<div class="info-grid">
 				<div>
-					<h3>Amount</h3>
-					<p>${project.Amount?.toLocaleString() || '0'}</p>
-				</div>
-				<div>
 					<h3>Closing Date</h3>
 					<p>{project.Closing_Date ? new Date(project.Closing_Date).toLocaleDateString() : 'TBD'}</p>
 				</div>
 				<div>
 					<h3>Project Manager</h3>
 					<p>{project.Owner?.name || 'Not assigned'}</p>
+				</div>
+				<div>
+					<h3>Progress Photos</h3>
+					{#if project.External_Link}
+						<a href={project.External_Link} target="_blank" rel="noreferrer">View Photos</a>
+					{:else}
+						<p>Not available</p>
+					{/if}
 				</div>
 			</div>
 			{#if project.Description}
