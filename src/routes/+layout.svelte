@@ -3,9 +3,9 @@
 
 	$: pathname = $page.url.pathname;
 	$: showClientNav =
-		pathname.startsWith('/dashboard') ||
-		pathname.startsWith('/project') ||
-		pathname.startsWith('/account');
+		pathname !== '/' &&
+		!pathname.startsWith('/admin') &&
+		!pathname.startsWith('/auth');
 </script>
 
 <div class="app-bg">
