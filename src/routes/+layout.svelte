@@ -14,7 +14,7 @@
 	{#if showClientNav}
 		<header class="portal-header">
 			<div class="portal-header-inner">
-				<a class="portal-logo" href="/dashboard">CPR Portal</a>
+				<a class="portal-logo" href="/api/logout?next=/">CPR Portal</a>
 				<div class="portal-actions">
 					<a class="portal-link" href={accountHref}>Account</a>
 					<a class="portal-link" href="/api/logout?next=/">Log out</a>
