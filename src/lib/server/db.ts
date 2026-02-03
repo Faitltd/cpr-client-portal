@@ -244,3 +244,11 @@ export async function listClients(): Promise<Client[]> {
 	if (error) throw new Error(`Client list failed: ${error.message}`);
 	return (data as Client[]) || [];
 }
+
+/**
+ * Clear all clients (and cascading related rows) before a full resync.
+ */
+export async function clearClients(): Promise<void> {
+	const { error } = await supabase.from('clients').delete().neq('id', '');
+	if (error) throw new Error(`Client clear failed: ${error.message}`);
+}
