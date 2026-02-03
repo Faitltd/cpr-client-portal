@@ -3,15 +3,18 @@
 
 	let projects: any[] = [];
 	let invoices: any[] = [];
+	let contracts: any[] = [];
 	let loading = true;
 	let error = '';
 	let invoiceError = '';
+	let contractError = '';
 
 	onMount(async () => {
 		try {
-			const [projectsRes, invoicesRes] = await Promise.all([
+			const [projectsRes, invoicesRes, contractsRes] = await Promise.all([
 				fetch('/api/projects'),
-				fetch('/api/invoices')
+				fetch('/api/invoices'),
+				fetch('/api/sign/requests')
 			]);
 
 			if (projectsRes.status === 401) {
@@ -26,6 +29,13 @@
 				invoices = invoicesData.data || [];
 			} else if (invoicesRes.status !== 401) {
 				invoiceError = 'Failed to fetch invoices';
+			}
+
+			if (contractsRes.ok) {
+				const contractsData = await contractsRes.json();
+				contracts = contractsData.data || [];
+			} else if (contractsRes.status !== 401) {
+				contractError = 'Failed to fetch contracts';
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
@@ -42,7 +52,10 @@
 				<h1>My Projects</h1>
 				<p>View and manage your renovation projects</p>
 			</div>
-			<a class="account-link" href="/account">Account</a>
+			<div class="header-actions">
+				<a class="account-link" href="/account">Account</a>
+				<a class="logout-link" href="/api/logout">Log out</a>
+			</div>
 		</div>
 	</header>
 
@@ -108,6 +121,40 @@
 				</div>
 			{/if}
 		</section>
+
+		<section class="contracts-section">
+			<h2>Contracts</h2>
+			{#if contractError}
+				<p class="invoice-error">{contractError}</p>
+			{:else if contracts.length === 0}
+				<p class="invoice-empty">No contracts found.</p>
+			{:else}
+				<div class="invoice-list">
+					{#each contracts as contract}
+						<div class="invoice-card">
+							<div>
+								<h3>{contract.name}</h3>
+								<p class="invoice-meta">
+									Status: {contract.status}
+								</p>
+							</div>
+							<div class="invoice-amounts">
+								{#if contract.sign_url}
+									<a class="btn-view" href={contract.sign_url} target="_blank" rel="noreferrer">
+										Sign
+									</a>
+								{/if}
+								{#if contract.view_url}
+									<a class="btn-secondary" href={contract.view_url} target="_blank" rel="noreferrer">
+										View
+									</a>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</section>
 	{/if}
 </div>
 
@@ -131,6 +178,23 @@
 		text-decoration: none;
 		color: #1a1a1a;
 		background: #fff;
+	}
+
+	.logout-link {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.4rem 0.9rem;
+		border: 1px solid #d0d0d0;
+		border-radius: 999px;
+		text-decoration: none;
+		color: #1a1a1a;
+		background: #fff;
+	}
+
+	.header-actions {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
 	}
 
 	.header-row {
@@ -189,6 +253,10 @@
 	}
 
 	.invoices-section {
+		margin-top: 3rem;
+	}
+
+	.contracts-section {
 		margin-top: 3rem;
 	}
 

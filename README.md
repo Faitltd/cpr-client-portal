@@ -40,13 +40,14 @@ cp .env.example .env
 4. Register your application in Zoho Developer Console:
    - Application Type: Server-based
    - Authorized Redirect URI: `http://localhost:5173/auth/callback` (development)
-   - Required Scopes: `ZohoCRM.modules.contacts.READ,ZohoCRM.modules.deals.READ,ZohoCRM.modules.deals.UPDATE,ZohoCRM.modules.Attachments.READ,ZohoCRM.users.READ,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ`
+   - Required Scopes: `ZohoCRM.modules.contacts.READ,ZohoCRM.modules.deals.READ,ZohoCRM.modules.deals.UPDATE,ZohoCRM.modules.Attachments.READ,ZohoCRM.users.READ,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ,ZohoSign.documents.READ`
 
 5. Update `.env` with your credentials:
    - `ZOHO_CLIENT_ID`
    - `ZOHO_CLIENT_SECRET`
    - `ZOHO_REDIRECT_URI`
    - `ZOHO_BOOKS_ORG_ID`
+   - `ZOHO_SIGN_HOST`
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
 
