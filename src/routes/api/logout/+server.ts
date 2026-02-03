@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { deleteSession, deleteTradeSession } from '$lib/server/db';
 import type { RequestHandler } from './$types';
 
-const handleLogout: RequestHandler = async ({ cookies }) => {
+const handleLogout: RequestHandler = async ({ cookies, url }) => {
 	const sessionId = cookies.get('portal_session');
 	const tradeSessionId = cookies.get('trade_session');
 
@@ -18,7 +18,8 @@ const handleLogout: RequestHandler = async ({ cookies }) => {
 	cookies.delete('portal_session', { path: '/' });
 	cookies.delete('trade_session', { path: '/' });
 
-	throw redirect(302, '/');
+	const next = url.searchParams.get('next') || '/';
+	throw redirect(303, next);
 };
 
 export const POST = handleLogout;
