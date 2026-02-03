@@ -99,7 +99,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 		deals = hydratedDeals.filter((deal) => {
 			const stage = typeof deal.Stage === 'string' ? deal.Stage.trim().toLowerCase() : '';
-			return stage === 'project created';
+			return stage.includes('project created');
 		});
 	}
 
