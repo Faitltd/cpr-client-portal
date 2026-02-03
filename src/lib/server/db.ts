@@ -227,8 +227,41 @@ export async function upsertTradePartner(tradePartner: Omit<TradePartner, 'id'>)
 		.select('id, zoho_trade_partner_id, email, name, company, phone')
 		.single();
 
-	if (error) throw new Error(`Trade partner upsert failed: ${error.message}`);
-	return data as TradePartner;
+	if (!error) return data as TradePartner;
+
+	// If email already exists, attach Zoho ID to the existing record.
+	if (error.message.includes('trade_partners_email_key')) {
+		const { data: existing, error: fetchError } = await supabase
+			.from('trade_partners')
+			.select('id')
+			.ilike('email', insertData.email)
+			.single();
+
+		if (fetchError || !existing) {
+			throw new Error(`Trade partner lookup failed: ${fetchError?.message || 'not found'}`);
+		}
+
+		const { data: updated, error: updateError } = await supabase
+			.from('trade_partners')
+			.update({
+				zoho_trade_partner_id: insertData.zoho_trade_partner_id,
+				name: insertData.name,
+				company: insertData.company,
+				phone: insertData.phone,
+				updated_at: insertData.updated_at
+			})
+			.eq('id', existing.id)
+			.select('id, zoho_trade_partner_id, email, name, company, phone')
+			.single();
+
+		if (updateError) {
+			throw new Error(`Trade partner update failed: ${updateError.message}`);
+		}
+
+		return updated as TradePartner;
+	}
+
+	throw new Error(`Trade partner upsert failed: ${error.message}`);
 }
 
 /**
@@ -282,6 +315,18 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
  */
 export async function deleteTradeSession(sessionToken: string): Promise<void> {
 	await supabase.from('trade_sessions').delete().eq('session_token', sessionToken);
+}
+
+/**
+ * Update trade partner password hash
+ */
+export async function setTradePartnerPassword(tradePartnerId: string, passwordHash: string): Promise<void> {
+	const { error } = await supabase
+		.from('trade_partners')
+		.update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+		.eq('id', tradePartnerId);
+
+	if (error) throw new Error(`Trade partner update failed: ${error.message}`);
 }
 
 

@@ -7,6 +7,7 @@ import {
 	getZohoTokens,
 	listClients,
 	setClientPassword,
+	setTradePartnerPassword,
 	upsertClient,
 	upsertTradePartner,
 	upsertZohoTokens
@@ -38,12 +39,22 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 export const load: PageServerLoad = async ({ cookies }) => {
 	requireAdmin(cookies.get('admin_session'));
 	const clients = await listClients();
+	const { data: tradePartners, error: tradeError } = await import('$lib/server/db').then((m) =>
+		m.supabase
+			.from('trade_partners')
+			.select('id, email, name')
+			.order('name', { ascending: true, nullsFirst: false })
+			.order('email', { ascending: true })
+	);
+	if (tradeError) {
+		throw new Error(`Trade partner list failed: ${tradeError.message}`);
+	}
 	const sorted = [...clients].sort((a, b) => {
 		const aName = (a.full_name || a.email || '').toLowerCase();
 		const bName = (b.full_name || b.email || '').toLowerCase();
 		return aName.localeCompare(bName);
 	});
-	return { clients: sorted };
+	return { clients: sorted, tradePartners: tradePartners || [] };
 };
 
 export const actions: Actions = {
@@ -76,16 +87,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Password must be at least 8 characters.' });
 		}
 
-		const { error } = await import('$lib/server/db').then((m) =>
-			m.supabase
-				.from('trade_partners')
-				.update({ password_hash: hashPassword(password), updated_at: new Date().toISOString() })
-				.eq('id', tradeId)
-		);
-
-		if (error) {
-			return fail(500, { message: `Trade partner update failed: ${error.message}` });
-		}
+		await setTradePartnerPassword(tradeId, hashPassword(password));
 
 		return { message: 'Trade partner password updated.' };
 	},

@@ -1,5 +1,8 @@
 <script lang="ts">
-	export let data: { clients: { id: string; email: string; full_name?: string | null }[] };
+	export let data: {
+		clients: { id: string; email: string; full_name?: string | null }[];
+		tradePartners: { id: string; email: string; name?: string | null }[];
+	};
 	export let form: { message?: string } | undefined;
 </script>
 
@@ -40,6 +43,21 @@
 		<button type="submit">Set Password</button>
 	</form>
 
+	<form method="POST" action="?/setTradePassword" class="card trade-card">
+		<label for="trade_partner_id">Trade Partner</label>
+		<select id="trade_partner_id" name="trade_partner_id">
+			<option value="">Select a trade partner</option>
+			{#each data.tradePartners as partner}
+				<option value={partner.id}>{partner.name || partner.email} ({partner.email})</option>
+			{/each}
+		</select>
+
+		<label for="trade_password">New Password</label>
+		<input id="trade_password" name="password" type="password" />
+
+		<button type="submit">Set Trade Partner Password</button>
+	</form>
+
 </div>
 
 <style>
@@ -71,6 +89,10 @@
 		border-radius: 8px;
 		padding: 1.5rem;
 		background: #fff;
+	}
+
+	.trade-card {
+		margin-top: 1.5rem;
 	}
 
 	label {
