@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS client_sessions (
 -- Trade partners
 CREATE TABLE IF NOT EXISTS trade_partners (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    zoho_trade_partner_id TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
     name TEXT,
@@ -99,6 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_project_documents_project_id ON project_documents
 CREATE INDEX IF NOT EXISTS idx_client_sessions_session_token ON client_sessions(session_token);
 CREATE INDEX IF NOT EXISTS idx_client_sessions_client_id ON client_sessions(client_id);
 CREATE INDEX IF NOT EXISTS idx_trade_partners_email ON trade_partners(email);
+CREATE INDEX IF NOT EXISTS idx_trade_partners_zoho_id ON trade_partners(zoho_trade_partner_id);
 CREATE INDEX IF NOT EXISTS idx_trade_sessions_session_token ON trade_sessions(session_token);
 CREATE INDEX IF NOT EXISTS idx_trade_sessions_partner_id ON trade_sessions(trade_partner_id);
 

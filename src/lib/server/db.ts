@@ -40,6 +40,7 @@ export interface ClientSession extends ClientSessionRecord {
 
 export interface TradePartner {
 	id: string;
+	zoho_trade_partner_id: string;
 	email: string;
 	name?: string | null;
 	company?: string | null;
@@ -208,6 +209,29 @@ export async function getTradePartnerAuthByEmail(email: string): Promise<TradePa
 }
 
 /**
+ * Store or update trade partner record from Zoho
+ */
+export async function upsertTradePartner(tradePartner: Omit<TradePartner, 'id'>): Promise<TradePartner> {
+	const insertData = {
+		zoho_trade_partner_id: tradePartner.zoho_trade_partner_id,
+		email: tradePartner.email.toLowerCase(),
+		name: tradePartner.name ?? null,
+		company: tradePartner.company ?? null,
+		phone: tradePartner.phone ?? null,
+		updated_at: new Date().toISOString()
+	};
+
+	const { data, error } = await supabase
+		.from('trade_partners')
+		.upsert([insertData], { onConflict: 'zoho_trade_partner_id', defaultToNull: false })
+		.select('id, zoho_trade_partner_id, email, name, company, phone')
+		.single();
+
+	if (error) throw new Error(`Trade partner upsert failed: ${error.message}`);
+	return data as TradePartner;
+}
+
+/**
  * Create a new trade partner session
  */
 export async function createTradeSession(sessionData: TradeSessionRecord): Promise<void> {
@@ -230,6 +254,7 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
 			 expires_at,
 			 trade_partners (
 				id,
+				zoho_trade_partner_id,
 				email,
 				name,
 				company,
@@ -334,4 +359,12 @@ export async function listClients(): Promise<Client[]> {
 
 	if (error) throw new Error(`Client list failed: ${error.message}`);
 	return (data as Client[]) || [];
+}
+
+/**
+ * Clear all clients (and cascading related rows) before a full resync.
+ */
+export async function clearClients(): Promise<void> {
+	const { error } = await supabase.from('clients').delete().neq('id', '');
+	if (error) throw new Error(`Client clear failed: ${error.message}`);
 }

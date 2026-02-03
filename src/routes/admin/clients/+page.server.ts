@@ -1,9 +1,17 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { hashPassword } from '$lib/server/password';
-import { listContactsForActiveDeals } from '$lib/server/auth';
+import { listContactsForActiveDeals, listTradePartners } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { isValidAdminSession } from '$lib/server/admin';
-import { getZohoTokens, listClients, setClientPassword, upsertClient, upsertZohoTokens } from '$lib/server/db';
+import {
+	clearClients,
+	getZohoTokens,
+	listClients,
+	setClientPassword,
+	upsertClient,
+	upsertTradePartner,
+	upsertZohoTokens
+} from '$lib/server/db';
+import { hashPassword } from '$lib/server/password';
 import type { Actions, PageServerLoad } from './$types';
 
 function requireAdmin(session: string | undefined) {
@@ -55,12 +63,40 @@ export const actions: Actions = {
 		await setClientPassword(clientId, hashPassword(password));
 		return { message: 'Password updated.' };
 	},
+	setTradePassword: async ({ request, cookies }) => {
+		requireAdmin(cookies.get('admin_session'));
+		const form = await request.formData();
+		const tradeId = String(form.get('trade_partner_id') || '');
+		const password = String(form.get('password') || '');
+
+		if (!tradeId) {
+			return fail(400, { message: 'Select a trade partner.' });
+		}
+		if (password.length < 8) {
+			return fail(400, { message: 'Password must be at least 8 characters.' });
+		}
+
+		const { error } = await import('$lib/server/db').then((m) =>
+			m.supabase
+				.from('trade_partners')
+				.update({ password_hash: hashPassword(password), updated_at: new Date().toISOString() })
+				.eq('id', tradeId)
+		);
+
+		if (error) {
+			return fail(500, { message: `Trade partner update failed: ${error.message}` });
+		}
+
+		return { message: 'Trade partner password updated.' };
+	},
 	sync: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
 		const tokens = await getZohoTokens();
 		if (!tokens) {
 			return fail(500, { message: 'Zoho is not connected yet.' });
 		}
+
+		await clearClients();
 
 		let accessToken = tokens.access_token;
 		if (new Date(tokens.expires_at) < new Date()) {
@@ -100,6 +136,45 @@ export const actions: Actions = {
 		const message = errors
 			? `Synced ${synced} contacts. ${errors} failed.`
 			: `Synced ${synced} contacts.`;
+
+		return { message };
+	},
+	syncTradePartners: async ({ cookies }) => {
+		requireAdmin(cookies.get('admin_session'));
+		const tokens = await getZohoTokens();
+		if (!tokens) {
+			return fail(500, { message: 'Zoho is not connected yet.' });
+		}
+
+		let accessToken = tokens.access_token;
+		if (new Date(tokens.expires_at) < new Date()) {
+			const refreshed = await refreshAccessToken(tokens.refresh_token);
+			accessToken = refreshed.access_token;
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: refreshed.access_token,
+				refresh_token: refreshed.refresh_token,
+				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+				scope: tokens.scope
+			});
+		}
+
+		let synced = 0;
+		let errors = 0;
+		const partners = await listTradePartners(accessToken);
+		for (const partner of partners) {
+			try {
+				await upsertTradePartner(partner);
+				synced += 1;
+			} catch (err) {
+				errors += 1;
+				console.error('Failed to sync trade partner', partner.email, err);
+			}
+		}
+
+		const message = errors
+			? `Synced ${synced} trade partners. ${errors} failed.`
+			: `Synced ${synced} trade partners.`;
 
 		return { message };
 	}

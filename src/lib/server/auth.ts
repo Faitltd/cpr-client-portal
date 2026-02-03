@@ -1,13 +1,21 @@
 import { zohoApiCall } from './zoho';
 import type { Client } from './db';
 import { dev } from '$app/environment';
-import { PORTAL_DEV_SHOW_ALL } from '$env/static/private';
+import { PORTAL_DEV_SHOW_ALL, ZOHO_TRADE_PARTNERS_MODULE } from '$env/static/private';
 
 type ClientProfile = Omit<Client, 'id'>;
 
 type ClientProfileWithUser = ClientProfile & { zoho_user_id: string };
 
 type ZohoUser = { id: string; email?: string };
+
+type TradePartnerProfile = {
+	zoho_trade_partner_id: string;
+	email: string;
+	name?: string | null;
+	company?: string | null;
+	phone?: string | null;
+};
 
 const DEAL_FIELDS = [
 	'Deal_Name',
@@ -18,7 +26,8 @@ const DEAL_FIELDS = [
 	'Modified_Time',
 	'Owner',
 	'Contact_Name',
-	'Account_Name'
+	'Account_Name',
+	'Portal_Trade_Partners'
 ].join(',');
 
 const CONTACT_FIELDS = [
@@ -30,6 +39,7 @@ const CONTACT_FIELDS = [
 	'Account_Name'
 ].join(',');
 
+const TRADE_PARTNERS_MODULE = ZOHO_TRADE_PARTNERS_MODULE || 'CustomModule1';
 
 const ACTIVE_DEAL_STAGES = new Set([
 	'ballpark needed',
@@ -71,6 +81,42 @@ function mapContact(contact: any): ClientProfile {
 		full_name: fullName,
 		company: contact.Account_Name?.name || null,
 		phone: contact.Phone || null
+	};
+}
+
+function pickFirst(record: any, keys: string[]) {
+	for (const key of keys) {
+		const value = record?.[key];
+		if (value) return value;
+	}
+	return null;
+}
+
+function mapTradePartner(record: any): TradePartnerProfile | null {
+	const email =
+		pickFirst(record, ['Email', 'Email_1', 'Email_Address', 'Email_Address_1']) ||
+		null;
+	if (!email) return null;
+
+	const firstName = record.First_Name || null;
+	const lastName = record.Last_Name || null;
+	const name =
+		pickFirst(record, ['Name', 'Trade_Partner_Name', 'Full_Name']) ||
+		[firstName, lastName].filter(Boolean).join(' ') ||
+		email;
+
+	const company =
+		pickFirst(record, ['Company', 'Company_Name']) ||
+		record.Account_Name?.name ||
+		null;
+	const phone = pickFirst(record, ['Phone', 'Mobile', 'Phone_Number']) || null;
+
+	return {
+		zoho_trade_partner_id: record.id,
+		email,
+		name,
+		company,
+		phone
 	};
 }
 
@@ -194,6 +240,62 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 }
 
 /**
+ * Filter deals to only show those related to the authenticated trade partner
+ */
+export async function getTradePartnerDeals(accessToken: string, tradePartnerId: string, apiDomain?: string) {
+	// 1) Try search endpoint for lookup field
+	try {
+		const criteria = `(Portal_Trade_Partners:equals:${tradePartnerId})`;
+		const search = await zohoApiCall(
+			accessToken,
+			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
+			{},
+			apiDomain
+		);
+		if (search.data?.length) return search.data;
+	} catch (error) {
+		console.warn('Trade partner deals search failed, falling back to COQL');
+	}
+
+	// 2) Try COQL if enabled
+	try {
+		const query = {
+			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners = '${tradePartnerId}' ORDER BY Created_Time DESC`
+		};
+
+		const response = await zohoApiCall(
+			accessToken,
+			'/coql',
+			{
+				method: 'POST',
+				body: JSON.stringify(query)
+			},
+			apiDomain
+		);
+
+		if (response.data?.length) return response.data;
+	} catch (error) {
+		console.warn('Trade partner COQL failed, falling back to standard API');
+	}
+
+	// 3) Fallback to standard list + client-side filter
+	const deals = await zohoApiCall(
+		accessToken,
+		`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
+		{},
+		apiDomain
+	);
+
+	return (deals.data || []).filter((deal: any) => {
+		const field = deal.Portal_Trade_Partners;
+		if (Array.isArray(field)) {
+			return field.some((item) => item?.id === tradePartnerId);
+		}
+		return field?.id === tradePartnerId;
+	});
+}
+
+/**
  * Get documents/attachments for deals visible to contact
  */
 export async function getContactDocuments(accessToken: string, dealId: string, apiDomain?: string) {
@@ -230,6 +332,36 @@ export async function listAllContacts(accessToken: string, apiDomain?: string): 
 			if (contact.Email) {
 				results.push(mapContact(contact));
 			}
+		}
+
+		more = Boolean(response.info?.more_records);
+		page += 1;
+	}
+
+	return results;
+}
+
+/**
+ * Fetch all Trade Partners from Zoho (Custom Module)
+ */
+export async function listTradePartners(accessToken: string, apiDomain?: string): Promise<TradePartnerProfile[]> {
+	const perPage = 200;
+	let page = 1;
+	let more = true;
+	const results: TradePartnerProfile[] = [];
+
+	while (more) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/${TRADE_PARTNERS_MODULE}?page=${page}&per_page=${perPage}`,
+			{},
+			apiDomain
+		);
+
+		const records = response.data || [];
+		for (const record of records) {
+			const mapped = mapTradePartner(record);
+			if (mapped) results.push(mapped);
 		}
 
 		more = Boolean(response.info?.more_records);

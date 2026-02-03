@@ -16,6 +16,9 @@
 		<form method="POST" action="?/sync" class="sync-form">
 			<button type="submit">Sync Clients from Zoho</button>
 		</form>
+		<form method="POST" action="?/syncTradePartners" class="sync-form">
+			<button type="submit">Sync Trade Partners</button>
+		</form>
 		<a class="oauth-button" href="/auth/login">Reconnect Zoho OAuth</a>
 		{#if form?.message}
 			<p class="message">{form.message}</p>
