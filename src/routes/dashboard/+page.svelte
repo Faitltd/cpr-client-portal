@@ -52,10 +52,6 @@
 				<h1>My Projects</h1>
 				<p>View and manage your renovation projects</p>
 			</div>
-			<div class="header-actions">
-				<a class="account-link" href="/account">Account</a>
-				<a class="logout-link" href="/api/logout">Log out</a>
-			</div>
 		</div>
 	</header>
 
@@ -167,34 +163,6 @@
 
 	header {
 		margin-bottom: 2rem;
-	}
-
-	.account-link {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.4rem 0.9rem;
-		border: 1px solid #d0d0d0;
-		border-radius: 999px;
-		text-decoration: none;
-		color: #1a1a1a;
-		background: #fff;
-	}
-
-	.logout-link {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.4rem 0.9rem;
-		border: 1px solid #d0d0d0;
-		border-radius: 999px;
-		text-decoration: none;
-		color: #1a1a1a;
-		background: #fff;
-	}
-
-	.header-actions {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
 	}
 
 	.header-row {
