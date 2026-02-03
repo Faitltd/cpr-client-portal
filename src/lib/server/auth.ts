@@ -27,6 +27,12 @@ const DEAL_FIELDS = [
 	'Owner',
 	'Contact_Name',
 	'Account_Name',
+	'Address',
+	'Address_Line_2',
+	'Street',
+	'City',
+	'State',
+	'Zip_Code',
 	'Portal_Trade_Partners'
 ].join(',');
 
