@@ -2,7 +2,6 @@
 	<main>
 		<section class="hero">
 			<img src="/images/cpr-logo.png" alt="Custom Professional Renovations" class="logo-hero" />
-			<p class="hero-subtitle">Client portal for Custom Professional Renovations</p>
 			<div class="cta-row">
 				<a href="/auth/client" class="btn-primary">Client Login</a>
 				<a href="/admin/login" class="btn-secondary">Admin Login</a>
@@ -32,12 +31,6 @@
 		width: min(60vw, 630px);
 		height: min(50vh, 364px);
 		object-fit: contain;
-	}
-
-	.hero-subtitle {
-		font-size: 1.1rem;
-		color: #1f2937;
-		margin: 0;
 	}
 
 	.cta-row {
