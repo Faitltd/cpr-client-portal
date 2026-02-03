@@ -37,14 +37,6 @@
 		<button type="submit">Set Password</button>
 	</form>
 
-	<div class="list">
-		<h2>Current Clients</h2>
-		<ul>
-			{#each data.clients as client}
-				<li>{client.full_name || 'Unnamed'} — {client.email}</li>
-			{/each}
-		</ul>
-	</div>
 </div>
 
 <style>
@@ -138,11 +130,4 @@
 		color: #065f46;
 	}
 
-	.list {
-		margin-top: 2rem;
-	}
-
-	.list ul {
-		padding-left: 1.2rem;
-	}
 </style>
