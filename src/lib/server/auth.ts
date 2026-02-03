@@ -264,14 +264,22 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
  * Filter deals to only show those related to the authenticated trade partner
  */
 export async function getTradePartnerDeals(accessToken: string, tradePartnerId: string, apiDomain?: string) {
+	let relatedDealIdsCount = 0;
+	let relatedListCount = 0;
+	let searchCount = 0;
+	let coqlCount = 0;
+	let fallbackCount = 0;
+
 	// 0) Prefer the trade partner's related deals field if present
 	const relatedDealIds = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
+	relatedDealIdsCount = relatedDealIds.length;
 	if (relatedDealIds.length > 0) {
 		return fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
 	}
 
 	// 0b) Try related list on trade partner record
 	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
+	relatedListCount = relatedDeals.length;
 	if (relatedDeals.length > 0) {
 		return relatedDeals;
 	}
@@ -285,6 +293,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			{},
 			apiDomain
 		);
+		searchCount = search.data?.length || 0;
 		if (search.data?.length) return search.data;
 	} catch (error) {
 		console.warn('Trade partner deals search failed, falling back to COQL');
@@ -306,6 +315,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			apiDomain
 		);
 
+		coqlCount = response.data?.length || 0;
 		if (response.data?.length) return response.data;
 	} catch (error) {
 		console.warn('Trade partner COQL failed, falling back to standard API');
@@ -319,13 +329,28 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		apiDomain
 	);
 
-	return (deals.data || []).filter((deal: any) => {
+	const filtered = (deals.data || []).filter((deal: any) => {
 		const field = deal.Portal_Trade_Partners;
 		if (Array.isArray(field)) {
 			return field.some((item) => item?.id === tradePartnerId);
 		}
 		return field?.id === tradePartnerId;
 	});
+
+	fallbackCount = filtered.length;
+
+	if (filtered.length === 0) {
+		console.warn('Trade partner deals empty', {
+			tradePartnerId,
+			relatedDealIdsCount,
+			relatedListCount,
+			searchCount,
+			coqlCount,
+			fallbackCount
+		});
+	}
+
+	return filtered;
 }
 
 /**
