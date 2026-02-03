@@ -555,6 +555,11 @@ async function getTradePartnerDealIds(
 			if (fieldValue?.id) {
 				return [fieldValue.id];
 			}
+			console.warn('Trade partner deals field unexpected shape', {
+				moduleName,
+				tradePartnerId,
+				keys: record ? Object.keys(record) : []
+			});
 			return [];
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -612,6 +617,7 @@ async function fetchDealsFromTradePartnerRelatedList(
 			console.error('Trade partner related list fetch failed', {
 				moduleName,
 				tradePartnerId,
+				relatedLists,
 				error: message
 			});
 			// If related list isn't supported, fall through.
