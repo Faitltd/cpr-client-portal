@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import type { PageServerLoad } from './$types';
 
 function toSafeIso(value: unknown, fallback?: unknown) {
@@ -53,15 +53,54 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 	let deals: any[] = [];
 	let warning = '';
+	const dealFields = [
+		'Deal_Name',
+		'Stage',
+		'Address',
+		'Address_Line_2',
+		'Street',
+		'City',
+		'State',
+		'Zip_Code',
+		'Garage_Code',
+		'WiFi',
+		'Notes1'
+	].join(',');
+
+	const fetchDealsByIds = async (ids: string[]) => {
+		const results: any[] = [];
+		const chunkSize = 100;
+		for (let i = 0; i < ids.length; i += chunkSize) {
+			const chunk = ids.slice(i, i + chunkSize);
+			const response = await zohoApiCall(
+				accessToken,
+				`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(dealFields)}`
+			);
+			results.push(...(response.data || []));
+		}
+		return results;
+	};
 
 	if (!session.trade_partner.zoho_trade_partner_id) {
 		warning = 'Your account is missing a Zoho Trade Partner ID. Contact admin to resync.';
 	} else {
 		const fetched = await getTradePartnerDeals(accessToken, session.trade_partner.zoho_trade_partner_id);
 		const allDeals = Array.isArray(fetched) ? fetched : [];
-		deals = allDeals.filter(
-			(deal) => (deal.Stage || '').toLowerCase() === 'project created'
-		);
+		const missingStageIds = allDeals
+			.filter((deal) => !deal?.Stage && deal?.id)
+			.map((deal) => deal.id);
+
+		let hydratedDeals = allDeals;
+		if (missingStageIds.length > 0) {
+			const hydrated = await fetchDealsByIds(missingStageIds);
+			const hydratedMap = new Map(hydrated.map((deal) => [deal.id, deal]));
+			hydratedDeals = allDeals.map((deal) => hydratedMap.get(deal.id) || deal);
+		}
+
+		deals = hydratedDeals.filter((deal) => {
+			const stage = typeof deal.Stage === 'string' ? deal.Stage.trim().toLowerCase() : '';
+			return stage === 'project created';
+		});
 	}
 
 	return {
