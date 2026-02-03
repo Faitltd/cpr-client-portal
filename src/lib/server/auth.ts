@@ -296,7 +296,11 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		searchCount = search.data?.length || 0;
 		if (search.data?.length) return search.data;
 	} catch (error) {
-		console.warn('Trade partner deals search failed, falling back to COQL');
+		console.error('Trade partner deals search failed', {
+			tradePartnerId,
+			criteria,
+			error: error instanceof Error ? error.message : String(error)
+		});
 	}
 
 	// 2) Try COQL if enabled
@@ -318,7 +322,10 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		coqlCount = response.data?.length || 0;
 		if (response.data?.length) return response.data;
 	} catch (error) {
-		console.warn('Trade partner COQL failed, falling back to standard API');
+		console.error('Trade partner COQL failed', {
+			tradePartnerId,
+			error: error instanceof Error ? error.message : String(error)
+		});
 	}
 
 	// 3) Fallback to standard list + client-side filter
@@ -545,12 +552,20 @@ async function getTradePartnerDealIds(
 			if (Array.isArray(fieldValue)) {
 				return fieldValue.map((item) => item?.id).filter(Boolean);
 			}
+			if (fieldValue?.id) {
+				return [fieldValue.id];
+			}
 			return [];
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			if (message.toLowerCase().includes('module name given seems to be invalid')) {
 				continue;
 			}
+			console.error('Trade partner deal ids lookup failed', {
+				moduleName,
+				tradePartnerId,
+				error: message
+			});
 			throw err;
 		}
 	}
@@ -594,6 +609,11 @@ async function fetchDealsFromTradePartnerRelatedList(
 			if (message.toLowerCase().includes('module name given seems to be invalid')) {
 				continue;
 			}
+			console.error('Trade partner related list fetch failed', {
+				moduleName,
+				tradePartnerId,
+				error: message
+			});
 			// If related list isn't supported, fall through.
 		}
 	}
