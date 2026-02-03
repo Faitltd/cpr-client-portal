@@ -25,6 +25,12 @@
 		<p>Welcome {data.tradePartner.name || data.tradePartner.email}</p>
 	</header>
 
+	<div class="field-update">
+		<a href="https://creatorapp.zohopublic.com/customprofessionalrenovation/field-updates/report-perma/All_Active_Deals/8KnyCKWyrWSDZDBE4KBGU2PsRwVqerdOjwxNR2zXhhwSfPUHzX4aDGECJySKyRW6VOQ5kbKr8rR2k1uvb470Cxzsj9FgWdWGxeTe" target="_blank" rel="noreferrer">
+			Field Update
+		</a>
+	</div>
+
 	{#if data.warning}
 		<div class="card warning">{data.warning}</div>
 	{:else if data.deals.length === 0}
@@ -41,6 +47,7 @@
 					{#if formatAddress(deal)}
 						<p class="meta">Address: {formatAddress(deal)}</p>
 					{/if}
+					<a class="detail-link" href="/trade/deal/{deal.id}">View Details</a>
 				</div>
 			{/each}
 		</div>
@@ -65,6 +72,25 @@
 		background: #fff;
 	}
 
+	.field-update {
+		margin-bottom: 1.5rem;
+	}
+
+	.field-update a {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.6rem 1.1rem;
+		border-radius: 999px;
+		background: #111827;
+		color: #fff;
+		text-decoration: none;
+		font-weight: 600;
+	}
+
+	.field-update a:hover {
+		background: #1f2937;
+	}
+
 	.warning {
 		border-color: #f59e0b;
 		background: #fffbeb;
@@ -80,5 +106,13 @@
 	.meta {
 		color: #6b7280;
 		margin: 0.4rem 0 0;
+	}
+
+	.detail-link {
+		display: inline-block;
+		margin-top: 0.75rem;
+		color: #2563eb;
+		text-decoration: none;
+		font-weight: 600;
 	}
 </style>
