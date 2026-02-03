@@ -31,6 +31,7 @@
 	.app-bg {
 		position: relative;
 		min-height: 100vh;
+		font-family: Helvetica, Arial, sans-serif;
 		background: url('/images/cpr-logo.png') center/contain no-repeat fixed;
 	}
 
