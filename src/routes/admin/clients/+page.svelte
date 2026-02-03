@@ -16,6 +16,7 @@
 		<form method="POST" action="?/sync" class="sync-form">
 			<button type="submit">Sync Clients from Zoho</button>
 		</form>
+		<a class="oauth-button" href="/auth/login">Reconnect Zoho OAuth</a>
 		{#if form?.message}
 			<p class="message">{form.message}</p>
 		{/if}
@@ -113,6 +114,23 @@
 
 	.sync-form button {
 		background: #0f766e;
+	}
+
+	.oauth-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		padding: 0.75rem;
+		border-radius: 6px;
+		background: #1f2937;
+		color: #fff;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.oauth-button:hover {
+		background: #111827;
 	}
 
 	.message {
