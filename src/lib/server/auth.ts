@@ -39,7 +39,20 @@ const CONTACT_FIELDS = [
 	'Account_Name'
 ].join(',');
 
-const TRADE_PARTNERS_MODULE = ZOHO_TRADE_PARTNERS_MODULE || 'CustomModule1';
+const TRADE_PARTNER_FIELDS = [
+	'Name',
+	'Last_Name',
+	'Business_Name',
+	'Email',
+	'Secondary_Email',
+	'Phone',
+	'Phone1'
+].join(',');
+
+const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
+	.split(',')
+	.map((name) => name.trim())
+	.filter(Boolean);
 
 const ACTIVE_DEAL_STAGES = new Set([
 	'ballpark needed',
@@ -94,22 +107,22 @@ function pickFirst(record: any, keys: string[]) {
 
 function mapTradePartner(record: any): TradePartnerProfile | null {
 	const email =
-		pickFirst(record, ['Email', 'Email_1', 'Email_Address', 'Email_Address_1']) ||
+		pickFirst(record, ['Email', 'Secondary_Email', 'Email_1', 'Email_Address', 'Email_Address_1']) ||
 		null;
 	if (!email) return null;
 
-	const firstName = record.First_Name || null;
+	const firstName = record.Name || record.First_Name || null;
 	const lastName = record.Last_Name || null;
 	const name =
-		pickFirst(record, ['Name', 'Trade_Partner_Name', 'Full_Name']) ||
+		pickFirst(record, ['Business_Name', 'Trade_Partner_Name', 'Full_Name', 'Name']) ||
 		[firstName, lastName].filter(Boolean).join(' ') ||
 		email;
 
 	const company =
-		pickFirst(record, ['Company', 'Company_Name']) ||
+		pickFirst(record, ['Business_Name', 'Company', 'Company_Name']) ||
 		record.Account_Name?.name ||
 		null;
-	const phone = pickFirst(record, ['Phone', 'Mobile', 'Phone_Number']) || null;
+	const phone = pickFirst(record, ['Phone', 'Phone1', 'Office_Phone', 'Mobile', 'Phone_Number']) || null;
 
 	return {
 		zoho_trade_partner_id: record.id,
@@ -346,29 +359,45 @@ export async function listAllContacts(accessToken: string, apiDomain?: string): 
  */
 export async function listTradePartners(accessToken: string, apiDomain?: string): Promise<TradePartnerProfile[]> {
 	const perPage = 200;
-	let page = 1;
-	let more = true;
-	const results: TradePartnerProfile[] = [];
+	const moduleNames = TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['CustomModule1'];
+	let lastError: Error | null = null;
 
-	while (more) {
-		const response = await zohoApiCall(
-			accessToken,
-			`/${TRADE_PARTNERS_MODULE}?page=${page}&per_page=${perPage}`,
-			{},
-			apiDomain
-		);
+	for (const moduleName of moduleNames) {
+		try {
+			let page = 1;
+			let more = true;
+			const results: TradePartnerProfile[] = [];
 
-		const records = response.data || [];
-		for (const record of records) {
-			const mapped = mapTradePartner(record);
-			if (mapped) results.push(mapped);
+			while (more) {
+				const response = await zohoApiCall(
+					accessToken,
+					`/${moduleName}?fields=${encodeURIComponent(TRADE_PARTNER_FIELDS)}&page=${page}&per_page=${perPage}`,
+					{},
+					apiDomain
+				);
+
+				const records = response.data || [];
+				for (const record of records) {
+					const mapped = mapTradePartner(record);
+					if (mapped) results.push(mapped);
+				}
+
+				more = Boolean(response.info?.more_records);
+				page += 1;
+			}
+
+			return results;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (message.toLowerCase().includes('module name given seems to be invalid')) {
+				lastError = err as Error;
+				continue;
+			}
+			throw err;
 		}
-
-		more = Boolean(response.info?.more_records);
-		page += 1;
 	}
 
-	return results;
+	throw lastError || new Error('Trade partner module name invalid.');
 }
 
 async function listActiveDealContactIds(accessToken: string, apiDomain?: string): Promise<string[]> {
