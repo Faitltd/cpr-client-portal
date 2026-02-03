@@ -6,6 +6,8 @@
 		pathname !== '/' &&
 		!pathname.startsWith('/admin') &&
 		!pathname.startsWith('/auth');
+	$: isTradePortal = pathname.startsWith('/trade');
+	$: accountHref = isTradePortal ? '/trade/account' : '/account';
 </script>
 
 <div class="app-bg">
@@ -14,7 +16,7 @@
 			<div class="portal-header-inner">
 				<a class="portal-logo" href="/dashboard">CPR Portal</a>
 				<div class="portal-actions">
-					<a class="portal-link" href="/account">Account</a>
+					<a class="portal-link" href={accountHref}>Account</a>
 					<a class="portal-link" href="/api/logout?next=/">Log out</a>
 				</div>
 			</div>
