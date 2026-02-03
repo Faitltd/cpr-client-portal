@@ -277,18 +277,38 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	let searchCount = 0;
 	let coqlCount = 0;
 	let fallbackCount = 0;
+	const logSummary = (label: string, extra: Record<string, unknown> = {}) => {
+		console.error('TP_DEBUG: trade partner deals lookup', {
+			label,
+			tradePartnerId,
+			relatedDealIdsCount,
+			relatedListCount,
+			searchCount,
+			coqlCount,
+			fallbackCount,
+			modules: TRADE_PARTNERS_MODULES,
+			relatedLists: TRADE_PARTNER_RELATED_LISTS,
+			apiDomain: apiDomain || 'default',
+			...extra
+		});
+	};
+
+	logSummary('start');
 
 	// 0) Prefer the trade partner's related deals field if present
 	const relatedDealIds = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
 	relatedDealIdsCount = relatedDealIds.length;
 	if (relatedDealIds.length > 0) {
-		return fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
+		const deals = await fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
+		logSummary('relatedDealIds', { dealsCount: deals.length });
+		return deals;
 	}
 
 	// 0b) Try related list on trade partner record
 	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
 	relatedListCount = relatedDeals.length;
 	if (relatedDeals.length > 0) {
+		logSummary('relatedList', { dealsCount: relatedDeals.length });
 		return relatedDeals;
 	}
 
@@ -302,7 +322,10 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			apiDomain
 		);
 		searchCount = search.data?.length || 0;
-		if (search.data?.length) return search.data;
+		if (search.data?.length) {
+			logSummary('search', { dealsCount: searchCount });
+			return search.data;
+		}
 	} catch (error) {
 		console.error('Trade partner deals search failed', {
 			tradePartnerId,
@@ -328,7 +351,10 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		);
 
 		coqlCount = response.data?.length || 0;
-		if (response.data?.length) return response.data;
+		if (response.data?.length) {
+			logSummary('coql', { dealsCount: coqlCount });
+			return response.data;
+		}
 	} catch (error) {
 		console.error('Trade partner COQL failed', {
 			tradePartnerId,
@@ -353,6 +379,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	});
 
 	fallbackCount = filtered.length;
+	logSummary('fallback', { dealsCount: fallbackCount });
 
 	if (filtered.length === 0) {
 		console.warn('Trade partner deals empty', {

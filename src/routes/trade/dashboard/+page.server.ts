@@ -28,6 +28,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	if (!session) {
 		throw redirect(302, '/auth/trade');
 	}
+	console.error('TP_DEBUG: trade dashboard load', {
+		email: session.trade_partner.email,
+		tradePartnerId: session.trade_partner.zoho_trade_partner_id || null
+	});
 
 	const tokens = await getZohoTokens();
 	if (!tokens) {
