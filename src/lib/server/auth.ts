@@ -68,7 +68,7 @@ const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 	.map((name) => name.trim())
 	.filter(Boolean);
 const TRADE_PARTNER_DEALS_FIELD = 'Portal_Deals';
-const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals,Portal_Deals')
+const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals3,Deals,Portal_Deals')
 	.split(',')
 	.map((value) => value.trim())
 	.filter(Boolean);
