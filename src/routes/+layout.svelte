@@ -88,4 +88,11 @@
 	.portal-link:hover {
 		background: #f3f4f6;
 	}
+
+	:global(input),
+	:global(select),
+	:global(textarea) {
+		width: 100%;
+		box-sizing: border-box;
+	}
 </style>
