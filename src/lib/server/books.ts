@@ -45,7 +45,7 @@ export async function listInvoicesForCustomer(accessToken: string, customerId: s
 		accessToken,
 		`/invoices?organization_id=${encodeURIComponent(ZOHO_BOOKS_ORG_ID)}&customer_id=${encodeURIComponent(
 			customerId
-		)}&sort_column=invoice_date&sort_order=D`
+		)}&sort_column=date&sort_order=D`
 	);
 	return response.invoices || [];
 }
