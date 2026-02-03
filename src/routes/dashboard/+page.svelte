@@ -73,8 +73,12 @@
 					<div class="project-card">
 						<h3>{project.Deal_Name || 'Untitled Project'}</h3>
 						<p class="status">Status: {project.Stage || 'Unknown'}</p>
-						<p class="amount">Amount: ${project.Amount?.toLocaleString() || '0'}</p>
 						<p class="date">Created: {new Date(project.Created_Time).toLocaleDateString()}</p>
+						{#if project.External_Link}
+							<a class="btn-secondary" href={project.External_Link} target="_blank" rel="noreferrer">
+								Progress Photos
+							</a>
+						{/if}
 						<a href="/project/{project.id}" class="btn-view">View Details</a>
 					</div>
 				{/each}
