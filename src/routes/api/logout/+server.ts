@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { deleteSession } from '$lib/server/db';
 import type { RequestHandler } from './$types';
 
-export const POST: RequestHandler = async ({ cookies }) => {
+const handleLogout: RequestHandler = async ({ cookies }) => {
 	const sessionId = cookies.get('portal_session');
 
 	if (sessionId) {
@@ -15,3 +15,6 @@ export const POST: RequestHandler = async ({ cookies }) => {
 
 	throw redirect(302, '/');
 };
+
+export const POST = handleLogout;
+export const GET = handleLogout;
