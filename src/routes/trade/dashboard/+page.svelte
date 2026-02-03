@@ -33,7 +33,7 @@
 	<div class="field-update">
 		<iframe
 			title="Field Update"
-			height="500"
+			height="800"
 			width="100%"
 			frameborder="0"
 			scrolling="auto"
@@ -109,6 +109,7 @@
 	.field-update iframe {
 		border: none;
 		width: 100%;
+		min-height: 800px;
 	}
 
 	.warning {
