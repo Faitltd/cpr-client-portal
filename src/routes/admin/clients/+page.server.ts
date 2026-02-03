@@ -3,7 +3,7 @@ import { hashPassword } from '$lib/server/password';
 import { listContactsForActiveDeals } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { isValidAdminSession } from '$lib/server/admin';
-import { clearClients, getZohoTokens, listClients, setClientPassword, upsertClient, upsertZohoTokens } from '$lib/server/db';
+import { getZohoTokens, listClients, setClientPassword, upsertClient, upsertZohoTokens } from '$lib/server/db';
 import type { Actions, PageServerLoad } from './$types';
 
 function requireAdmin(session: string | undefined) {
@@ -61,8 +61,6 @@ export const actions: Actions = {
 		if (!tokens) {
 			return fail(500, { message: 'Zoho is not connected yet.' });
 		}
-
-		await clearClients();
 
 		let accessToken = tokens.access_token;
 		if (new Date(tokens.expires_at) < new Date()) {
