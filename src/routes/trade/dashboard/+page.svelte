@@ -33,7 +33,7 @@
 
 	{#if data.warning}
 		<div class="card warning">{data.warning}</div>
-	{:else if data.deals.length === 0}
+	{:else if (data.deals || []).length === 0}
 		<div class="card">
 			<p>No deals found for your account yet.</p>
 		</div>
