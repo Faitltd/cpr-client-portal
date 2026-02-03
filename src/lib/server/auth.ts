@@ -270,6 +270,12 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		return fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
 	}
 
+	// 0b) Try related list on trade partner record
+	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
+	if (relatedDeals.length > 0) {
+		return relatedDeals;
+	}
+
 	// 1) Try search endpoint for lookup field
 	try {
 		const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
@@ -521,6 +527,49 @@ async function getTradePartnerDealIds(
 				continue;
 			}
 			throw err;
+		}
+	}
+
+	return [];
+}
+
+async function fetchDealsFromTradePartnerRelatedList(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const perPage = 200;
+	const relatedLists = ['Deals', TRADE_PARTNER_DEALS_FIELD];
+	for (const moduleName of TRADE_PARTNERS_MODULES) {
+		try {
+			for (const relatedList of relatedLists) {
+				let page = 1;
+				let more = true;
+				const results: any[] = [];
+
+				while (more) {
+					const response = await zohoApiCall(
+						accessToken,
+						`/${moduleName}/${tradePartnerId}/${relatedList}?fields=${encodeURIComponent(
+							DEAL_FIELDS
+						)}&page=${page}&per_page=${perPage}`,
+						{},
+						apiDomain
+					);
+					const deals = response.data || [];
+					results.push(...deals);
+					more = Boolean(response.info?.more_records);
+					page += 1;
+				}
+
+				if (results.length > 0) return results;
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (message.toLowerCase().includes('module name given seems to be invalid')) {
+				continue;
+			}
+			// If related list isn't supported, fall through.
 		}
 	}
 
