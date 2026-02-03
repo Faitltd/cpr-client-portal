@@ -29,7 +29,7 @@
 	.app-bg {
 		position: relative;
 		min-height: 100vh;
-		background: url('/images/cpr-logo.png') center/cover no-repeat fixed;
+		background: url('/images/cpr-logo.png') center/contain no-repeat fixed;
 	}
 
 	.app-bg::before {
