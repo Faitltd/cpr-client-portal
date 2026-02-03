@@ -69,12 +69,38 @@ CREATE TABLE IF NOT EXISTS client_sessions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Trade partners
+CREATE TABLE IF NOT EXISTS trade_partners (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT,
+    name TEXT,
+    company TEXT,
+    phone TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Trade partner sessions
+CREATE TABLE IF NOT EXISTS trade_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_token TEXT UNIQUE NOT NULL,
+    trade_partner_id UUID NOT NULL REFERENCES trade_partners(id) ON DELETE CASCADE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for faster lookups
 CREATE INDEX IF NOT EXISTS idx_clients_zoho_contact_id ON clients(zoho_contact_id);
 CREATE INDEX IF NOT EXISTS idx_projects_zoho_deal_id ON projects(zoho_deal_id);
 CREATE INDEX IF NOT EXISTS idx_project_documents_project_id ON project_documents(project_id);
 CREATE INDEX IF NOT EXISTS idx_client_sessions_session_token ON client_sessions(session_token);
 CREATE INDEX IF NOT EXISTS idx_client_sessions_client_id ON client_sessions(client_id);
+CREATE INDEX IF NOT EXISTS idx_trade_partners_email ON trade_partners(email);
+CREATE INDEX IF NOT EXISTS idx_trade_sessions_session_token ON trade_sessions(session_token);
+CREATE INDEX IF NOT EXISTS idx_trade_sessions_partner_id ON trade_sessions(trade_partner_id);
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE zoho_tokens ENABLE ROW LEVEL SECURITY;
@@ -82,6 +108,8 @@ ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE project_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE client_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trade_partners ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trade_sessions ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for service role access (your backend)
 CREATE POLICY "Service role can manage zoho_tokens"
@@ -119,6 +147,20 @@ CREATE POLICY "Service role can manage client_sessions"
     USING (true)
     WITH CHECK (true);
 
+CREATE POLICY "Service role can manage trade_partners"
+    ON trade_partners
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Service role can manage trade_sessions"
+    ON trade_sessions
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
 -- Function to auto-update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -144,9 +186,16 @@ CREATE TRIGGER update_projects_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_trade_partners_updated_at
+    BEFORE UPDATE ON trade_partners
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- Comments for documentation
 COMMENT ON TABLE zoho_tokens IS 'Stores Zoho OAuth tokens for background sync jobs';
 COMMENT ON TABLE clients IS 'Stores CPR clients linked to Zoho CRM Contacts';
 COMMENT ON TABLE projects IS 'Stores projects linked to Zoho CRM Deals';
 COMMENT ON TABLE project_documents IS 'Stores documents linked to projects';
 COMMENT ON TABLE client_sessions IS 'Manages active portal sessions';
+COMMENT ON TABLE trade_partners IS 'Stores trade partner accounts';
+COMMENT ON TABLE trade_sessions IS 'Manages active trade partner sessions';

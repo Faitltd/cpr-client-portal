@@ -38,6 +38,32 @@ export interface ClientSession extends ClientSessionRecord {
 	client: Client;
 }
 
+export interface TradePartner {
+	id: string;
+	email: string;
+	name?: string | null;
+	company?: string | null;
+	phone?: string | null;
+}
+
+export interface TradePartnerAuth {
+	id: string;
+	email: string;
+	password_hash: string | null;
+}
+
+export interface TradeSessionRecord {
+	session_token: string;
+	trade_partner_id: string;
+	expires_at: string;
+	ip_address?: string | null;
+	user_agent?: string | null;
+}
+
+export interface TradeSession extends TradeSessionRecord {
+	trade_partner: TradePartner;
+}
+
 export interface ZohoTokens {
 	id: string;
 	user_id: string;
@@ -167,6 +193,71 @@ export async function deleteSession(sessionToken: string): Promise<void> {
 	await supabase.from('client_sessions').delete().eq('session_token', sessionToken);
 }
 
+/**
+ * Fetch trade partner auth details by email
+ */
+export async function getTradePartnerAuthByEmail(email: string): Promise<TradePartnerAuth | null> {
+	const { data, error } = await supabase
+		.from('trade_partners')
+		.select('id, email, password_hash')
+		.ilike('email', email)
+		.single();
+
+	if (error || !data) return null;
+	return data as TradePartnerAuth;
+}
+
+/**
+ * Create a new trade partner session
+ */
+export async function createTradeSession(sessionData: TradeSessionRecord): Promise<void> {
+	const { error } = await supabase
+		.from('trade_sessions')
+		.insert(sessionData);
+
+	if (error) throw new Error(`Trade session create failed: ${error.message}`);
+}
+
+/**
+ * Get trade partner session by session token
+ */
+export async function getTradeSession(sessionToken: string): Promise<TradeSession | null> {
+	const { data, error } = await supabase
+		.from('trade_sessions')
+		.select(
+			`session_token,
+			 trade_partner_id,
+			 expires_at,
+			 trade_partners (
+				id,
+				email,
+				name,
+				company,
+				phone
+			 )`
+		)
+		.eq('session_token', sessionToken)
+		.single();
+
+	if (error || !data || !data.trade_partners) return null;
+
+	const trade_partner = Array.isArray(data.trade_partners) ? data.trade_partners[0] : data.trade_partners;
+	if (!trade_partner) return null;
+
+	return {
+		session_token: data.session_token,
+		trade_partner_id: data.trade_partner_id,
+		expires_at: data.expires_at,
+		trade_partner: trade_partner as TradePartner
+	};
+}
+
+/**
+ * Delete trade partner session (logout)
+ */
+export async function deleteTradeSession(sessionToken: string): Promise<void> {
+	await supabase.from('trade_sessions').delete().eq('session_token', sessionToken);
+}
 
 
 /**

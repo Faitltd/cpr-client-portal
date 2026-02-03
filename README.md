@@ -81,6 +81,13 @@ Use `/admin/login` to sign in with the admin password and set/reset client passw
 - Click "Sync Clients from Zoho" in `/admin/clients` to pull contacts tied to active deals.
 - Clients can then log in with email + password at `/auth/client`.
 
+## Trade Partner Login
+
+Trade partners sign in at `/auth/trade` using email + password. Accounts live in the `trade_partners` table.
+
+- Add trade partners in Supabase and set `password_hash` with the same PBKDF2 format used for clients.
+- Sessions are stored in `trade_sessions`.
+
 ## Architecture
 
 ### Admin OAuth
