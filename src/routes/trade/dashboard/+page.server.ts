@@ -58,7 +58,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		warning = 'Your account is missing a Zoho Trade Partner ID. Contact admin to resync.';
 	} else {
 		const fetched = await getTradePartnerDeals(accessToken, session.trade_partner.zoho_trade_partner_id);
-		deals = Array.isArray(fetched) ? fetched : [];
+		const allDeals = Array.isArray(fetched) ? fetched : [];
+		deals = allDeals.filter(
+			(deal) => (deal.Stage || '').toLowerCase() === 'project created'
+		);
 	}
 
 	return {

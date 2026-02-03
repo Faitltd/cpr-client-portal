@@ -37,6 +37,9 @@ const DEAL_FIELDS = [
 	'City',
 	'State',
 	'Zip_Code',
+	'Garage_Code',
+	'WiFi',
+	'Notes1',
 	'External_Link',
 	'Portal_Trade_Partners'
 ].join(',');

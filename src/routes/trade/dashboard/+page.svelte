@@ -5,6 +5,11 @@
 		warning?: string;
 	};
 
+	const tradePartner = data?.tradePartner || { email: '' };
+	const deals = Array.isArray(data?.deals) ? data.deals : [];
+	let selectedDealId = deals[0]?.id || '';
+	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
+
 	const formatAddress = (deal: any) => {
 		const line1 = deal.Address || deal.Street || '';
 		const line2 = deal.Address_Line_2 || '';
@@ -22,7 +27,7 @@
 <div class="dashboard">
 	<header>
 		<h1>Trade Partner Dashboard</h1>
-		<p>Welcome {data.tradePartner.name || data.tradePartner.email}</p>
+		<p>Welcome {tradePartner.name || tradePartner.email}</p>
 	</header>
 
 	<div class="field-update">
@@ -37,26 +42,45 @@
 		></iframe>
 	</div>
 
-	{#if data.warning}
+	{#if data?.warning}
 		<div class="card warning">{data.warning}</div>
-	{:else if (data.deals || []).length === 0}
+	{:else if deals.length === 0}
 		<div class="card">
-			<p>No deals found for your account yet.</p>
+			<p>No Project Created deals found for your account yet.</p>
 		</div>
 	{:else}
-		<div class="deals-grid">
-			{#each data.deals as deal}
-				<div class="card">
-					<h3>{deal.Deal_Name || 'Untitled Deal'}</h3>
-					<p class="meta">Stage: {deal.Stage || 'Unknown'}</p>
-					<p class="meta">Amount: ${deal.Amount?.toLocaleString() || '0'}</p>
-					{#if formatAddress(deal)}
-						<p class="meta">Address: {formatAddress(deal)}</p>
-					{/if}
-					<a class="detail-link" href="/trade/deal/{deal.id}">View Details</a>
-				</div>
-			{/each}
+		<div class="trade-selector card">
+			<label for="trade-deal">Select Deal</label>
+			<select id="trade-deal" bind:value={selectedDealId}>
+				{#each deals as deal}
+					<option value={deal.id}>{deal.Deal_Name || 'Untitled Deal'}</option>
+				{/each}
+			</select>
 		</div>
+
+		{#if selectedDeal}
+			<div class="card deal-details">
+				<h3>{selectedDeal.Deal_Name || 'Untitled Deal'}</h3>
+				<div class="details-grid">
+					<div>
+						<h4>Address</h4>
+						<p>{formatAddress(selectedDeal) || 'Not available'}</p>
+					</div>
+					<div>
+						<h4>Garage Code</h4>
+						<p>{selectedDeal.Garage_Code || 'Not available'}</p>
+					</div>
+					<div>
+						<h4>WiFi</h4>
+						<p>{selectedDeal.WiFi || 'Not available'}</p>
+					</div>
+					<div class="notes">
+						<h4>Notes</h4>
+						<p>{selectedDeal.Notes1 || 'Not available'}</p>
+					</div>
+				</div>
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -93,22 +117,41 @@
 		color: #92400e;
 	}
 
-	.deals-grid {
+	.trade-selector {
+		margin-bottom: 1.5rem;
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+		gap: 0.5rem;
+	}
+
+	select {
+		padding: 0.6rem 0.75rem;
+		border-radius: 6px;
+		border: 1px solid #d1d5db;
+		font-size: 1rem;
+		width: 100%;
+	}
+
+	.deal-details h3 {
+		margin-top: 0;
+	}
+
+	.details-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 		gap: 1rem;
+		margin-top: 1rem;
 	}
 
-	.meta {
-		color: #6b7280;
-		margin: 0.4rem 0 0;
+	.details-grid h4 {
+		margin: 0 0 0.35rem;
 	}
 
-	.detail-link {
-		display: inline-block;
-		margin-top: 0.75rem;
-		color: #2563eb;
-		text-decoration: none;
-		font-weight: 600;
+	.details-grid p {
+		margin: 0;
+		color: #374151;
+	}
+
+	.notes {
+		grid-column: 1 / -1;
 	}
 </style>
