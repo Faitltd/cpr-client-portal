@@ -33,6 +33,7 @@ const DEAL_FIELDS = [
 	'City',
 	'State',
 	'Zip_Code',
+	'External_Link',
 	'Portal_Trade_Partners'
 ].join(',');
 
@@ -55,10 +56,21 @@ const TRADE_PARTNER_FIELDS = [
 	'Phone1'
 ].join(',');
 
+const TRADE_PARTNER_FIELDS = [
+	'Name',
+	'Last_Name',
+	'Business_Name',
+	'Email',
+	'Secondary_Email',
+	'Phone',
+	'Phone1'
+].join(',');
+
 const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 	.split(',')
 	.map((name) => name.trim())
 	.filter(Boolean);
+const TRADE_PARTNER_DEALS_FIELD = 'Portal_Deals';
 
 const ACTIVE_DEAL_STAGES = new Set([
 	'ballpark needed',
@@ -262,9 +274,15 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
  * Filter deals to only show those related to the authenticated trade partner
  */
 export async function getTradePartnerDeals(accessToken: string, tradePartnerId: string, apiDomain?: string) {
+	// 0) Prefer the trade partner's related deals field if present
+	const relatedDealIds = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
+	if (relatedDealIds.length > 0) {
+		return fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
+	}
+
 	// 1) Try search endpoint for lookup field
 	try {
-		const criteria = `(Portal_Trade_Partners:equals:${tradePartnerId})`;
+		const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
 		const search = await zohoApiCall(
 			accessToken,
 			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
@@ -279,7 +297,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	// 2) Try COQL if enabled
 	try {
 		const query = {
-			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners = '${tradePartnerId}' ORDER BY Created_Time DESC`
+			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners in ('${tradePartnerId}') ORDER BY Created_Time DESC`
 		};
 
 		const response = await zohoApiCall(
@@ -468,6 +486,55 @@ async function fetchContactsByIds(accessToken: string, ids: string[], apiDomain?
 	}
 
 	return results;
+}
+
+async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: string): Promise<any[]> {
+	const results: any[] = [];
+	const chunkSize = 100;
+	for (let i = 0; i < ids.length; i += chunkSize) {
+		const chunk = ids.slice(i, i + chunkSize);
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(DEAL_FIELDS)}`,
+			{},
+			apiDomain
+		);
+		const deals = response.data || [];
+		results.push(...deals);
+	}
+	return results;
+}
+
+async function getTradePartnerDealIds(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<string[]> {
+	for (const moduleName of TRADE_PARTNERS_MODULES) {
+		try {
+			const response = await zohoApiCall(
+				accessToken,
+				`/${moduleName}/${tradePartnerId}?fields=${encodeURIComponent(TRADE_PARTNER_DEALS_FIELD)}`,
+				{},
+				apiDomain
+			);
+			const record = response.data?.[0];
+			const fieldValue = record?.[TRADE_PARTNER_DEALS_FIELD];
+			if (!fieldValue) return [];
+			if (Array.isArray(fieldValue)) {
+				return fieldValue.map((item) => item?.id).filter(Boolean);
+			}
+			return [];
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (message.toLowerCase().includes('module name given seems to be invalid')) {
+				continue;
+			}
+			throw err;
+		}
+	}
+
+	return [];
 }
 
 /**
