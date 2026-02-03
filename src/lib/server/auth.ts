@@ -1,7 +1,11 @@
 import { zohoApiCall } from './zoho';
 import type { Client } from './db';
 import { dev } from '$app/environment';
-import { PORTAL_DEV_SHOW_ALL, ZOHO_TRADE_PARTNERS_MODULE } from '$env/static/private';
+import {
+	PORTAL_DEV_SHOW_ALL,
+	ZOHO_TRADE_PARTNERS_MODULE,
+	ZOHO_TRADE_PARTNER_RELATED_LIST
+} from '$env/static/private';
 
 type ClientProfile = Omit<Client, 'id'>;
 
@@ -61,6 +65,10 @@ const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 	.map((name) => name.trim())
 	.filter(Boolean);
 const TRADE_PARTNER_DEALS_FIELD = 'Portal_Deals';
+const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals,Portal_Deals')
+	.split(',')
+	.map((value) => value.trim())
+	.filter(Boolean);
 
 const ACTIVE_DEAL_STAGES = new Set([
 	'ballpark needed',
@@ -584,7 +592,9 @@ async function fetchDealsFromTradePartnerRelatedList(
 	apiDomain?: string
 ): Promise<any[]> {
 	const perPage = 200;
-	const relatedLists = ['Deals', TRADE_PARTNER_DEALS_FIELD];
+	const relatedLists = TRADE_PARTNER_RELATED_LISTS.length
+		? TRADE_PARTNER_RELATED_LISTS
+		: ['Deals', TRADE_PARTNER_DEALS_FIELD];
 	for (const moduleName of TRADE_PARTNERS_MODULES) {
 		try {
 			for (const relatedList of relatedLists) {

@@ -40,7 +40,7 @@ cp .env.example .env
 4. Register your application in Zoho Developer Console:
    - Application Type: Server-based
    - Authorized Redirect URI: `http://localhost:5173/auth/callback` (development)
-   - Required Scopes: `ZohoCRM.modules.contacts.READ,ZohoCRM.modules.deals.READ,ZohoCRM.modules.deals.UPDATE,ZohoCRM.modules.Attachments.READ,ZohoCRM.users.READ,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ,ZohoSign.documents.READ,ZohoCRM.modules.CustomModule1.READ`
+   - Required Scopes: `ZohoCRM.modules.contacts.READ,ZohoCRM.modules.deals.READ,ZohoCRM.modules.deals.UPDATE,ZohoCRM.modules.Attachments.READ,ZohoCRM.users.READ,ZohoCRM.modules.custom.READ,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ,ZohoSign.documents.READ`
 
 5. Update `.env` with your credentials:
    - `ZOHO_CLIENT_ID`
@@ -86,9 +86,11 @@ Use `/admin/login` to sign in with the admin password and set/reset client passw
 
 Trade partners sign in at `/auth/trade` using email + password. Accounts live in the `trade_partners` table.
 
-- Trade partners are synced from Zoho CRM Custom Module (default `CustomModule1`) using the admin OAuth token.
+- Trade partners are synced from Zoho CRM Custom Module (default `Trade_Partners`) using the admin OAuth token.
+- Deals are filtered by the Deal lookup field `Portal_Trade_Partners` (Trade Partner -> Deal link).
+- Related list lookups can be configured with `ZOHO_TRADE_PARTNER_RELATED_LIST` (default `Deals,Portal_Deals`).
 - Use **Sync Trade Partners** in `/admin/clients` after OAuth.
-- Set `password_hash` in Supabase to enable login.
+- Set/reset passwords in `/admin/clients` under Trade Partner Passwords.
 - Sessions are stored in `trade_sessions`.
 
 ## Architecture
