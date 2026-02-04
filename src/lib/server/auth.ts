@@ -63,12 +63,12 @@ const TRADE_PARTNER_FIELDS = [
 	'Phone1'
 ].join(',');
 
-const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners3,Trade_Partners')
+const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners3')
 	.split(',')
 	.map((name) => name.trim())
 	.filter(Boolean);
 const TRADE_PARTNER_DEALS_FIELD = 'Portal_Deals';
-const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals3,Deals,Portal_Deals')
+const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals3')
 	.split(',')
 	.map((value) => value.trim())
 	.filter(Boolean);
@@ -566,6 +566,11 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 			apiDomain
 		);
 		const deals = response.data || [];
+		console.error('TP_DEBUG: fetch deals by ids', {
+			chunkSize: chunk.length,
+			dealsCount: deals.length,
+			apiDomain: apiDomain || 'default'
+		});
 		results.push(...deals);
 	}
 	return results;
@@ -586,22 +591,50 @@ async function getTradePartnerDealIds(
 			);
 			const record = response.data?.[0];
 			const fieldValue = record?.[TRADE_PARTNER_DEALS_FIELD];
-			if (!fieldValue) return [];
+			if (!fieldValue) {
+				console.error('TP_DEBUG: trade partner deals field empty', {
+					moduleName,
+					tradePartnerId,
+					field: TRADE_PARTNER_DEALS_FIELD,
+					apiDomain: apiDomain || 'default'
+				});
+				return [];
+			}
 			if (Array.isArray(fieldValue)) {
-				return fieldValue.map((item) => item?.id).filter(Boolean);
+				const ids = fieldValue.map((item) => item?.id).filter(Boolean);
+				console.error('TP_DEBUG: trade partner deals field array', {
+					moduleName,
+					tradePartnerId,
+					field: TRADE_PARTNER_DEALS_FIELD,
+					idsCount: ids.length,
+					apiDomain: apiDomain || 'default'
+				});
+				return ids;
 			}
 			if (fieldValue?.id) {
+				console.error('TP_DEBUG: trade partner deals field lookup', {
+					moduleName,
+					tradePartnerId,
+					field: TRADE_PARTNER_DEALS_FIELD,
+					apiDomain: apiDomain || 'default'
+				});
 				return [fieldValue.id];
 			}
 			console.warn('Trade partner deals field unexpected shape', {
 				moduleName,
 				tradePartnerId,
+				field: TRADE_PARTNER_DEALS_FIELD,
 				keys: record ? Object.keys(record) : []
 			});
 			return [];
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			if (message.toLowerCase().includes('module name given seems to be invalid')) {
+				console.error('TP_DEBUG: trade partner module invalid', {
+					moduleName,
+					tradePartnerId,
+					apiDomain: apiDomain || 'default'
+				});
 				continue;
 			}
 			console.error('Trade partner deal ids lookup failed', {
@@ -647,11 +680,24 @@ async function fetchDealsFromTradePartnerRelatedList(
 					page += 1;
 				}
 
+				console.error('TP_DEBUG: trade partner related list', {
+					moduleName,
+					tradePartnerId,
+					relatedList,
+					dealsCount: results.length,
+					apiDomain: apiDomain || 'default'
+				});
+
 				if (results.length > 0) return results;
 			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			if (message.toLowerCase().includes('module name given seems to be invalid')) {
+				console.error('TP_DEBUG: trade partner module invalid for related list', {
+					moduleName,
+					tradePartnerId,
+					apiDomain: apiDomain || 'default'
+				});
 				continue;
 			}
 			console.error('Trade partner related list fetch failed', {
