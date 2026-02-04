@@ -152,6 +152,43 @@ function mapTradePartner(record: any): TradePartnerProfile | null {
 	};
 }
 
+function extractDisplayValue(value: any): string | null {
+	if (value === null || value === undefined) return null;
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number') return String(value);
+	if (typeof value === 'object') {
+		return (
+			value.name ||
+			value.display_value ||
+			value.displayValue ||
+			value.value ||
+			value.label ||
+			null
+		);
+	}
+	return null;
+}
+
+function coerceText(value: any): string | null {
+	const direct = extractDisplayValue(value);
+	if (direct) return direct;
+	if (Array.isArray(value)) {
+		const parts = value
+			.map((item) => extractDisplayValue(item))
+			.filter(Boolean)
+			.map(String);
+		if (parts.length > 0) return parts.join(', ');
+	}
+	if (value && typeof value === 'object') {
+		const parts = Object.values(value)
+			.map((item) => extractDisplayValue(item))
+			.filter(Boolean)
+			.map(String);
+		if (parts.length > 0) return parts.join(', ');
+	}
+	return null;
+}
+
 function normalizeDealRecord(deal: any) {
 	if (!deal || typeof deal !== 'object') return deal;
 	const id =
@@ -162,18 +199,38 @@ function normalizeDealRecord(deal: any) {
 		deal?.Deal_Name?.id ||
 		deal?.Potential_Name?.id;
 	const name =
-		deal.Deal_Name ||
-		deal.Potential_Name ||
-		deal.Name ||
-		deal.name ||
-		deal.Subject ||
-		deal.Full_Name ||
-		deal.Display_Name ||
-		deal.display_name ||
+		extractDisplayValue(deal.Deal_Name) ||
+		extractDisplayValue(deal.Potential_Name) ||
+		extractDisplayValue(deal.Name) ||
+		extractDisplayValue(deal.name) ||
+		extractDisplayValue(deal.Subject) ||
+		extractDisplayValue(deal.Full_Name) ||
+		extractDisplayValue(deal.Display_Name) ||
+		extractDisplayValue(deal.display_name) ||
 		(id ? `Deal ${String(id).slice(-6)}` : null);
 	const normalized = { ...deal };
 	if (!normalized.id && id) normalized.id = id;
 	if (!normalized.Deal_Name && name) normalized.Deal_Name = name;
+
+	const textFields = [
+		'Address',
+		'Address_Line_2',
+		'Street',
+		'City',
+		'State',
+		'Zip_Code',
+		'Garage_Code',
+		'WiFi',
+		'Notes1',
+		'Stage'
+	];
+	for (const field of textFields) {
+		const current = normalized[field];
+		if (current && typeof current === 'string') continue;
+		const coerced = coerceText(current);
+		if (coerced) normalized[field] = coerced;
+	}
+
 	return normalized;
 }
 
@@ -353,6 +410,14 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			hydratedCount,
 			missingIds: Math.max(relatedDeals.length - relatedIds.length, 0)
 		});
+		if (normalizedRelated.length > 0) {
+			const sample = normalizedRelated[0];
+			console.error('TP_DEBUG: related list sample', {
+				keys: Object.keys(sample || {}),
+				id: sample?.id,
+				dealName: sample?.Deal_Name
+			});
+		}
 		return hydratedDeals.map(normalizeDealRecord).map(ensureDealId);
 	}
 

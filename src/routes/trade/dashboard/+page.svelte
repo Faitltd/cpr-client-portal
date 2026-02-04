@@ -9,6 +9,19 @@
 	const deals = Array.isArray(data?.deals) ? data.deals : [];
 	let selectedDealId = deals[0]?.id || '';
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
+	const getDealLabel = (deal: any) => {
+		return (
+			deal?.Deal_Name ||
+			deal?.Potential_Name ||
+			deal?.Name ||
+			deal?.name ||
+			deal?.Subject ||
+			deal?.Full_Name ||
+			deal?.Display_Name ||
+			deal?.display_name ||
+			(deal?.id ? `Deal ${String(deal.id).slice(-6)}` : 'Untitled Deal')
+		);
+	};
 
 	const formatAddress = (deal: any) => {
 		const line1 = deal.Address || deal.Street || '';
@@ -54,14 +67,7 @@
 			<select id="trade-deal" bind:value={selectedDealId}>
 				{#each deals as deal}
 					<option value={deal.id}>
-						{deal.Deal_Name ||
-							deal.Potential_Name ||
-							deal.Name ||
-							deal.name ||
-							deal.Full_Name ||
-							deal.Display_Name ||
-							deal.display_name ||
-							(deal.id ? `Deal ${String(deal.id).slice(-6)}` : 'Untitled Deal')}
+						{getDealLabel(deal)}
 					</option>
 				{/each}
 			</select>
@@ -69,16 +75,7 @@
 
 		{#if selectedDeal}
 			<div class="card deal-details">
-				<h3>
-					{selectedDeal.Deal_Name ||
-						selectedDeal.Potential_Name ||
-						selectedDeal.Name ||
-						selectedDeal.name ||
-						selectedDeal.Full_Name ||
-						selectedDeal.Display_Name ||
-						selectedDeal.display_name ||
-						(selectedDeal.id ? `Deal ${String(selectedDeal.id).slice(-6)}` : 'Untitled Deal')}
-				</h3>
+				<h3>{getDealLabel(selectedDeal)}</h3>
 				<div class="details-grid">
 					<div>
 						<h4>Address</h4>
