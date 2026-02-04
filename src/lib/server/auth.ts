@@ -304,7 +304,14 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	if (relatedDealIds.length > 0) {
 		const deals = await fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
 		logSummary('relatedDealIds', { dealsCount: deals.length });
-		return deals;
+		if (deals.length > 0) {
+			return deals;
+		}
+		console.error('TP_DEBUG: related deal ids returned, but deals fetch empty', {
+			tradePartnerId,
+			relatedDealIdsCount,
+			apiDomain: apiDomain || 'default'
+		});
 	}
 
 	// 0b) Try related list on trade partner record
