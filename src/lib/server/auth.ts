@@ -152,6 +152,39 @@ function mapTradePartner(record: any): TradePartnerProfile | null {
 	};
 }
 
+function normalizeDealRecord(deal: any) {
+	if (!deal || typeof deal !== 'object') return deal;
+	const id =
+		deal.id ||
+		deal.Deal?.id ||
+		deal.Deal_ID ||
+		deal.deal_id ||
+		deal?.Deal_Name?.id ||
+		deal?.Potential_Name?.id;
+	const name =
+		deal.Deal_Name ||
+		deal.Potential_Name ||
+		deal.Name ||
+		deal.name ||
+		deal.Subject ||
+		deal.Full_Name ||
+		deal.Display_Name ||
+		deal.display_name ||
+		(id ? `Deal ${String(id).slice(-6)}` : null);
+	const normalized = { ...deal };
+	if (!normalized.id && id) normalized.id = id;
+	if (!normalized.Deal_Name && name) normalized.Deal_Name = name;
+	return normalized;
+}
+
+function ensureDealId(deal: any, index: number) {
+	if (!deal || typeof deal !== 'object') return deal;
+	if (!deal.id) {
+		return { ...deal, id: `idx-${index + 1}` };
+	}
+	return deal;
+}
+
 /**
  * Fetch current Zoho CRM user (admin)
  */
@@ -302,15 +335,17 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
 	relatedListCount = relatedDeals.length;
 	if (relatedDeals.length > 0) {
-		const relatedIds = relatedDeals.map((deal: any) => deal?.id).filter(Boolean) as string[];
-		let hydratedDeals = relatedDeals;
+		const normalizedRelated = relatedDeals.map(normalizeDealRecord);
+		const relatedIds = normalizedRelated.map((deal: any) => deal?.id).filter(Boolean) as string[];
+		let hydratedDeals = normalizedRelated;
 		let hydratedCount = 0;
 		if (relatedIds.length > 0) {
 			const hydrated = await fetchDealsByIds(accessToken, relatedIds, apiDomain);
 			hydratedCount = hydrated.length;
 			if (hydrated.length > 0) {
-				const hydratedMap = new Map(hydrated.map((deal: any) => [deal.id, deal]));
-				hydratedDeals = relatedDeals.map((deal: any) => hydratedMap.get(deal.id) || deal);
+				const normalizedHydrated = hydrated.map(normalizeDealRecord);
+				const hydratedMap = new Map(normalizedHydrated.map((deal: any) => [deal.id, deal]));
+				hydratedDeals = normalizedRelated.map((deal: any) => hydratedMap.get(deal.id) || deal);
 			}
 		}
 		logSummary('relatedList', {
@@ -318,7 +353,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			hydratedCount,
 			missingIds: Math.max(relatedDeals.length - relatedIds.length, 0)
 		});
-		return hydratedDeals;
+		return hydratedDeals.map(normalizeDealRecord).map(ensureDealId);
 	}
 
 	// 1) Try trade partner's related deals field if present
@@ -328,7 +363,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		const deals = await fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
 		logSummary('relatedDealIds', { dealsCount: deals.length });
 		if (deals.length > 0) {
-			return deals;
+			return deals.map(normalizeDealRecord).map(ensureDealId);
 		}
 		console.error('TP_DEBUG: related deal ids returned, but deals fetch empty', {
 			tradePartnerId,
@@ -349,7 +384,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		searchCount = search.data?.length || 0;
 		if (search.data?.length) {
 			logSummary('search', { dealsCount: searchCount });
-			return search.data;
+			return search.data.map(normalizeDealRecord).map(ensureDealId);
 		}
 	} catch (error) {
 		console.error('Trade partner deals search failed', {
@@ -378,7 +413,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		coqlCount = response.data?.length || 0;
 		if (response.data?.length) {
 			logSummary('coql', { dealsCount: coqlCount });
-			return response.data;
+			return response.data.map(normalizeDealRecord).map(ensureDealId);
 		}
 	} catch (error) {
 		console.error('Trade partner COQL failed', {
@@ -417,7 +452,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		});
 	}
 
-	return filtered;
+	return filtered.map(normalizeDealRecord).map(ensureDealId);
 }
 
 /**
