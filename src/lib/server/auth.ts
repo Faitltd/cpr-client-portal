@@ -579,6 +579,34 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 			apiDomain: apiDomain || 'default'
 		});
 		results.push(...deals);
+
+		if (deals.length === 0) {
+			const fallbackDeals: any[] = [];
+			for (const id of chunk) {
+				try {
+					const fallback = await zohoApiCall(
+						accessToken,
+						`/Deals/${id}?fields=${encodeURIComponent(DEAL_FIELDS)}`,
+						{},
+						apiDomain
+					);
+					const deal = fallback.data?.[0];
+					if (deal) fallbackDeals.push(deal);
+				} catch (error) {
+					console.error('TP_DEBUG: deal id fetch failed', {
+						dealId: id,
+						apiDomain: apiDomain || 'default',
+						error: error instanceof Error ? error.message : String(error)
+					});
+				}
+			}
+			console.error('TP_DEBUG: fetch deals by id fallback', {
+				chunkSize: chunk.length,
+				dealsCount: fallbackDeals.length,
+				apiDomain: apiDomain || 'default'
+			});
+			results.push(...fallbackDeals);
+		}
 	}
 	return results;
 }
