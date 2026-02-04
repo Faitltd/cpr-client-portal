@@ -46,7 +46,7 @@
 		<div class="card warning">{data.warning}</div>
 	{:else if deals.length === 0}
 		<div class="card">
-			<p>No Project Created deals found for your account yet.</p>
+			<p>No deals found for your account yet.</p>
 		</div>
 	{:else}
 		<div class="trade-selector card">

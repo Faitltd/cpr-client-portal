@@ -97,10 +97,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			hydratedDeals = allDeals.map((deal) => hydratedMap.get(deal.id) || deal);
 		}
 
-		deals = hydratedDeals.filter((deal) => {
-			const stage = typeof deal.Stage === 'string' ? deal.Stage.trim().toLowerCase() : '';
-			return stage.includes('project created');
-		});
+		deals = hydratedDeals;
 	}
 
 	return {
