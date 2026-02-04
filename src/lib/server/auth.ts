@@ -63,7 +63,7 @@ const TRADE_PARTNER_FIELDS = [
 	'Phone1'
 ].join(',');
 
-const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
+const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners3,Trade_Partners')
 	.split(',')
 	.map((name) => name.trim())
 	.filter(Boolean);
