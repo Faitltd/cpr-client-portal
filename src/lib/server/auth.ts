@@ -63,7 +63,7 @@ const TRADE_PARTNER_FIELDS = [
 	'Phone1'
 ].join(',');
 
-const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners3')
+const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 	.split(',')
 	.map((name) => name.trim())
 	.filter(Boolean);
@@ -298,7 +298,15 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 
 	logSummary('start');
 
-	// 0) Prefer the trade partner's related deals field if present
+	// 0) Prefer related list on trade partner record
+	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
+	relatedListCount = relatedDeals.length;
+	if (relatedDeals.length > 0) {
+		logSummary('relatedList', { dealsCount: relatedDeals.length });
+		return relatedDeals;
+	}
+
+	// 1) Try trade partner's related deals field if present
 	const relatedDealIds = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
 	relatedDealIdsCount = relatedDealIds.length;
 	if (relatedDealIds.length > 0) {
@@ -314,15 +322,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		});
 	}
 
-	// 0b) Try related list on trade partner record
-	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
-	relatedListCount = relatedDeals.length;
-	if (relatedDeals.length > 0) {
-		logSummary('relatedList', { dealsCount: relatedDeals.length });
-		return relatedDeals;
-	}
-
-	// 1) Try search endpoint for lookup field
+	// 2) Try search endpoint for lookup field
 	try {
 		const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
 		const search = await zohoApiCall(
@@ -344,7 +344,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		});
 	}
 
-	// 2) Try COQL if enabled
+	// 3) Try COQL if enabled
 	try {
 		const query = {
 			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners in ('${tradePartnerId}') ORDER BY Created_Time DESC`
@@ -372,7 +372,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		});
 	}
 
-	// 3) Fallback to standard list + client-side filter
+	// 4) Fallback to standard list + client-side filter
 	const deals = await zohoApiCall(
 		accessToken,
 		`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
