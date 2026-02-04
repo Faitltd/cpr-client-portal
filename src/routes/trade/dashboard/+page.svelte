@@ -53,14 +53,22 @@
 			<label for="trade-deal">Select Deal</label>
 			<select id="trade-deal" bind:value={selectedDealId}>
 				{#each deals as deal}
-					<option value={deal.id}>{deal.Deal_Name || 'Untitled Deal'}</option>
+					<option value={deal.id}>
+						{deal.Deal_Name || deal.Name || deal.name || deal.Full_Name || 'Untitled Deal'}
+					</option>
 				{/each}
 			</select>
 		</div>
 
 		{#if selectedDeal}
 			<div class="card deal-details">
-				<h3>{selectedDeal.Deal_Name || 'Untitled Deal'}</h3>
+				<h3>
+					{selectedDeal.Deal_Name ||
+					selectedDeal.Name ||
+					selectedDeal.name ||
+					selectedDeal.Full_Name ||
+					'Untitled Deal'}
+				</h3>
 				<div class="details-grid">
 					<div>
 						<h4>Address</h4>

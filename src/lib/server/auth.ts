@@ -302,8 +302,23 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
 	relatedListCount = relatedDeals.length;
 	if (relatedDeals.length > 0) {
-		logSummary('relatedList', { dealsCount: relatedDeals.length });
-		return relatedDeals;
+		const relatedIds = relatedDeals.map((deal: any) => deal?.id).filter(Boolean) as string[];
+		let hydratedDeals = relatedDeals;
+		let hydratedCount = 0;
+		if (relatedIds.length > 0) {
+			const hydrated = await fetchDealsByIds(accessToken, relatedIds, apiDomain);
+			hydratedCount = hydrated.length;
+			if (hydrated.length > 0) {
+				const hydratedMap = new Map(hydrated.map((deal: any) => [deal.id, deal]));
+				hydratedDeals = relatedDeals.map((deal: any) => hydratedMap.get(deal.id) || deal);
+			}
+		}
+		logSummary('relatedList', {
+			dealsCount: relatedDeals.length,
+			hydratedCount,
+			missingIds: Math.max(relatedDeals.length - relatedIds.length, 0)
+		});
+		return hydratedDeals;
 	}
 
 	// 1) Try trade partner's related deals field if present
