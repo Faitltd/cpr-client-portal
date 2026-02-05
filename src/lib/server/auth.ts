@@ -711,6 +711,51 @@ async function buildTradePartnerFields(
 	return Array.from(fields).join(',');
 }
 
+async function fetchTradePartnersByIds(
+	accessToken: string,
+	moduleName: string,
+	ids: string[],
+	fields: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const results: any[] = [];
+	const chunkSize = 100;
+	for (let i = 0; i < ids.length; i += chunkSize) {
+		const chunk = ids.slice(i, i + chunkSize);
+		try {
+			const params = new URLSearchParams({ ids: chunk.join(',') });
+			if (fields) params.set('fields', fields);
+			const response = await zohoApiCall(
+				accessToken,
+				`/${moduleName}?${params.toString()}`,
+				{},
+				apiDomain
+			);
+			const records = response.data || [];
+			results.push(...records);
+		} catch (error) {
+			for (const id of chunk) {
+				try {
+					const params = new URLSearchParams();
+					if (fields) params.set('fields', fields);
+					const response = await zohoApiCall(
+						accessToken,
+						`/${moduleName}/${id}?${params.toString()}`,
+						{},
+						apiDomain
+					);
+					const record = response.data?.[0];
+					if (record) results.push(record);
+				} catch (err) {
+					console.warn('Failed to fetch trade partner', { moduleName, id, error: err });
+				}
+			}
+		}
+	}
+
+	return results;
+}
+
 /**
  * Fetch all Trade Partners from Zoho (Custom Module)
  */
@@ -719,6 +764,7 @@ type TradePartnerSyncStats = {
 	totalRecords: number;
 	mapped: number;
 	missingEmail: number;
+	recovered: number;
 	pages: number;
 	emailFields: string[];
 };
@@ -740,10 +786,12 @@ export async function listTradePartnersWithStats(
 		try {
 			let page = 1;
 			let more = true;
-			const results: TradePartnerProfile[] = [];
+			const resultsById = new Map<string, TradePartnerProfile>();
 			let missingEmail = 0;
+			let recovered = 0;
 			let totalRecords = 0;
 			let pages = 0;
+			const missingEmailIds: string[] = [];
 			const missingEmailSamples: Array<{ id?: string; name?: string; keys: string[] }> = [];
 			const emailFields = await listEmailFieldNames(accessToken, moduleName, apiDomain);
 			const fields = await buildTradePartnerFields(accessToken, moduleName, apiDomain);
@@ -767,9 +815,10 @@ export async function listTradePartnersWithStats(
 				for (const record of records) {
 					const mapped = mapTradePartner(record);
 					if (mapped) {
-						results.push(mapped);
+						resultsById.set(mapped.zoho_trade_partner_id, mapped);
 					} else {
 						missingEmail += 1;
+						if (record?.id) missingEmailIds.push(String(record.id));
 						if (missingEmailSamples.length < 3) {
 							missingEmailSamples.push({
 								id: record?.id,
@@ -788,6 +837,32 @@ export async function listTradePartnersWithStats(
 				page += 1;
 			}
 
+			if (missingEmailIds.length > 0) {
+				const recoveredRecords = await fetchTradePartnersByIds(
+					accessToken,
+					moduleName,
+					missingEmailIds,
+					fields,
+					apiDomain
+				);
+				for (const record of recoveredRecords) {
+					const mapped = mapTradePartner(record);
+					if (mapped) {
+						const wasMissing = !resultsById.has(mapped.zoho_trade_partner_id);
+						resultsById.set(mapped.zoho_trade_partner_id, mapped);
+						if (wasMissing) recovered += 1;
+					}
+				}
+				missingEmail = Math.max(0, missingEmailIds.length - recovered);
+				if (recovered > 0) {
+					console.warn('Trade partner email recovery', {
+						moduleName,
+						recovered,
+						remainingMissing: missingEmail
+					});
+				}
+			}
+
 			if (missingEmail > 0) {
 				console.warn('Trade partner records missing email', {
 					moduleName,
@@ -797,13 +872,14 @@ export async function listTradePartnersWithStats(
 			}
 
 			return {
-				partners: results,
+				partners: Array.from(resultsById.values()),
 				stats: [
 					{
 						moduleName,
 						totalRecords,
-						mapped: results.length,
+						mapped: resultsById.size,
 						missingEmail,
+						recovered,
 						pages,
 						emailFields
 					}

@@ -176,6 +176,7 @@ export const actions: Actions = {
 
 		const totalRecords = stats.reduce((sum, stat) => sum + stat.totalRecords, 0);
 		const missingEmail = stats.reduce((sum, stat) => sum + stat.missingEmail, 0);
+		const recovered = stats.reduce((sum, stat) => sum + (stat.recovered || 0), 0);
 		const moduleSummary =
 			stats.length > 1
 				? ` Modules: ${stats.map((stat) => `${stat.moduleName}=${stat.totalRecords}`).join(', ')}.`
@@ -187,7 +188,7 @@ export const actions: Actions = {
 			: `Synced ${synced} trade partners.`;
 		const message =
 			stats.length > 0
-				? `${baseMessage} Zoho returned ${totalRecords} records. Missing email: ${missingEmail}.${moduleSummary}`
+				? `${baseMessage} Zoho returned ${totalRecords} records. Missing email: ${missingEmail}. Recovered: ${recovered}.${moduleSummary}`
 				: baseMessage;
 
 		return { message };
