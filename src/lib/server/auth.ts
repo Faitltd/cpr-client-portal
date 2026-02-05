@@ -487,6 +487,14 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	relatedListCount = relatedDeals.length;
 	if (relatedDeals.length > 0) {
 		const normalizedRelated = relatedDeals.map(normalizeDealRecord);
+		const sample = normalizedRelated[0];
+		if (sample) {
+			console.error('TP_DEBUG: related list raw sample', {
+				keys: Object.keys(sample),
+				dealName: sample?.Deal_Name,
+				rawDealName: summarizeValue(sample?.Deal_Name)
+			});
+		}
 		const relatedIds = normalizedRelated.map((deal: any) => deal?.id).filter(Boolean) as string[];
 		let hydratedDeals = normalizedRelated;
 		let hydratedCount = 0;
@@ -781,6 +789,54 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 
 type TradePartnerDealRef = { id: string; name?: string | null };
 
+function summarizeValue(value: any, limit = 400) {
+	try {
+		const str = JSON.stringify(value);
+		if (!str) return null;
+		return str.length > limit ? `${str.slice(0, limit)}…` : str;
+	} catch {
+		return String(value);
+	}
+}
+
+function extractDealRefFromPortalItem(item: any): TradePartnerDealRef | null {
+	if (!item) return null;
+	if (typeof item === 'string') return { id: item };
+	if (typeof item !== 'object') return null;
+
+	const nested = item[TRADE_PARTNER_DEALS_FIELD];
+	if (Array.isArray(nested) && nested.length > 0) {
+		const first = nested[0];
+		const id = first?.id || first?.ID || first?.Id;
+		if (id) {
+			const name =
+				first?.name ||
+				first?.display_value ||
+				first?.displayValue ||
+				first?.value ||
+				null;
+			return { id, name };
+		}
+	}
+	if (nested && typeof nested === 'object') {
+		const id = nested.id || nested.ID || nested.Id;
+		if (id) {
+			const name =
+				nested.name ||
+				nested.display_value ||
+				nested.displayValue ||
+				nested.value ||
+				null;
+			return { id, name };
+		}
+	}
+
+	const id = item.id || item.Id || item.ID;
+	if (!id) return null;
+	const name = item.name || item.display_value || item.displayValue || item.value || null;
+	return { id, name };
+}
+
 async function getTradePartnerDealIds(
 	accessToken: string,
 	tradePartnerId: string,
@@ -806,29 +862,7 @@ async function getTradePartnerDealIds(
 				return [];
 			}
 			if (Array.isArray(fieldValue)) {
-				const refs = fieldValue
-					.map((item) => {
-						if (!item) return null;
-						if (typeof item === 'string') {
-							return { id: item };
-						}
-						const nested = item[TRADE_PARTNER_DEALS_FIELD];
-						const nestedId = nested?.id || nested?.ID || nested?.Id;
-						if (nestedId) {
-							const nestedName =
-								nested?.name ||
-								nested?.display_value ||
-								nested?.displayValue ||
-								nested?.value ||
-								null;
-							return { id: nestedId, name: nestedName };
-						}
-						const id = item.id || item.Id || item.ID;
-						if (!id) return null;
-						const name = item.name || item.display_value || item.displayValue || item.value || null;
-						return { id, name };
-					})
-					.filter(Boolean) as TradePartnerDealRef[];
+				const refs = fieldValue.map(extractDealRefFromPortalItem).filter(Boolean) as TradePartnerDealRef[];
 				console.error('TP_DEBUG: trade partner deals field array', {
 					moduleName,
 					tradePartnerId,
@@ -844,7 +878,8 @@ async function getTradePartnerDealIds(
 						name: sample?.name,
 						display_value: sample?.display_value,
 						nested_id: sample?.[TRADE_PARTNER_DEALS_FIELD]?.id,
-						nested_name: sample?.[TRADE_PARTNER_DEALS_FIELD]?.name
+						nested_name: sample?.[TRADE_PARTNER_DEALS_FIELD]?.name,
+						nested_summary: summarizeValue(sample?.[TRADE_PARTNER_DEALS_FIELD])
 					});
 				}
 				return refs;
