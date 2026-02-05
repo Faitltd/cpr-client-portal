@@ -448,9 +448,10 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	}
 
 	// 2) Try trade partner's related deals field if present
-	const relatedDealIds = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
-	relatedDealIdsCount = relatedDealIds.length;
-	if (relatedDealIds.length > 0) {
+	const relatedDealRefs = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
+	relatedDealIdsCount = relatedDealRefs.length;
+	if (relatedDealRefs.length > 0) {
+		const relatedDealIds = relatedDealRefs.map((ref) => ref.id);
 		const deals = await fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
 		logSummary('relatedDealIds', { dealsCount: deals.length });
 		if (deals.length > 0) {
@@ -461,6 +462,15 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			relatedDealIdsCount,
 			apiDomain: apiDomain || 'default'
 		});
+		const fallbackDeals = relatedDealRefs.map((ref) => ({
+			id: ref.id,
+			Deal_Name: ref.name || `Deal ${String(ref.id).slice(-6)}`,
+			Portal_Trade_Partners: { id: tradePartnerId }
+		}));
+		if (fallbackDeals.length > 0) {
+			logSummary('relatedDealIdsFallback', { dealsCount: fallbackDeals.length });
+			return fallbackDeals.map(normalizeDealRecord).map(ensureDealId);
+		}
 	}
 
 	// 3) Try related list on trade partner record (may be a junction)
@@ -735,11 +745,13 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 	return results;
 }
 
+type TradePartnerDealRef = { id: string; name?: string | null };
+
 async function getTradePartnerDealIds(
 	accessToken: string,
 	tradePartnerId: string,
 	apiDomain?: string
-): Promise<string[]> {
+): Promise<TradePartnerDealRef[]> {
 	for (const moduleName of TRADE_PARTNERS_MODULES) {
 		try {
 			const response = await zohoApiCall(
@@ -760,15 +772,26 @@ async function getTradePartnerDealIds(
 				return [];
 			}
 			if (Array.isArray(fieldValue)) {
-				const ids = fieldValue.map((item) => item?.id).filter(Boolean);
+				const refs = fieldValue
+					.map((item) => {
+						if (!item) return null;
+						if (typeof item === 'string') {
+							return { id: item };
+						}
+						const id = item.id || item.Id || item.ID;
+						if (!id) return null;
+						const name = item.name || item.display_value || item.displayValue || item.value || null;
+						return { id, name };
+					})
+					.filter(Boolean) as TradePartnerDealRef[];
 				console.error('TP_DEBUG: trade partner deals field array', {
 					moduleName,
 					tradePartnerId,
 					field: TRADE_PARTNER_DEALS_FIELD,
-					idsCount: ids.length,
+					idsCount: refs.length,
 					apiDomain: apiDomain || 'default'
 				});
-				return ids;
+				return refs;
 			}
 			if (fieldValue?.id) {
 				console.error('TP_DEBUG: trade partner deals field lookup', {
@@ -777,7 +800,7 @@ async function getTradePartnerDealIds(
 					field: TRADE_PARTNER_DEALS_FIELD,
 					apiDomain: apiDomain || 'default'
 				});
-				return [fieldValue.id];
+				return [{ id: fieldValue.id, name: fieldValue.name || null }];
 			}
 			console.warn('Trade partner deals field unexpected shape', {
 				moduleName,
