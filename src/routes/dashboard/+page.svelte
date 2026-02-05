@@ -142,7 +142,16 @@
 								{#if contract.can_sign}
 									<a class="btn-view" href={`/contracts/${contract.id}/sign`}>Sign</a>
 								{/if}
-								<a class="btn-secondary" href={`/contracts/${contract.id}/view`}>View</a>
+								{#if contract.view_url}
+									<a
+										class="btn-secondary"
+										href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`}
+									>
+										View
+									</a>
+								{:else}
+									<a class="btn-secondary" href={`/contracts/${contract.id}/view`}>View</a>
+								{/if}
 							</div>
 						</div>
 					{/each}

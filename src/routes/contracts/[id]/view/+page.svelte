@@ -11,17 +11,22 @@
 	const requestId = $page.params.id;
 
 	onMount(async () => {
+		const presetUrl = $page.url.searchParams.get('url') || '';
 		try {
 			const res = await fetch(`/api/sign/requests/${requestId}/view`);
 			const payload = await res.json().catch(() => ({}));
 
 			if (res.status === 401) {
-				error = 'Please login again to view this contract.';
+				if (!presetUrl) {
+					error = 'Please login again to view this contract.';
+				}
 				return;
 			}
 
 			if (!res.ok) {
-				error = payload?.message || 'Failed to load contract.';
+				if (!presetUrl) {
+					error = payload?.message || 'Failed to load contract.';
+				}
 				return;
 			}
 
@@ -29,13 +34,17 @@
 			viewUrl = data.view_url || '';
 			name = data.name || 'Contract';
 			status = data.status || '';
-
-			if (!viewUrl) {
+		} catch {
+			if (!presetUrl) {
+				error = 'Failed to load contract.';
+			}
+		} finally {
+			if (!viewUrl && presetUrl) {
+				viewUrl = presetUrl;
+			}
+			if (!viewUrl && !error) {
 				error = 'View link unavailable. Please contact support.';
 			}
-		} catch {
-			error = 'Failed to load contract.';
-		} finally {
 			loading = false;
 		}
 	});
