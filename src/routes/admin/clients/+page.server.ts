@@ -1,5 +1,9 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { listContactsForActiveDeals, listTradePartnersWithStats } from '$lib/server/auth';
+import {
+	debugTradePartnerRecord,
+	listContactsForActiveDeals,
+	listTradePartnersWithStats
+} from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { isValidAdminSession } from '$lib/server/admin';
 import {
@@ -191,6 +195,43 @@ export const actions: Actions = {
 				? `${baseMessage} Zoho returned ${totalRecords} records. Missing email: ${missingEmail}. Recovered: ${recovered}.${moduleSummary}`
 				: baseMessage;
 
+		return { message };
+	},
+	debugTradePartner: async ({ request, cookies }) => {
+		requireAdmin(cookies.get('admin_session'));
+		const form = await request.formData();
+		const zohoId = String(form.get('zoho_trade_partner_id') || '').trim();
+		if (!zohoId) {
+			return fail(400, { message: 'Enter a Zoho trade partner ID.' });
+		}
+
+		const tokens = await getZohoTokens();
+		if (!tokens) {
+			return fail(500, { message: 'Zoho is not connected yet.' });
+		}
+
+		let accessToken = tokens.access_token;
+		if (new Date(tokens.expires_at) < new Date()) {
+			const refreshed = await refreshAccessToken(tokens.refresh_token);
+			accessToken = refreshed.access_token;
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: refreshed.access_token,
+				refresh_token: refreshed.refresh_token,
+				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+				scope: tokens.scope
+			});
+		}
+
+		const debug = await debugTradePartnerRecord(accessToken, zohoId);
+		if (!debug) {
+			return { message: `Debug ${zohoId}: no record returned by the API.` };
+		}
+
+		const emailValue = debug.email ? debug.email : 'missing';
+		const emailFields = debug.emailFields.length ? debug.emailFields.join(', ') : 'none';
+		const keys = debug.keys.slice(0, 20).join(', ');
+		const message = `Debug ${zohoId} (${debug.moduleName}): email=${emailValue}. Email fields: ${emailFields}. Keys: ${keys}.`;
 		return { message };
 	}
 };

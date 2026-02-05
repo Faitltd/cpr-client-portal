@@ -774,6 +774,62 @@ type TradePartnerSyncResult = {
 	stats: TradePartnerSyncStats[];
 };
 
+type TradePartnerDebugInfo = {
+	moduleName: string;
+	recordId: string;
+	email: string | null;
+	emailFields: string[];
+	keys: string[];
+};
+
+export async function debugTradePartnerRecord(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<TradePartnerDebugInfo | null> {
+	const moduleNames = TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['CustomModule1'];
+	let lastError: Error | null = null;
+
+	for (const moduleName of moduleNames) {
+		try {
+			const fields = await buildTradePartnerFields(accessToken, moduleName, apiDomain);
+			const params = new URLSearchParams();
+			if (fields) params.set('fields', fields);
+			const response = await zohoApiCall(
+				accessToken,
+				`/${moduleName}/${tradePartnerId}?${params.toString()}`,
+				{},
+				apiDomain
+			);
+			const record = response.data?.[0];
+			if (!record) return null;
+			const keys = Object.keys(record || {});
+			const emailFields = keys.filter((key) => key.toLowerCase().includes('email'));
+			const email = findEmailInRecord(record);
+			return {
+				moduleName,
+				recordId: String(record.id || tradePartnerId),
+				email,
+				emailFields,
+				keys
+			};
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (message.toLowerCase().includes('module name given seems to be invalid')) {
+				lastError = err as Error;
+				continue;
+			}
+			if (message.toLowerCase().includes('record not found')) {
+				continue;
+			}
+			throw err;
+		}
+	}
+
+	if (lastError) throw lastError;
+	return null;
+}
+
 export async function listTradePartnersWithStats(
 	accessToken: string,
 	apiDomain?: string
