@@ -389,25 +389,34 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	logSummary('start');
 
 	// 0) Try search endpoint for lookup field (direct Deals access)
-	const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
-	try {
-		const search = await zohoApiCall(
-			accessToken,
-			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
-			{},
-			apiDomain
-		);
-		searchCount = search.data?.length || 0;
-		if (search.data?.length) {
-			logSummary('search', { dealsCount: searchCount });
-			return search.data.map(normalizeDealRecord).map(ensureDealId);
+	const searchOperators = ['equals', 'in'];
+	for (const operator of searchOperators) {
+		const criteria = `(Portal_Trade_Partners:${operator}:${tradePartnerId})`;
+		try {
+			const search = await zohoApiCall(
+				accessToken,
+				`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
+				{},
+				apiDomain
+			);
+			searchCount = search.data?.length || 0;
+			if (search.data?.length) {
+				logSummary('search', { dealsCount: searchCount, operator });
+				return search.data.map(normalizeDealRecord).map(ensureDealId);
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (message.includes('INVALID_QUERY') && message.includes('invalid operator')) {
+				continue;
+			}
+			console.error('Trade partner deals search failed', {
+				tradePartnerId,
+				criteria,
+				operator,
+				error: message
+			});
+			break;
 		}
-	} catch (error) {
-		console.error('Trade partner deals search failed', {
-			tradePartnerId,
-			criteria,
-			error: error instanceof Error ? error.message : String(error)
-		});
 	}
 
 	// 1) Try COQL if enabled
