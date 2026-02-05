@@ -7,9 +7,10 @@ import type { RequestHandler } from './$types';
 
 const DEFAULT_SIGN_BASE = 'https://sign.zoho.com/api/v1';
 
-export const GET: RequestHandler = async ({ params, cookies }) => {
+export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const sessionToken = cookies.get('portal_session');
 	const requestId = params.id;
+	const download = url.searchParams.get('download') === '1';
 
 	if (!sessionToken) {
 		throw error(401, 'Not authenticated');
@@ -69,16 +70,13 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 		const buffer = await response.arrayBuffer();
 		const contentType = response.headers.get('content-type') || 'application/pdf';
-		const contentDisposition = response.headers.get('content-disposition');
 
 		const headers = new Headers({
-			'Content-Type': contentType,
+			'Content-Type': contentType.includes('pdf') ? contentType : 'application/pdf',
 			'Cache-Control': 'private, no-store'
 		});
-
-		if (contentDisposition) {
-			headers.set('Content-Disposition', contentDisposition);
-		}
+		const filename = `contract-${requestId}.pdf`;
+		headers.set('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${filename}"`);
 
 		return new Response(buffer, {
 			status: 200,
