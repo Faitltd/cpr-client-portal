@@ -389,8 +389,8 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	logSummary('start');
 
 	// 0) Try search endpoint for lookup field (direct Deals access)
+	const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
 	try {
-		const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
 		const search = await zohoApiCall(
 			accessToken,
 			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
