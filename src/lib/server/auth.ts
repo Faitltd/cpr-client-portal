@@ -53,15 +53,27 @@ const CONTACT_FIELDS = [
 	'Account_Name'
 ].join(',');
 
-const TRADE_PARTNER_FIELDS = [
+const TRADE_PARTNER_FIELD_KEYS = [
 	'Name',
+	'First_Name',
 	'Last_Name',
+	'Full_Name',
+	'Trade_Partner_Name',
 	'Business_Name',
+	'Company',
+	'Company_Name',
+	'Account_Name',
 	'Email',
 	'Secondary_Email',
+	'Email_1',
+	'Email_Address',
+	'Email_Address_1',
 	'Phone',
-	'Phone1'
-].join(',');
+	'Phone1',
+	'Office_Phone',
+	'Mobile',
+	'Phone_Number'
+];
 
 const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 	.split(',')
@@ -124,10 +136,56 @@ function pickFirst(record: any, keys: string[]) {
 	return null;
 }
 
+function looksLikeEmail(value: string) {
+	const trimmed = value.trim();
+	if (!trimmed) return false;
+	if (trimmed.includes(' ')) return false;
+	return /^[^@]+@[^@]+\.[^@]+$/.test(trimmed);
+}
+
+function coerceEmail(value: any): string | null {
+	if (!value) return null;
+	if (typeof value === 'string') {
+		return looksLikeEmail(value) ? value.trim() : null;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			const found = coerceEmail(item);
+			if (found) return found;
+		}
+		return null;
+	}
+	if (typeof value === 'object') {
+		return (
+			coerceEmail(value.email) ||
+			coerceEmail(value.Email) ||
+			coerceEmail(value.value) ||
+			coerceEmail(value.display_value) ||
+			coerceEmail(value.displayValue)
+		);
+	}
+	return null;
+}
+
+function findEmailInRecord(record: any): string | null {
+	if (!record || typeof record !== 'object') return null;
+	for (const [key, value] of Object.entries(record)) {
+		if (key.toLowerCase().includes('email')) {
+			const found = coerceEmail(value);
+			if (found) return found;
+		}
+	}
+	for (const value of Object.values(record)) {
+		const found = coerceEmail(value);
+		if (found) return found;
+	}
+	return null;
+}
+
 function mapTradePartner(record: any): TradePartnerProfile | null {
 	const email =
 		pickFirst(record, ['Email', 'Secondary_Email', 'Email_1', 'Email_Address', 'Email_Address_1']) ||
-		null;
+		findEmailInRecord(record);
 	if (!email) return null;
 
 	const firstName = record.Name || record.First_Name || null;
@@ -603,10 +661,77 @@ export async function listAllContacts(accessToken: string, apiDomain?: string): 
 	return results;
 }
 
+async function listEmailFieldNames(
+	accessToken: string,
+	moduleName: string,
+	apiDomain?: string
+): Promise<string[]> {
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			`/settings/fields?module=${encodeURIComponent(moduleName)}`,
+			{},
+			apiDomain
+		);
+		const fields = (response.fields || response.data || []) as any[];
+		const emailFields: string[] = [];
+		for (const field of fields) {
+			const apiName = String(field?.api_name || field?.apiName || '').trim();
+			if (!apiName) continue;
+			const label = String(field?.field_label || field?.fieldLabel || field?.display_label || '')
+				.toLowerCase()
+				.trim();
+			const dataType = String(field?.data_type || field?.json_type || field?.dataType || '')
+				.toLowerCase()
+				.trim();
+			if (
+				apiName.toLowerCase().includes('email') ||
+				label.includes('email') ||
+				dataType === 'email'
+			) {
+				emailFields.push(apiName);
+			}
+		}
+		return emailFields;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.warn('Trade partner field metadata fetch failed', { moduleName, error: message });
+		return [];
+	}
+}
+
+async function buildTradePartnerFields(
+	accessToken: string,
+	moduleName: string,
+	apiDomain?: string
+): Promise<string> {
+	const fields = new Set(TRADE_PARTNER_FIELD_KEYS);
+	const emailFields = await listEmailFieldNames(accessToken, moduleName, apiDomain);
+	for (const field of emailFields) fields.add(field);
+	return Array.from(fields).join(',');
+}
+
 /**
  * Fetch all Trade Partners from Zoho (Custom Module)
  */
-export async function listTradePartners(accessToken: string, apiDomain?: string): Promise<TradePartnerProfile[]> {
+type TradePartnerSyncStats = {
+	moduleName: string;
+	totalRecords: number;
+	mapped: number;
+	missingEmail: number;
+	pages: number;
+	emailFields: string[];
+};
+
+type TradePartnerSyncResult = {
+	partners: TradePartnerProfile[];
+	stats: TradePartnerSyncStats[];
+};
+
+export async function listTradePartnersWithStats(
+	accessToken: string,
+	apiDomain?: string
+): Promise<TradePartnerSyncResult> {
 	const perPage = 200;
 	const moduleNames = TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['CustomModule1'];
 	let lastError: Error | null = null;
@@ -616,26 +741,74 @@ export async function listTradePartners(accessToken: string, apiDomain?: string)
 			let page = 1;
 			let more = true;
 			const results: TradePartnerProfile[] = [];
+			let missingEmail = 0;
+			let totalRecords = 0;
+			let pages = 0;
+			const missingEmailSamples: Array<{ id?: string; name?: string; keys: string[] }> = [];
+			const emailFields = await listEmailFieldNames(accessToken, moduleName, apiDomain);
+			const fields = await buildTradePartnerFields(accessToken, moduleName, apiDomain);
 
 			while (more) {
+				const params = new URLSearchParams({
+					page: String(page),
+					per_page: String(perPage)
+				});
+				if (fields) params.set('fields', fields);
 				const response = await zohoApiCall(
 					accessToken,
-					`/${moduleName}?fields=${encodeURIComponent(TRADE_PARTNER_FIELDS)}&page=${page}&per_page=${perPage}`,
+					`/${moduleName}?${params.toString()}`,
 					{},
 					apiDomain
 				);
 
 				const records = response.data || [];
+				totalRecords += records.length;
+				pages += 1;
 				for (const record of records) {
 					const mapped = mapTradePartner(record);
-					if (mapped) results.push(mapped);
+					if (mapped) {
+						results.push(mapped);
+					} else {
+						missingEmail += 1;
+						if (missingEmailSamples.length < 3) {
+							missingEmailSamples.push({
+								id: record?.id,
+								name:
+									record?.Name ||
+									record?.Full_Name ||
+									record?.Trade_Partner_Name ||
+									record?.Business_Name,
+								keys: Object.keys(record || {}).slice(0, 24)
+							});
+						}
+					}
 				}
 
 				more = Boolean(response.info?.more_records);
 				page += 1;
 			}
 
-			return results;
+			if (missingEmail > 0) {
+				console.warn('Trade partner records missing email', {
+					moduleName,
+					missingEmail,
+					sample: missingEmailSamples
+				});
+			}
+
+			return {
+				partners: results,
+				stats: [
+					{
+						moduleName,
+						totalRecords,
+						mapped: results.length,
+						missingEmail,
+						pages,
+						emailFields
+					}
+				]
+			};
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			if (message.toLowerCase().includes('module name given seems to be invalid')) {
@@ -647,6 +820,11 @@ export async function listTradePartners(accessToken: string, apiDomain?: string)
 	}
 
 	throw lastError || new Error('Trade partner module name invalid.');
+}
+
+export async function listTradePartners(accessToken: string, apiDomain?: string): Promise<TradePartnerProfile[]> {
+	const result = await listTradePartnersWithStats(accessToken, apiDomain);
+	return result.partners;
 }
 
 async function listActiveDealContactIds(accessToken: string, apiDomain?: string): Promise<string[]> {

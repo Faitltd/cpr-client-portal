@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { listContactsForActiveDeals, listTradePartners } from '$lib/server/auth';
+import { listContactsForActiveDeals, listTradePartnersWithStats } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { isValidAdminSession } from '$lib/server/admin';
 import {
@@ -163,7 +163,7 @@ export const actions: Actions = {
 
 		let synced = 0;
 		let errors = 0;
-		const partners = await listTradePartners(accessToken);
+		const { partners, stats } = await listTradePartnersWithStats(accessToken);
 		for (const partner of partners) {
 			try {
 				await upsertTradePartner(partner);
@@ -174,9 +174,21 @@ export const actions: Actions = {
 			}
 		}
 
-		const message = errors
+		const totalRecords = stats.reduce((sum, stat) => sum + stat.totalRecords, 0);
+		const missingEmail = stats.reduce((sum, stat) => sum + stat.missingEmail, 0);
+		const moduleSummary =
+			stats.length > 1
+				? ` Modules: ${stats.map((stat) => `${stat.moduleName}=${stat.totalRecords}`).join(', ')}.`
+				: stats.length === 1
+					? ` Module: ${stats[0].moduleName}.`
+					: '';
+		const baseMessage = errors
 			? `Synced ${synced} trade partners. ${errors} failed.`
 			: `Synced ${synced} trade partners.`;
+		const message =
+			stats.length > 0
+				? `${baseMessage} Zoho returned ${totalRecords} records. Missing email: ${missingEmail}.${moduleSummary}`
+				: baseMessage;
 
 		return { message };
 	}
