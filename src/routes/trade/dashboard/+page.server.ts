@@ -64,7 +64,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		'Zip_Code',
 		'Garage_Code',
 		'WiFi',
-		'Notes1'
+		'Refined_SOW'
 	].join(',');
 
 	const fetchDealsByIds = async (ids: string[]) => {

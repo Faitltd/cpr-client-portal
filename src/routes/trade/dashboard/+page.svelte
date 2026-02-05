@@ -92,7 +92,7 @@
 					</div>
 					<div class="notes">
 						<h4>Notes</h4>
-						<p>{selectedDeal.Notes1 || 'Not available'}</p>
+						<p>{selectedDeal.Refined_SOW || selectedDeal.Notes1 || 'Not available'}</p>
 					</div>
 				</div>
 			</div>

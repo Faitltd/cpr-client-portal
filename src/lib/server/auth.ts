@@ -39,7 +39,7 @@ const DEAL_FIELDS = [
 	'Zip_Code',
 	'Garage_Code',
 	'WiFi',
-	'Notes1',
+	'Refined_SOW',
 	'External_Link',
 	'Portal_Trade_Partners'
 ].join(',');
@@ -221,6 +221,7 @@ function normalizeDealRecord(deal: any) {
 		'Zip_Code',
 		'Garage_Code',
 		'WiFi',
+		'Refined_SOW',
 		'Notes1',
 		'Stage'
 	];
@@ -229,6 +230,9 @@ function normalizeDealRecord(deal: any) {
 		if (current && typeof current === 'string') continue;
 		const coerced = coerceText(current);
 		if (coerced) normalized[field] = coerced;
+	}
+	if (!normalized.Notes1 && normalized.Refined_SOW) {
+		normalized.Notes1 = normalized.Refined_SOW;
 	}
 
 	return normalized;
