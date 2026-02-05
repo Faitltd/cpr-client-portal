@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { getEmbedToken, getRequestDetails } from '$lib/server/sign';
+import { getEmbedToken, getRequestDetails, listSignRequestsByRecipient } from '$lib/server/sign';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
@@ -40,24 +40,32 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 			});
 		}
 
-		const details = await getRequestDetails(accessToken, requestId);
-		if (!details) {
-			throw error(404, 'Contract not found');
-		}
-
-		const actions = details?.actions || [];
-		const action = actions.find((item: any) => {
-			const actionType = (item.action_type || item.actionType || '').toLowerCase();
-			const email = (item.recipient_email || item.recipientEmail || '').toLowerCase();
-			return actionType === 'sign' && email === session.client.email.toLowerCase();
+		const requests = await listSignRequestsByRecipient(accessToken, session.client.email);
+		const requestMatch = requests.find((request: any) => {
+			const matchId = request.request_id || request.requestId;
+			return String(matchId) === String(requestId);
 		});
 
-		if (!action) {
+		if (!requestMatch) {
 			throw error(403, 'No access to this contract');
 		}
 
+		let details: any = null;
+		try {
+			details = await getRequestDetails(accessToken, requestId);
+		} catch (err) {
+			console.warn('Failed to fetch request details, using list data', err);
+		}
+
+		const actions = details?.actions || [];
+		const normalizedEmail = session.client.email.toLowerCase();
+		const action = actions.find((item: any) => {
+			const email = (item.recipient_email || item.recipientEmail || item.email || '').toLowerCase();
+			return email === normalizedEmail;
+		});
+
 		let viewUrl: string | null = null;
-		const actionId = action.action_id || action.actionId;
+		const actionId = action?.action_id || action?.actionId;
 		if (actionId) {
 			try {
 				const embedPayload = await getEmbedToken(accessToken, requestId, actionId);
@@ -72,10 +80,13 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 		if (!viewUrl) {
 			viewUrl =
-				details.document_url ||
-				details.request_url ||
-				details.requestUrl ||
+				details?.document_url ||
+				details?.request_url ||
+				details?.requestUrl ||
 				details?.documents?.[0]?.document_url ||
+				requestMatch.document_url ||
+				requestMatch.request_url ||
+				requestMatch.requestUrl ||
 				null;
 		}
 
@@ -87,11 +98,19 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 			data: {
 				id: requestId,
 				name:
-					details.request_name ||
-					details.request_name_display ||
-					details.requestname ||
+					details?.request_name ||
+					details?.request_name_display ||
+					details?.requestname ||
+					requestMatch.request_name ||
+					requestMatch.request_name_display ||
+					requestMatch.requestname ||
 					'Contract',
-				status: details.request_status || details.status || 'Unknown',
+				status:
+					details?.request_status ||
+					details?.status ||
+					requestMatch.request_status ||
+					requestMatch.status ||
+					'Unknown',
 				view_url: viewUrl
 			}
 		});
