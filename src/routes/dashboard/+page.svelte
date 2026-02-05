@@ -139,16 +139,10 @@
 								</p>
 							</div>
 							<div class="invoice-amounts">
-								{#if contract.sign_url}
-									<a class="btn-view" href={contract.sign_url} target="_blank" rel="noreferrer">
-										Sign
-									</a>
+								{#if contract.can_sign}
+									<a class="btn-view" href={`/contracts/${contract.id}/sign`}>Sign</a>
 								{/if}
-								{#if contract.view_url}
-									<a class="btn-secondary" href={contract.view_url} target="_blank" rel="noreferrer">
-										View
-									</a>
-								{/if}
+								<a class="btn-secondary" href={`/contracts/${contract.id}/view`}>View</a>
 							</div>
 						</div>
 					{/each}

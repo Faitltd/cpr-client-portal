@@ -2,7 +2,6 @@ import { json, error } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
 import {
-	getEmbedToken,
 	getRequestDetails,
 	listSignRequestsByRecipient
 } from '$lib/server/sign';
@@ -54,16 +53,27 @@ export const GET: RequestHandler = async ({ cookies }) => {
 				return actionType === 'sign' && email === session.client.email.toLowerCase();
 			});
 
-			const signUrl = action
-				? await getEmbedToken(accessToken, requestId, action.action_id || action.actionId)
-				: null;
+			const name =
+				details?.request_name ||
+				request.request_name ||
+				request.request_name_display ||
+				request.requestname ||
+				'Contract';
+			const status =
+				details?.request_status || request.request_status || request.status || 'Unknown';
+			const viewUrl =
+				details?.document_url ||
+				details?.request_url ||
+				request.document_url ||
+				request.request_url ||
+				null;
 
 			results.push({
 				id: requestId,
-				name: request.request_name || request.request_name_display || request.requestname || 'Contract',
-				status: request.request_status || request.status || 'Unknown',
-				sign_url: signUrl,
-				view_url: request.document_url || request.request_url || null
+				name,
+				status,
+				can_sign: Boolean(action),
+				view_url: viewUrl
 			});
 		}
 
