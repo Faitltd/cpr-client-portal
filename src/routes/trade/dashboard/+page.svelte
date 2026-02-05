@@ -9,6 +9,7 @@
 	const deals = Array.isArray(data?.deals) ? data.deals : [];
 	let selectedDealId = deals[0]?.id || '';
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
+	$: selectedDeal && console.log('Selected Deal:', selectedDeal);
 	const getDealLabel = (deal: any) => {
 		return (
 			deal?.Deal_Name ||
