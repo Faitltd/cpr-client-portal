@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { getTokenInfo, refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import {
 	ZOHO_TRADE_PARTNERS_MODULE,
 	ZOHO_TRADE_PARTNER_RELATED_LIST
@@ -84,6 +84,30 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	const modules = parseList(ZOHO_TRADE_PARTNERS_MODULE, 'Trade_Partners');
 	const relatedLists = parseList(ZOHO_TRADE_PARTNER_RELATED_LIST, 'Deals3');
 
+	let tokenInfo: Record<string, unknown> | null = null;
+	try {
+		tokenInfo = await getTokenInfo(accessToken);
+	} catch (err) {
+		tokenInfo = { error: err instanceof Error ? err.message : String(err) };
+	}
+
+	let currentUser: Record<string, unknown> | null = null;
+	try {
+		const response = await zohoApiCall(accessToken, '/users?type=CurrentUser', {});
+		const user = response.users?.[0];
+		if (user) {
+			currentUser = {
+				id: user.id,
+				email: user.email,
+				full_name: user.full_name,
+				role: user.role?.name,
+				profile: user.profile?.name
+			};
+		}
+	} catch (err) {
+		currentUser = { error: err instanceof Error ? err.message : String(err) };
+	}
+
 	const relatedListResults: Array<Record<string, unknown>> = [];
 	let firstRelatedRecord: any | null = null;
 	let firstRelatedSource: { moduleName: string; relatedList: string } | null = null;
@@ -150,6 +174,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		tradePartnerId,
 		modules,
 		relatedLists,
+		tokenInfo,
+		currentUser,
 		relatedListResults,
 		firstRelatedSource,
 		firstRelatedRecord: firstRelatedRecord
