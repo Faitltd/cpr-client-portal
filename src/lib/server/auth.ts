@@ -424,31 +424,36 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	}
 
 	// 1) Try COQL if enabled
-	try {
-		const query = {
-			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners in ('${tradePartnerId}') ORDER BY Created_Time DESC`
-		};
+	const coqlQueries = [
+		`SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners in ('${tradePartnerId}') ORDER BY Created_Time DESC`,
+		`SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners.id = '${tradePartnerId}' ORDER BY Created_Time DESC`,
+		`SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners.id in ('${tradePartnerId}') ORDER BY Created_Time DESC`
+	];
+	for (const select_query of coqlQueries) {
+		try {
+			const response = await zohoApiCall(
+				accessToken,
+				'/coql',
+				{
+					method: 'POST',
+					body: JSON.stringify({ select_query })
+				},
+				apiDomain
+			);
 
-		const response = await zohoApiCall(
-			accessToken,
-			'/coql',
-			{
-				method: 'POST',
-				body: JSON.stringify(query)
-			},
-			apiDomain
-		);
-
-		coqlCount = response.data?.length || 0;
-		if (response.data?.length) {
-			logSummary('coql', { dealsCount: coqlCount });
-			return response.data.map(normalizeDealRecord).map(ensureDealId);
+			coqlCount = response.data?.length || 0;
+			logSummary('coql', { dealsCount: coqlCount, query: select_query });
+			if (response.data?.length) {
+				return response.data.map(normalizeDealRecord).map(ensureDealId);
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (message.includes('OAUTH_SCOPE_MISMATCH')) {
+				console.error('Trade partner COQL failed', { tradePartnerId, error: message });
+				break;
+			}
+			console.error('Trade partner COQL failed', { tradePartnerId, error: message, query: select_query });
 		}
-	} catch (error) {
-		console.error('Trade partner COQL failed', {
-			tradePartnerId,
-			error: error instanceof Error ? error.message : String(error)
-		});
 	}
 
 	// 2) Try trade partner's related deals field if present
