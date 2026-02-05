@@ -81,6 +81,47 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		return results;
 	};
 
+	const getDealLabel = (deal: any) => {
+		return (
+			deal?.Deal_Name ||
+			deal?.Potential_Name ||
+			deal?.Name ||
+			deal?.name ||
+			deal?.Subject ||
+			deal?.Full_Name ||
+			deal?.Display_Name ||
+			deal?.display_name ||
+			null
+		);
+	};
+
+	const isPlaceholderName = (name: string | null) => {
+		if (!name) return false;
+		return /^deal\s+\d+$/i.test(name.trim());
+	};
+
+	const hasUsefulData = (deal: any) => {
+		return Boolean(
+			deal?.Address ||
+				deal?.Street ||
+				deal?.City ||
+				deal?.State ||
+				deal?.Zip_Code ||
+				deal?.Garage_Code ||
+				deal?.WiFi ||
+				deal?.Refined_SOW ||
+				deal?.Notes1 ||
+				deal?.Closing_Date ||
+				deal?.Stage
+		);
+	};
+
+	const isDisplayableDeal = (deal: any) => {
+		const label = getDealLabel(deal);
+		if (label && !isPlaceholderName(label)) return true;
+		return hasUsefulData(deal);
+	};
+
 	if (!session.trade_partner.zoho_trade_partner_id) {
 		warning = 'Your account is missing a Zoho Trade Partner ID. Contact admin to resync.';
 	} else {
@@ -97,7 +138,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			hydratedDeals = allDeals.map((deal) => hydratedMap.get(deal.id) || deal);
 		}
 
-		deals = hydratedDeals;
+		deals = hydratedDeals.filter(isDisplayableDeal);
 	}
 
 	return {
