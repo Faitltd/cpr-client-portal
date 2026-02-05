@@ -5,6 +5,7 @@
 	let loading = true;
 	let error = '';
 	let viewUrl = '';
+	let pdfUrl = '';
 	let name = '';
 	let status = '';
 
@@ -12,6 +13,7 @@
 
 	onMount(async () => {
 		const presetUrl = $page.url.searchParams.get('url') || '';
+		pdfUrl = `/api/sign/requests/${requestId}/pdf`;
 		try {
 			const res = await fetch(`/api/sign/requests/${requestId}/view`);
 			const payload = await res.json().catch(() => ({}));
@@ -41,6 +43,13 @@
 		} finally {
 			if (!viewUrl && presetUrl) {
 				viewUrl = presetUrl;
+			}
+			if (!viewUrl && pdfUrl) {
+				viewUrl = pdfUrl;
+			}
+			const authError = error.toLowerCase().includes('login');
+			if (viewUrl && !authError) {
+				error = '';
 			}
 			if (!viewUrl && !error) {
 				error = 'View link unavailable. Please contact support.';
@@ -72,7 +81,7 @@
 	{:else}
 		<div class="actions">
 			<a class="btn-secondary" href={viewUrl} target="_blank" rel="noreferrer">
-				Open in new tab
+				{viewUrl === pdfUrl ? 'Download PDF' : 'Open in new tab'}
 			</a>
 		</div>
 		<div class="frame">
