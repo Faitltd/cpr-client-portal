@@ -749,6 +749,31 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 				apiDomain: apiDomain || 'default'
 			});
 			results.push(...fallbackDeals);
+
+			if (fallbackDeals.length === 0 && chunk.length > 0) {
+				try {
+					const criteria = `(id:in:${chunk.join(',')})`;
+					const search = await zohoApiCall(
+						accessToken,
+						`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
+						{},
+						apiDomain
+					);
+					const searchDeals = search.data || [];
+					console.error('TP_DEBUG: fetch deals by id search', {
+						chunkSize: chunk.length,
+						dealsCount: searchDeals.length,
+						apiDomain: apiDomain || 'default'
+					});
+					results.push(...searchDeals);
+				} catch (error) {
+					console.error('TP_DEBUG: deal id search failed', {
+						chunkSize: chunk.length,
+						apiDomain: apiDomain || 'default',
+						error: error instanceof Error ? error.message : String(error)
+					});
+				}
+			}
 		}
 	}
 	return results;
@@ -800,6 +825,15 @@ async function getTradePartnerDealIds(
 					idsCount: refs.length,
 					apiDomain: apiDomain || 'default'
 				});
+				if (refs.length > 0) {
+					const sample = fieldValue[0];
+					console.error('TP_DEBUG: trade partner deals field sample', {
+						keys: sample ? Object.keys(sample) : [],
+						id: sample?.id,
+						name: sample?.name,
+						display_value: sample?.display_value
+					});
+				}
 				return refs;
 			}
 			if (fieldValue?.id) {
