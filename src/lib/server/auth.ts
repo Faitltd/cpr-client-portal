@@ -812,6 +812,17 @@ async function getTradePartnerDealIds(
 						if (typeof item === 'string') {
 							return { id: item };
 						}
+						const nested = item[TRADE_PARTNER_DEALS_FIELD];
+						const nestedId = nested?.id || nested?.ID || nested?.Id;
+						if (nestedId) {
+							const nestedName =
+								nested?.name ||
+								nested?.display_value ||
+								nested?.displayValue ||
+								nested?.value ||
+								null;
+							return { id: nestedId, name: nestedName };
+						}
 						const id = item.id || item.Id || item.ID;
 						if (!id) return null;
 						const name = item.name || item.display_value || item.displayValue || item.value || null;
@@ -831,7 +842,9 @@ async function getTradePartnerDealIds(
 						keys: sample ? Object.keys(sample) : [],
 						id: sample?.id,
 						name: sample?.name,
-						display_value: sample?.display_value
+						display_value: sample?.display_value,
+						nested_id: sample?.[TRADE_PARTNER_DEALS_FIELD]?.id,
+						nested_name: sample?.[TRADE_PARTNER_DEALS_FIELD]?.name
 					});
 				}
 				return refs;
