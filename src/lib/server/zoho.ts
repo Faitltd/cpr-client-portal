@@ -83,13 +83,10 @@ export async function refreshAccessToken(refreshToken: string): Promise<ZohoToke
  */
 export async function getTokenInfo(accessToken: string) {
 	const origin = new URL(ZOHO_TOKEN_URL).origin;
-	const url = `${origin}/oauth/v2/token/info`;
-	const params = new URLSearchParams({ access_token: accessToken });
-	const response = await fetch(url, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: params
-	});
+	const url = `${origin}/oauth/v2/token/info?${new URLSearchParams({
+		access_token: accessToken
+	}).toString()}`;
+	const response = await fetch(url, { method: 'GET' });
 	if (!response.ok) {
 		const error = await response.text();
 		throw new Error(`Token info failed: ${error}`);

@@ -388,7 +388,73 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 
 	logSummary('start');
 
-	// 0) Prefer related list on trade partner record
+	// 0) Try search endpoint for lookup field (direct Deals access)
+	try {
+		const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
+		const search = await zohoApiCall(
+			accessToken,
+			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
+			{},
+			apiDomain
+		);
+		searchCount = search.data?.length || 0;
+		if (search.data?.length) {
+			logSummary('search', { dealsCount: searchCount });
+			return search.data.map(normalizeDealRecord).map(ensureDealId);
+		}
+	} catch (error) {
+		console.error('Trade partner deals search failed', {
+			tradePartnerId,
+			criteria,
+			error: error instanceof Error ? error.message : String(error)
+		});
+	}
+
+	// 1) Try COQL if enabled
+	try {
+		const query = {
+			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners in ('${tradePartnerId}') ORDER BY Created_Time DESC`
+		};
+
+		const response = await zohoApiCall(
+			accessToken,
+			'/coql',
+			{
+				method: 'POST',
+				body: JSON.stringify(query)
+			},
+			apiDomain
+		);
+
+		coqlCount = response.data?.length || 0;
+		if (response.data?.length) {
+			logSummary('coql', { dealsCount: coqlCount });
+			return response.data.map(normalizeDealRecord).map(ensureDealId);
+		}
+	} catch (error) {
+		console.error('Trade partner COQL failed', {
+			tradePartnerId,
+			error: error instanceof Error ? error.message : String(error)
+		});
+	}
+
+	// 2) Try trade partner's related deals field if present
+	const relatedDealIds = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
+	relatedDealIdsCount = relatedDealIds.length;
+	if (relatedDealIds.length > 0) {
+		const deals = await fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
+		logSummary('relatedDealIds', { dealsCount: deals.length });
+		if (deals.length > 0) {
+			return deals.map(normalizeDealRecord).map(ensureDealId);
+		}
+		console.error('TP_DEBUG: related deal ids returned, but deals fetch empty', {
+			tradePartnerId,
+			relatedDealIdsCount,
+			apiDomain: apiDomain || 'default'
+		});
+	}
+
+	// 3) Try related list on trade partner record (may be a junction)
 	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
 	relatedListCount = relatedDeals.length;
 	if (relatedDeals.length > 0) {
@@ -419,72 +485,6 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			});
 		}
 		return hydratedDeals.map(normalizeDealRecord).map(ensureDealId);
-	}
-
-	// 1) Try trade partner's related deals field if present
-	const relatedDealIds = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
-	relatedDealIdsCount = relatedDealIds.length;
-	if (relatedDealIds.length > 0) {
-		const deals = await fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
-		logSummary('relatedDealIds', { dealsCount: deals.length });
-		if (deals.length > 0) {
-			return deals.map(normalizeDealRecord).map(ensureDealId);
-		}
-		console.error('TP_DEBUG: related deal ids returned, but deals fetch empty', {
-			tradePartnerId,
-			relatedDealIdsCount,
-			apiDomain: apiDomain || 'default'
-		});
-	}
-
-	// 2) Try search endpoint for lookup field
-	try {
-		const criteria = `(Portal_Trade_Partners:contains:${tradePartnerId})`;
-		const search = await zohoApiCall(
-			accessToken,
-			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
-			{},
-			apiDomain
-		);
-		searchCount = search.data?.length || 0;
-		if (search.data?.length) {
-			logSummary('search', { dealsCount: searchCount });
-			return search.data.map(normalizeDealRecord).map(ensureDealId);
-		}
-	} catch (error) {
-		console.error('Trade partner deals search failed', {
-			tradePartnerId,
-			criteria,
-			error: error instanceof Error ? error.message : String(error)
-		});
-	}
-
-	// 3) Try COQL if enabled
-	try {
-		const query = {
-			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners in ('${tradePartnerId}') ORDER BY Created_Time DESC`
-		};
-
-		const response = await zohoApiCall(
-			accessToken,
-			'/coql',
-			{
-				method: 'POST',
-				body: JSON.stringify(query)
-			},
-			apiDomain
-		);
-
-		coqlCount = response.data?.length || 0;
-		if (response.data?.length) {
-			logSummary('coql', { dealsCount: coqlCount });
-			return response.data.map(normalizeDealRecord).map(ensureDealId);
-		}
-	} catch (error) {
-		console.error('Trade partner COQL failed', {
-			tradePartnerId,
-			error: error instanceof Error ? error.message : String(error)
-		});
 	}
 
 	// 4) Fallback to standard list + client-side filter
