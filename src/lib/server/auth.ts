@@ -392,6 +392,24 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 
 	logSummary('start');
 
+	const collected = new Map<string, any>();
+	const collectedOrder: string[] = [];
+	const rememberDeal = (deal: any) => {
+		if (!deal || typeof deal !== 'object') return;
+		const normalized = normalizeDealRecord(deal);
+		const id = normalized?.id;
+		if (!id) return;
+		if (!collected.has(id)) {
+			collectedOrder.push(id);
+		}
+		collected.set(id, normalized);
+	};
+	const rememberDeals = (deals: any[]) => {
+		for (const deal of deals || []) {
+			rememberDeal(deal);
+		}
+	};
+
 	// 0) Try search endpoint for lookup field (direct Deals access)
 	const searchOperators = ['equals', 'in'];
 	for (const operator of searchOperators) {
@@ -406,7 +424,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			searchCount = search.data?.length || 0;
 			if (search.data?.length) {
 				logSummary('search', { dealsCount: searchCount, operator });
-				return search.data.map(normalizeDealRecord).map(ensureDealId);
+				rememberDeals(search.data);
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -444,7 +462,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			coqlCount = response.data?.length || 0;
 			logSummary('coql', { dealsCount: coqlCount, query: select_query });
 			if (response.data?.length) {
-				return response.data.map(normalizeDealRecord).map(ensureDealId);
+				rememberDeals(response.data);
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -459,68 +477,51 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	// 2) Try trade partner's related deals field if present
 	const relatedDealRefs = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
 	relatedDealIdsCount = relatedDealRefs.length;
-	if (relatedDealRefs.length > 0) {
-		const relatedDealIds = relatedDealRefs.map((ref) => ref.id);
-		const deals = await fetchDealsByIds(accessToken, relatedDealIds, apiDomain);
-		logSummary('relatedDealIds', { dealsCount: deals.length });
-		if (deals.length > 0) {
-			return deals.map(normalizeDealRecord).map(ensureDealId);
-		}
-		console.error('TP_DEBUG: related deal ids returned, but deals fetch empty', {
-			tradePartnerId,
-			relatedDealIdsCount,
-			apiDomain: apiDomain || 'default'
-		});
-		const fallbackDeals = relatedDealRefs.map((ref) => ({
-			id: ref.id,
-			Deal_Name: ref.name || `Deal ${String(ref.id).slice(-6)}`,
-			Portal_Trade_Partners: { id: tradePartnerId }
-		}));
-		if (fallbackDeals.length > 0) {
-			logSummary('relatedDealIdsFallback', { dealsCount: fallbackDeals.length });
-			return fallbackDeals.map(normalizeDealRecord).map(ensureDealId);
-		}
-	}
+	const relatedDealIds = relatedDealRefs.map((ref) => ref.id);
 
 	// 3) Try related list on trade partner record (may be a junction)
 	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
 	relatedListCount = relatedDeals.length;
-	if (relatedDeals.length > 0) {
-		const normalizedRelated = relatedDeals.map(normalizeDealRecord);
-		const sample = normalizedRelated[0];
-		if (sample) {
-			console.error('TP_DEBUG: related list raw sample', {
-				keys: Object.keys(sample),
-				dealName: sample?.Deal_Name,
-				rawDealName: summarizeValue(sample?.Deal_Name)
-			});
-		}
-		const relatedIds = normalizedRelated.map((deal: any) => deal?.id).filter(Boolean) as string[];
-		let hydratedDeals = normalizedRelated;
-		let hydratedCount = 0;
-		if (relatedIds.length > 0) {
-			const hydrated = await fetchDealsByIds(accessToken, relatedIds, apiDomain);
-			hydratedCount = hydrated.length;
-			if (hydrated.length > 0) {
-				const normalizedHydrated = hydrated.map(normalizeDealRecord);
-				const hydratedMap = new Map(normalizedHydrated.map((deal: any) => [deal.id, deal]));
-				hydratedDeals = normalizedRelated.map((deal: any) => hydratedMap.get(deal.id) || deal);
+	const normalizedRelated = relatedDeals.map(normalizeDealRecord);
+	const sample = normalizedRelated[0];
+	if (sample) {
+		console.error('TP_DEBUG: related list raw sample', {
+			keys: Object.keys(sample),
+			dealName: sample?.Deal_Name,
+			rawDealName: summarizeValue(sample?.Deal_Name)
+		});
+	}
+	const relatedListIds = normalizedRelated.map((deal: any) => deal?.id).filter(Boolean) as string[];
+
+	const combinedIds = Array.from(new Set([...relatedDealIds, ...relatedListIds]));
+	if (combinedIds.length > 0) {
+		const deals = await fetchDealsByIds(accessToken, combinedIds, apiDomain);
+		logSummary('combinedIds', { dealsCount: deals.length, idsCount: combinedIds.length });
+		rememberDeals(deals);
+	}
+
+	if (relatedDealRefs.length > 0) {
+		for (const ref of relatedDealRefs) {
+			if (ref?.id && !collected.has(ref.id)) {
+				rememberDeal({
+					id: ref.id,
+					Deal_Name: ref.name || `Deal ${String(ref.id).slice(-6)}`,
+					Portal_Trade_Partners: { id: tradePartnerId }
+				});
 			}
 		}
-		logSummary('relatedList', {
-			dealsCount: relatedDeals.length,
-			hydratedCount,
-			missingIds: Math.max(relatedDeals.length - relatedIds.length, 0)
-		});
-		if (normalizedRelated.length > 0) {
-			const sample = normalizedRelated[0];
-			console.error('TP_DEBUG: related list sample', {
-				keys: Object.keys(sample || {}),
-				id: sample?.id,
-				dealName: sample?.Deal_Name
-			});
+	}
+	if (normalizedRelated.length > 0) {
+		for (const deal of normalizedRelated) {
+			if (deal?.id && !collected.has(deal.id)) {
+				rememberDeal(deal);
+			}
 		}
-		return hydratedDeals.map(normalizeDealRecord).map(ensureDealId);
+	}
+
+	if (collectedOrder.length > 0) {
+		logSummary('final', { dealsCount: collectedOrder.length });
+		return collectedOrder.map((id, index) => ensureDealId(collected.get(id), index));
 	}
 
 	// 4) Fallback to standard list + client-side filter
