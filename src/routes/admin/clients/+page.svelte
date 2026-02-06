@@ -4,6 +4,13 @@
 		tradePartners: { id: string; email: string; name?: string | null }[];
 	};
 	export let form: { message?: string } | undefined;
+
+	const sortLabel = (value: string | null | undefined) => (value || '').toLowerCase();
+	$: sortedClients = [...(data?.clients || [])].sort((a, b) => {
+		const aName = sortLabel(a.full_name) || sortLabel(a.email);
+		const bName = sortLabel(b.full_name) || sortLabel(b.email);
+		return aName.localeCompare(bName);
+	});
 </script>
 
 <div class="container">
@@ -37,7 +44,7 @@
 		<label for="client_id">Client</label>
 		<select id="client_id" name="client_id">
 			<option value="">Select a client</option>
-			{#each data.clients as client}
+			{#each sortedClients as client}
 				<option value={client.id}>{client.full_name || client.email} ({client.email})</option>
 			{/each}
 		</select>
