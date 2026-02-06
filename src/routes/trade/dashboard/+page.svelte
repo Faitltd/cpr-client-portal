@@ -91,8 +91,12 @@
 						<p>{selectedDeal.WiFi || 'Not available'}</p>
 					</div>
 					<div class="notes">
+						<h4>Scope</h4>
+						<p>{selectedDeal.Refined_SOW || 'Not available'}</p>
+					</div>
+					<div class="notes">
 						<h4>Notes</h4>
-						<p>{selectedDeal.Refined_SOW || selectedDeal.Notes1 || 'Not available'}</p>
+						<p>{selectedDeal.Notes1 || 'Not available'}</p>
 					</div>
 				</div>
 			</div>
