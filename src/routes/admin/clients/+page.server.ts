@@ -97,53 +97,59 @@ export const actions: Actions = {
 	},
 	sync: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
-		const tokens = await getZohoTokens();
-		if (!tokens) {
-			return fail(500, { message: 'Zoho is not connected yet.' });
-		}
-
-		await clearClients();
-
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-				scope: tokens.scope
-			});
-		}
-
-		let synced = 0;
-		let errors = 0;
-		const contacts = await listContactsForActiveDeals(accessToken);
-		const seenEmails = new Set<string>();
-		for (const contact of contacts) {
-			const email = contact.email?.toLowerCase();
-			if (!email) continue;
-			if (seenEmails.has(email)) {
-				errors += 1;
-				console.warn(`Duplicate email skipped: ${email}`);
-				continue;
+		try {
+			const tokens = await getZohoTokens();
+			if (!tokens) {
+				return fail(500, { message: 'Zoho is not connected yet.' });
 			}
-			seenEmails.add(email);
-			try {
-				await upsertClient(contact);
-				synced += 1;
-			} catch (err) {
-				errors += 1;
-				console.error('Failed to sync contact', contact.email, err);
+
+			await clearClients();
+
+			let accessToken = tokens.access_token;
+			if (new Date(tokens.expires_at) < new Date()) {
+				const refreshed = await refreshAccessToken(tokens.refresh_token);
+				accessToken = refreshed.access_token;
+				await upsertZohoTokens({
+					user_id: tokens.user_id,
+					access_token: refreshed.access_token,
+					refresh_token: refreshed.refresh_token,
+					expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+					scope: tokens.scope
+				});
 			}
+
+			let synced = 0;
+			let errors = 0;
+			const contacts = await listContactsForActiveDeals(accessToken);
+			const seenEmails = new Set<string>();
+			for (const contact of contacts) {
+				const email = contact.email?.toLowerCase();
+				if (!email) continue;
+				if (seenEmails.has(email)) {
+					errors += 1;
+					console.warn(`Duplicate email skipped: ${email}`);
+					continue;
+				}
+				seenEmails.add(email);
+				try {
+					await upsertClient(contact);
+					synced += 1;
+				} catch (err) {
+					errors += 1;
+					console.error('Failed to sync contact', contact.email, err);
+				}
+			}
+
+			const message = errors
+				? `Synced ${synced} contacts. ${errors} failed.`
+				: `Synced ${synced} contacts.`;
+
+			return { message };
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Unknown error';
+			console.error('Client sync failed', err);
+			return fail(500, { message: `Client sync failed: ${message}` });
 		}
-
-		const message = errors
-			? `Synced ${synced} contacts. ${errors} failed.`
-			: `Synced ${synced} contacts.`;
-
-		return { message };
 	},
 	syncTradePartners: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
