@@ -7,6 +7,17 @@
 	let error = '';
 	let invoiceError = '';
 	let invoicesOpen = true;
+	const formatInvoiceDate = (invoice: any) => {
+		const raw =
+			invoice?.invoice_date ??
+			invoice?.date ??
+			invoice?.created_time ??
+			invoice?.created_date ??
+			null;
+		if (!raw) return '—';
+		const parsed = new Date(raw);
+		return Number.isNaN(parsed.valueOf()) ? String(raw) : parsed.toLocaleDateString();
+	};
 	$: invoiceTotals = invoices.reduce(
 		(acc, invoice) => {
 			const total = Number(invoice?.total || 0);
@@ -125,7 +136,7 @@
 								<h3>{invoice.invoice_number || invoice.invoice_id}</h3>
 								<p class="invoice-meta">
 									Status: {invoice.status || 'Unknown'} • Date:
-									{invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString() : '—'}
+									{formatInvoiceDate(invoice)}
 								</p>
 							</div>
 							<div class="invoice-amounts">
@@ -163,7 +174,7 @@
 								<h3>{invoice.invoice_number || invoice.invoice_id}</h3>
 								<p class="invoice-meta">
 									Status: {invoice.status || 'Unknown'} • Date:
-									{invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString() : '—'}
+									{formatInvoiceDate(invoice)}
 								</p>
 							</div>
 							<div class="invoice-amounts">
