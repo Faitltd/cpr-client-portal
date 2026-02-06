@@ -7,6 +7,17 @@
 	let error = '';
 	let invoiceError = '';
 	let invoicesOpen = true;
+	$: invoiceTotals = invoices.reduce(
+		(acc, invoice) => {
+			const total = Number(invoice?.total || 0);
+			const balance = Number(invoice?.balance || 0);
+			if (!Number.isNaN(total)) acc.total += total;
+			if (!Number.isNaN(balance)) acc.balance += balance;
+			return acc;
+		},
+		{ total: 0, balance: 0 }
+	);
+	$: amountPaid = Math.max(0, invoiceTotals.total - invoiceTotals.balance);
 
 	onMount(async () => {
 		try {
@@ -77,6 +88,17 @@
 						</div>
 					</div>
 				{/each}
+			</div>
+		</section>
+
+		<section class="invoice-summary">
+			<div class="summary-card">
+				<p class="summary-label">Amount Paid</p>
+				<p class="summary-value">${amountPaid.toLocaleString()}</p>
+			</div>
+			<div class="summary-card">
+				<p class="summary-label">Remaining Balance</p>
+				<p class="summary-value">${invoiceTotals.balance.toLocaleString()}</p>
 			</div>
 		</section>
 
@@ -205,6 +227,35 @@
 
 	.invoices-section {
 		margin-top: 3rem;
+	}
+
+	.invoice-summary {
+		margin-top: 2rem;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 1rem;
+	}
+
+	.summary-card {
+		padding: 1rem 1.25rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		background: #f8fafc;
+	}
+
+	.summary-label {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.95rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.summary-value {
+		margin: 0.35rem 0 0;
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #111827;
 	}
 
 	.section-toggle {
