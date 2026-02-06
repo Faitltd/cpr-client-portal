@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
+	import { onDestroy } from 'svelte';
 
 	$: pathname = $page.url.pathname;
 	$: showClientNav =
@@ -8,9 +10,52 @@
 		!pathname.startsWith('/auth');
 	$: isTradePortal = pathname.startsWith('/trade');
 	$: accountHref = isTradePortal ? '/trade/account' : '/account';
+
+	let appBg: HTMLDivElement | null = null;
+	let cleanupFade: (() => void) | null = null;
+
+	const startFade = () => {
+		if (!appBg || !browser) return () => {};
+
+		let raf = 0;
+		const update = () => {
+			if (!appBg) return;
+			const progress = Math.min(1, window.scrollY / 700);
+			const opacity = 0.78 + 0.18 * progress;
+			appBg.style.setProperty('--bg-fade', opacity.toFixed(3));
+		};
+
+		const onScroll = () => {
+			if (raf) return;
+			raf = window.requestAnimationFrame(() => {
+				raf = 0;
+				update();
+			});
+		};
+
+		window.addEventListener('scroll', onScroll, { passive: true });
+		window.addEventListener('resize', update);
+		update();
+
+		return () => {
+			window.removeEventListener('scroll', onScroll);
+			window.removeEventListener('resize', update);
+			if (raf) {
+				window.cancelAnimationFrame(raf);
+				raf = 0;
+			}
+		};
+	};
+
+	$: if (browser && appBg) {
+		cleanupFade?.();
+		cleanupFade = startFade();
+	}
+
+	onDestroy(() => cleanupFade?.());
 </script>
 
-<div class="app-bg">
+<div class="app-bg" bind:this={appBg}>
 	{#if showClientNav}
 		<header class="portal-header">
 			<div class="portal-header-inner">
@@ -32,6 +77,7 @@
 		position: relative;
 		min-height: 100vh;
 		font-family: Helvetica, Arial, sans-serif;
+		--bg-fade: 0.78;
 		background: url('/images/cpr-logo.png') center/contain no-repeat;
 		background-attachment: scroll;
 	}
@@ -40,7 +86,7 @@
 		content: '';
 		position: absolute;
 		inset: 0;
-		background: rgba(255, 255, 255, 0.78);
+		background: rgba(255, 255, 255, var(--bg-fade));
 	}
 
 	.app-content {

@@ -150,7 +150,7 @@
 		</section>
 
 		<section class="change-orders">
-			<h2>Change Orders</h2>
+			<div class="section-header">Change Orders</div>
 			{#if invoiceError}
 				<p class="invoice-error">{invoiceError}</p>
 			{:else if changeOrders.length === 0}
@@ -272,6 +272,20 @@
 
 	.change-orders {
 		margin-top: 2rem;
+	}
+
+	.section-header {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.75rem 1rem;
+		border: 1px solid #e5e7eb;
+		background: #f8fafc;
+		border-radius: 10px;
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #111827;
 	}
 
 	.invoice-summary {
