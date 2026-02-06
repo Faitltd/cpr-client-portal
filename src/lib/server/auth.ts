@@ -715,41 +715,21 @@ async function fetchTradePartnersByIds(
 	accessToken: string,
 	moduleName: string,
 	ids: string[],
-	fields: string,
 	apiDomain?: string
 ): Promise<any[]> {
 	const results: any[] = [];
-	const chunkSize = 100;
-	for (let i = 0; i < ids.length; i += chunkSize) {
-		const chunk = ids.slice(i, i + chunkSize);
+	for (const id of ids) {
 		try {
-			const params = new URLSearchParams({ ids: chunk.join(',') });
-			if (fields) params.set('fields', fields);
 			const response = await zohoApiCall(
 				accessToken,
-				`/${moduleName}?${params.toString()}`,
+				`/${moduleName}/${id}`,
 				{},
 				apiDomain
 			);
-			const records = response.data || [];
-			results.push(...records);
-		} catch (error) {
-			for (const id of chunk) {
-				try {
-					const params = new URLSearchParams();
-					if (fields) params.set('fields', fields);
-					const response = await zohoApiCall(
-						accessToken,
-						`/${moduleName}/${id}?${params.toString()}`,
-						{},
-						apiDomain
-					);
-					const record = response.data?.[0];
-					if (record) results.push(record);
-				} catch (err) {
-					console.warn('Failed to fetch trade partner', { moduleName, id, error: err });
-				}
-			}
+			const record = response.data?.[0];
+			if (record) results.push(record);
+		} catch (err) {
+			console.warn('Failed to fetch trade partner', { moduleName, id, error: err });
 		}
 	}
 
@@ -898,7 +878,6 @@ export async function listTradePartnersWithStats(
 					accessToken,
 					moduleName,
 					missingEmailIds,
-					fields,
 					apiDomain
 				);
 				for (const record of recoveredRecords) {
