@@ -62,16 +62,19 @@
 			<div class="projects-grid">
 				{#each projects as project}
 					<div class="project-card">
-						<h3>{project.Deal_Name || 'Untitled Project'}</h3>
-						<p class="status">Status: {project.Stage || 'Unknown'}</p>
-						<p class="date">Created: {new Date(project.Created_Time).toLocaleDateString()}</p>
-						<p class="scope">Scope: {project.Refined_SOW || 'Not available'}</p>
-						{#if project.External_Link}
-							<a class="btn-secondary" href={project.External_Link} target="_blank" rel="noreferrer">
-								Progress Photos
-							</a>
-						{/if}
-						<a href="/project/{project.id}" class="btn-view">View Details</a>
+						<div class="project-info">
+							<h3>{project.Deal_Name || 'Untitled Project'}</h3>
+							<p class="status">Status: {project.Stage || 'Unknown'}</p>
+							<p class="date">Created: {new Date(project.Created_Time).toLocaleDateString()}</p>
+						</div>
+						<div class="project-actions">
+							{#if project.External_Link}
+								<a class="btn-secondary" href={project.External_Link} target="_blank" rel="noreferrer">
+									Progress Photos
+								</a>
+							{/if}
+							<a href="/project/{project.id}" class="btn-view">View Details</a>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -153,19 +156,23 @@
 
 	.projects-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-		gap: 1.5rem;
+		grid-template-columns: 1fr;
+		gap: 1rem;
 	}
 
 	.project-card {
-		padding: 1.5rem;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 1.5rem;
+		padding: 1rem 1.25rem;
 		border: 1px solid #ddd;
 		border-radius: 8px;
 		background: white;
 	}
 
 	.project-card h3 {
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 		color: #1a1a1a;
 	}
 
@@ -174,13 +181,12 @@
 		color: #666;
 	}
 
-	.scope {
-		margin: 0.5rem 0;
-		color: #666;
-		display: -webkit-box;
-		-webkit-line-clamp: 3;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
+	.project-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+		justify-content: flex-end;
 	}
 
 	.btn-view {
@@ -257,5 +263,20 @@
 
 	.invoice-error {
 		color: #c00;
+	}
+
+	@media (max-width: 720px) {
+		.project-card {
+			grid-template-columns: 1fr;
+			align-items: start;
+		}
+
+		.project-actions {
+			justify-content: flex-start;
+		}
+
+		.btn-view {
+			margin-top: 0;
+		}
 	}
 </style>

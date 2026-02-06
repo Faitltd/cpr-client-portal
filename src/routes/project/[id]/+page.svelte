@@ -74,6 +74,10 @@
 					<p>{project.Owner?.name || 'Not assigned'}</p>
 				</div>
 				<div>
+					<h3>Scope</h3>
+					<p>{project.Refined_SOW || 'Not available'}</p>
+				</div>
+				<div>
 					<h3>Progress Photos</h3>
 					{#if project.External_Link}
 						<a href={project.External_Link} target="_blank" rel="noreferrer">View Photos</a>
