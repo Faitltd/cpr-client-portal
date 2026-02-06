@@ -85,7 +85,7 @@ const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals3'
 	.map((value) => value.trim())
 	.filter(Boolean);
 
-const ACTIVE_DEAL_STAGES = new Set(['project started']);
+const ACTIVE_DEAL_STAGES = new Set(['project created']);
 
 function isActiveDealStage(stage: string | null | undefined) {
 	if (!stage) return false;
