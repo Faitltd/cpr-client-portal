@@ -36,6 +36,12 @@
 		if (tail) parts.push(tail);
 		return parts.join(', ');
 	};
+
+	const getMapsUrl = (deal: any) => {
+		const address = formatAddress(deal);
+		if (!address) return '';
+		return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+	};
 </script>
 
 <div class="dashboard">
@@ -80,7 +86,20 @@
 				<div class="details-grid">
 					<div>
 						<h4>Address</h4>
-						<p>{formatAddress(selectedDeal) || 'Not available'}</p>
+						{#if formatAddress(selectedDeal)}
+							<p>
+								<a
+									class="address-link"
+									href={getMapsUrl(selectedDeal)}
+									target="_blank"
+									rel="noreferrer"
+								>
+									{formatAddress(selectedDeal)}
+								</a>
+							</p>
+						{:else}
+							<p>Not available</p>
+						{/if}
 					</div>
 					<div>
 						<h4>Garage Code</h4>
@@ -170,6 +189,15 @@
 	.details-grid p {
 		margin: 0;
 		color: #374151;
+	}
+
+	.address-link {
+		color: #1d4ed8;
+		text-decoration: underline;
+	}
+
+	.address-link:hover {
+		color: #1e40af;
 	}
 
 	.notes {
