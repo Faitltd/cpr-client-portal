@@ -104,7 +104,11 @@ const PASSWORD_SEED_DEAL_STAGES = new Set(['project started', 'project created']
 
 function normalizeStage(stage: string | null | undefined) {
 	if (!stage) return '';
-	return stage.trim().toLowerCase();
+	return stage
+		.trim()
+		.toLowerCase()
+		.replace(/\s*\(\s*\d+\s*%?\s*\)\s*/g, '')
+		.trim();
 }
 
 export function isPortalActiveStage(stage: string | null | undefined) {
