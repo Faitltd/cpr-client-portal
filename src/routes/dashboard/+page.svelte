@@ -8,6 +8,11 @@
 	let error = '';
 	let invoiceError = '';
 	let contractError = '';
+	let invoicesOpen = true;
+	$: visibleContracts = contracts.filter((contract) => {
+		const status = String(contract?.status || '').toLowerCase();
+		return !status.includes('expired');
+	});
 
 	onMount(async () => {
 		try {
@@ -87,7 +92,11 @@
 		</section>
 
 		<section class="invoices-section">
-			<h2>Invoices</h2>
+			<button class="section-toggle" type="button" on:click={() => (invoicesOpen = !invoicesOpen)}>
+				<span>Invoices</span>
+				<span class="toggle-icon">{invoicesOpen ? '−' : '+'}</span>
+			</button>
+			{#if invoicesOpen}
 			{#if invoiceError}
 				<p class="invoice-error">{invoiceError}</p>
 			{:else if invoices.length === 0}
@@ -121,17 +130,18 @@
 					{/each}
 				</div>
 			{/if}
+			{/if}
 		</section>
 
 		<section class="contracts-section">
 			<h2>Contracts</h2>
 			{#if contractError}
 				<p class="invoice-error">{contractError}</p>
-			{:else if contracts.length === 0}
+			{:else if visibleContracts.length === 0}
 				<p class="invoice-empty">No contracts found.</p>
 			{:else}
 				<div class="invoice-list">
-					{#each contracts as contract}
+					{#each visibleContracts as contract}
 						<div class="invoice-card">
 							<div>
 								<h3>{contract.name}</h3>
@@ -239,6 +249,29 @@
 
 	.invoices-section {
 		margin-top: 3rem;
+	}
+
+	.section-toggle {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.6rem 0.2rem 0.6rem 0;
+		border: none;
+		background: transparent;
+		font-size: 1.25rem;
+		font-weight: 700;
+		cursor: pointer;
+		color: #111827;
+	}
+
+	.section-toggle:hover {
+		color: #0f766e;
+	}
+
+	.toggle-icon {
+		font-size: 1.4rem;
+		line-height: 1;
 	}
 
 	.contracts-section {
