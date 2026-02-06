@@ -18,6 +18,11 @@
 		{ total: 0, balance: 0 }
 	);
 	$: amountPaid = Math.max(0, invoiceTotals.total - invoiceTotals.balance);
+	$: changeOrders = invoices.filter((invoice) => {
+		const number = String(invoice?.invoice_number || invoice?.invoice_id || '').trim();
+		return number.toUpperCase().startsWith('CO');
+	});
+	$: regularInvoices = invoices.filter((invoice) => !changeOrders.includes(invoice));
 
 	onMount(async () => {
 		try {
@@ -80,7 +85,7 @@
 						</div>
 						<div class="project-actions">
 							{#if project.External_Link}
-								<a class="btn-secondary" href={project.External_Link} target="_blank" rel="noreferrer">
+								<a class="btn-view" href={project.External_Link} target="_blank" rel="noreferrer">
 									Progress Photos
 								</a>
 							{/if}
@@ -110,11 +115,11 @@
 			{#if invoicesOpen}
 			{#if invoiceError}
 				<p class="invoice-error">{invoiceError}</p>
-			{:else if invoices.length === 0}
+			{:else if regularInvoices.length === 0}
 				<p class="invoice-empty">No invoices found.</p>
 			{:else}
 				<div class="invoice-list">
-					{#each invoices as invoice}
+					{#each regularInvoices as invoice}
 						<div class="invoice-card">
 							<div>
 								<h3>{invoice.invoice_number || invoice.invoice_id}</h3>
@@ -144,6 +149,42 @@
 			{/if}
 		</section>
 
+		<section class="change-orders">
+			<h2>Change Orders</h2>
+			{#if invoiceError}
+				<p class="invoice-error">{invoiceError}</p>
+			{:else if changeOrders.length === 0}
+				<p class="invoice-empty">No change orders found.</p>
+			{:else}
+				<div class="invoice-list">
+					{#each changeOrders as invoice}
+						<div class="invoice-card">
+							<div>
+								<h3>{invoice.invoice_number || invoice.invoice_id}</h3>
+								<p class="invoice-meta">
+									Status: {invoice.status || 'Unknown'} • Date:
+									{invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString() : '—'}
+								</p>
+							</div>
+							<div class="invoice-amounts">
+								<p>Total: ${Number(invoice.total || 0).toLocaleString()}</p>
+								<p>Balance: ${Number(invoice.balance || 0).toLocaleString()}</p>
+								{#if invoice.payment_url}
+									<a class="btn-view" href={invoice.payment_url} target="_blank" rel="noreferrer">
+										Pay
+									</a>
+								{/if}
+								{#if invoice.invoice_url}
+									<a class="btn-secondary" href={invoice.invoice_url} target="_blank" rel="noreferrer">
+										View Invoice
+									</a>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</section>
 	{/if}
 </div>
 
@@ -227,6 +268,10 @@
 
 	.invoices-section {
 		margin-top: 3rem;
+	}
+
+	.change-orders {
+		margin-top: 2rem;
 	}
 
 	.invoice-summary {
