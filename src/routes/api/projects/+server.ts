@@ -40,7 +40,16 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		// Fetch ONLY deals associated with this contact
 		const deals = await getContactDeals(accessToken, session.client.zoho_contact_id);
 
-		return json({ data: deals });
+		return json({
+			data: deals,
+			client: {
+				id: session.client.id,
+				email: session.client.email,
+				first_name: session.client.first_name,
+				last_name: session.client.last_name,
+				full_name: session.client.full_name
+			}
+		});
 	} catch (err) {
 		console.error('Failed to fetch projects:', err);
 		throw error(500, 'Failed to fetch projects');

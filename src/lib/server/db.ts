@@ -74,6 +74,39 @@ export interface ZohoTokens {
 	scope?: string | null;
 }
 
+export interface SalesiqTokens {
+	id: string;
+	user_id: string;
+	access_token: string;
+	refresh_token: string;
+	expires_at: string;
+	scope?: string | null;
+}
+
+export interface CliqTokens {
+	id: string;
+	user_id: string;
+	access_token: string;
+	refresh_token: string;
+	expires_at: string;
+	scope?: string | null;
+}
+
+export interface ClientCliqChannel {
+	id: string;
+	client_id: string;
+	cliq_channel_id: string;
+	cliq_channel_name: string;
+}
+
+export interface SalesiqConversation {
+	id: string;
+	conversation_id: string;
+	client_id: string;
+	cliq_channel_id: string;
+	last_event_time?: string | null;
+	last_visitor_message?: string | null;
+}
 
 /**
  * Store or update client record
@@ -125,6 +158,20 @@ export async function getClientAuthByEmail(email: string): Promise<ClientAuth | 
 
 	if (error || !data) return null;
 	return data as ClientAuth;
+}
+
+/**
+ * Fetch full client profile by email
+ */
+export async function getClientByEmail(email: string): Promise<Client | null> {
+	const { data, error } = await supabase
+		.from('clients')
+		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone')
+		.ilike('email', email)
+		.single();
+
+	if (error || !data) return null;
+	return data as Client;
 }
 
 /**
@@ -346,6 +393,36 @@ export async function getZohoTokens(): Promise<ZohoTokens | null> {
 }
 
 /**
+ * Fetch latest SalesIQ tokens
+ */
+export async function getSalesiqTokens(): Promise<SalesiqTokens | null> {
+	const { data, error } = await supabase
+		.from('salesiq_tokens')
+		.select('id, user_id, access_token, refresh_token, expires_at, scope')
+		.order('updated_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+
+	if (error || !data) return null;
+	return data as SalesiqTokens;
+}
+
+/**
+ * Fetch latest Cliq tokens
+ */
+export async function getCliqTokens(): Promise<CliqTokens | null> {
+	const { data, error } = await supabase
+		.from('cliq_tokens')
+		.select('id, user_id, access_token, refresh_token, expires_at, scope')
+		.order('updated_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+
+	if (error || !data) return null;
+	return data as CliqTokens;
+}
+
+/**
  * Store or update Zoho tokens (single row)
  */
 export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<ZohoTokens> {
@@ -393,6 +470,100 @@ export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<
 }
 
 /**
+ * Store or update SalesIQ tokens (single row)
+ */
+export async function upsertSalesiqTokens(tokens: Omit<SalesiqTokens, 'id'>): Promise<SalesiqTokens> {
+	const existing = await getSalesiqTokens();
+	const userId = tokens.user_id || existing?.user_id;
+
+	if (!userId) {
+		throw new Error('SalesIQ token insert failed: missing user_id');
+	}
+
+	if (existing?.id) {
+		const { data, error } = await supabase
+			.from('salesiq_tokens')
+			.update({
+				user_id: userId,
+				access_token: tokens.access_token,
+				refresh_token: tokens.refresh_token,
+				expires_at: tokens.expires_at,
+				scope: tokens.scope ?? existing.scope,
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', existing.id)
+			.select()
+			.single();
+
+		if (error) throw new Error(`SalesIQ token update failed: ${error.message}`);
+		return data as SalesiqTokens;
+	}
+
+	const { data, error } = await supabase
+		.from('salesiq_tokens')
+		.insert({
+			user_id: userId,
+			access_token: tokens.access_token,
+			refresh_token: tokens.refresh_token,
+			expires_at: tokens.expires_at,
+			scope: tokens.scope ?? null,
+			updated_at: new Date().toISOString()
+		})
+		.select()
+		.single();
+
+	if (error) throw new Error(`SalesIQ token insert failed: ${error.message}`);
+	return data as SalesiqTokens;
+}
+
+/**
+ * Store or update Cliq tokens (single row)
+ */
+export async function upsertCliqTokens(tokens: Omit<CliqTokens, 'id'>): Promise<CliqTokens> {
+	const existing = await getCliqTokens();
+	const userId = tokens.user_id || existing?.user_id;
+
+	if (!userId) {
+		throw new Error('Cliq token insert failed: missing user_id');
+	}
+
+	if (existing?.id) {
+		const { data, error } = await supabase
+			.from('cliq_tokens')
+			.update({
+				user_id: userId,
+				access_token: tokens.access_token,
+				refresh_token: tokens.refresh_token,
+				expires_at: tokens.expires_at,
+				scope: tokens.scope ?? existing.scope,
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', existing.id)
+			.select()
+			.single();
+
+		if (error) throw new Error(`Cliq token update failed: ${error.message}`);
+		return data as CliqTokens;
+	}
+
+	const { data, error } = await supabase
+		.from('cliq_tokens')
+		.insert({
+			user_id: userId,
+			access_token: tokens.access_token,
+			refresh_token: tokens.refresh_token,
+			expires_at: tokens.expires_at,
+			scope: tokens.scope ?? null,
+			updated_at: new Date().toISOString()
+		})
+		.select()
+		.single();
+
+	if (error) throw new Error(`Cliq token insert failed: ${error.message}`);
+	return data as CliqTokens;
+}
+
+/**
  * List clients for admin management
  */
 export async function listClients(): Promise<Client[]> {
@@ -404,6 +575,96 @@ export async function listClients(): Promise<Client[]> {
 
 	if (error) throw new Error(`Client list failed: ${error.message}`);
 	return (data as Client[]) || [];
+}
+
+/**
+ * Fetch Cliq channel mapping for a client
+ */
+export async function getClientCliqChannel(clientId: string): Promise<ClientCliqChannel | null> {
+	const { data, error } = await supabase
+		.from('client_cliq_channels')
+		.select('id, client_id, cliq_channel_id, cliq_channel_name')
+		.eq('client_id', clientId)
+		.single();
+
+	if (error || !data) return null;
+	return data as ClientCliqChannel;
+}
+
+/**
+ * Create or update a Cliq channel mapping
+ */
+export async function upsertClientCliqChannel(
+	channel: Omit<ClientCliqChannel, 'id'>
+): Promise<ClientCliqChannel> {
+	const { data, error } = await supabase
+		.from('client_cliq_channels')
+		.upsert(
+			[
+				{
+					client_id: channel.client_id,
+					cliq_channel_id: channel.cliq_channel_id,
+					cliq_channel_name: channel.cliq_channel_name,
+					updated_at: new Date().toISOString()
+				}
+			],
+			{ onConflict: 'client_id', defaultToNull: false }
+		)
+		.select('id, client_id, cliq_channel_id, cliq_channel_name')
+		.single();
+
+	if (error) throw new Error(`Cliq channel upsert failed: ${error.message}`);
+	return data as ClientCliqChannel;
+}
+
+/**
+ * Upsert SalesIQ conversation mapping
+ */
+export async function upsertSalesiqConversation(
+	conversation: Omit<SalesiqConversation, 'id'>
+): Promise<SalesiqConversation> {
+	const { data, error } = await supabase
+		.from('salesiq_conversations')
+		.upsert(
+			[
+				{
+					conversation_id: conversation.conversation_id,
+					client_id: conversation.client_id,
+					cliq_channel_id: conversation.cliq_channel_id,
+					last_event_time: conversation.last_event_time ?? null,
+					last_visitor_message: conversation.last_visitor_message ?? null,
+					updated_at: new Date().toISOString()
+				}
+			],
+			{ onConflict: 'conversation_id', defaultToNull: false }
+		)
+		.select(
+			'id, conversation_id, client_id, cliq_channel_id, last_event_time, last_visitor_message'
+		)
+		.single();
+
+	if (error) throw new Error(`SalesIQ conversation upsert failed: ${error.message}`);
+	return data as SalesiqConversation;
+}
+
+/**
+ * Get most recent SalesIQ conversation for a Cliq channel
+ */
+export async function getLatestSalesiqConversationForChannel(
+	cliqChannelId: string
+): Promise<SalesiqConversation | null> {
+	const { data, error } = await supabase
+		.from('salesiq_conversations')
+		.select(
+			'id, conversation_id, client_id, cliq_channel_id, last_event_time, last_visitor_message, updated_at'
+		)
+		.eq('cliq_channel_id', cliqChannelId)
+		.order('updated_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+
+	if (error || !data) return null;
+	return data as SalesiqConversation;
 }
 
 /**

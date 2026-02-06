@@ -28,6 +28,8 @@
 			<button type="submit">Debug Trade Partner</button>
 		</form>
 		<a class="oauth-button" href="/auth/login">Reconnect Zoho OAuth</a>
+		<a class="oauth-button" href="/auth/salesiq/login">Connect SalesIQ OAuth</a>
+		<a class="oauth-button" href="/auth/cliq/login">Connect Cliq OAuth</a>
 		{#if form?.message}
 			<p class="message">{form.message}</p>
 		{/if}

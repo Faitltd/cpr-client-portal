@@ -7,5 +7,14 @@
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
+		<script>
+			window.$zoho = window.$zoho || {};
+			$zoho.salesiq = $zoho.salesiq || { ready: function () {} };
+		</script>
+		<script
+			id="zsiqscript"
+			src="https://salesiq.zohopublic.com/widget?wc=siqa9599ea053a5fb419b7ad174b6da1293f6c43867bec629a472cb656e48145bd17283db45ae4e02cb520c9ae2fe456d89"
+			defer
+		></script>
 	</body>
 </html>
