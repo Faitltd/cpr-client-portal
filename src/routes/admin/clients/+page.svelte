@@ -29,6 +29,9 @@
 		<form method="POST" action="?/syncTradePartners" class="sync-form">
 			<button type="submit">Sync Trade Partners</button>
 		</form>
+		<form method="POST" action="?/debugDealStages" class="sync-form">
+			<button type="submit">Debug Deal Stages</button>
+		</form>
 		<form method="POST" action="?/debugTradePartner" class="sync-form">
 			<label for="debug_trade_partner_id">Debug Trade Partner (Zoho ID)</label>
 			<input id="debug_trade_partner_id" name="zoho_trade_partner_id" type="text" />

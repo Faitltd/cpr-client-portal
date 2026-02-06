@@ -4,7 +4,7 @@ import {
 	listContactsForActiveDeals,
 	listTradePartnersWithStats
 } from '$lib/server/auth';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { isValidAdminSession } from '$lib/server/admin';
 import {
 	clearClients,
@@ -150,6 +150,62 @@ export const actions: Actions = {
 			console.error('Client sync failed', err);
 			return fail(500, { message: `Client sync failed: ${message}` });
 		}
+	},
+	debugDealStages: async ({ cookies }) => {
+		requireAdmin(cookies.get('admin_session'));
+		const tokens = await getZohoTokens();
+		if (!tokens) {
+			return fail(500, { message: 'Zoho is not connected yet.' });
+		}
+
+		let accessToken = tokens.access_token;
+		if (new Date(tokens.expires_at) < new Date()) {
+			const refreshed = await refreshAccessToken(tokens.refresh_token);
+			accessToken = refreshed.access_token;
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: refreshed.access_token,
+				refresh_token: refreshed.refresh_token,
+				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+				scope: tokens.scope
+			});
+		}
+
+		const perPage = 200;
+		let page = 1;
+		let more = true;
+		let total = 0;
+		let missingStage = 0;
+		let missingContact = 0;
+		const stageCounts = new Map<string, number>();
+
+		while (more) {
+			const response = await zohoApiCall(
+				accessToken,
+				`/Deals?fields=${encodeURIComponent('Stage,Contact_Name')}&page=${page}&per_page=${perPage}`
+			);
+			const deals = response.data || [];
+			for (const deal of deals) {
+				total += 1;
+				const stage = typeof deal.Stage === 'string' ? deal.Stage.trim() : '';
+				const key = stage || '(missing)';
+				if (!stage) missingStage += 1;
+				if (!deal.Contact_Name?.id) missingContact += 1;
+				stageCounts.set(key, (stageCounts.get(key) || 0) + 1);
+			}
+
+			more = Boolean(response.info?.more_records);
+			page += 1;
+		}
+
+		const topStages = Array.from(stageCounts.entries())
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 15)
+			.map(([stage, count]) => `${stage}=${count}`)
+			.join(', ');
+
+		const message = `Deals scanned: ${total}. Missing stage: ${missingStage}. Missing contact: ${missingContact}. Top stages: ${topStages}`;
+		return { message };
 	},
 	syncTradePartners: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
