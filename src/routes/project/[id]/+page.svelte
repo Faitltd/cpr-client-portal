@@ -5,26 +5,38 @@
 	let project: any = null;
 	let documents: any[] = [];
 	let notes: any[] = [];
+	let contracts: any[] = [];
 	let loading = true;
 	let error = '';
+	let contractError = '';
 
 	const projectId = $page.params.id;
 
 	onMount(async () => {
 		try {
-			const response = await fetch(`/api/project/${projectId}`);
-			if (!response.ok) {
-				if (response.status === 403) {
+			const [projectRes, contractsRes] = await Promise.all([
+				fetch(`/api/project/${projectId}`),
+				fetch('/api/sign/requests')
+			]);
+			if (!projectRes.ok) {
+				if (projectRes.status === 403) {
 					error = 'You do not have permission to view this project';
 				} else {
 					throw new Error('Failed to fetch project');
 				}
 				return;
 			}
-			const data = await response.json();
+			const data = await projectRes.json();
 			project = data.deal;
 			documents = data.documents;
 			notes = data.notes;
+
+			if (contractsRes.ok) {
+				const contractsData = await contractsRes.json();
+				contracts = contractsData.data || [];
+			} else if (contractsRes.status !== 401) {
+				contractError = 'Failed to fetch contracts';
+			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -74,6 +86,41 @@
 				<div class="description">
 					<h3>Description</h3>
 					<p>{project.Description}</p>
+				</div>
+			{/if}
+		</section>
+
+		<section class="contracts">
+			<h2>Contracts</h2>
+			{#if contractError}
+				<p class="section-error">{contractError}</p>
+			{:else if contracts.length === 0}
+				<p class="section-empty">No contracts found.</p>
+			{:else}
+				<div class="contract-list">
+					{#each contracts as contract}
+						<div class="contract-card">
+							<div>
+								<h3>{contract.name}</h3>
+								<p class="contract-meta">Status: {contract.status || 'Unknown'}</p>
+							</div>
+							<div class="contract-actions">
+								{#if contract.can_sign}
+									<a class="btn-view" href={`/contracts/${contract.id}/sign`}>Sign</a>
+								{/if}
+								{#if contract.view_url}
+									<a
+										class="btn-secondary"
+										href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`}
+									>
+										View
+									</a>
+								{:else}
+									<a class="btn-secondary" href={`/contracts/${contract.id}/view`}>View</a>
+								{/if}
+							</div>
+						</div>
+					{/each}
 				</div>
 			{/if}
 		</section>
@@ -160,6 +207,66 @@
 		padding: 1.5rem;
 		background: #f5f5f5;
 		border-radius: 8px;
+	}
+
+	.contract-list {
+		display: grid;
+		gap: 1rem;
+	}
+
+	.contract-card {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem 1.5rem;
+		border: 1px solid #ddd;
+		border-radius: 8px;
+		background: #fff;
+	}
+
+	.contract-meta {
+		color: #666;
+		margin: 0.3rem 0 0;
+	}
+
+	.contract-actions {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+
+	.section-error {
+		color: #c00;
+	}
+
+	.btn-view {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		background: #0066cc;
+		color: white;
+		text-decoration: none;
+		border-radius: 4px;
+	}
+
+	.btn-view:hover {
+		background: #0052a3;
+	}
+
+	.btn-secondary {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		background: #f5f5f5;
+		color: #1a1a1a;
+		text-decoration: none;
+		border-radius: 4px;
+		border: 1px solid #d0d0d0;
+	}
+
+	.btn-secondary:hover {
+		background: #e9e9e9;
 	}
 
 	.documents ul {

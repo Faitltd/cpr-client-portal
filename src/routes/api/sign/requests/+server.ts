@@ -61,6 +61,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
 				'Contract';
 			const status =
 				details?.request_status || request.request_status || request.status || 'Unknown';
+			if (String(status).toLowerCase().includes('expired')) {
+				continue;
+			}
 			const viewUrl =
 				details?.document_url ||
 				details?.request_url ||

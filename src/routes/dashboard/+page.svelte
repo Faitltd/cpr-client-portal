@@ -3,23 +3,16 @@
 
 	let projects: any[] = [];
 	let invoices: any[] = [];
-	let contracts: any[] = [];
 	let loading = true;
 	let error = '';
 	let invoiceError = '';
-	let contractError = '';
 	let invoicesOpen = true;
-	$: visibleContracts = contracts.filter((contract) => {
-		const status = String(contract?.status || '').toLowerCase();
-		return !status.includes('expired');
-	});
 
 	onMount(async () => {
 		try {
-			const [projectsRes, invoicesRes, contractsRes] = await Promise.all([
+			const [projectsRes, invoicesRes] = await Promise.all([
 				fetch('/api/projects'),
-				fetch('/api/invoices'),
-				fetch('/api/sign/requests')
+				fetch('/api/invoices')
 			]);
 
 			if (projectsRes.status === 401) {
@@ -34,13 +27,6 @@
 				invoices = invoicesData.data || [];
 			} else if (invoicesRes.status !== 401) {
 				invoiceError = 'Failed to fetch invoices';
-			}
-
-			if (contractsRes.ok) {
-				const contractsData = await contractsRes.json();
-				contracts = contractsData.data || [];
-			} else if (contractsRes.status !== 401) {
-				contractError = 'Failed to fetch contracts';
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
@@ -133,42 +119,6 @@
 			{/if}
 		</section>
 
-		<section class="contracts-section">
-			<h2>Contracts</h2>
-			{#if contractError}
-				<p class="invoice-error">{contractError}</p>
-			{:else if visibleContracts.length === 0}
-				<p class="invoice-empty">No contracts found.</p>
-			{:else}
-				<div class="invoice-list">
-					{#each visibleContracts as contract}
-						<div class="invoice-card">
-							<div>
-								<h3>{contract.name}</h3>
-								<p class="invoice-meta">
-									Status: {contract.status}
-								</p>
-							</div>
-							<div class="invoice-amounts">
-								{#if contract.can_sign}
-									<a class="btn-view" href={`/contracts/${contract.id}/sign`}>Sign</a>
-								{/if}
-								{#if contract.view_url}
-									<a
-										class="btn-secondary"
-										href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`}
-									>
-										View
-									</a>
-								{:else}
-									<a class="btn-secondary" href={`/contracts/${contract.id}/view`}>View</a>
-								{/if}
-							</div>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</section>
 	{/if}
 </div>
 
@@ -272,10 +222,6 @@
 	.toggle-icon {
 		font-size: 1.4rem;
 		line-height: 1;
-	}
-
-	.contracts-section {
-		margin-top: 3rem;
 	}
 
 	.invoice-list {
