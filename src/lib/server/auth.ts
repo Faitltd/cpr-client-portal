@@ -85,27 +85,7 @@ const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals3'
 	.map((value) => value.trim())
 	.filter(Boolean);
 
-const ACTIVE_DEAL_STAGES = new Set([
-	'ballpark needed',
-	'ballpark',
-	'revision',
-	'ballpark review needed',
-	'ballpark review booked',
-	'pda needed',
-	'pda sent',
-	'design needed',
-	'design review needed',
-	'design review booked',
-	'redesign needed',
-	'estimate needed',
-	'estimate review needed',
-	'estimate review booked',
-	'estimate revision needed',
-	'quoted',
-	'contract needed',
-	'contract sent',
-	'project created'
-]);
+const ACTIVE_DEAL_STAGES = new Set(['project started']);
 
 function isActiveDealStage(stage: string | null | undefined) {
 	if (!stage) return false;
