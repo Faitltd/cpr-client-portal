@@ -85,11 +85,36 @@ const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals3'
 	.map((value) => value.trim())
 	.filter(Boolean);
 
-const ACTIVE_DEAL_STAGES = new Set(['project created']);
+const PORTAL_ACTIVE_DEAL_STAGES = new Set([
+	'design needed',
+	'design review needed',
+	'design review booked',
+	'redesign needed',
+	'estimate needed',
+	'estimate review needed',
+	'estimate review booked',
+	'estimate revision needed',
+	'quoted',
+	'contract needed',
+	'contract sent',
+	'project created'
+]);
 
-function isActiveDealStage(stage: string | null | undefined) {
-	if (!stage) return false;
-	return ACTIVE_DEAL_STAGES.has(stage.trim().toLowerCase());
+const PASSWORD_SEED_DEAL_STAGES = new Set(['project started', 'project created']);
+
+function normalizeStage(stage: string | null | undefined) {
+	if (!stage) return '';
+	return stage.trim().toLowerCase();
+}
+
+export function isPortalActiveStage(stage: string | null | undefined) {
+	const normalized = normalizeStage(stage);
+	return normalized ? PORTAL_ACTIVE_DEAL_STAGES.has(normalized) : false;
+}
+
+function isPasswordSeedStage(stage: string | null | undefined) {
+	const normalized = normalizeStage(stage);
+	return normalized ? PASSWORD_SEED_DEAL_STAGES.has(normalized) : false;
 }
 
 function mapContact(contact: any): ClientProfile {
@@ -918,7 +943,16 @@ export async function listTradePartners(accessToken: string, apiDomain?: string)
 	return result.partners;
 }
 
-async function listActiveDealContactIds(accessToken: string, apiDomain?: string): Promise<string[]> {
+function stageMatches(stage: string | null | undefined, stageSet: Set<string>) {
+	const normalized = normalizeStage(stage);
+	return normalized ? stageSet.has(normalized) : false;
+}
+
+async function listDealContactIdsForStages(
+	accessToken: string,
+	stageSet: Set<string>,
+	apiDomain?: string
+): Promise<string[]> {
 	const perPage = 200;
 	let page = 1;
 	let more = true;
@@ -935,7 +969,7 @@ async function listActiveDealContactIds(accessToken: string, apiDomain?: string)
 		const deals = response.data || [];
 		for (const deal of deals) {
 			const stage = deal.Stage as string | undefined;
-			if (!isActiveDealStage(stage)) continue;
+			if (!stageMatches(stage, stageSet)) continue;
 			const contactId = deal.Contact_Name?.id;
 			if (contactId) ids.add(contactId);
 		}
@@ -945,6 +979,14 @@ async function listActiveDealContactIds(accessToken: string, apiDomain?: string)
 	}
 
 	return Array.from(ids);
+}
+
+async function listPortalActiveDealContactIds(accessToken: string, apiDomain?: string): Promise<string[]> {
+	return listDealContactIdsForStages(accessToken, PORTAL_ACTIVE_DEAL_STAGES, apiDomain);
+}
+
+async function listPasswordSeedContactIds(accessToken: string, apiDomain?: string): Promise<string[]> {
+	return listDealContactIdsForStages(accessToken, PASSWORD_SEED_DEAL_STAGES, apiDomain);
 }
 
 async function fetchContactsByIds(accessToken: string, ids: string[], apiDomain?: string): Promise<any[]> {
@@ -1260,7 +1302,24 @@ async function fetchDealsFromTradePartnerRelatedList(
  * Fetch contacts attached to active deals only
  */
 export async function listContactsForActiveDeals(accessToken: string, apiDomain?: string): Promise<ClientProfile[]> {
-	const contactIds = await listActiveDealContactIds(accessToken, apiDomain);
+	const contactIds = await listPortalActiveDealContactIds(accessToken, apiDomain);
+	if (contactIds.length == 0) return [];
+
+	const contacts = await fetchContactsByIds(accessToken, contactIds, apiDomain);
+	const results: ClientProfile[] = [];
+	for (const contact of contacts) {
+		if (contact.Email) {
+			results.push(mapContact(contact));
+		}
+	}
+	return results;
+}
+
+export async function listContactsForPasswordSeedDeals(
+	accessToken: string,
+	apiDomain?: string
+): Promise<ClientProfile[]> {
+	const contactIds = await listPasswordSeedContactIds(accessToken, apiDomain);
 	if (contactIds.length == 0) return [];
 
 	const contacts = await fetchContactsByIds(accessToken, contactIds, apiDomain);

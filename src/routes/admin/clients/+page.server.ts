@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import {
 	debugTradePartnerRecord,
 	listContactsForActiveDeals,
+	listContactsForPasswordSeedDeals,
 	listTradePartnersWithStats
 } from '$lib/server/auth';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
@@ -38,6 +39,19 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 	}
 	// Short expiry to force a refresh soon if Zoho returned an invalid date.
 	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
+}
+
+function toTenDigitPhone(value: string | null | undefined) {
+	if (!value) return null;
+	const digits = value.replace(/\D/g, '');
+	if (!digits) return null;
+	if (digits.length === 11 && digits.startsWith('1')) {
+		return digits.slice(1);
+	}
+	if (digits.length === 10) {
+		return digits;
+	}
+	return null;
 }
 
 export const load: PageServerLoad = async ({ cookies }) => {
@@ -120,20 +134,39 @@ export const actions: Actions = {
 
 			let synced = 0;
 			let errors = 0;
-			const contacts = await listContactsForActiveDeals(accessToken);
-			const seenEmails = new Set<string>();
-			for (const contact of contacts) {
+			let passwordSet = 0;
+			let missingPhone = 0;
+			const activeContacts = await listContactsForActiveDeals(accessToken);
+			const seedContacts = await listContactsForPasswordSeedDeals(accessToken);
+
+			const activeEmails = new Set(
+				activeContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
+			);
+			const seedEmails = new Set(
+				seedContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
+			);
+
+			const contactMap = new Map<string, typeof activeContacts[number]>();
+			for (const contact of [...activeContacts, ...seedContacts]) {
 				const email = contact.email?.toLowerCase();
 				if (!email) continue;
-				if (seenEmails.has(email)) {
-					errors += 1;
-					console.warn(`Duplicate email skipped: ${email}`);
-					continue;
+				if (!contactMap.has(email)) {
+					contactMap.set(email, contact);
 				}
-				seenEmails.add(email);
+			}
+
+			for (const [email, contact] of contactMap.entries()) {
+				const portalActive = activeEmails.has(email);
 				try {
-					await upsertClient(contact);
+					const saved = await upsertClient({ ...contact, portal_active: portalActive });
 					synced += 1;
+					const phoneDigits = toTenDigitPhone(contact.phone);
+					if (phoneDigits) {
+						await setClientPassword(saved.id, hashPassword(phoneDigits));
+						passwordSet += 1;
+					} else {
+						missingPhone += 1;
+					}
 				} catch (err) {
 					errors += 1;
 					console.error('Failed to sync contact', contact.email, err);
@@ -141,8 +174,8 @@ export const actions: Actions = {
 			}
 
 			const message = errors
-				? `Synced ${synced} contacts. ${errors} failed.`
-				: `Synced ${synced} contacts.`;
+				? `Synced ${synced} contacts. ${errors} failed. Passwords set: ${passwordSet}. Missing phone: ${missingPhone}.`
+				: `Synced ${synced} contacts. Passwords set: ${passwordSet}. Missing phone: ${missingPhone}.`;
 
 			return { message };
 		} catch (err) {

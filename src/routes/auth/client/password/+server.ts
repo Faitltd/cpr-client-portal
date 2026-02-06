@@ -20,6 +20,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	if (!client || !verifyPassword(password, client.password_hash)) {
 		return json({ message: 'Invalid email or password.' }, { status: 401 });
 	}
+	if (!client.portal_active) {
+		return json({ message: 'Your portal access is not active yet.' }, { status: 403 });
+	}
 
 	const sessionId = createHash('sha256').update(`${client.id}:${Date.now()}:${Math.random()}`).digest('hex');
 	const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();

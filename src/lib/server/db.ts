@@ -18,12 +18,14 @@ export interface Client {
 	full_name?: string | null;
 	company?: string | null;
 	phone?: string | null;
+	portal_active?: boolean | null;
 }
 
 export interface ClientAuth {
 	id: string;
 	email: string;
 	password_hash: string | null;
+	portal_active?: boolean | null;
 }
 
 export interface ClientSessionRecord {
@@ -86,13 +88,14 @@ export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Clie
 		last_name: clientData.last_name ?? null,
 		company: clientData.company ?? null,
 		phone: clientData.phone ?? null,
+		portal_active: clientData.portal_active ?? false,
 		updated_at: new Date().toISOString()
 	};
 
 	const { data, error } = await supabase
 		.from('clients')
 		.upsert([insertData], { onConflict: 'zoho_contact_id', defaultToNull: false })
-		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone')
+		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone, portal_active')
 		.single();
 
 	if (error) throw new Error(`Client upsert failed: ${error.message}`);
@@ -105,7 +108,7 @@ export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Clie
 export async function getClientAuthById(clientId: string): Promise<ClientAuth | null> {
 	const { data, error } = await supabase
 		.from('clients')
-		.select('id, email, password_hash')
+		.select('id, email, password_hash, portal_active')
 		.eq('id', clientId)
 		.single();
 
@@ -119,7 +122,7 @@ export async function getClientAuthById(clientId: string): Promise<ClientAuth | 
 export async function getClientAuthByEmail(email: string): Promise<ClientAuth | null> {
 	const { data, error } = await supabase
 		.from('clients')
-		.select('id, email, password_hash')
+		.select('id, email, password_hash, portal_active')
 		.ilike('email', email)
 		.single();
 
@@ -398,7 +401,10 @@ export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<
 export async function listClients(): Promise<Client[]> {
 	const { data, error } = await supabase
 		.from('clients')
-		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone')
+		.select(
+			'id, zoho_contact_id, email, first_name, last_name, full_name, company, phone, portal_active'
+		)
+		.eq('portal_active', true)
 		.order('full_name', { ascending: true, nullsFirst: false })
 		.order('email', { ascending: true });
 

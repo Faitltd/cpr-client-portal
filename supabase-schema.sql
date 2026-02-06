@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS clients (
     ) STORED,
     company TEXT,
     phone TEXT,
+    portal_active BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
