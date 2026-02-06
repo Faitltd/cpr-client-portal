@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
+	import { onDestroy } from 'svelte';
 
 	$: pathname = $page.url.pathname;
 	$: showClientNav =
@@ -8,9 +10,57 @@
 		!pathname.startsWith('/auth');
 	$: isTradePortal = pathname.startsWith('/trade');
 	$: accountHref = isTradePortal ? '/trade/account' : '/account';
+	$: isLoginPage = pathname.startsWith('/auth') || pathname === '/admin/login';
+
+	let appBg: HTMLDivElement | null = null;
+	let cleanupParallax: (() => void) | null = null;
+
+	const startParallax = () => {
+		if (!appBg || !browser) return () => {};
+
+		let raf = 0;
+		const update = () => {
+			if (!appBg) return;
+			const offset = Math.min(80, window.scrollY * 0.08);
+			appBg.style.setProperty('--parallax-offset', `${offset}px`);
+		};
+
+		const onScroll = () => {
+			if (raf) return;
+			raf = window.requestAnimationFrame(() => {
+				raf = 0;
+				update();
+			});
+		};
+
+		window.addEventListener('scroll', onScroll, { passive: true });
+		window.addEventListener('resize', update);
+		update();
+
+		return () => {
+			window.removeEventListener('scroll', onScroll);
+			window.removeEventListener('resize', update);
+			if (raf) {
+				window.cancelAnimationFrame(raf);
+				raf = 0;
+			}
+		};
+	};
+
+	$: if (browser && appBg) {
+		cleanupParallax?.();
+		if (!isLoginPage) {
+			cleanupParallax = startParallax();
+		} else {
+			appBg.style.setProperty('--parallax-offset', '0px');
+			cleanupParallax = null;
+		}
+	}
+
+	onDestroy(() => cleanupParallax?.());
 </script>
 
-<div class="app-bg">
+<div class="app-bg" class:parallax-enabled={!isLoginPage} bind:this={appBg}>
 	{#if showClientNav}
 		<header class="portal-header">
 			<div class="portal-header-inner">
@@ -32,7 +82,15 @@
 		position: relative;
 		min-height: 100vh;
 		font-family: Helvetica, Arial, sans-serif;
-		background: url('/images/cpr-logo.png') center/contain no-repeat fixed;
+		--parallax-offset: 0px;
+		background: url('/images/cpr-logo.png') center/contain no-repeat;
+		background-attachment: scroll;
+		background-position: center;
+	}
+
+	.app-bg.parallax-enabled {
+		background-attachment: fixed;
+		background-position: center calc(50% + var(--parallax-offset));
 	}
 
 	.app-bg::before {
