@@ -4,39 +4,10 @@
 	let projects: any[] = [];
 	let invoices: any[] = [];
 	let contracts: any[] = [];
-	let client: { email?: string; first_name?: string | null; last_name?: string | null; full_name?: string | null } | null = null;
 	let loading = true;
 	let error = '';
 	let invoiceError = '';
 	let contractError = '';
-
-	const setSalesIQIdentity = (info: typeof client) => {
-		if (!info?.email) return;
-		const name = info.full_name || [info.first_name, info.last_name].filter(Boolean).join(' ') || info.email;
-		const applyIdentity = () => {
-			try {
-				(window as any).$zoho?.salesiq?.visitor?.name?.(name);
-				(window as any).$zoho?.salesiq?.visitor?.email?.(info.email);
-			} catch (err) {
-				console.warn('SalesIQ identity set failed', err);
-			}
-		};
-
-		const zoho = (window as any).$zoho || {};
-		zoho.salesiq = zoho.salesiq || {};
-		const previousReady = zoho.salesiq.ready;
-		zoho.salesiq.ready = () => {
-			if (typeof previousReady === 'function') {
-				try {
-					previousReady();
-				} catch {
-					// Ignore upstream errors to avoid blocking identity.
-				}
-			}
-			applyIdentity();
-		};
-		(window as any).$zoho = zoho;
-	};
 
 	onMount(async () => {
 		try {
@@ -52,8 +23,6 @@
 			if (!projectsRes.ok) throw new Error('Failed to fetch projects');
 			const projectsData = await projectsRes.json();
 			projects = projectsData.data || [];
-			client = projectsData.client || null;
-			setSalesIQIdentity(client);
 
 			if (invoicesRes.ok) {
 				const invoicesData = await invoicesRes.json();
