@@ -74,6 +74,7 @@
 						<h3>{project.Deal_Name || 'Untitled Project'}</h3>
 						<p class="status">Status: {project.Stage || 'Unknown'}</p>
 						<p class="date">Created: {new Date(project.Created_Time).toLocaleDateString()}</p>
+						<p class="scope">Scope: {project.Refined_SOW || 'Not available'}</p>
 						{#if project.External_Link}
 							<a class="btn-secondary" href={project.External_Link} target="_blank" rel="noreferrer">
 								Progress Photos
@@ -211,6 +212,15 @@
 	.status, .amount, .date {
 		margin: 0.5rem 0;
 		color: #666;
+	}
+
+	.scope {
+		margin: 0.5rem 0;
+		color: #666;
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 
 	.btn-view {
