@@ -206,9 +206,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.6rem 0.2rem 0.6rem 0;
-		border: none;
-		background: transparent;
+		padding: 0.75rem 1rem;
+		border: 1px solid #e5e7eb;
+		background: #f8fafc;
+		border-radius: 10px;
 		font-size: 1.25rem;
 		font-weight: 700;
 		cursor: pointer;
@@ -217,6 +218,7 @@
 
 	.section-toggle:hover {
 		color: #0f766e;
+		background: #eef2f7;
 	}
 
 	.toggle-icon {
