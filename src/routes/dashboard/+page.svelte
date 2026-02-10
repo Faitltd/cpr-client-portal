@@ -271,7 +271,7 @@
 		color: white;
 		text-decoration: none;
 		border-radius: 4px;
-		min-height: 44px;
+		line-height: 1.2;
 	}
 
 	.btn-view:hover {
@@ -286,7 +286,7 @@
 		text-decoration: none;
 		border-radius: 4px;
 		border: 1px solid #d0d0d0;
-		min-height: 44px;
+		line-height: 1.2;
 	}
 
 	.btn-secondary:hover {
@@ -421,11 +421,13 @@
 			margin-top: 0;
 			width: 100%;
 			text-align: center;
+			min-height: 44px;
 		}
 
 		.btn-secondary {
 			width: 100%;
 			text-align: center;
+			min-height: 44px;
 		}
 
 		.invoice-card {
