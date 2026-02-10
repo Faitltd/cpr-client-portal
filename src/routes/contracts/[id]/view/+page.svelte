@@ -8,7 +8,6 @@
 	let pdfUrl = '';
 	let name = '';
 	let status = '';
-	let redirected = false;
 
 	const requestId = $page.params.id;
 
@@ -55,10 +54,6 @@
 			if (!viewUrl && !error) {
 				error = 'View link unavailable. Please contact support.';
 			}
-			if (viewUrl && typeof window !== 'undefined' && !redirected) {
-				redirected = true;
-				window.location.assign(viewUrl);
-			}
 			loading = false;
 		}
 	});
@@ -85,10 +80,12 @@
 		</div>
 	{:else}
 		<div class="actions">
-			<p class="redirect-note">Redirecting you to the contract...</p>
 			<a class="btn-secondary" href={viewUrl} target="_blank" rel="noreferrer">
-				{viewUrl === pdfUrl ? 'Download PDF' : 'Continue to Contract'}
+				{viewUrl === pdfUrl ? 'Download PDF' : 'Open in new tab'}
 			</a>
+		</div>
+		<div class="frame">
+			<iframe title="Contract Viewer" src={viewUrl} allow="clipboard-write"></iframe>
 		</div>
 	{/if}
 </div>
@@ -132,9 +129,9 @@
 	}
 
 	.actions {
-		display: grid;
-		gap: 0.75rem;
-		align-items: center;
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: 1rem;
 	}
 
 	.btn-secondary {
@@ -153,9 +150,19 @@
 		background: #f3f4f6;
 	}
 
-	.redirect-note {
-		margin: 0;
-		color: #374151;
+	.frame {
+		border: 1px solid #e0e0e0;
+		border-radius: 12px;
+		overflow: hidden;
+		background: #fff;
+		min-height: 600px;
+	}
+
+	.frame iframe {
+		border: none;
+		width: 100%;
+		height: 80vh;
+		min-height: 600px;
 	}
 
 	@media (max-width: 720px) {
@@ -170,6 +177,15 @@
 		.btn-secondary {
 			width: 100%;
 			justify-content: center;
+		}
+
+		.frame {
+			min-height: 420px;
+		}
+
+		.frame iframe {
+			height: 70vh;
+			min-height: 420px;
 		}
 	}
 </style>

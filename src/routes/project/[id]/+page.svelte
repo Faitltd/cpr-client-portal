@@ -185,7 +185,7 @@
 							</div>
 							<div class="contract-actions">
 								{#if contract.can_sign}
-									<a class="btn-view" href={`/contracts/${contract.id}/sign`} target="_blank" rel="noreferrer">
+									<a class="btn-view" href={`/contracts/${contract.id}/sign`}>
 										Sign
 									</a>
 								{/if}
@@ -193,18 +193,11 @@
 									<a
 										class="btn-secondary"
 										href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`}
-										target="_blank"
-										rel="noreferrer"
 									>
 										View
 									</a>
 								{:else}
-									<a
-										class="btn-secondary"
-										href={`/contracts/${contract.id}/view`}
-										target="_blank"
-										rel="noreferrer"
-									>
+									<a class="btn-secondary" href={`/contracts/${contract.id}/view`}>
 										View
 									</a>
 								{/if}
