@@ -51,11 +51,25 @@ export async function getRequestDetails(accessToken: string, requestId: string) 
 	return response.requests?.[0] || null;
 }
 
-export async function getEmbedToken(accessToken: string, requestId: string, actionId: string) {
-	const host = ZOHO_SIGN_HOST || '';
+export async function getEmbedToken(
+	accessToken: string,
+	requestId: string,
+	actionId: string,
+	hostOverride?: string
+) {
+	const host = hostOverride || ZOHO_SIGN_HOST || '';
+	const body = new URLSearchParams();
+	if (host) {
+		body.set('host', host);
+	}
 	const response = await zohoSignApiCall(
 		accessToken,
-		`/requests/${requestId}/actions/${actionId}/embedtoken?host=${encodeURIComponent(host)}`
+		`/requests/${requestId}/actions/${actionId}/embedtoken`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: body.toString()
+		}
 	);
-	return response.signing_url || response;
+	return response.signing_url || response.sign_url || response;
 }

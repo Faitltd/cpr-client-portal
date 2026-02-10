@@ -1,7 +1,7 @@
 import { json, error, redirect } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { getEmbedToken, getRequestDetails, listSignRequestsByRecipient } from '$lib/server/sign';
+import { getEmbedToken, getRequestDetails } from '$lib/server/sign';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params, cookies, url }) => {
@@ -61,40 +61,20 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 			throw error(500, 'Signing action missing');
 		}
 
-		const directSignUrl =
-			action.action_url ||
-			action.actionUrl ||
-			action.sign_url ||
-			action.signUrl ||
-			action.signing_url ||
-			action.signingUrl ||
-			null;
+		const isEmbedded =
+			action.is_embedded === true ||
+			action.isEmbedded === true ||
+			action.is_embedded === 'true' ||
+			action.isEmbedded === 'true';
+		if (!isEmbedded) {
+			throw error(400, 'Embedded signing is not enabled for this contract.');
+		}
 
-		let signUrl = directSignUrl;
-		if (!signUrl) {
-			const requests = await listSignRequestsByRecipient(accessToken, session.client.email);
-			const requestMatch = requests.find((request: any) => {
-				const matchId = request.request_id || request.requestId;
-				return String(matchId) === String(requestId);
-			});
-			signUrl =
-				requestMatch?.request_url ||
-				requestMatch?.requestUrl ||
-				requestMatch?.action_url ||
-				requestMatch?.actionUrl ||
-				requestMatch?.sign_url ||
-				requestMatch?.signUrl ||
-				requestMatch?.signing_url ||
-				requestMatch?.signingUrl ||
-				null;
-		}
-		if (!signUrl) {
-			const signPayload = await getEmbedToken(accessToken, requestId, actionId);
-			signUrl =
-				typeof signPayload === 'string'
-					? signPayload
-					: signPayload?.signing_url || signPayload?.sign_url || null;
-		}
+		const signPayload = await getEmbedToken(accessToken, requestId, actionId, url.origin);
+		const signUrl =
+			typeof signPayload === 'string'
+				? signPayload
+				: signPayload?.signing_url || signPayload?.sign_url || null;
 
 		if (!signUrl) {
 			throw error(500, 'Signing URL not available');
