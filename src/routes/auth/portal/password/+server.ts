@@ -27,25 +27,19 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		return json({ message: 'Invalid email or password.' }, { status: 401 });
 	}
 
-	const adminConfigured = isAdminConfigured();
-	if (
-		adminConfigured &&
-		PORTAL_ADMIN_PASSWORD &&
-		password === PORTAL_ADMIN_PASSWORD &&
-		(!email || email === 'admin')
-	) {
-		const session = createAdminSession();
-		cookies.set('admin_session', session, {
-			path: '/',
-			httpOnly: true,
-			secure: !dev,
-			sameSite: 'strict',
-			maxAge: getAdminSessionMaxAge()
-		});
-		return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
-	}
-
 	if (!email) {
+		const adminConfigured = isAdminConfigured();
+		if (adminConfigured && PORTAL_ADMIN_PASSWORD && password === PORTAL_ADMIN_PASSWORD) {
+			const session = createAdminSession();
+			cookies.set('admin_session', session, {
+				path: '/',
+				httpOnly: true,
+				secure: !dev,
+				sameSite: 'strict',
+				maxAge: getAdminSessionMaxAge()
+			});
+			return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
+		}
 		return json({ message: 'Invalid email or password.' }, { status: 401 });
 	}
 
@@ -105,6 +99,19 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		});
 
 		return json({ message: 'Login successful.', redirect: '/trade/dashboard', role: 'trade' });
+	}
+
+	const adminConfigured = isAdminConfigured();
+	if (adminConfigured && PORTAL_ADMIN_PASSWORD && password === PORTAL_ADMIN_PASSWORD) {
+		const session = createAdminSession();
+		cookies.set('admin_session', session, {
+			path: '/',
+			httpOnly: true,
+			secure: !dev,
+			sameSite: 'strict',
+			maxAge: getAdminSessionMaxAge()
+		});
+		return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
 	}
 
 	return json({ message: 'Invalid email or password.' }, { status: 401 });
