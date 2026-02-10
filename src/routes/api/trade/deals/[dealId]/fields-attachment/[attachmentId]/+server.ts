@@ -89,13 +89,9 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const headers = new Headers();
 	const contentType = response.headers.get('content-type') || 'application/octet-stream';
 	headers.set('Content-Type', contentType);
-	const disposition = response.headers.get('content-disposition');
-	if (disposition) {
-		headers.set('Content-Disposition', disposition);
-	} else {
-		const fileName = safeFileName(url.searchParams.get('fileName') || 'design-file');
-		headers.set('Content-Disposition', `attachment; filename="${fileName}"`);
-	}
+	const fileName = safeFileName(url.searchParams.get('fileName') || 'design-file');
+	const download = url.searchParams.get('download') === '1';
+	headers.set('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`);
 
 	return new Response(response.body, {
 		status: response.status,

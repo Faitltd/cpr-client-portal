@@ -76,6 +76,12 @@
 	};
 
 	const getDesignLink = (file: DesignFile) => {
+		if (file.attachmentId && selectedDeal?.id) {
+			const params = new URLSearchParams();
+			if (file.name) params.set('fileName', file.name);
+			const suffix = params.toString() ? `?${params.toString()}` : '';
+			return `/api/trade/deals/${selectedDeal.id}/fields-attachment/${file.attachmentId}${suffix}`;
+		}
 		if (file.url) return file.url;
 		if (!file.attachmentId || !selectedDeal?.id) return '';
 		const params = new URLSearchParams();
