@@ -161,7 +161,7 @@
 		</section>
 
 		<section class="change-orders">
-			<div class="section-header">Change Orders</div>
+			<div class="section-toggle section-static">Change Orders</div>
 			{#if invoiceError}
 				<p class="invoice-error">{invoiceError}</p>
 			{:else if changeOrders.length === 0}
@@ -285,20 +285,6 @@
 		margin-top: 2rem;
 	}
 
-	.section-header {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.75rem 1rem;
-		border: 1px solid #e5e7eb;
-		background: #f8fafc;
-		border-radius: 10px;
-		font-size: 1.25rem;
-		font-weight: 700;
-		color: #111827;
-	}
-
 	.invoice-summary {
 		margin-top: 2rem;
 		display: grid;
@@ -330,6 +316,7 @@
 
 	.section-toggle {
 		width: 100%;
+		box-sizing: border-box;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -346,6 +333,15 @@
 	.section-toggle:hover {
 		color: #0f766e;
 		background: #eef2f7;
+	}
+
+	.section-static {
+		cursor: default;
+	}
+
+	.section-static:hover {
+		color: #111827;
+		background: #f8fafc;
 	}
 
 	.toggle-icon {
