@@ -21,5 +21,16 @@
 		text-decoration: none;
 		border-radius: 6px;
 		font-weight: 600;
+		min-height: 44px;
+	}
+
+	@media (max-width: 720px) {
+		.container {
+			padding: 1.5rem 1.25rem;
+		}
+
+		.btn {
+			width: 100%;
+		}
 	}
 </style>

@@ -1,12 +1,27 @@
 <script lang="ts">
+	import { page } from '$app/stores';
+
 	const year = new Date().getFullYear();
+	$: pathname = $page.url.pathname;
+	$: if (pathname) menuOpen = false;
+
+	let menuOpen = false;
 </script>
 
 <div class="admin-shell">
 	<header class="admin-header">
 		<div class="admin-header-inner">
 			<a class="admin-logo" href="/admin/clients">CPR Admin</a>
-			<nav class="admin-nav">
+			<button
+				class="admin-menu-toggle"
+				type="button"
+				aria-label="Toggle menu"
+				aria-expanded={menuOpen}
+				on:click={() => (menuOpen = !menuOpen)}
+			>
+				Menu
+			</button>
+			<nav class:open={menuOpen} class="admin-nav">
 				<a class="admin-link" href="/admin/clients">Dashboard</a>
 				<a class="admin-link" href="/admin/logout">Log out</a>
 			</nav>
@@ -63,12 +78,13 @@
 	.admin-link {
 		display: inline-flex;
 		align-items: center;
-		padding: 0.35rem 0.9rem;
+		padding: 0.5rem 1rem;
 		border: 1px solid #d0d0d0;
 		border-radius: 999px;
 		text-decoration: none;
 		color: #1a1a1a;
 		background: #fff;
+		min-height: 44px;
 	}
 
 	.admin-link:hover {
@@ -91,5 +107,50 @@
 		padding: 1rem 2rem;
 		color: #6b7280;
 		font-size: 0.9rem;
+	}
+
+	.admin-menu-toggle {
+		display: none;
+		border: 1px solid #d0d0d0;
+		background: #fff;
+		color: #111827;
+		border-radius: 999px;
+		padding: 0.5rem 1rem;
+		min-height: 44px;
+		cursor: pointer;
+	}
+
+	.admin-menu-toggle:hover {
+		background: #f3f4f6;
+	}
+
+	@media (max-width: 720px) {
+		.admin-header-inner {
+			flex-wrap: wrap;
+			padding: 0.85rem 1.25rem;
+		}
+
+		.admin-menu-toggle {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			margin-left: auto;
+		}
+
+		.admin-nav {
+			width: 100%;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.5rem;
+			display: none;
+		}
+
+		.admin-nav.open {
+			display: flex;
+		}
+
+		.admin-link {
+			justify-content: center;
+		}
 	}
 </style>

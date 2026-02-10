@@ -69,4 +69,26 @@
 	.btn-secondary:hover {
 		background: #e9e9e9;
 	}
+
+	@media (max-width: 720px) {
+		.container {
+			padding: 1.5rem 1.25rem;
+		}
+
+		.hero {
+			min-height: auto;
+			padding: 2rem 0 3rem;
+		}
+
+		.cta-row {
+			flex-direction: column;
+			width: 100%;
+		}
+
+		.btn-primary,
+		.btn-secondary {
+			width: 100%;
+			text-align: center;
+		}
+	}
 </style>

@@ -63,6 +63,7 @@
 		border: 1px solid #ccc;
 		border-radius: 6px;
 		margin-bottom: 1rem;
+		min-height: 44px;
 	}
 
 	button {
@@ -74,10 +75,21 @@
 		color: white;
 		font-weight: 600;
 		cursor: pointer;
+		min-height: 44px;
 	}
 
 	.message {
 		margin-top: 1rem;
 		color: #b91c1c;
+	}
+
+	@media (max-width: 720px) {
+		.container {
+			padding: 1.5rem 1.25rem;
+		}
+
+		.card {
+			padding: 1.25rem;
+		}
 	}
 </style>

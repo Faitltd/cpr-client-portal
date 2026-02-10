@@ -125,6 +125,7 @@
 		text-decoration: none;
 		color: #1a1a1a;
 		background: #fff;
+		min-height: 44px;
 	}
 
 	.btn-secondary:hover {
@@ -144,5 +145,29 @@
 		width: 100%;
 		height: 80vh;
 		min-height: 600px;
+	}
+
+	@media (max-width: 720px) {
+		.contract-sign {
+			padding: 1.5rem 1.25rem;
+		}
+
+		.actions {
+			justify-content: stretch;
+		}
+
+		.btn-secondary {
+			width: 100%;
+			justify-content: center;
+		}
+
+		.frame {
+			min-height: 420px;
+		}
+
+		.frame iframe {
+			height: 70vh;
+			min-height: 420px;
+		}
 	}
 </style>

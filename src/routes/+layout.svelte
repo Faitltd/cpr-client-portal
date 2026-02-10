@@ -10,9 +10,11 @@
 		!pathname.startsWith('/auth');
 	$: isTradePortal = pathname.startsWith('/trade');
 	$: accountHref = isTradePortal ? '/trade/account' : '/account';
+	$: if (pathname) menuOpen = false;
 
 	let appBg: HTMLDivElement | null = null;
 	let cleanupFade: (() => void) | null = null;
+	let menuOpen = false;
 
 	const startFade = () => {
 		if (!appBg || !browser) return () => {};
@@ -60,7 +62,16 @@
 		<header class="portal-header">
 			<div class="portal-header-inner">
 				<a class="portal-logo" href="/api/logout?next=/">CPR Portal</a>
-				<div class="portal-actions">
+				<button
+					class="portal-menu-toggle"
+					type="button"
+					aria-label="Toggle menu"
+					aria-expanded={menuOpen}
+					on:click={() => (menuOpen = !menuOpen)}
+				>
+					Menu
+				</button>
+				<div class:open={menuOpen} class="portal-actions">
 					<a class="portal-link" href={accountHref}>Account</a>
 					<a class="portal-link" href="/api/logout?next=/">Log out</a>
 				</div>
@@ -110,6 +121,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 1rem;
 	}
 
 	.portal-logo {
@@ -121,19 +133,36 @@
 	.portal-actions {
 		display: flex;
 		gap: 0.6rem;
+		align-items: center;
 	}
 
 	.portal-link {
 		display: inline-flex;
 		align-items: center;
-		padding: 0.35rem 0.9rem;
+		padding: 0.5rem 1rem;
 		border: 1px solid #d0d0d0;
 		border-radius: 999px;
 		text-decoration: none;
 		color: #1a1a1a;
 		background: #fff;
+		min-height: 44px;
 	}
 	.portal-link:hover {
+		background: #f3f4f6;
+	}
+
+	.portal-menu-toggle {
+		display: none;
+		border: 1px solid #d0d0d0;
+		background: #fff;
+		color: #111827;
+		border-radius: 999px;
+		padding: 0.5rem 1rem;
+		min-height: 44px;
+		cursor: pointer;
+	}
+
+	.portal-menu-toggle:hover {
 		background: #f3f4f6;
 	}
 
@@ -142,5 +171,35 @@
 	:global(textarea) {
 		width: 100%;
 		box-sizing: border-box;
+	}
+
+	@media (max-width: 720px) {
+		.portal-header-inner {
+			flex-wrap: wrap;
+			padding: 0.75rem 1.25rem;
+		}
+
+		.portal-menu-toggle {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			margin-left: auto;
+		}
+
+		.portal-actions {
+			width: 100%;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.5rem;
+			display: none;
+		}
+
+		.portal-actions.open {
+			display: flex;
+		}
+
+		.portal-link {
+			justify-content: center;
+		}
 	}
 </style>

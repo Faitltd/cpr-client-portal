@@ -271,10 +271,26 @@
 		color: white;
 		text-decoration: none;
 		border-radius: 4px;
+		min-height: 44px;
 	}
 
 	.btn-view:hover {
 		background: #0052a3;
+	}
+
+	.btn-secondary {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		background: #f5f5f5;
+		color: #1a1a1a;
+		text-decoration: none;
+		border-radius: 4px;
+		border: 1px solid #d0d0d0;
+		min-height: 44px;
+	}
+
+	.btn-secondary:hover {
+		background: #e9e9e9;
 	}
 
 	.invoices-section {
@@ -383,6 +399,15 @@
 	}
 
 	@media (max-width: 720px) {
+		.dashboard {
+			padding: 1.5rem 1.25rem;
+		}
+
+		.header-row {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
 		.project-card {
 			grid-template-columns: 1fr;
 			align-items: start;
@@ -394,6 +419,23 @@
 
 		.btn-view {
 			margin-top: 0;
+			width: 100%;
+			text-align: center;
+		}
+
+		.btn-secondary {
+			width: 100%;
+			text-align: center;
+		}
+
+		.invoice-card {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.invoice-amounts {
+			justify-content: flex-start;
+			width: 100%;
 		}
 	}
 </style>

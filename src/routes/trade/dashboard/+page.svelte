@@ -270,6 +270,7 @@
 		border: 1px solid #d1d5db;
 		font-size: 1rem;
 		width: 100%;
+		min-height: 44px;
 	}
 
 	.deal-details h3 {
@@ -317,9 +318,30 @@
 	.file-link {
 		color: #1d4ed8;
 		text-decoration: underline;
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
 	}
 
 	.file-link:hover {
 		color: #1e40af;
+	}
+
+	@media (max-width: 720px) {
+		.dashboard {
+			padding: 1.5rem 1.25rem;
+		}
+
+		.field-update iframe {
+			min-height: 420px;
+		}
+
+		.card {
+			padding: 1.25rem;
+		}
+
+		.details-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 </style>

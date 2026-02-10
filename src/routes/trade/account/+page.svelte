@@ -92,6 +92,7 @@
 		padding: 0.75rem;
 		border: 1px solid #ccc;
 		border-radius: 6px;
+		min-height: 44px;
 	}
 
 	button {
@@ -104,6 +105,7 @@
 		color: white;
 		font-weight: 600;
 		cursor: pointer;
+		min-height: 44px;
 	}
 
 	button:disabled {
@@ -121,5 +123,15 @@
 		margin-top: 1.5rem;
 		color: #0066cc;
 		text-decoration: none;
+	}
+
+	@media (max-width: 720px) {
+		.container {
+			padding: 1.5rem 1.25rem;
+		}
+
+		.card {
+			padding: 1.25rem;
+		}
 	}
 </style>

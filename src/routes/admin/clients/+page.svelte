@@ -88,6 +88,7 @@
 		align-items: center;
 		gap: 1rem;
 		margin-bottom: 2rem;
+		flex-wrap: wrap;
 	}
 
 	.logout {
@@ -97,6 +98,10 @@
 		padding: 0.35rem 0.8rem;
 		border-radius: 999px;
 		background: #fff;
+		min-height: 44px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.card {
@@ -123,6 +128,7 @@
 		border: 1px solid #ccc;
 		border-radius: 6px;
 		margin-bottom: 1rem;
+		min-height: 44px;
 	}
 
 	button {
@@ -134,14 +140,18 @@
 		color: white;
 		font-weight: 600;
 		cursor: pointer;
+		min-height: 44px;
 	}
 
 	.actions {
 		margin-bottom: 1.5rem;
+		display: grid;
+		gap: 0.75rem;
 	}
 
 	.sync-form {
-		margin-bottom: 0.75rem;
+		display: grid;
+		gap: 0.5rem;
 	}
 
 	.sync-form button {
@@ -159,6 +169,7 @@
 		color: #fff;
 		font-weight: 600;
 		text-decoration: none;
+		min-height: 44px;
 	}
 
 	.oauth-button:hover {
@@ -168,6 +179,25 @@
 	.message {
 		margin-top: 0.5rem;
 		color: #065f46;
+	}
+
+	@media (max-width: 720px) {
+		.container {
+			padding: 1.5rem 1.25rem;
+		}
+
+		header {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.logout {
+			width: 100%;
+		}
+
+		.card {
+			padding: 1.25rem;
+		}
 	}
 
 </style>

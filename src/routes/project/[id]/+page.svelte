@@ -9,6 +9,11 @@
 	let loading = true;
 	let error = '';
 	let contractError = '';
+	let wifiInput = '';
+	let doorCodeInput = '';
+	let updateMessage = '';
+	let updateError = '';
+	let updating = false;
 
 	const projectId = $page.params.id;
 
@@ -30,6 +35,8 @@
 			project = data.deal;
 			documents = data.documents;
 			notes = data.notes;
+			wifiInput = project?.WiFi || '';
+			doorCodeInput = project?.Garage_Code || '';
 
 			if (contractsRes.ok) {
 				const contractsData = await contractsRes.json();
@@ -43,6 +50,45 @@
 			loading = false;
 		}
 	});
+
+	const submitAccessInfo = async () => {
+		updateMessage = '';
+		updateError = '';
+		const wifi = wifiInput.trim();
+		const doorCode = doorCodeInput.trim();
+		if (!wifi || !doorCode) {
+			updateError = 'WiFi and Door code are required.';
+			return;
+		}
+		if (wifi.length > 200) {
+			updateError = 'WiFi must be 200 characters or less.';
+			return;
+		}
+		if (doorCode.length > 100) {
+			updateError = 'Door code must be 100 characters or less.';
+			return;
+		}
+
+		updating = true;
+		try {
+			const res = await fetch(`/api/project/${projectId}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ wifi, garageCode: doorCode })
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				updateError = payload?.message || 'Failed to update access info.';
+				return;
+			}
+			updateMessage = payload?.message || 'Access info updated.';
+			project = { ...project, WiFi: wifi, Garage_Code: doorCode };
+		} catch {
+			updateError = 'Failed to update access info.';
+		} finally {
+			updating = false;
+		}
+	};
 </script>
 
 <div class="project-detail">
@@ -83,6 +129,35 @@
 						<a href={project.External_Link} target="_blank" rel="noreferrer">View Photos</a>
 					{:else}
 						<p>Not available</p>
+					{/if}
+				</div>
+			</div>
+			<div class="access-card">
+				<h3>Update Access Info</h3>
+				<div class="access-form">
+					<div>
+						<label for="wifi">WiFi</label>
+						<input id="wifi" type="text" bind:value={wifiInput} placeholder="WiFi details" />
+					</div>
+					<div>
+						<label for="door-code">Door code</label>
+						<input
+							id="door-code"
+							type="text"
+							bind:value={doorCodeInput}
+							placeholder="Door code"
+						/>
+					</div>
+					<div class="access-actions">
+						<button class="btn-view" type="button" on:click={submitAccessInfo} disabled={updating}>
+							{updating ? 'Saving...' : 'Save Access Info'}
+						</button>
+					</div>
+					{#if updateMessage}
+						<p class="update-message">{updateMessage}</p>
+					{/if}
+					{#if updateError}
+						<p class="update-error">{updateError}</p>
 					{/if}
 				</div>
 			</div>
@@ -213,6 +288,49 @@
 		border-radius: 8px;
 	}
 
+	.access-card {
+		margin-top: 1.5rem;
+		padding: 1.5rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		background: #fff;
+	}
+
+	.access-form {
+		display: grid;
+		gap: 1rem;
+		max-width: 520px;
+	}
+
+	.access-form label {
+		display: block;
+		font-weight: 600;
+		margin-bottom: 0.4rem;
+	}
+
+	.access-form input {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #ccc;
+		border-radius: 6px;
+		min-height: 44px;
+	}
+
+	.access-actions {
+		display: flex;
+		justify-content: flex-start;
+	}
+
+	.update-message {
+		color: #166534;
+		margin: 0;
+	}
+
+	.update-error {
+		color: #b91c1c;
+		margin: 0;
+	}
+
 	.contract-list {
 		display: grid;
 		gap: 1rem;
@@ -253,6 +371,7 @@
 		color: white;
 		text-decoration: none;
 		border-radius: 4px;
+		min-height: 44px;
 	}
 
 	.btn-view:hover {
@@ -267,6 +386,7 @@
 		text-decoration: none;
 		border-radius: 4px;
 		border: 1px solid #d0d0d0;
+		min-height: 44px;
 	}
 
 	.btn-secondary:hover {
@@ -278,11 +398,18 @@
 		padding: 0;
 	}
 
+	.documents a {
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+	}
+
 	.documents li {
 		padding: 1rem;
 		border-bottom: 1px solid #ddd;
 		display: flex;
 		justify-content: space-between;
+		gap: 0.75rem;
 	}
 
 	.date {
@@ -324,5 +451,53 @@
 
 	.error {
 		color: #c00;
+	}
+
+	@media (max-width: 720px) {
+		.project-detail {
+			padding: 1.5rem 1.25rem;
+		}
+
+		nav {
+			margin-bottom: 1.25rem;
+		}
+
+		header {
+			margin-bottom: 1.5rem;
+		}
+
+		.info-grid {
+			grid-template-columns: 1fr;
+			gap: 1.25rem;
+		}
+
+		.contract-card {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.contract-actions {
+			justify-content: flex-start;
+			width: 100%;
+		}
+
+		.btn-view,
+		.btn-secondary {
+			width: 100%;
+			text-align: center;
+		}
+
+		.documents li {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.access-card {
+			padding: 1.25rem;
+		}
+
+		.access-actions {
+			width: 100%;
+		}
 	}
 </style>
