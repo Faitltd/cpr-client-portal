@@ -134,10 +134,18 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		const missingStageIds = allDeals
 			.filter((deal) => !deal?.Stage && deal?.id)
 			.map((deal) => deal.id);
+		const missingDetailIds = allDeals
+			.filter(
+				(deal) =>
+					deal?.id &&
+					(typeof deal.File_Upload === 'undefined' || typeof deal.External_Link === 'undefined')
+			)
+			.map((deal) => deal.id);
+		const hydrateIds = Array.from(new Set([...missingStageIds, ...missingDetailIds]));
 
 		let hydratedDeals = allDeals;
-		if (missingStageIds.length > 0) {
-			const hydrated = await fetchDealsByIds(missingStageIds);
+		if (hydrateIds.length > 0) {
+			const hydrated = await fetchDealsByIds(hydrateIds);
 			const hydratedMap = new Map(hydrated.map((deal) => [deal.id, deal]));
 			hydratedDeals = allDeals.map((deal) => hydratedMap.get(deal.id) || deal);
 		}
