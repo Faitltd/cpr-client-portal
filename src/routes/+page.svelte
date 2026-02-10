@@ -3,9 +3,7 @@
 		<section class="hero">
 			<img src="/images/cpr-logo.png" alt="Custom Professional Renovations" class="logo-hero" />
 			<div class="cta-row">
-				<a href="/auth/client" class="btn-primary">Client Login</a>
-				<a href="/auth/trade" class="btn-primary">Trade Partner Login</a>
-				<a href="/admin/login" class="btn-secondary">Admin Login</a>
+				<a href="/auth/portal" class="btn-primary">Portal Login</a>
 			</div>
 		</section>
 	</main>
