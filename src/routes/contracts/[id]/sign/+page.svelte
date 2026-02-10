@@ -7,6 +7,7 @@
 	let signUrl = '';
 	let name = '';
 	let status = '';
+	let redirected = false;
 
 	const requestId = $page.params.id;
 
@@ -32,6 +33,10 @@
 
 			if (!signUrl) {
 				error = 'Signing link unavailable. Please contact support.';
+			}
+			if (signUrl && typeof window !== 'undefined' && !redirected) {
+				redirected = true;
+				window.location.assign(signUrl);
 			}
 		} catch {
 			error = 'Failed to load signing link.';
@@ -62,12 +67,10 @@
 		</div>
 	{:else}
 		<div class="actions">
+			<p class="redirect-note">Redirecting you to the signing page...</p>
 			<a class="btn-secondary" href={signUrl} target="_blank" rel="noreferrer">
-				Open in new tab
+				Continue to Signing
 			</a>
-		</div>
-		<div class="frame">
-			<iframe title="Contract Signing" src={signUrl} allow="clipboard-write"></iframe>
 		</div>
 	{/if}
 </div>
@@ -111,9 +114,9 @@
 	}
 
 	.actions {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: 1rem;
+		display: grid;
+		gap: 0.75rem;
+		align-items: center;
 	}
 
 	.btn-secondary {
@@ -132,19 +135,9 @@
 		background: #f3f4f6;
 	}
 
-	.frame {
-		border: 1px solid #e0e0e0;
-		border-radius: 12px;
-		overflow: hidden;
-		background: #fff;
-		min-height: 600px;
-	}
-
-	.frame iframe {
-		border: none;
-		width: 100%;
-		height: 80vh;
-		min-height: 600px;
+	.redirect-note {
+		margin: 0;
+		color: #374151;
 	}
 
 	@media (max-width: 720px) {
@@ -159,15 +152,6 @@
 		.btn-secondary {
 			width: 100%;
 			justify-content: center;
-		}
-
-		.frame {
-			min-height: 420px;
-		}
-
-		.frame iframe {
-			height: 70vh;
-			min-height: 420px;
 		}
 	}
 </style>
