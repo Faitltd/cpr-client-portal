@@ -257,17 +257,74 @@ function coerceText(value: any): string | null {
 	return null;
 }
 
+function extractLookup(value: any) {
+	if (!value || typeof value !== 'object') return null;
+	const id = value.id || value.ID || value.Id;
+	if (!id) return null;
+	const name =
+		value.name ||
+		value.display_value ||
+		value.displayValue ||
+		value.value ||
+		value.label ||
+		null;
+	return { id, name };
+}
+
+function findDealLookup(record: Record<string, any>) {
+	const preferredKeys = [
+		'Deal_Name',
+		'Deal',
+		'Deals',
+		'Portal_Deal',
+		'Portal_Deals',
+		'Portal_Deals1',
+		'Portal_Deals2',
+		'Portal_Deals3'
+	];
+	for (const key of preferredKeys) {
+		const lookup = extractLookup(record[key]);
+		if (lookup) return { ...lookup, key };
+	}
+
+	for (const [key, value] of Object.entries(record)) {
+		if (!/deal/i.test(key)) continue;
+		const lookup = extractLookup(value);
+		if (lookup) return { ...lookup, key };
+	}
+
+	const ignoredKeys = new Set([
+		'Owner',
+		'Portal_Trade_Partners',
+		'Contact_Name',
+		'Account_Name',
+		'Created_Time',
+		'Modified_Time',
+		'Stage',
+		'id'
+	]);
+	for (const [key, value] of Object.entries(record)) {
+		if (ignoredKeys.has(key)) continue;
+		const lookup = extractLookup(value);
+		if (lookup) return { ...lookup, key };
+	}
+	return null;
+}
+
 function normalizeDealRecord(deal: any) {
 	if (!deal || typeof deal !== 'object') return deal;
+	const lookup = findDealLookup(deal);
 	const id =
 		deal.id ||
 		deal.Deal?.id ||
 		deal.Deal_ID ||
 		deal.deal_id ||
 		deal?.Deal_Name?.id ||
-		deal?.Potential_Name?.id;
+		deal?.Potential_Name?.id ||
+		lookup?.id;
 	const name =
 		extractDisplayValue(deal.Deal_Name) ||
+		lookup?.name ||
 		extractDisplayValue(deal.Potential_Name) ||
 		extractDisplayValue(deal.Name) ||
 		extractDisplayValue(deal.name) ||
@@ -1258,9 +1315,7 @@ async function fetchDealsFromTradePartnerRelatedList(
 				while (more) {
 					const response = await zohoApiCall(
 						accessToken,
-						`/${moduleName}/${tradePartnerId}/${relatedList}?fields=${encodeURIComponent(
-							DEAL_FIELDS
-						)}&page=${page}&per_page=${perPage}`,
+						`/${moduleName}/${tradePartnerId}/${relatedList}?page=${page}&per_page=${perPage}`,
 						{},
 						apiDomain
 					);
