@@ -109,6 +109,12 @@ Trade partners sign in at `/auth/trade` using email + password. Accounts live in
 - Zoho admin tokens stored in Supabase (`zoho_tokens`)
 - Client sessions stored in `client_sessions`
 
+## Deployment Notes
+
+- Hosting: Render
+- Deploys from `main` (verify the latest commit is built in the Render dashboard).
+- If changes do not appear, trigger a redeploy and hard refresh the browser.
+
 ## Resources
 
 - Zoho CRM API Documentation
