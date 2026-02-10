@@ -11,7 +11,7 @@
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
 	$: selectedDeal && console.log('Selected Deal:', selectedDeal);
 
-	type DesignFile = { name: string; url: string };
+	type DesignFile = { name: string; url?: string; attachmentId?: string };
 
 	const safeDecode = (value: string) => {
 		try {
@@ -31,6 +31,16 @@
 				return { name, url: item };
 			}
 			if (typeof item === 'object') {
+				const attachmentId =
+					item.fields_attachment_id ||
+					item.fieldsAttachmentId ||
+					item.attachment_id ||
+					item.attachmentId ||
+					item.file_id ||
+					item.fileId ||
+					item.id ||
+					item.ID ||
+					'';
 				const url =
 					item.link_url ||
 					item.link ||
@@ -42,7 +52,6 @@
 					item.fileUrl ||
 					item.href ||
 					'';
-				if (!url) return null;
 				const name =
 					item.file_name ||
 					item.File_Name ||
@@ -52,7 +61,8 @@
 					item.display_name ||
 					safeDecode(String(url).split('/').pop() || '') ||
 					'Design file';
-				return { name, url };
+				if (!url && !attachmentId) return null;
+				return { name, url: url || undefined, attachmentId: attachmentId || undefined };
 			}
 			return null;
 		};
@@ -63,6 +73,15 @@
 
 		const single = toItem(value);
 		return single ? [single] : [];
+	};
+
+	const getDesignLink = (file: DesignFile) => {
+		if (file.url) return file.url;
+		if (!file.attachmentId || !selectedDeal?.id) return '';
+		const params = new URLSearchParams();
+		if (file.name) params.set('fileName', file.name);
+		const suffix = params.toString() ? `?${params.toString()}` : '';
+		return `/api/trade/deals/${selectedDeal.id}/fields-attachment/${file.attachmentId}${suffix}`;
 	};
 
 	$: designFiles = normalizeDesignFiles(selectedDeal?.File_Upload);
@@ -170,15 +189,29 @@
 						<p>{selectedDeal.Refined_SOW || 'Not available'}</p>
 					</div>
 					<div class="notes">
+						<h4>Workdrive External Link</h4>
+						{#if selectedDeal.External_Link}
+							<p>
+								<a class="file-link" href={selectedDeal.External_Link} target="_blank" rel="noreferrer">
+									Open Workdrive
+								</a>
+							</p>
+						{:else}
+							<p>Not available</p>
+						{/if}
+					</div>
+					<div class="notes">
 						<h4>Designs</h4>
 						{#if designFiles.length > 0}
 							<ul class="file-list">
 								{#each designFiles as file}
-									<li>
-										<a class="file-link" href={file.url} target="_blank" rel="noreferrer">
-											{file.name}
-										</a>
-									</li>
+									{#if getDesignLink(file)}
+										<li>
+											<a class="file-link" href={getDesignLink(file)} target="_blank" rel="noreferrer">
+												{file.name}
+											</a>
+										</li>
+									{/if}
 								{/each}
 							</ul>
 						{:else}

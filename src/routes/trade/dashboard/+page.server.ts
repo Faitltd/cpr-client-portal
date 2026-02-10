@@ -65,7 +65,8 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		'Garage_Code',
 		'WiFi',
 		'Refined_SOW',
-		'File_Upload'
+		'File_Upload',
+		'External_Link'
 	].join(',');
 
 	const fetchDealsByIds = async (ids: string[]) => {
@@ -112,6 +113,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 				deal?.WiFi ||
 				deal?.Refined_SOW ||
 				deal?.File_Upload ||
+				deal?.External_Link ||
 				deal?.Notes1 ||
 				deal?.Closing_Date ||
 				deal?.Stage
