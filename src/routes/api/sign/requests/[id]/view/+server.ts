@@ -1,10 +1,10 @@
-import { json, error } from '@sveltejs/kit';
+import { json, error, redirect } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { getEmbedToken, getRequestDetails, listSignRequestsByRecipient } from '$lib/server/sign';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ params, cookies }) => {
+export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const sessionToken = cookies.get('portal_session');
 	const requestId = params.id;
 
@@ -92,6 +92,10 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 		if (!viewUrl) {
 			throw error(500, 'View link not available');
+		}
+
+		if (url.searchParams.get('redirect') === '1') {
+			throw redirect(302, viewUrl);
 		}
 
 		return json({

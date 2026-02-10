@@ -1,10 +1,10 @@
-import { json, error } from '@sveltejs/kit';
+import { json, error, redirect } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { getEmbedToken, getRequestDetails } from '$lib/server/sign';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ params, cookies }) => {
+export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const sessionToken = cookies.get('portal_session');
 	const requestId = params.id;
 
@@ -69,6 +69,10 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 		if (!signUrl) {
 			throw error(500, 'Signing URL not available');
+		}
+
+		if (url.searchParams.get('redirect') === '1') {
+			throw redirect(302, signUrl);
 		}
 
 		return json({
