@@ -10,6 +10,62 @@
 	let selectedDealId = deals[0]?.id || '';
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
 	$: selectedDeal && console.log('Selected Deal:', selectedDeal);
+
+	type DesignFile = { name: string; url: string };
+
+	const safeDecode = (value: string) => {
+		try {
+			return decodeURIComponent(value);
+		} catch {
+			return value;
+		}
+	};
+
+	const normalizeDesignFiles = (value: any): DesignFile[] => {
+		if (!value) return [];
+
+		const toItem = (item: any): DesignFile | null => {
+			if (!item) return null;
+			if (typeof item === 'string') {
+				const name = item.split('/').pop() || 'Design file';
+				return { name, url: item };
+			}
+			if (typeof item === 'object') {
+				const url =
+					item.link_url ||
+					item.link ||
+					item.download_url ||
+					item.url ||
+					item.File_Url ||
+					item.File_URL ||
+					item.file_url ||
+					item.fileUrl ||
+					item.href ||
+					'';
+				if (!url) return null;
+				const name =
+					item.file_name ||
+					item.File_Name ||
+					item.name ||
+					item.filename ||
+					item.fileName ||
+					item.display_name ||
+					safeDecode(String(url).split('/').pop() || '') ||
+					'Design file';
+				return { name, url };
+			}
+			return null;
+		};
+
+		if (Array.isArray(value)) {
+			return value.map(toItem).filter(Boolean) as DesignFile[];
+		}
+
+		const single = toItem(value);
+		return single ? [single] : [];
+	};
+
+	$: designFiles = normalizeDesignFiles(selectedDeal?.File_Upload);
 	const getDealLabel = (deal: any) => {
 		return (
 			deal?.Deal_Name ||
@@ -113,6 +169,22 @@
 						<h4>Scope</h4>
 						<p>{selectedDeal.Refined_SOW || 'Not available'}</p>
 					</div>
+					<div class="notes">
+						<h4>Designs</h4>
+						{#if designFiles.length > 0}
+							<ul class="file-list">
+								{#each designFiles as file}
+									<li>
+										<a class="file-link" href={file.url} target="_blank" rel="noreferrer">
+											{file.name}
+										</a>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p>Not available</p>
+						{/if}
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -198,5 +270,23 @@
 
 	.notes {
 		grid-column: 1 / -1;
+	}
+
+	.file-list {
+		margin: 0;
+		padding-left: 1.1rem;
+	}
+
+	.file-list li {
+		margin: 0.3rem 0;
+	}
+
+	.file-link {
+		color: #1d4ed8;
+		text-decoration: underline;
+	}
+
+	.file-link:hover {
+		color: #1e40af;
 	}
 </style>

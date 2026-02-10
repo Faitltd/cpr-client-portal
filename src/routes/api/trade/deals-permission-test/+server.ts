@@ -26,6 +26,7 @@ const DEAL_FIELDS = [
 	'Garage_Code',
 	'WiFi',
 	'Refined_SOW',
+	'File_Upload',
 	'External_Link',
 	'Portal_Trade_Partners'
 ].join(',');
