@@ -61,11 +61,23 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 			throw error(500, 'Signing action missing');
 		}
 
-		const signPayload = await getEmbedToken(accessToken, requestId, actionId);
-		const signUrl =
-			typeof signPayload === 'string'
-				? signPayload
-				: signPayload?.signing_url || signPayload?.sign_url || null;
+		const directSignUrl =
+			action.action_url ||
+			action.actionUrl ||
+			action.sign_url ||
+			action.signUrl ||
+			action.signing_url ||
+			action.signingUrl ||
+			null;
+
+		let signUrl = directSignUrl;
+		if (!signUrl) {
+			const signPayload = await getEmbedToken(accessToken, requestId, actionId);
+			signUrl =
+				typeof signPayload === 'string'
+					? signPayload
+					: signPayload?.signing_url || signPayload?.sign_url || null;
+		}
 
 		if (!signUrl) {
 			throw error(500, 'Signing URL not available');
