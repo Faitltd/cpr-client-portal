@@ -29,9 +29,6 @@
 		<form method="POST" action="?/syncTradePartners" class="sync-form">
 			<button type="submit">Sync Trade Partners</button>
 		</form>
-		<form method="POST" action="?/debugDealStages" class="sync-form">
-			<button type="submit">Debug Deal Stages</button>
-		</form>
 		<a class="oauth-button" href="/auth/login">Reconnect Zoho OAuth</a>
 		{#if form?.message}
 			<p class="message">{form.message}</p>
