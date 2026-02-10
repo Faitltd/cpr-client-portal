@@ -11,6 +11,11 @@
 		const bName = sortLabel(b.full_name) || sortLabel(b.email);
 		return aName.localeCompare(bName);
 	});
+	$: sortedTradePartners = [...(data?.tradePartners || [])].sort((a, b) => {
+		const aName = sortLabel(a.name) || sortLabel(a.email);
+		const bName = sortLabel(b.name) || sortLabel(b.email);
+		return aName.localeCompare(bName);
+	});
 </script>
 
 <div class="container">
@@ -54,7 +59,7 @@
 		<label for="trade_partner_id">Trade Partner</label>
 		<select id="trade_partner_id" name="trade_partner_id">
 			<option value="">Select a trade partner</option>
-			{#each data.tradePartners as partner}
+			{#each sortedTradePartners as partner}
 				<option value={partner.id}>{partner.name || partner.email} ({partner.email})</option>
 			{/each}
 		</select>
