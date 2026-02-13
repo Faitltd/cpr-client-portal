@@ -20,6 +20,7 @@
 		updatedAt: string | null;
 		type: string | null;
 		body: string | null;
+		photos: Array<{ name: string; url: string }>;
 	};
 
 	type DesignFile = { name: string; url?: string; attachmentId?: string };
@@ -343,6 +344,15 @@
 									<p class="update-body">{update.body}</p>
 								{/if}
 
+								{#if update.photos?.length}
+									<div class="update-photos">
+										{#each update.photos as photo (photo.url)}
+											<a class="photo" href={photo.url} target="_blank" rel="noreferrer">
+												<img src={photo.url} alt={photo.name} loading="lazy" />
+											</a>
+										{/each}
+									</div>
+								{/if}
 							</article>
 						{/each}
 					</div>
@@ -519,6 +529,27 @@
 		color: #111827;
 		line-height: 1.45;
 		white-space: pre-wrap;
+	}
+
+	.update-photos {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+		gap: 0.75rem;
+	}
+
+	.photo {
+		display: block;
+		border-radius: 10px;
+		overflow: hidden;
+		border: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.photo img {
+		display: block;
+		width: 100%;
+		height: 120px;
+		object-fit: cover;
 	}
 
 	.details-grid {

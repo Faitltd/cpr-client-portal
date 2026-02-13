@@ -1,10 +1,57 @@
 import { json, error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
 const ZOHO_TIMEOUT_MS = 15000;
-const FIELD_UPDATE_FIELDS = ['Note', 'Update_Type', 'Created_Time', 'Modified_Time', 'Name'].join(',');
+const FIELD_UPDATE_FIELDS = ['Note', 'Photo', 'Update_Type', 'Created_Time', 'Modified_Time', 'Name'].join(',');
+const ZOHO_API_BASE = env.ZOHO_API_BASE || '';
+
+function zohoOrigin(apiDomain?: string) {
+	if (apiDomain) return apiDomain.replace(/\/$/, '');
+	if (ZOHO_API_BASE) {
+		try {
+			return new URL(ZOHO_API_BASE).origin;
+		} catch {
+			// ignore
+		}
+	}
+	return 'https://www.zohoapis.com';
+}
+
+async function zohoSettingsCall(accessToken: string, endpoint: string, apiDomain?: string) {
+	const base = `${zohoOrigin(apiDomain)}/crm/v2`;
+	const url = `${base}${endpoint}`;
+	const response = await fetch(url, {
+		method: 'GET',
+		signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS),
+		headers: {
+			Authorization: `Zoho-oauthtoken ${accessToken}`,
+			'Content-Type': 'application/json'
+		}
+	});
+
+	if (!response.ok) {
+		const text = await response.text().catch(() => '');
+		throw new Error(text || `Zoho settings call failed (${response.status})`);
+	}
+
+	return response.json();
+}
+
+function safeDecode(value: string) {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value;
+	}
+}
+
+function getId(value: any): string | null {
+	if (!value || typeof value !== 'object') return null;
+	return (value.id || value.ID || value.Id || value.record_id || value.recordId || null) as string | null;
+}
 
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
@@ -71,7 +118,90 @@ type FieldUpdateTimelineItem = {
 	updatedAt: string | null;
 	type: string | null;
 	body: string | null;
+	photos: Array<{ name: string; url: string }>;
 };
+
+function normalizePhotos(value: any, updateId: string) {
+	const items: Array<{ name: string; url: string }> = [];
+	if (!value) return items;
+
+	const add = (name: string, url: string) => {
+		const trimmed = String(url || '').trim();
+		if (!trimmed) return;
+		items.push({ name: name || 'Photo', url: trimmed });
+	};
+
+	const decodeNameFromUrl = (url: string) => {
+		const last = String(url).split('?')[0].split('/').filter(Boolean).pop() || '';
+		return safeDecode(last) || 'Photo';
+	};
+
+	const toProxyUrl = (attachmentId: string, name: string) => {
+		const params = new URLSearchParams();
+		if (name) params.set('fileName', name);
+		const suffix = params.toString() ? `?${params.toString()}` : '';
+		return `/api/trade/field-updates/${encodeURIComponent(updateId)}/fields-attachment/${encodeURIComponent(
+			attachmentId
+		)}${suffix}`;
+	};
+
+	const fromObj = (obj: any) => {
+		if (!obj || typeof obj !== 'object') return;
+		const attachmentId =
+			obj.fields_attachment_id ||
+			obj.fieldsAttachmentId ||
+			obj.attachment_id ||
+			obj.attachmentId ||
+			obj.file_id ||
+			obj.fileId ||
+			obj.id ||
+			obj.ID ||
+			'';
+		const url =
+			obj.link_url ||
+			obj.link ||
+			obj.download_url ||
+			obj.url ||
+			obj.File_Url ||
+			obj.File_URL ||
+			obj.file_url ||
+			obj.fileUrl ||
+			obj.href ||
+			'';
+		const name =
+			obj.file_name ||
+			obj.File_Name ||
+			obj.name ||
+			obj.filename ||
+			obj.fileName ||
+			(url ? decodeNameFromUrl(url) : 'Photo');
+
+		if (url) {
+			add(String(name || 'Photo'), String(url));
+			return;
+		}
+
+		if (attachmentId) {
+			add(String(name || 'Photo'), toProxyUrl(String(attachmentId), String(name || 'Photo')));
+		}
+	};
+
+	if (typeof value === 'string') {
+		add(decodeNameFromUrl(value), value);
+		return items;
+	}
+
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			if (typeof item === 'string') add(decodeNameFromUrl(item), item);
+			else fromObj(item);
+		}
+		return items;
+	}
+
+	fromObj(value);
+	return items;
+}
 
 function normalizeFieldUpdate(record: Record<string, any>): FieldUpdateTimelineItem {
 	const createdAt = pickFirstText(record, ['Created_Time', 'created_time', 'CreatedTime', 'createdAt', 'created_at']);
@@ -84,7 +214,8 @@ function normalizeFieldUpdate(record: Record<string, any>): FieldUpdateTimelineI
 		createdAt: createdAt || null,
 		updatedAt: updatedAt || null,
 		type: type || null,
-		body
+		body,
+		photos: normalizePhotos(record?.Photo, String(record?.id || ''))
 	};
 }
 
@@ -100,10 +231,9 @@ async function discoverDealRelatedListApiName(accessToken: string, apiDomain?: s
 	cachedRelatedListFetchedAt = Date.now();
 	cachedRelatedListApiName = null;
 
-	const response = await zohoApiCall(
+	const response = await zohoSettingsCall(
 		accessToken,
 		`/settings/related_lists?module=${encodeURIComponent('Deals')}`,
-		{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 		apiDomain
 	);
 
@@ -134,10 +264,9 @@ async function discoverFieldUpdatesDealLookupField(accessToken: string, apiDomai
 	cachedDealLookupFetchedAt = Date.now();
 	cachedDealLookupFieldApiName = null;
 
-	const response = await zohoApiCall(
+	const response = await zohoSettingsCall(
 		accessToken,
 		`/settings/fields?module=${encodeURIComponent('Field_Updates')}`,
-		{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 		apiDomain
 	);
 
@@ -221,11 +350,135 @@ async function tradePartnerCanAccessDeal(
 	}
 }
 
+async function fetchFieldUpdatesByIds(accessToken: string, ids: string[], apiDomain?: string) {
+	const unique = Array.from(new Set((ids || []).map((id) => String(id)).filter(Boolean)));
+	if (unique.length === 0) return [];
+
+	const results: any[] = [];
+	const chunkSize = 100;
+	for (let i = 0; i < unique.length; i += chunkSize) {
+		const chunk = unique.slice(i, i + chunkSize);
+		const response = await zohoApiCall(
+			accessToken,
+			`/Field_Updates?ids=${chunk.join(',')}&fields=${encodeURIComponent(FIELD_UPDATE_FIELDS)}`,
+			{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
+			apiDomain
+		);
+		results.push(...(response.data || []));
+	}
+
+	return results;
+}
+
+async function fetchRecentFieldUpdates(accessToken: string, apiDomain?: string, lookupField?: string | null) {
+	const perPage = 200;
+	let page = 1;
+	let more = true;
+	const results: any[] = [];
+
+	while (more && page <= 10) {
+		const params = new URLSearchParams({
+			per_page: String(perPage),
+			page: String(page)
+		});
+		// If we know the deal lookup API name, include it (plus the fields we want) to avoid huge payloads.
+		if (lookupField) {
+			params.set('fields', `${FIELD_UPDATE_FIELDS},${lookupField}`);
+		}
+
+		const response = await zohoApiCall(
+			accessToken,
+			`/Field_Updates?${params.toString()}`,
+			{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
+			apiDomain
+		);
+		results.push(...(response.data || []));
+		more = Boolean(response.info?.more_records);
+		page += 1;
+	}
+
+	return results;
+}
+
+function recordReferencesDeal(
+	record: Record<string, any>,
+	dealId: string,
+	lookupField?: string | null
+): boolean {
+	if (!record || typeof record !== 'object') return false;
+	const target = String(dealId);
+
+	if (lookupField) {
+		const value = (record as any)?.[lookupField];
+		if (value !== null && value !== undefined) {
+			if (typeof value === 'string' || typeof value === 'number') {
+				if (String(value) === target) return true;
+			} else if (typeof value === 'object') {
+				const id = getId(value);
+				if (id && String(id) === target) return true;
+			}
+		}
+	}
+
+	const entries = Object.entries(record || {});
+
+	// Prefer fields that are obviously “deal” lookups.
+	for (const [key, value] of entries) {
+		if (!/deal/i.test(key)) continue;
+		if (value === null || value === undefined) continue;
+
+		if (typeof value === 'string' || typeof value === 'number') {
+			if (String(value) === target) return true;
+			continue;
+		}
+
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				if (typeof item === 'string' || typeof item === 'number') {
+					if (String(item) === target) return true;
+					continue;
+				}
+				const id = getId(item);
+				if (id && String(id) === target) return true;
+			}
+			continue;
+		}
+
+		if (typeof value === 'object') {
+			const id = getId(value);
+			if (id && String(id) === target) return true;
+		}
+	}
+
+	// Fallback: deep scan for a matching lookup id.
+	const seen = new Set<any>();
+	const walk = (value: any, depth: number): boolean => {
+		if (value === null || value === undefined) return false;
+		if (depth > 6) return false;
+		if (typeof value !== 'object') return false;
+		if (seen.has(value)) return false;
+		seen.add(value);
+
+		const id = getId(value);
+		if (id && String(id) === target) return true;
+
+		if (Array.isArray(value)) {
+			return value.some((item) => walk(item, depth + 1));
+		}
+
+		return Object.values(value).some((item) => walk(item, depth + 1));
+	};
+
+	return walk(record, 0);
+}
+
 async function fetchFieldUpdatesForDeal(accessToken: string, dealId: string, apiDomain?: string) {
 	// 1) Attempt related list fetch from the Deal record (best signal, no need to know lookup field).
 	const discovered = await discoverDealRelatedListApiName(accessToken, apiDomain).catch(() => null);
+	const defaultRelatedCandidates = ['Field_Updates'];
+	for (let i = 1; i <= 10; i += 1) defaultRelatedCandidates.push(`Field_Updates${i}`);
 	const relatedCandidates = Array.from(
-		new Set([discovered, 'Field_Updates', 'Field_Updates1', 'Field_Updates2', 'Field_Updates3'].filter(Boolean))
+		new Set([discovered, ...defaultRelatedCandidates].filter(Boolean))
 	) as string[];
 
 	for (const related of relatedCandidates) {
@@ -237,7 +490,11 @@ async function fetchFieldUpdatesForDeal(accessToken: string, dealId: string, api
 				{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 				apiDomain
 			);
-			if (Array.isArray(response.data) && response.data.length > 0) return response.data as any[];
+			if (Array.isArray(response.data) && response.data.length > 0) {
+				const ids = response.data.map((record: any) => record?.id).filter(Boolean) as string[];
+				if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
+				return response.data as any[];
+			}
 		} catch {
 			// Some related-list endpoints don't support fields filtering; try without it.
 			try {
@@ -247,7 +504,11 @@ async function fetchFieldUpdatesForDeal(accessToken: string, dealId: string, api
 					{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 					apiDomain
 				);
-				if (Array.isArray(response.data) && response.data.length > 0) return response.data as any[];
+				if (Array.isArray(response.data) && response.data.length > 0) {
+					const ids = response.data.map((record: any) => record?.id).filter(Boolean) as string[];
+					if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
+					return response.data as any[];
+				}
 			} catch {
 				// Ignore and keep trying candidates.
 			}
@@ -283,13 +544,29 @@ async function fetchFieldUpdatesForDeal(accessToken: string, dealId: string, api
 				{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 				apiDomain
 			);
-			if (Array.isArray(response.data) && response.data.length > 0) return response.data as any[];
+			if (Array.isArray(response.data) && response.data.length > 0) {
+				const ids = response.data.map((record: any) => record?.id).filter(Boolean) as string[];
+				if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
+				return response.data as any[];
+			}
 		} catch {
 			// Ignore and keep trying candidate field names.
 		}
 	}
 
-	return [];
+	// 3) Fallback: list recent Field Updates and filter locally (works even when the lookup field name varies).
+	const lookupField = discoveredLookup;
+	const all = await fetchRecentFieldUpdates(accessToken, apiDomain, lookupField);
+	const matching = all.filter((record) => recordReferencesDeal(record || {}, dealId, lookupField));
+	if (matching.length === 0) return [];
+
+	// If we fetched without a fields filter, hydrate minimal fields for the matched ids.
+	if (!lookupField) {
+		const ids = matching.map((record: any) => String(record?.id || '')).filter(Boolean);
+		if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
+	}
+
+	return matching;
 }
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
