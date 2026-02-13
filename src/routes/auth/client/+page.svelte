@@ -4,14 +4,27 @@
 	let message = '';
 	let loading = false;
 
+	let emailInput: HTMLInputElement | null = null;
+	let passwordInput: HTMLInputElement | null = null;
+
 	const submitPassword = async () => {
 		message = '';
+		const nextEmail = (emailInput?.value ?? email).trim();
+		const nextPassword = passwordInput?.value ?? password;
+		email = nextEmail;
+		password = nextPassword;
+
+		if (!nextEmail || !nextPassword) {
+			message = 'Email and password are required.';
+			return;
+		}
+
 		loading = true;
 		try {
 			const res = await fetch('/auth/client/password', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email, password })
+				body: JSON.stringify({ email: nextEmail, password: nextPassword })
 			});
 			const data = await res.json().catch(() => ({}));
 			if (res.ok) {
@@ -33,18 +46,36 @@
 		<p>Sign in with your password.</p>
 	</header>
 
-	<div class="card">
+	<form class="card" on:submit|preventDefault={submitPassword}>
 		<label for="email">Email</label>
-		<input id="email" type="email" bind:value={email} placeholder="you@example.com" />
+		<input
+			id="email"
+			name="email"
+			type="email"
+			bind:this={emailInput}
+			bind:value={email}
+			placeholder="you@example.com"
+			autocomplete="username"
+			autocapitalize="none"
+			spellcheck="false"
+		/>
 
 		<label for="password">Password</label>
-		<input id="password" type="password" bind:value={password} placeholder="••••••••" />
+		<input
+			id="password"
+			name="password"
+			type="password"
+			bind:this={passwordInput}
+			bind:value={password}
+			placeholder="••••••••"
+			autocomplete="current-password"
+		/>
 
-		<button on:click={submitPassword} disabled={loading || !email || !password}>Sign In</button>
+		<button type="submit" disabled={loading}>Sign In</button>
 		{#if message}
 			<p class="message">{message}</p>
 		{/if}
-	</div>
+	</form>
 </div>
 
 <style>
