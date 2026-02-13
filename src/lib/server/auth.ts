@@ -43,6 +43,7 @@ const DEAL_FIELDS = [
 	'File_Upload',
 	'External_Link',
 	'Progress_Photos',
+	'Client_Portal_Folder',
 	'Portal_Trade_Partners'
 ].join(',');
 

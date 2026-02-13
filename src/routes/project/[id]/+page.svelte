@@ -15,7 +15,7 @@
 	let updateError = '';
 	let updating = false;
 	const getProgressPhotosLink = (deal: any) => {
-		const candidates = [deal?.Progress_Photos, deal?.External_Link];
+		const candidates = [deal?.Client_Portal_Folder, deal?.Progress_Photos, deal?.External_Link];
 		for (const value of candidates) {
 			if (!value) continue;
 			if (typeof value === 'string') return value;
