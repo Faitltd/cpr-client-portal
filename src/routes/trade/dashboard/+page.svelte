@@ -273,18 +273,6 @@
 						<p>{selectedDeal.Refined_SOW || 'Not available'}</p>
 					</div>
 					<div class="notes">
-						<h4>Workdrive External Link</h4>
-						{#if selectedDeal.External_Link}
-							<p>
-								<a class="file-link" href={selectedDeal.External_Link} target="_blank" rel="noreferrer">
-									Open Workdrive
-								</a>
-							</p>
-						{:else}
-							<p>Not available</p>
-						{/if}
-					</div>
-					<div class="notes">
 						<h4>Progress Photos</h4>
 						{#if getProgressPhotosLink(selectedDeal)}
 							<p>

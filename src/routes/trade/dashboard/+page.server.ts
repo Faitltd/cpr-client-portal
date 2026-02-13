@@ -66,7 +66,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		'WiFi',
 		'Refined_SOW',
 		'File_Upload',
-		'External_Link',
 		'Progress_Photos'
 	].join(',');
 
@@ -114,7 +113,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 				deal?.WiFi ||
 				deal?.Refined_SOW ||
 				deal?.File_Upload ||
-				deal?.External_Link ||
 				deal?.Progress_Photos ||
 				deal?.Notes1 ||
 				deal?.Closing_Date ||
@@ -141,7 +139,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 				(deal) =>
 					deal?.id &&
 					(typeof deal.File_Upload === 'undefined' ||
-						typeof deal.External_Link === 'undefined' ||
 						typeof deal.Progress_Photos === 'undefined')
 			)
 			.map((deal) => deal.id);
