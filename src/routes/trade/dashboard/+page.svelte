@@ -145,25 +145,13 @@
 		<p>Welcome {tradePartner.name || tradePartner.email}</p>
 	</header>
 
-	<div class="field-update">
-		<p class="field-update-actions">
-			<a class="file-link" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
-				Open Field Update Form (New Tab)
-			</a>
-			<span class="field-update-hint">
-				If submission fails in the embedded form, opening in a new tab often fixes browser cookie restrictions.
-			</span>
+	<div class="field-update card">
+		<a class="field-update-button" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
+			Open Field Update Form
+		</a>
+		<p class="field-update-hint">
+			Opens in a new tab so camera/microphone permissions work reliably.
 		</p>
-		<iframe
-			title="Field Update"
-			height="600"
-			width="100%"
-			frameborder="0"
-			scrolling="auto"
-			allow="camera; microphone"
-			allowtransparency
-			src={fieldUpdateUrl}
-		></iframe>
 	</div>
 
 	{#if data?.warning}
@@ -290,26 +278,36 @@
 
 	.field-update {
 		margin-bottom: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
 	}
 
-	.field-update-actions {
-		margin: 0 0 0.75rem;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
+	.field-update-button {
+		display: inline-flex;
 		align-items: center;
+		justify-content: center;
+		background: #0066cc;
+		color: #fff;
+		text-decoration: none;
+		font-weight: 700;
+		border-radius: 10px;
+		padding: 0.85rem 1.25rem;
+		min-height: 44px;
+		width: fit-content;
+		max-width: 100%;
+		box-sizing: border-box;
+	}
+
+	.field-update-button:hover {
+		background: #0052a3;
 	}
 
 	.field-update-hint {
+		margin: 0;
 		color: #6b7280;
 		font-size: 0.95rem;
 		line-height: 1.35;
-	}
-
-	.field-update iframe {
-		border: none;
-		width: 100%;
-		min-height: 600px;
 	}
 
 	.warning {
@@ -392,8 +390,8 @@
 			padding: 1.5rem 1.25rem;
 		}
 
-		.field-update iframe {
-			min-height: 420px;
+		.field-update-button {
+			width: 100%;
 		}
 
 		.card {
