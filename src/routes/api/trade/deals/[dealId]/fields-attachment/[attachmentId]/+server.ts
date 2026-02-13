@@ -65,14 +65,15 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		});
 	}
 
-	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, tokens.api_domain);
+	const apiDomain = tokens.api_domain || undefined;
+	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	const allowed = deals.some((deal: any) => String(deal?.id) === String(dealId));
 	if (!allowed) {
 		throw error(403, 'Access denied');
 	}
 
-	const base = tokens.api_domain
-		? `${tokens.api_domain.replace(/\/$/, '')}/crm/v8`
+	const base = apiDomain
+		? `${apiDomain.replace(/\/$/, '')}/crm/v8`
 		: ZOHO_API_BASE;
 	const downloadUrl = `${base}/Deals/${dealId}/actions/download_fields_attachment?fields_attachment_id=${encodeURIComponent(attachmentId)}`;
 

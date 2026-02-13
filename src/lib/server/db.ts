@@ -1,7 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 
-let supabase: ReturnType<typeof createClient> | null = null;
+let supabase: SupabaseClient<any, any, any> | null = null;
 
 function getSupabase() {
 	if (supabase) return supabase;
@@ -83,6 +83,7 @@ export interface ZohoTokens {
 	refresh_token: string;
 	expires_at: string;
 	scope?: string | null;
+	api_domain?: string | null;
 }
 
 
@@ -339,6 +340,19 @@ export async function setTradePartnerPassword(tradePartnerId: string, passwordHa
 		.eq('id', tradePartnerId);
 
 	if (error) throw new Error(`Trade partner update failed: ${error.message}`);
+}
+
+export type TradePartnerListItem = { id: string; email: string; name: string | null };
+
+export async function listTradePartnersForAdmin(): Promise<TradePartnerListItem[]> {
+	const { data, error } = await getSupabase()
+		.from('trade_partners')
+		.select('id, email, name')
+		.order('name', { ascending: true, nullsFirst: false })
+		.order('email', { ascending: true });
+
+	if (error) throw new Error(`Trade partner list failed: ${error.message}`);
+	return (data as TradePartnerListItem[]) || [];
 }
 
 

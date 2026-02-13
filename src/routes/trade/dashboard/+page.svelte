@@ -160,6 +160,7 @@
 			width="100%"
 			frameborder="0"
 			scrolling="auto"
+			allow="camera; microphone"
 			allowtransparency
 			src={fieldUpdateUrl}
 		></iframe>

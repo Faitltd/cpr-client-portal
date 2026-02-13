@@ -11,6 +11,7 @@ import {
 	clearClients,
 	getZohoTokens,
 	listClients,
+	listTradePartnersForAdmin,
 	setClientPassword,
 	setTradePartnerPassword,
 	upsertClient,
@@ -57,16 +58,7 @@ function toTenDigitPhone(value: string | null | undefined) {
 export const load: PageServerLoad = async ({ cookies }) => {
 	requireAdmin(cookies.get('admin_session'));
 	const clients = await listClients();
-	const { data: tradePartners, error: tradeError } = await import('$lib/server/db').then((m) =>
-		m.supabase
-			.from('trade_partners')
-			.select('id, email, name')
-			.order('name', { ascending: true, nullsFirst: false })
-			.order('email', { ascending: true })
-	);
-	if (tradeError) {
-		throw new Error(`Trade partner list failed: ${tradeError.message}`);
-	}
+	const tradePartners = await listTradePartnersForAdmin();
 	const sorted = [...clients].sort((a, b) => {
 		const aName = (a.full_name || a.email || '').toLowerCase();
 		const bName = (b.full_name || b.email || '').toLowerCase();

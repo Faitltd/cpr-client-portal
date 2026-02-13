@@ -16,18 +16,18 @@ async function getAccessToken() {
 	if (new Date(tokens.expires_at) < new Date()) {
 		const newTokens = await refreshAccessToken(tokens.refresh_token);
 		accessToken = newTokens.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: newTokens.access_token,
-			refresh_token: newTokens.refresh_token,
-			expires_at: new Date(newTokens.expires_at).toISOString(),
-			scope: tokens.scope
-		});
-		return { accessToken, apiDomain: newTokens.api_domain };
-	}
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: newTokens.access_token,
+				refresh_token: newTokens.refresh_token,
+				expires_at: new Date(newTokens.expires_at).toISOString(),
+				scope: tokens.scope
+			});
+			return { accessToken, apiDomain: newTokens.api_domain || undefined };
+		}
 
-	return { accessToken, apiDomain: tokens.api_domain };
-}
+		return { accessToken, apiDomain: tokens.api_domain || undefined };
+	}
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
 	const sessionToken = cookies.get('portal_session');
