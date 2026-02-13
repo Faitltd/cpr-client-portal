@@ -14,6 +14,24 @@
 	let updateMessage = '';
 	let updateError = '';
 	let updating = false;
+	const getProgressPhotosLink = (deal: any) => {
+		const candidates = [deal?.Progress_Photos, deal?.External_Link];
+		for (const value of candidates) {
+			if (!value) continue;
+			if (typeof value === 'string') return value;
+			if (typeof value === 'object') {
+				const url =
+					value.link_url ||
+					value.link ||
+					value.download_url ||
+					value.url ||
+					value.href ||
+					'';
+				if (url) return url;
+			}
+		}
+		return '';
+	};
 
 	const projectId = $page.params.id;
 
@@ -125,8 +143,8 @@
 				</div>
 				<div>
 					<h3>Progress Photos</h3>
-					{#if project.External_Link}
-						<a href={project.External_Link} target="_blank" rel="noreferrer">View Photos</a>
+					{#if getProgressPhotosLink(project)}
+						<a href={getProgressPhotosLink(project)} target="_blank" rel="noreferrer">View Photos</a>
 					{:else}
 						<p>Not available</p>
 					{/if}

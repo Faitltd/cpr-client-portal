@@ -7,6 +7,24 @@
 	let error = '';
 	let invoiceError = '';
 	let invoicesOpen = true;
+	const getProgressPhotosLink = (deal: any) => {
+		const candidates = [deal?.Progress_Photos, deal?.External_Link];
+		for (const value of candidates) {
+			if (!value) continue;
+			if (typeof value === 'string') return value;
+			if (typeof value === 'object') {
+				const url =
+					value.link_url ||
+					value.link ||
+					value.download_url ||
+					value.url ||
+					value.href ||
+					'';
+				if (url) return url;
+			}
+		}
+		return '';
+	};
 	const formatInvoiceDate = (invoice: any) => {
 		const raw =
 			invoice?.invoice_date ??
@@ -95,8 +113,13 @@
 							<p class="date">Created: {new Date(project.Created_Time).toLocaleDateString()}</p>
 						</div>
 						<div class="project-actions">
-							{#if project.External_Link}
-								<a class="btn-view" href={project.External_Link} target="_blank" rel="noreferrer">
+							{#if getProgressPhotosLink(project)}
+								<a
+									class="btn-view"
+									href={getProgressPhotosLink(project)}
+									target="_blank"
+									rel="noreferrer"
+								>
 									Progress Photos
 								</a>
 							{/if}
