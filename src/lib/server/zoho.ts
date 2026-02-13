@@ -102,15 +102,31 @@ export async function getTokenInfo(accessToken: string) {
 /**
  * Make authenticated API call to Zoho CRM
  */
+export function getZohoApiBase(apiDomain?: string) {
+	// `apiDomain` comes back from Zoho OAuth as something like `https://www.zohoapis.com`.
+	// We want to preserve the API version path from `ZOHO_API_BASE` so we don't hardcode it.
+	if (!apiDomain) return ZOHO_API_BASE;
+
+	const domain = apiDomain.replace(/\/$/, '');
+	if (!ZOHO_API_BASE) return `${domain}/crm/v8`;
+
+	try {
+		const envUrl = new URL(ZOHO_API_BASE);
+		const pathname = envUrl.pathname.replace(/\/$/, '');
+		const path = pathname && pathname !== '/' ? pathname : '/crm/v8';
+		return `${domain}${path}`;
+	} catch {
+		return `${domain}/crm/v8`;
+	}
+}
+
 export async function zohoApiCall(
 	accessToken: string,
 	endpoint: string,
 	options: RequestInit = {},
 	apiDomain?: string
 ) {
-	const base = apiDomain
-		? `${apiDomain.replace(/\/$/, '')}/crm/v8`
-		: ZOHO_API_BASE;
+	const base = getZohoApiBase(apiDomain);
 	const url = `${base}${endpoint}`;
 	const response = await fetch(url, {
 		...options,

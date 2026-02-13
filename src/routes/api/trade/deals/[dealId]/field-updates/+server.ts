@@ -1,11 +1,24 @@
-import { json, error } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getTradePartnerDeals } from '$lib/server/auth';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
 const ZOHO_TIMEOUT_MS = 15000;
-const FIELD_UPDATE_FIELDS = ['Note', 'Photo', 'Update_Type', 'Created_Time', 'Modified_Time', 'Name'].join(',');
+const FIELD_UPDATE_FIELDS_FULL = ['Note', 'Photo', 'Update_Type', 'Created_Time', 'Modified_Time', 'Name'];
+const FIELD_UPDATE_FIELDS_SAFE = ['Note', 'Photo', 'Created_Time', 'Modified_Time', 'Name'];
+const FIELD_UPDATE_FIELDS_NOTE_ONLY = ['Note', 'Created_Time', 'Modified_Time', 'Name'];
+const FIELD_UPDATES_MODULE_CANDIDATES = (() => {
+	const envValue = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
+	const base = envValue
+		.split(',')
+		.map((value) => value.trim())
+		.filter(Boolean);
+	const candidates = new Set<string>([...base, 'Field_Updates']);
+	for (let i = 1; i <= 10; i += 1) candidates.add(`Field_Updates${i}`);
+	return Array.from(candidates);
+})();
 const ZOHO_API_BASE = env.ZOHO_API_BASE || '';
 
 function zohoOrigin(apiDomain?: string) {
@@ -65,6 +78,61 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 		}
 	}
 	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
+}
+
+type ZohoErrorInfo = {
+	code: string | null;
+	apiName: string | null;
+	message: string | null;
+};
+
+function extractZohoErrorInfo(err: unknown): ZohoErrorInfo | null {
+	if (!err) return null;
+	const message = err instanceof Error ? err.message : String(err);
+	const raw = message.replace(/^Zoho API call failed:\s*/i, '').trim();
+	if (!raw.startsWith('{')) return null;
+
+	try {
+		const parsed = JSON.parse(raw) as any;
+		const first = Array.isArray(parsed?.data) ? parsed.data[0] : null;
+		if (first && typeof first === 'object') {
+			return {
+				code: typeof first.code === 'string' ? first.code : null,
+				apiName: typeof first?.details?.api_name === 'string' ? first.details.api_name : null,
+				message: typeof first.message === 'string' ? first.message : null
+			};
+		}
+
+		if (parsed && typeof parsed === 'object') {
+			return {
+				code: typeof parsed.code === 'string' ? parsed.code : null,
+				apiName: typeof parsed?.details?.api_name === 'string' ? parsed.details.api_name : null,
+				message: typeof parsed.message === 'string' ? parsed.message : null
+			};
+		}
+	} catch {
+		// ignore
+	}
+
+	return null;
+}
+
+function isInvalidModuleError(err: unknown) {
+	const info = extractZohoErrorInfo(err);
+	if (info?.code === 'INVALID_MODULE') return true;
+	const message = err instanceof Error ? err.message : String(err || '');
+	return message.includes('INVALID_MODULE') || message.includes('INVALID_URL_PATTERN');
+}
+
+function isInvalidFieldError(err: unknown) {
+	const info = extractZohoErrorInfo(err);
+	if (info?.code === 'INVALID_FIELD') return true;
+	const message = err instanceof Error ? err.message : String(err || '');
+	return message.includes('INVALID_FIELD');
+}
+
+function fieldsCsv(fields: string[]) {
+	return fields.join(',');
 }
 
 function coerceText(value: any): string | null {
@@ -219,17 +287,22 @@ function normalizeFieldUpdate(record: Record<string, any>): FieldUpdateTimelineI
 	};
 }
 
-let cachedRelatedListApiName: string | null = null;
+type DealRelatedListInfo = { apiName: string; moduleApiName: string | null };
+
+let cachedRelatedListInfo: DealRelatedListInfo | null = null;
 let cachedRelatedListFetchedAt = 0;
 
-async function discoverDealRelatedListApiName(accessToken: string, apiDomain?: string): Promise<string | null> {
+async function discoverDealRelatedListInfo(
+	accessToken: string,
+	apiDomain?: string
+): Promise<DealRelatedListInfo | null> {
 	const ttlMs = 24 * 60 * 60 * 1000;
 	if (cachedRelatedListFetchedAt && Date.now() - cachedRelatedListFetchedAt < ttlMs) {
-		return cachedRelatedListApiName;
+		return cachedRelatedListInfo;
 	}
 
 	cachedRelatedListFetchedAt = Date.now();
-	cachedRelatedListApiName = null;
+	cachedRelatedListInfo = null;
 
 	const response = await zohoSettingsCall(
 		accessToken,
@@ -242,33 +315,52 @@ async function discoverDealRelatedListApiName(accessToken: string, apiDomain?: s
 		const apiName = String(list?.api_name || list?.apiName || '').trim();
 		if (!apiName) continue;
 		const label = String(list?.display_label || list?.displayLabel || list?.name || '').toLowerCase();
-		const moduleName = String(list?.module || list?.module_name || list?.moduleName || '').toLowerCase();
+		const moduleRaw = list?.module || list?.module_name || list?.moduleName || null;
+		const moduleApiName =
+			typeof moduleRaw === 'string'
+				? moduleRaw.trim() || null
+				: String(
+						moduleRaw?.api_name ||
+							moduleRaw?.apiName ||
+							moduleRaw?.name ||
+							moduleRaw?.module ||
+							''
+					).trim() || null;
+		const moduleName = String(moduleApiName || '').toLowerCase();
 		if (/field[_ ]?updates?/i.test(apiName) || label.includes('field update') || /field[_ ]?updates?/i.test(moduleName)) {
-			cachedRelatedListApiName = apiName;
-			return apiName;
+			cachedRelatedListInfo = { apiName, moduleApiName };
+			return cachedRelatedListInfo;
 		}
 	}
 
 	return null;
 }
 
-let cachedDealLookupFieldApiName: string | null = null;
-let cachedDealLookupFetchedAt = 0;
+const cachedDealLookupFieldByModule = new Map<string, { fetchedAt: number; value: string | null }>();
 
-async function discoverFieldUpdatesDealLookupField(accessToken: string, apiDomain?: string): Promise<string | null> {
+async function discoverFieldUpdatesDealLookupField(
+	accessToken: string,
+	moduleApiName: string,
+	apiDomain?: string
+): Promise<string | null> {
 	const ttlMs = 24 * 60 * 60 * 1000;
-	if (cachedDealLookupFetchedAt && Date.now() - cachedDealLookupFetchedAt < ttlMs) {
-		return cachedDealLookupFieldApiName;
+	const cacheKey = `${apiDomain || 'default'}:${moduleApiName}`;
+	const cached = cachedDealLookupFieldByModule.get(cacheKey);
+	if (cached && Date.now() - cached.fetchedAt < ttlMs) {
+		return cached.value;
 	}
 
-	cachedDealLookupFetchedAt = Date.now();
-	cachedDealLookupFieldApiName = null;
-
-	const response = await zohoSettingsCall(
-		accessToken,
-		`/settings/fields?module=${encodeURIComponent('Field_Updates')}`,
-		apiDomain
-	);
+	let response: any;
+	try {
+		response = await zohoSettingsCall(
+			accessToken,
+			`/settings/fields?module=${encodeURIComponent(moduleApiName)}`,
+			apiDomain
+		);
+	} catch {
+		cachedDealLookupFieldByModule.set(cacheKey, { fetchedAt: Date.now(), value: null });
+		return null;
+	}
 
 	const fields = (response.fields || response.data || []) as any[];
 	for (const field of fields) {
@@ -295,17 +387,18 @@ async function discoverFieldUpdatesDealLookupField(accessToken: string, apiDomai
 		const lookupModuleName = String(lookupModule || '').toLowerCase();
 
 		if (dataType.includes('lookup') && lookupModuleName.includes('deals')) {
-			cachedDealLookupFieldApiName = apiName;
+			cachedDealLookupFieldByModule.set(cacheKey, { fetchedAt: Date.now(), value: apiName });
 			return apiName;
 		}
 
 		// Fallback: a deal-ish lookup field even if lookup metadata is missing.
 		if (dataType.includes('lookup') && label.includes('deal')) {
-			cachedDealLookupFieldApiName = apiName;
+			cachedDealLookupFieldByModule.set(cacheKey, { fetchedAt: Date.now(), value: apiName });
 			return apiName;
 		}
 	}
 
+	cachedDealLookupFieldByModule.set(cacheKey, { fetchedAt: Date.now(), value: null });
 	return null;
 }
 
@@ -346,21 +439,37 @@ async function tradePartnerCanAccessDeal(
 		);
 		return (response.data || []).some((deal: any) => String(deal?.id) === String(dealId));
 	} catch {
+		// Fall through.
+	}
+
+	// Final fallback: use the same robust deal lookup logic used by the dashboard.
+	// This covers orgs where the Portal_Trade_Partners lookup isn't populated on the Deal.
+	try {
+		const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+		return (deals || []).some((deal: any) => String(deal?.id) === String(dealId));
+	} catch {
 		return false;
 	}
 }
 
-async function fetchFieldUpdatesByIds(accessToken: string, ids: string[], apiDomain?: string) {
+async function fetchFieldUpdatesByIdsWithFields(
+	accessToken: string,
+	moduleApiName: string,
+	ids: string[],
+	fields: string[],
+	apiDomain?: string
+) {
 	const unique = Array.from(new Set((ids || []).map((id) => String(id)).filter(Boolean)));
 	if (unique.length === 0) return [];
 
 	const results: any[] = [];
 	const chunkSize = 100;
+	const fieldsParam = fieldsCsv(fields);
 	for (let i = 0; i < unique.length; i += chunkSize) {
 		const chunk = unique.slice(i, i + chunkSize);
 		const response = await zohoApiCall(
 			accessToken,
-			`/Field_Updates?ids=${chunk.join(',')}&fields=${encodeURIComponent(FIELD_UPDATE_FIELDS)}`,
+			`/${encodeURIComponent(moduleApiName)}?ids=${chunk.join(',')}&fields=${encodeURIComponent(fieldsParam)}`,
 			{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 			apiDomain
 		);
@@ -370,34 +479,92 @@ async function fetchFieldUpdatesByIds(accessToken: string, ids: string[], apiDom
 	return results;
 }
 
-async function fetchRecentFieldUpdates(accessToken: string, apiDomain?: string, lookupField?: string | null) {
-	const perPage = 200;
-	let page = 1;
-	let more = true;
-	const results: any[] = [];
-
-	while (more && page <= 10) {
-		const params = new URLSearchParams({
-			per_page: String(perPage),
-			page: String(page)
-		});
-		// If we know the deal lookup API name, include it (plus the fields we want) to avoid huge payloads.
-		if (lookupField) {
-			params.set('fields', `${FIELD_UPDATE_FIELDS},${lookupField}`);
+async function fetchFieldUpdatesByIds(
+	accessToken: string,
+	moduleApiName: string,
+	ids: string[],
+	apiDomain?: string
+) {
+	const fieldAttempts = [FIELD_UPDATE_FIELDS_FULL, FIELD_UPDATE_FIELDS_SAFE, FIELD_UPDATE_FIELDS_NOTE_ONLY];
+	let lastErr: unknown = null;
+	for (const fields of fieldAttempts) {
+		try {
+			return await fetchFieldUpdatesByIdsWithFields(accessToken, moduleApiName, ids, fields, apiDomain);
+		} catch (err) {
+			lastErr = err;
+			if (isInvalidFieldError(err)) continue;
+			throw err;
 		}
-
-		const response = await zohoApiCall(
-			accessToken,
-			`/Field_Updates?${params.toString()}`,
-			{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
-			apiDomain
-		);
-		results.push(...(response.data || []));
-		more = Boolean(response.info?.more_records);
-		page += 1;
 	}
+	throw lastErr instanceof Error ? lastErr : new Error('Failed to fetch Field Updates');
+}
 
-	return results;
+async function fetchFieldUpdatesByIdsAnyModule(
+	accessToken: string,
+	ids: string[],
+	moduleCandidates: string[],
+	apiDomain?: string
+) {
+	let lastErr: unknown = null;
+	for (const moduleApiName of moduleCandidates) {
+		try {
+			const data = await fetchFieldUpdatesByIds(accessToken, moduleApiName, ids, apiDomain);
+			if (Array.isArray(data) && data.length > 0) return data;
+		} catch (err) {
+			lastErr = err;
+			if (isInvalidModuleError(err)) continue;
+		}
+	}
+	if (lastErr) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+	return [];
+}
+
+async function fetchRecentFieldUpdates(
+	accessToken: string,
+	moduleApiName: string,
+	apiDomain?: string,
+	lookupField?: string | null
+) {
+	const perPage = 200;
+	const fieldAttempts: Array<string | null> = [];
+	if (lookupField) {
+		fieldAttempts.push(`${fieldsCsv(FIELD_UPDATE_FIELDS_SAFE)},${lookupField}`);
+		fieldAttempts.push(`${fieldsCsv(FIELD_UPDATE_FIELDS_NOTE_ONLY)},${lookupField}`);
+	}
+	fieldAttempts.push(null);
+
+	let lastErr: unknown = null;
+	for (const fieldsParam of fieldAttempts) {
+		let page = 1;
+		let more = true;
+		const results: any[] = [];
+		try {
+			while (more && page <= 10) {
+				const params = new URLSearchParams({
+					per_page: String(perPage),
+					page: String(page)
+				});
+				if (fieldsParam) params.set('fields', fieldsParam);
+
+				const response = await zohoApiCall(
+					accessToken,
+					`/${encodeURIComponent(moduleApiName)}?${params.toString()}`,
+					{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
+					apiDomain
+				);
+				results.push(...(response.data || []));
+				more = Boolean(response.info?.more_records);
+				page += 1;
+			}
+			return results;
+		} catch (err) {
+			lastErr = err;
+			if (fieldsParam && isInvalidFieldError(err)) continue;
+			throw err;
+		}
+	}
+	if (lastErr) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+	return [];
 }
 
 function recordReferencesDeal(
@@ -473,12 +640,14 @@ function recordReferencesDeal(
 }
 
 async function fetchFieldUpdatesForDeal(accessToken: string, dealId: string, apiDomain?: string) {
+	const relatedInfo = await discoverDealRelatedListInfo(accessToken, apiDomain).catch(() => null);
+	const moduleCandidates = Array.from(
+		new Set([relatedInfo?.moduleApiName, ...FIELD_UPDATES_MODULE_CANDIDATES].filter(Boolean))
+	) as string[];
+
 	// 1) Attempt related list fetch from the Deal record (best signal, no need to know lookup field).
-	const discovered = await discoverDealRelatedListApiName(accessToken, apiDomain).catch(() => null);
-	const defaultRelatedCandidates = ['Field_Updates'];
-	for (let i = 1; i <= 10; i += 1) defaultRelatedCandidates.push(`Field_Updates${i}`);
 	const relatedCandidates = Array.from(
-		new Set([discovered, ...defaultRelatedCandidates].filter(Boolean))
+		new Set([relatedInfo?.apiName, ...FIELD_UPDATES_MODULE_CANDIDATES].filter(Boolean))
 	) as string[];
 
 	for (const related of relatedCandidates) {
@@ -486,144 +655,165 @@ async function fetchFieldUpdatesForDeal(accessToken: string, dealId: string, api
 		try {
 			const response = await zohoApiCall(
 				accessToken,
-				`${baseEndpoint}?per_page=200&fields=${encodeURIComponent(FIELD_UPDATE_FIELDS)}`,
+				`${baseEndpoint}?per_page=200`,
 				{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 				apiDomain
 			);
 			if (Array.isArray(response.data) && response.data.length > 0) {
-				const ids = response.data.map((record: any) => record?.id).filter(Boolean) as string[];
-				if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
+				const ids = response.data.map((record: any) => String(record?.id || '')).filter(Boolean) as string[];
+				if (ids.length > 0) {
+					const hydrateModules = Array.from(
+						new Set([relatedInfo?.moduleApiName, related, ...moduleCandidates].filter(Boolean))
+					) as string[];
+					try {
+						const hydrated = await fetchFieldUpdatesByIdsAnyModule(
+							accessToken,
+							ids,
+							hydrateModules,
+							apiDomain
+						);
+						if (hydrated.length > 0) return hydrated;
+					} catch {
+						// Fall through to returning whatever the related list provided.
+					}
+				}
 				return response.data as any[];
 			}
 		} catch {
-			// Some related-list endpoints don't support fields filtering; try without it.
+			// Ignore and keep trying candidates.
+		}
+	}
+
+	// 2) Attempt search queries across module candidates using discovered lookup field + fallbacks.
+	const dealFieldFallbacks = [
+		'Deal',
+		'Deal_Name',
+		'Deal_ID',
+		'Deals',
+		'Portal_Deal',
+		'Portal_Deals',
+		'Active_Deal',
+		'Active_Deals',
+		'Project',
+		'Project_Name'
+	];
+
+	for (const moduleApiName of moduleCandidates) {
+		const discoveredLookup = await discoverFieldUpdatesDealLookupField(accessToken, moduleApiName, apiDomain);
+		const dealFieldCandidates = Array.from(
+			new Set([discoveredLookup, ...dealFieldFallbacks].filter(Boolean))
+		) as string[];
+
+		for (const field of dealFieldCandidates) {
+			const criteria = `(${field}:equals:${dealId})`;
 			try {
 				const response = await zohoApiCall(
 					accessToken,
-					`${baseEndpoint}?per_page=200`,
+					`/${encodeURIComponent(moduleApiName)}/search?criteria=${encodeURIComponent(criteria)}&per_page=200`,
 					{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 					apiDomain
 				);
 				if (Array.isArray(response.data) && response.data.length > 0) {
-					const ids = response.data.map((record: any) => record?.id).filter(Boolean) as string[];
-					if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
+					const ids = response.data.map((record: any) => String(record?.id || '')).filter(Boolean) as string[];
+					if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, moduleApiName, ids, apiDomain);
 					return response.data as any[];
 				}
-			} catch {
-				// Ignore and keep trying candidates.
+			} catch (err) {
+				if (isInvalidModuleError(err)) break;
+				continue;
 			}
 		}
 	}
 
-	// 2) Attempt search queries using the discovered deal lookup field, then fallback candidates.
-	const discoveredLookup = await discoverFieldUpdatesDealLookupField(accessToken, apiDomain).catch(() => null);
-	const dealFieldCandidates = Array.from(
-		new Set([
-			discoveredLookup,
-			'Deal',
-			'Deal_Name',
-			'Deal_ID',
-			'Deals',
-			'Portal_Deal',
-			'Portal_Deals',
-			'Active_Deal',
-			'Active_Deals',
-			'Project',
-			'Project_Name'
-		].filter(Boolean))
-	) as string[];
-
-	for (const field of dealFieldCandidates) {
-		const criteria = `(${field}:equals:${dealId})`;
+	// 3) Fallback: list recent Field Updates per module and filter locally.
+	for (const moduleApiName of moduleCandidates) {
+		const lookupField = await discoverFieldUpdatesDealLookupField(accessToken, moduleApiName, apiDomain);
 		try {
-			const response = await zohoApiCall(
-				accessToken,
-				`/Field_Updates/search?criteria=${encodeURIComponent(criteria)}&per_page=200&fields=${encodeURIComponent(
-					FIELD_UPDATE_FIELDS
-				)}`,
-				{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
-				apiDomain
-			);
-			if (Array.isArray(response.data) && response.data.length > 0) {
-				const ids = response.data.map((record: any) => record?.id).filter(Boolean) as string[];
-				if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
-				return response.data as any[];
+			const all = await fetchRecentFieldUpdates(accessToken, moduleApiName, apiDomain, lookupField);
+			const matching = all.filter((record) => recordReferencesDeal(record || {}, dealId, lookupField));
+			if (matching.length === 0) continue;
+
+			const ids = matching.map((record: any) => String(record?.id || '')).filter(Boolean);
+			if (ids.length > 0) {
+				try {
+					const hydrated = await fetchFieldUpdatesByIds(accessToken, moduleApiName, ids, apiDomain);
+					if (hydrated.length > 0) return hydrated;
+				} catch {
+					// Fall through.
+				}
 			}
-		} catch {
-			// Ignore and keep trying candidate field names.
+
+			return matching;
+		} catch (err) {
+			if (isInvalidModuleError(err)) continue;
+			throw err;
 		}
 	}
 
-	// 3) Fallback: list recent Field Updates and filter locally (works even when the lookup field name varies).
-	const lookupField = discoveredLookup;
-	const all = await fetchRecentFieldUpdates(accessToken, apiDomain, lookupField);
-	const matching = all.filter((record) => recordReferencesDeal(record || {}, dealId, lookupField));
-	if (matching.length === 0) return [];
-
-	// If we fetched without a fields filter, hydrate minimal fields for the matched ids.
-	if (!lookupField) {
-		const ids = matching.map((record: any) => String(record?.id || '')).filter(Boolean);
-		if (ids.length > 0) return await fetchFieldUpdatesByIds(accessToken, ids, apiDomain);
-	}
-
-	return matching;
+	return [];
 }
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
 	const sessionToken = cookies.get('trade_session');
 	if (!sessionToken) {
-		throw error(401, 'Not authenticated');
+		return json({ message: 'Not authenticated' }, { status: 401 });
 	}
 
 	const session = await getTradeSession(sessionToken);
 	if (!session) {
-		throw error(401, 'Invalid session');
+		return json({ message: 'Invalid session' }, { status: 401 });
 	}
 
 	const tradePartnerId = session.trade_partner.zoho_trade_partner_id;
 	if (!tradePartnerId) {
-		throw error(400, 'Trade partner is missing Zoho ID');
+		return json({ message: 'Trade partner is missing Zoho ID' }, { status: 400 });
 	}
 
 	const dealId = params.dealId;
 	if (!dealId) {
-		throw error(400, 'Deal ID required');
+		return json({ message: 'Deal ID required' }, { status: 400 });
 	}
 
 	const tokens = await getZohoTokens();
 	if (!tokens) {
-		throw error(500, 'Zoho tokens not configured');
+		return json({ message: 'Zoho tokens not configured' }, { status: 500 });
 	}
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
+	try {
+		let accessToken = tokens.access_token;
+		if (new Date(tokens.expires_at) < new Date()) {
+			const refreshed = await refreshAccessToken(tokens.refresh_token);
+			accessToken = refreshed.access_token;
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: refreshed.access_token,
+				refresh_token: refreshed.refresh_token,
+				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+				scope: tokens.scope
+			});
+		}
+
+		const apiDomain = tokens.api_domain || undefined;
+		const allowed = await tradePartnerCanAccessDeal(accessToken, dealId, tradePartnerId, apiDomain);
+		if (!allowed) {
+			return json({ message: 'Access denied' }, { status: 403 });
+		}
+
+		const records = await fetchFieldUpdatesForDeal(accessToken, dealId, apiDomain);
+		const normalized = (records || [])
+			.map((record) => normalizeFieldUpdate(record || {}))
+			.filter((item) => item.id);
+
+		normalized.sort((a, b) => {
+			const aDate = new Date(a.createdAt || a.updatedAt || 0).getTime();
+			const bDate = new Date(b.createdAt || b.updatedAt || 0).getTime();
+			return bDate - aDate;
 		});
+
+		return json({ data: normalized });
+	} catch (err) {
+		const message = err instanceof Error ? err.message : 'Failed to fetch field updates';
+		console.error('Trade field updates failed', { dealId, tradePartnerId, error: message });
+		return json({ message }, { status: 500 });
 	}
-
-	const apiDomain = tokens.api_domain || undefined;
-	const allowed = await tradePartnerCanAccessDeal(accessToken, dealId, tradePartnerId, apiDomain);
-	if (!allowed) {
-		throw error(403, 'Access denied');
-	}
-
-	const records = await fetchFieldUpdatesForDeal(accessToken, dealId, apiDomain);
-	const normalized = (records || [])
-		.map((record) => normalizeFieldUpdate(record || {}))
-		.filter((item) => item.id);
-
-	normalized.sort((a, b) => {
-		const aDate = new Date(a.createdAt || a.updatedAt || 0).getTime();
-		const bDate = new Date(b.createdAt || b.updatedAt || 0).getTime();
-		return bDate - aDate;
-	});
-
-	return json({ data: normalized });
 };

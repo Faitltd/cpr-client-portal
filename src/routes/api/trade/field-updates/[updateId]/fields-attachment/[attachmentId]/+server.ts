@@ -1,11 +1,22 @@
 import { error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { getTradePartnerDeals } from '$lib/server/auth';
+import { getZohoApiBase, refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
 const ZOHO_API_BASE = env.ZOHO_API_BASE || '';
 const ZOHO_TIMEOUT_MS = 15000;
+const FIELD_UPDATES_MODULE_CANDIDATES = (() => {
+	const envValue = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
+	const base = envValue
+		.split(',')
+		.map((value) => value.trim())
+		.filter(Boolean);
+	const candidates = new Set<string>([...base, 'Field_Updates']);
+	for (let i = 1; i <= 10; i += 1) candidates.add(`Field_Updates${i}`);
+	return Array.from(candidates);
+})();
 
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
@@ -88,6 +99,14 @@ async function tradePartnerCanAccessDeal(
 		);
 		return (response.data || []).some((deal: any) => String(deal?.id) === String(dealId));
 	} catch {
+		// Fall through.
+	}
+
+	// Final fallback: match the deal id using the same robust lookup logic as the dashboard.
+	try {
+		const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+		return (deals || []).some((deal: any) => String(deal?.id) === String(dealId));
+	} catch {
 		return false;
 	}
 }
@@ -135,16 +154,32 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const apiDomain = tokens.api_domain || undefined;
 
 	// Authorize: the update must be related to a deal the trade partner can access.
-	const updateRecordResponse = await zohoApiCall(
-		accessToken,
-		`/Field_Updates/${encodeURIComponent(updateId)}`,
-		{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
-		apiDomain
-	);
-	const updateRecord = updateRecordResponse.data?.[0];
-	if (!updateRecord) {
-		throw error(404, 'Field update not found');
+	let updateRecord: any = null;
+	let updateModuleApiName = 'Field_Updates';
+	for (const moduleApiName of FIELD_UPDATES_MODULE_CANDIDATES) {
+		try {
+			const updateRecordResponse = await zohoApiCall(
+				accessToken,
+				`/${encodeURIComponent(moduleApiName)}/${encodeURIComponent(updateId)}`,
+				{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
+				apiDomain
+			);
+			const record = updateRecordResponse.data?.[0];
+			if (record) {
+				updateRecord = record;
+				updateModuleApiName = moduleApiName;
+				break;
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			// Wrong module / record not in this module; keep trying.
+			if (message.includes('INVALID_MODULE') || message.includes('INVALID_URL_PATTERN')) continue;
+			if (message.includes('INVALID_DATA') || message.toLowerCase().includes('record') || message.includes('NOT_FOUND')) continue;
+			continue;
+		}
 	}
+
+	if (!updateRecord) throw error(404, 'Field update not found');
 
 	const dealId = extractDealIdFromFieldUpdate(updateRecord as Record<string, any>);
 	if (!dealId) {
@@ -156,12 +191,14 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		throw error(403, 'Access denied');
 	}
 
-	const base = apiDomain ? `${apiDomain.replace(/\/$/, '')}/crm/v8` : ZOHO_API_BASE;
-	const downloadUrl = `${base}/Field_Updates/${encodeURIComponent(
-		updateId
-	)}/actions/download_fields_attachment?fields_attachment_id=${encodeURIComponent(attachmentId)}`;
+	const base = getZohoApiBase(apiDomain) || ZOHO_API_BASE;
+	const fullDownloadUrl = `${base}/${encodeURIComponent(
+		updateModuleApiName
+	)}/${encodeURIComponent(updateId)}/actions/download_fields_attachment?fields_attachment_id=${encodeURIComponent(
+		attachmentId
+	)}`;
 
-	const response = await fetch(downloadUrl, {
+	const response = await fetch(fullDownloadUrl, {
 		method: 'GET',
 		signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS),
 		headers: {

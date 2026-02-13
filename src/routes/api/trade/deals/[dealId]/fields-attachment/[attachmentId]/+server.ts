@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { getZohoApiBase, refreshAccessToken } from '$lib/server/zoho';
 import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
@@ -72,9 +72,7 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		throw error(403, 'Access denied');
 	}
 
-	const base = apiDomain
-		? `${apiDomain.replace(/\/$/, '')}/crm/v8`
-		: ZOHO_API_BASE;
+	const base = getZohoApiBase(apiDomain) || ZOHO_API_BASE;
 	const downloadUrl = `${base}/Deals/${dealId}/actions/download_fields_attachment?fields_attachment_id=${encodeURIComponent(attachmentId)}`;
 
 	const response = await fetch(downloadUrl, {

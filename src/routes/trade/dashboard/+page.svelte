@@ -180,7 +180,19 @@
 				signal: fieldUpdatesController.signal
 			});
 			if (res.status === 401) throw new Error('Please login again');
-			if (!res.ok) throw new Error('Failed to fetch field updates');
+			if (!res.ok) {
+				let serverMessage = '';
+				try {
+					const payload = await res.json().catch(() => ({}));
+					serverMessage = String(payload?.message || '').trim();
+				} catch {
+					// ignore
+				}
+				if (!serverMessage) {
+					serverMessage = (await res.text().catch(() => '')).trim();
+				}
+				throw new Error(serverMessage || `Failed to fetch field updates (${res.status})`);
+			}
 			const payload = await res.json().catch(() => ({}));
 			fieldUpdates = Array.isArray(payload?.data) ? payload.data : [];
 		} catch (err) {
