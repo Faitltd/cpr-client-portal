@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
 		deals: any[];
@@ -10,6 +12,17 @@
 	let selectedDealId = deals[0]?.id || '';
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
 	$: selectedDeal && console.log('Selected Deal:', selectedDeal);
+
+	type FieldUpdate = {
+		id: string;
+		createdAt: string | null;
+		updatedAt: string | null;
+		type: string | null;
+		title: string | null;
+		body: string | null;
+		links: string[];
+		fields: Array<{ label: string; value: string }>;
+	};
 
 	type DesignFile = { name: string; url?: string; attachmentId?: string };
 
@@ -137,6 +150,62 @@
 		}
 		return '';
 	};
+
+	const formatUpdateTimestamp = (value: string | null) => {
+		if (!value) return '—';
+		const date = new Date(value);
+		if (Number.isNaN(date.valueOf())) return String(value);
+		return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+	};
+
+	const getLinkLabel = (link: string) => {
+		try {
+			const url = new URL(link);
+			const last = url.pathname.split('/').filter(Boolean).pop() || '';
+			const decoded = safeDecode(last);
+			if (decoded && decoded.length >= 4) return decoded;
+			return url.hostname;
+		} catch {
+			return link;
+		}
+	};
+
+	let fieldUpdates: FieldUpdate[] = [];
+	let fieldUpdatesLoading = false;
+	let fieldUpdatesError = '';
+	let lastFieldUpdatesDealId = '';
+	let fieldUpdatesController: AbortController | null = null;
+
+	const loadFieldUpdates = async (dealId: string) => {
+		if (!dealId) return;
+		fieldUpdatesController?.abort();
+		fieldUpdatesController = new AbortController();
+		fieldUpdatesLoading = true;
+		fieldUpdatesError = '';
+
+		try {
+			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/field-updates`, {
+				signal: fieldUpdatesController.signal
+			});
+			if (res.status === 401) throw new Error('Please login again');
+			if (!res.ok) throw new Error('Failed to fetch field updates');
+			const payload = await res.json().catch(() => ({}));
+			fieldUpdates = Array.isArray(payload?.data) ? payload.data : [];
+		} catch (err) {
+			if (err instanceof Error && err.name === 'AbortError') return;
+			fieldUpdatesError = err instanceof Error ? err.message : 'Failed to fetch field updates';
+			fieldUpdates = [];
+		} finally {
+			fieldUpdatesLoading = false;
+		}
+	};
+
+	$: if (selectedDealId && selectedDealId !== lastFieldUpdatesDealId) {
+		lastFieldUpdatesDealId = selectedDealId;
+		loadFieldUpdates(selectedDealId);
+	}
+
+	onDestroy(() => fieldUpdatesController?.abort());
 </script>
 
 <div class="dashboard">
@@ -254,6 +323,72 @@
 					</div>
 				</div>
 			</div>
+
+			<div class="card field-updates-card">
+				<div class="field-updates-header">
+					<h3>Field Updates</h3>
+					<a class="field-update-button field-update-button--small" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
+						Submit Update
+					</a>
+				</div>
+
+				{#if fieldUpdatesLoading}
+					<p class="muted">Loading field updates...</p>
+				{:else if fieldUpdatesError}
+					<p class="error-text">{fieldUpdatesError}</p>
+				{:else if fieldUpdates.length === 0}
+					<p class="muted">No field updates submitted for this deal yet.</p>
+				{:else}
+					<div class="updates">
+						{#each fieldUpdates as update (update.id)}
+							<article class="update">
+								<div class="update-meta">
+									{#if update.type}
+										<span class="badge">{update.type}</span>
+									{/if}
+									<span class="update-date">
+										{formatUpdateTimestamp(update.createdAt || update.updatedAt)}
+									</span>
+								</div>
+
+								{#if update.title}
+									<h4 class="update-title">{update.title}</h4>
+								{/if}
+
+								{#if update.body}
+									<p class="update-body">{update.body}</p>
+								{/if}
+
+								{#if update.fields?.length}
+									<dl class="update-fields">
+										{#each update.fields as field (field.label)}
+											<div class="update-field">
+												<dt>{field.label}</dt>
+												<dd>{field.value}</dd>
+											</div>
+										{/each}
+									</dl>
+								{/if}
+
+								{#if update.links?.length}
+									<div class="update-links">
+										<h5>Files</h5>
+										<ul class="file-list">
+											{#each update.links as link (link)}
+												<li>
+													<a class="file-link" href={link} target="_blank" rel="noreferrer">
+														{getLinkLabel(link)}
+													</a>
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+							</article>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		{/if}
 	{/if}
 </div>
@@ -299,6 +434,14 @@
 		box-sizing: border-box;
 	}
 
+	.field-update-button--small {
+		padding: 0.65rem 1rem;
+		border-radius: 999px;
+		font-size: 0.95rem;
+		font-weight: 800;
+		min-height: 40px;
+	}
+
 	.field-update-button:hover {
 		background: #0052a3;
 	}
@@ -333,6 +476,103 @@
 
 	.deal-details h3 {
 		margin-top: 0;
+	}
+
+	.field-updates-card {
+		margin-top: 1.5rem;
+	}
+
+	.field-updates-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.field-updates-header h3 {
+		margin: 0;
+	}
+
+	.muted {
+		margin: 0;
+		color: #6b7280;
+	}
+
+	.error-text {
+		margin: 0;
+		color: #b91c1c;
+	}
+
+	.updates {
+		display: grid;
+		gap: 1rem;
+	}
+
+	.update {
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		padding: 1rem 1.1rem;
+		background: #fff;
+	}
+
+	.update-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.5rem;
+	}
+
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.25rem 0.55rem;
+		border-radius: 999px;
+		background: #111827;
+		color: #fff;
+		font-size: 0.8rem;
+		font-weight: 800;
+	}
+
+	.update-date {
+		color: #6b7280;
+		font-size: 0.9rem;
+	}
+
+	.update-title {
+		margin: 0 0 0.5rem;
+		font-size: 1.05rem;
+	}
+
+	.update-body {
+		margin: 0 0 0.8rem;
+		color: #111827;
+		line-height: 1.45;
+		white-space: pre-wrap;
+	}
+
+	.update-fields {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 0.6rem 1rem;
+		margin: 0 0 0.8rem;
+	}
+
+	.update-field dt {
+		font-weight: 800;
+		color: #111827;
+		font-size: 0.9rem;
+	}
+
+	.update-field dd {
+		margin: 0.1rem 0 0;
+		color: #374151;
+	}
+
+	.update-links h5 {
+		margin: 0 0 0.35rem;
+		font-size: 0.95rem;
 	}
 
 	.details-grid {
@@ -390,6 +630,15 @@
 			padding: 1.5rem 1.25rem;
 		}
 
+		.field-updates-header {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.field-update-button--small {
+			width: 100%;
+		}
+
 		.field-update-button {
 			width: 100%;
 		}
@@ -399,6 +648,10 @@
 		}
 
 		.details-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.update-fields {
 			grid-template-columns: 1fr;
 		}
 	}
