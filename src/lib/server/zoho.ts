@@ -1,4 +1,9 @@
-import { ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_TOKEN_URL, ZOHO_API_BASE } from '$env/static/private';
+import { env } from '$env/dynamic/private';
+
+const ZOHO_CLIENT_ID = env.ZOHO_CLIENT_ID || '';
+const ZOHO_CLIENT_SECRET = env.ZOHO_CLIENT_SECRET || '';
+const ZOHO_TOKEN_URL = env.ZOHO_TOKEN_URL || '';
+const ZOHO_API_BASE = env.ZOHO_API_BASE || '';
 
 interface ZohoTokenResponse {
 	access_token: string;

@@ -1,9 +1,9 @@
 import { createHmac, timingSafeEqual } from 'crypto';
-import {
-	PORTAL_ADMIN_PASSWORD,
-	PORTAL_ADMIN_SESSION_TTL_HOURS,
-	SESSION_SECRET
-} from '$env/static/private';
+import { env } from '$env/dynamic/private';
+
+const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
+const PORTAL_ADMIN_SESSION_TTL_HOURS = env.PORTAL_ADMIN_SESSION_TTL_HOURS;
+const SESSION_SECRET = env.SESSION_SECRET || '';
 
 const DEFAULT_TTL_HOURS = 12;
 

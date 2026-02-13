@@ -1,4 +1,7 @@
-import { ZOHO_SIGN_API_BASE, ZOHO_SIGN_HOST } from '$env/static/private';
+import { env } from '$env/dynamic/private';
+
+const ZOHO_SIGN_API_BASE = env.ZOHO_SIGN_API_BASE;
+const ZOHO_SIGN_HOST = env.ZOHO_SIGN_HOST;
 
 const DEFAULT_SIGN_BASE = 'https://sign.zoho.com/api/v1';
 

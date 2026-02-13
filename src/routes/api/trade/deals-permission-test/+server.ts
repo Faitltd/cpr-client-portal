@@ -1,11 +1,11 @@
 import { json, error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTokenInfo, refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
-import {
-	ZOHO_TRADE_PARTNERS_MODULE,
-	ZOHO_TRADE_PARTNER_RELATED_LIST
-} from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
+
+const ZOHO_TRADE_PARTNERS_MODULE = env.ZOHO_TRADE_PARTNERS_MODULE;
+const ZOHO_TRADE_PARTNER_RELATED_LIST = env.ZOHO_TRADE_PARTNER_RELATED_LIST;
 
 const DEAL_FIELDS = [
 	'Deal_Name',

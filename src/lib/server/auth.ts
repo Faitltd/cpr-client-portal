@@ -1,11 +1,11 @@
 import { zohoApiCall } from './zoho';
 import type { Client } from './db';
 import { dev } from '$app/environment';
-import {
-	PORTAL_DEV_SHOW_ALL,
-	ZOHO_TRADE_PARTNERS_MODULE,
-	ZOHO_TRADE_PARTNER_RELATED_LIST
-} from '$env/static/private';
+import { env } from '$env/dynamic/private';
+
+const PORTAL_DEV_SHOW_ALL = env.PORTAL_DEV_SHOW_ALL;
+const ZOHO_TRADE_PARTNERS_MODULE = env.ZOHO_TRADE_PARTNERS_MODULE;
+const ZOHO_TRADE_PARTNER_RELATED_LIST = env.ZOHO_TRADE_PARTNER_RELATED_LIST;
 
 type ClientProfile = Omit<Client, 'id'>;
 

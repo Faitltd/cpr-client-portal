@@ -1,4 +1,7 @@
-import { ZOHO_BOOKS_API_BASE, ZOHO_BOOKS_ORG_ID } from '$env/static/private';
+import { env } from '$env/dynamic/private';
+
+const ZOHO_BOOKS_API_BASE = env.ZOHO_BOOKS_API_BASE;
+const ZOHO_BOOKS_ORG_ID = env.ZOHO_BOOKS_ORG_ID;
 
 const DEFAULT_BOOKS_BASE = 'https://www.zohoapis.com/books/v3';
 

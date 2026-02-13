@@ -1,6 +1,11 @@
 import { redirect } from '@sveltejs/kit';
-import { ZOHO_CLIENT_ID, ZOHO_AUTH_URL, ZOHO_REDIRECT_URI, ZOHO_SCOPE } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
+
+const ZOHO_CLIENT_ID = env.ZOHO_CLIENT_ID || '';
+const ZOHO_AUTH_URL = env.ZOHO_AUTH_URL || '';
+const ZOHO_REDIRECT_URI = env.ZOHO_REDIRECT_URI || '';
+const ZOHO_SCOPE = env.ZOHO_SCOPE || '';
 
 export const GET: RequestHandler = async () => {
 	const params = new URLSearchParams({

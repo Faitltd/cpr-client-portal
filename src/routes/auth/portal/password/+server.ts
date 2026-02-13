@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { createHash } from 'crypto';
 import { dev } from '$app/environment';
-import { PORTAL_ADMIN_PASSWORD } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import {
 	createSession,
 	createTradeSession,
@@ -15,6 +15,8 @@ import {
 } from '$lib/server/admin';
 import { verifyPassword } from '$lib/server/password';
 import type { RequestHandler } from './$types';
+
+const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 

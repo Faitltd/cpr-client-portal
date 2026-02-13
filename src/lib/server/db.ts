@@ -1,13 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
-import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-	throw new Error('Missing Supabase environment variables');
+let supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabase() {
+	if (supabase) return supabase;
+
+	const SUPABASE_URL = env.SUPABASE_URL;
+	const SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+	if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+		throw new Error('Missing Supabase environment variables');
+	}
+
+	supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+		auth: { persistSession: false }
+	});
+	return supabase;
 }
-
-export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-	auth: { persistSession: false }
-});
 
 export interface Client {
 	id: string;
@@ -92,7 +101,7 @@ export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Clie
 		updated_at: new Date().toISOString()
 	};
 
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('clients')
 		.upsert([insertData], { onConflict: 'zoho_contact_id', defaultToNull: false })
 		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone, portal_active')
@@ -106,7 +115,7 @@ export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Clie
  * Fetch client auth details by id
  */
 export async function getClientAuthById(clientId: string): Promise<ClientAuth | null> {
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('clients')
 		.select('id, email, password_hash, portal_active')
 		.eq('id', clientId)
@@ -120,7 +129,7 @@ export async function getClientAuthById(clientId: string): Promise<ClientAuth | 
  * Fetch client auth details by email
  */
 export async function getClientAuthByEmail(email: string): Promise<ClientAuth | null> {
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('clients')
 		.select('id, email, password_hash, portal_active')
 		.ilike('email', email)
@@ -134,7 +143,7 @@ export async function getClientAuthByEmail(email: string): Promise<ClientAuth | 
  * Update client password hash
  */
 export async function setClientPassword(clientId: string, passwordHash: string): Promise<void> {
-	const { error } = await supabase
+	const { error } = await getSupabase()
 		.from('clients')
 		.update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
 		.eq('id', clientId);
@@ -146,7 +155,7 @@ export async function setClientPassword(clientId: string, passwordHash: string):
  * Create a new client session
  */
 export async function createSession(sessionData: ClientSessionRecord): Promise<void> {
-	const { error } = await supabase
+	const { error } = await getSupabase()
 		.from('client_sessions')
 		.insert(sessionData);
 
@@ -157,7 +166,7 @@ export async function createSession(sessionData: ClientSessionRecord): Promise<v
  * Get session by session token with client data
  */
 export async function getSession(sessionToken: string): Promise<ClientSession | null> {
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('client_sessions')
 		.select(
 			`session_token,
@@ -194,14 +203,14 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
  * Delete session (logout)
  */
 export async function deleteSession(sessionToken: string): Promise<void> {
-	await supabase.from('client_sessions').delete().eq('session_token', sessionToken);
+	await getSupabase().from('client_sessions').delete().eq('session_token', sessionToken);
 }
 
 /**
  * Fetch trade partner auth details by email
  */
 export async function getTradePartnerAuthByEmail(email: string): Promise<TradePartnerAuth | null> {
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('trade_partners')
 		.select('id, email, password_hash')
 		.ilike('email', email)
@@ -224,7 +233,7 @@ export async function upsertTradePartner(tradePartner: Omit<TradePartner, 'id'>)
 		updated_at: new Date().toISOString()
 	};
 
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('trade_partners')
 		.upsert([insertData], { onConflict: 'zoho_trade_partner_id', defaultToNull: false })
 		.select('id, zoho_trade_partner_id, email, name, company, phone')
@@ -234,21 +243,21 @@ export async function upsertTradePartner(tradePartner: Omit<TradePartner, 'id'>)
 
 	// If email already exists, attach Zoho ID to the existing record.
 	if (error.message.includes('trade_partners_email_key')) {
-		const { data: existing, error: fetchError } = await supabase
-			.from('trade_partners')
-			.select('id')
-			.ilike('email', insertData.email)
-			.single();
+			const { data: existing, error: fetchError } = await getSupabase()
+				.from('trade_partners')
+				.select('id')
+				.ilike('email', insertData.email)
+				.single();
 
 		if (fetchError || !existing) {
 			throw new Error(`Trade partner lookup failed: ${fetchError?.message || 'not found'}`);
 		}
 
-		const { data: updated, error: updateError } = await supabase
-			.from('trade_partners')
-			.update({
-				zoho_trade_partner_id: insertData.zoho_trade_partner_id,
-				name: insertData.name,
+			const { data: updated, error: updateError } = await getSupabase()
+				.from('trade_partners')
+				.update({
+					zoho_trade_partner_id: insertData.zoho_trade_partner_id,
+					name: insertData.name,
 				company: insertData.company,
 				phone: insertData.phone,
 				updated_at: insertData.updated_at
@@ -271,7 +280,7 @@ export async function upsertTradePartner(tradePartner: Omit<TradePartner, 'id'>)
  * Create a new trade partner session
  */
 export async function createTradeSession(sessionData: TradeSessionRecord): Promise<void> {
-	const { error } = await supabase
+	const { error } = await getSupabase()
 		.from('trade_sessions')
 		.insert(sessionData);
 
@@ -282,7 +291,7 @@ export async function createTradeSession(sessionData: TradeSessionRecord): Promi
  * Get trade partner session by session token
  */
 export async function getTradeSession(sessionToken: string): Promise<TradeSession | null> {
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('trade_sessions')
 		.select(
 			`session_token,
@@ -317,14 +326,14 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
  * Delete trade partner session (logout)
  */
 export async function deleteTradeSession(sessionToken: string): Promise<void> {
-	await supabase.from('trade_sessions').delete().eq('session_token', sessionToken);
+	await getSupabase().from('trade_sessions').delete().eq('session_token', sessionToken);
 }
 
 /**
  * Update trade partner password hash
  */
 export async function setTradePartnerPassword(tradePartnerId: string, passwordHash: string): Promise<void> {
-	const { error } = await supabase
+	const { error } = await getSupabase()
 		.from('trade_partners')
 		.update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
 		.eq('id', tradePartnerId);
@@ -337,7 +346,7 @@ export async function setTradePartnerPassword(tradePartnerId: string, passwordHa
  * Fetch latest Zoho tokens
  */
 export async function getZohoTokens(): Promise<ZohoTokens | null> {
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('zoho_tokens')
 		.select('id, user_id, access_token, refresh_token, expires_at, scope')
 		.order('updated_at', { ascending: false })
@@ -360,11 +369,11 @@ export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<
 	}
 
 	if (existing?.id) {
-		const { data, error } = await supabase
-			.from('zoho_tokens')
-			.update({
-				user_id: userId,
-				access_token: tokens.access_token,
+			const { data, error } = await getSupabase()
+				.from('zoho_tokens')
+				.update({
+					user_id: userId,
+					access_token: tokens.access_token,
 				refresh_token: tokens.refresh_token,
 				expires_at: tokens.expires_at,
 				scope: tokens.scope ?? existing.scope,
@@ -378,7 +387,7 @@ export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<
 		return data as ZohoTokens;
 	}
 
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('zoho_tokens')
 		.insert({
 			user_id: userId,
@@ -399,7 +408,7 @@ export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<
  * List clients for admin management
  */
 export async function listClients(): Promise<Client[]> {
-	const { data, error } = await supabase
+	const { data, error } = await getSupabase()
 		.from('clients')
 		.select(
 			'id, zoho_contact_id, email, first_name, last_name, full_name, company, phone, portal_active'
@@ -416,6 +425,6 @@ export async function listClients(): Promise<Client[]> {
  * Clear all clients (and cascading related rows) before a full resync.
  */
 export async function clearClients(): Promise<void> {
-	const { error } = await supabase.from('clients').delete().not('id', 'is', null);
+	const { error } = await getSupabase().from('clients').delete().not('id', 'is', null);
 	if (error) throw new Error(`Client clear failed: ${error.message}`);
 }

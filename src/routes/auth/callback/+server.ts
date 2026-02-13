@@ -2,8 +2,11 @@ import { redirect, error, isRedirect } from '@sveltejs/kit';
 import { exchangeCodeForTokens, getTokenInfo } from '$lib/server/zoho';
 import { getZohoCurrentUser } from '$lib/server/auth';
 import { upsertZohoTokens } from '$lib/server/db';
-import { ZOHO_REDIRECT_URI, ZOHO_SCOPE } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
+
+const ZOHO_REDIRECT_URI = env.ZOHO_REDIRECT_URI || '';
+const ZOHO_SCOPE = env.ZOHO_SCOPE || '';
 
 export const GET: RequestHandler = async ({ url }) => {
   const code = url.searchParams.get('code');

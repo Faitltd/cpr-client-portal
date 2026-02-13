@@ -2,8 +2,10 @@ import { error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { ZOHO_API_BASE } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
+
+const ZOHO_API_BASE = env.ZOHO_API_BASE || '';
 
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);

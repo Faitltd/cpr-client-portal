@@ -1,8 +1,10 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { dev } from '$app/environment';
-import { PORTAL_ADMIN_PASSWORD } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { createAdminSession, getAdminSessionMaxAge, isAdminConfigured, isValidAdminSession } from '$lib/server/admin';
 import type { Actions, PageServerLoad } from './$types';
+
+const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	if (isValidAdminSession(cookies.get('admin_session'))) {

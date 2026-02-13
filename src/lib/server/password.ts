@@ -1,5 +1,7 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto';
-import { PORTAL_PASSWORD_ITERATIONS } from '$env/static/private';
+import { env } from '$env/dynamic/private';
+
+const PORTAL_PASSWORD_ITERATIONS = env.PORTAL_PASSWORD_ITERATIONS;
 
 const DEFAULT_ITERATIONS = 210000;
 const KEYLEN = 32;

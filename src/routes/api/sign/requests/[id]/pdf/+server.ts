@@ -1,11 +1,12 @@
 import { error } from '@sveltejs/kit';
-import { ZOHO_SIGN_API_BASE } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { listSignRequestsByRecipient } from '$lib/server/sign';
 import type { RequestHandler } from './$types';
 
 const DEFAULT_SIGN_BASE = 'https://sign.zoho.com/api/v1';
+const ZOHO_SIGN_API_BASE = env.ZOHO_SIGN_API_BASE;
 
 export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const sessionToken = cookies.get('portal_session');
