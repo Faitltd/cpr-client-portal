@@ -28,6 +28,7 @@ const DEAL_FIELDS = [
 	'Refined_SOW',
 	'File_Upload',
 	'External_Link',
+	'Progress_Photos',
 	'Portal_Trade_Partners'
 ].join(',');
 

@@ -117,6 +117,26 @@
 		if (!address) return '';
 		return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 	};
+
+	const fieldUpdateUrl =
+		'https://creatorapp.zohopublic.com/customprofessionalrenovation/field-updates/form-embed/Active_Deals/mpPsAZEnCtDY0M6J5FR8n86Enzj2dDBkemTjDBSwJRWqpDHy8r39rP8M6euMFdez0OFMTO0eZhEhaKYEmTnC0ZY7vyYfx4T4EM4a';
+
+	const getProgressPhotosLink = (deal: any) => {
+		const value = deal?.Progress_Photos;
+		if (!value) return '';
+		if (typeof value === 'string') return value;
+		if (typeof value === 'object') {
+			return (
+				value.link_url ||
+				value.link ||
+				value.download_url ||
+				value.url ||
+				value.href ||
+				''
+			);
+		}
+		return '';
+	};
 </script>
 
 <div class="dashboard">
@@ -126,14 +146,22 @@
 	</header>
 
 	<div class="field-update">
+		<p class="field-update-actions">
+			<a class="file-link" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
+				Open Field Update Form (New Tab)
+			</a>
+			<span class="field-update-hint">
+				If submission fails in the embedded form, opening in a new tab often fixes browser cookie restrictions.
+			</span>
+		</p>
 		<iframe
 			title="Field Update"
 			height="600"
 			width="100%"
 			frameborder="0"
 			scrolling="auto"
-			allowtransparency="true"
-			src="https://creatorapp.zohopublic.com/customprofessionalrenovation/field-updates/form-embed/Active_Deals/mpPsAZEnCtDY0M6J5FR8n86Enzj2dDBkemTjDBSwJRWqpDHy8r39rP8M6euMFdez0OFMTO0eZhEhaKYEmTnC0ZY7vyYfx4T4EM4a"
+			allowtransparency
+			src={fieldUpdateUrl}
 		></iframe>
 	</div>
 
@@ -201,6 +229,23 @@
 						{/if}
 					</div>
 					<div class="notes">
+						<h4>Progress Photos</h4>
+						{#if getProgressPhotosLink(selectedDeal)}
+							<p>
+								<a
+									class="file-link"
+									href={getProgressPhotosLink(selectedDeal)}
+									target="_blank"
+									rel="noreferrer"
+								>
+									Open Progress Photos
+								</a>
+							</p>
+						{:else}
+							<p>Not available</p>
+						{/if}
+					</div>
+					<div class="notes">
 						<h4>Designs</h4>
 						{#if designFiles.length > 0}
 							<ul class="file-list">
@@ -244,6 +289,20 @@
 
 	.field-update {
 		margin-bottom: 1.5rem;
+	}
+
+	.field-update-actions {
+		margin: 0 0 0.75rem;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+		align-items: center;
+	}
+
+	.field-update-hint {
+		color: #6b7280;
+		font-size: 0.95rem;
+		line-height: 1.35;
 	}
 
 	.field-update iframe {

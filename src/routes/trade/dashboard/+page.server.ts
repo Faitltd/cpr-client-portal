@@ -66,7 +66,8 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		'WiFi',
 		'Refined_SOW',
 		'File_Upload',
-		'External_Link'
+		'External_Link',
+		'Progress_Photos'
 	].join(',');
 
 	const fetchDealsByIds = async (ids: string[]) => {
@@ -114,6 +115,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 				deal?.Refined_SOW ||
 				deal?.File_Upload ||
 				deal?.External_Link ||
+				deal?.Progress_Photos ||
 				deal?.Notes1 ||
 				deal?.Closing_Date ||
 				deal?.Stage
@@ -138,7 +140,9 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			.filter(
 				(deal) =>
 					deal?.id &&
-					(typeof deal.File_Upload === 'undefined' || typeof deal.External_Link === 'undefined')
+					(typeof deal.File_Upload === 'undefined' ||
+						typeof deal.External_Link === 'undefined' ||
+						typeof deal.Progress_Photos === 'undefined')
 			)
 			.map((deal) => deal.id);
 		const hydrateIds = Array.from(new Set([...missingStageIds, ...missingDetailIds]));
