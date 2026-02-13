@@ -243,18 +243,7 @@ function normalizeFieldUpdate(record: Record<string, any>): FieldUpdateTimelineI
 	const updatedAt = pickFirstText(record, ['Modified_Time', 'modified_time', 'ModifiedTime', 'updatedAt', 'updated_at']);
 	const type = inferType(record);
 	const title = pickFirstText(record, ['Name', 'Subject', 'Title', 'Update_Title', 'UpdateTitle']);
-	const body =
-		pickFirstText(record, [
-			'Update_Notes',
-			'Update_Details',
-			'Description',
-			'Details',
-			'Notes',
-			'Note',
-			'Comments',
-			'Summary',
-			'Message'
-		]) || null;
+	const body = pickFirstText(record, ['Note']) || null;
 
 	return {
 		id: String(record?.id || ''),
@@ -264,7 +253,7 @@ function normalizeFieldUpdate(record: Record<string, any>): FieldUpdateTimelineI
 		title: title || null,
 		body,
 		links: extractUsefulUrls(record),
-		fields: buildSummaryFields(record)
+		fields: []
 	};
 }
 

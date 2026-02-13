@@ -18,10 +18,8 @@
 		createdAt: string | null;
 		updatedAt: string | null;
 		type: string | null;
-		title: string | null;
 		body: string | null;
 		links: string[];
-		fields: Array<{ label: string; value: string }>;
 	};
 
 	type DesignFile = { name: string; url?: string; attachmentId?: string };
@@ -351,23 +349,8 @@
 									</span>
 								</div>
 
-								{#if update.title}
-									<h4 class="update-title">{update.title}</h4>
-								{/if}
-
 								{#if update.body}
 									<p class="update-body">{update.body}</p>
-								{/if}
-
-								{#if update.fields?.length}
-									<dl class="update-fields">
-										{#each update.fields as field (field.label)}
-											<div class="update-field">
-												<dt>{field.label}</dt>
-												<dd>{field.value}</dd>
-											</div>
-										{/each}
-									</dl>
 								{/if}
 
 								{#if update.links?.length}
@@ -540,34 +523,11 @@
 		font-size: 0.9rem;
 	}
 
-	.update-title {
-		margin: 0 0 0.5rem;
-		font-size: 1.05rem;
-	}
-
 	.update-body {
 		margin: 0 0 0.8rem;
 		color: #111827;
 		line-height: 1.45;
 		white-space: pre-wrap;
-	}
-
-	.update-fields {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 0.6rem 1rem;
-		margin: 0 0 0.8rem;
-	}
-
-	.update-field dt {
-		font-weight: 800;
-		color: #111827;
-		font-size: 0.9rem;
-	}
-
-	.update-field dd {
-		margin: 0.1rem 0 0;
-		color: #374151;
 	}
 
 	.update-links h5 {
@@ -651,8 +611,5 @@
 			grid-template-columns: 1fr;
 		}
 
-		.update-fields {
-			grid-template-columns: 1fr;
-		}
 	}
 </style>
