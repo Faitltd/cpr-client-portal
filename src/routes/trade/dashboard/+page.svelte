@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { browser } from '$app/environment';
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -19,7 +20,6 @@
 		updatedAt: string | null;
 		type: string | null;
 		body: string | null;
-		links: string[];
 	};
 
 	type DesignFile = { name: string; url?: string; attachmentId?: string };
@@ -156,18 +156,6 @@
 		return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 	};
 
-	const getLinkLabel = (link: string) => {
-		try {
-			const url = new URL(link);
-			const last = url.pathname.split('/').filter(Boolean).pop() || '';
-			const decoded = safeDecode(last);
-			if (decoded && decoded.length >= 4) return decoded;
-			return url.hostname;
-		} catch {
-			return link;
-		}
-	};
-
 	let fieldUpdates: FieldUpdate[] = [];
 	let fieldUpdatesLoading = false;
 	let fieldUpdatesError = '';
@@ -180,6 +168,11 @@
 		fieldUpdatesController = new AbortController();
 		fieldUpdatesLoading = true;
 		fieldUpdatesError = '';
+		let didTimeout = false;
+		const timeoutId = setTimeout(() => {
+			didTimeout = true;
+			fieldUpdatesController?.abort();
+		}, 15000);
 
 		try {
 			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/field-updates`, {
@@ -190,15 +183,22 @@
 			const payload = await res.json().catch(() => ({}));
 			fieldUpdates = Array.isArray(payload?.data) ? payload.data : [];
 		} catch (err) {
-			if (err instanceof Error && err.name === 'AbortError') return;
+			if (err instanceof Error && err.name === 'AbortError') {
+				if (didTimeout) {
+					fieldUpdatesError = 'Field updates request timed out. Please retry.';
+					fieldUpdates = [];
+				}
+				return;
+			}
 			fieldUpdatesError = err instanceof Error ? err.message : 'Failed to fetch field updates';
 			fieldUpdates = [];
 		} finally {
+			clearTimeout(timeoutId);
 			fieldUpdatesLoading = false;
 		}
 	};
 
-	$: if (selectedDealId && selectedDealId !== lastFieldUpdatesDealId) {
+	$: if (browser && selectedDealId && selectedDealId !== lastFieldUpdatesDealId) {
 		lastFieldUpdatesDealId = selectedDealId;
 		loadFieldUpdates(selectedDealId);
 	}
@@ -313,15 +313,17 @@
 			<div class="card field-updates-card">
 				<div class="field-updates-header">
 					<h3>Field Updates</h3>
-					<a class="field-update-button field-update-button--small" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
-						Submit Update
-					</a>
 				</div>
 
 				{#if fieldUpdatesLoading}
 					<p class="muted">Loading field updates...</p>
 				{:else if fieldUpdatesError}
-					<p class="error-text">{fieldUpdatesError}</p>
+					<div class="field-updates-error">
+						<p class="error-text">{fieldUpdatesError}</p>
+						<button class="retry" type="button" on:click={() => loadFieldUpdates(selectedDealId)}>
+							Retry
+						</button>
+					</div>
 				{:else if fieldUpdates.length === 0}
 					<p class="muted">No field updates submitted for this deal yet.</p>
 				{:else}
@@ -341,20 +343,6 @@
 									<p class="update-body">{update.body}</p>
 								{/if}
 
-								{#if update.links?.length}
-									<div class="update-links">
-										<h5>Files</h5>
-										<ul class="file-list">
-											{#each update.links as link (link)}
-												<li>
-													<a class="file-link" href={link} target="_blank" rel="noreferrer">
-														{getLinkLabel(link)}
-													</a>
-												</li>
-											{/each}
-										</ul>
-									</div>
-								{/if}
 							</article>
 						{/each}
 					</div>
@@ -403,14 +391,6 @@
 		width: fit-content;
 		max-width: 100%;
 		box-sizing: border-box;
-	}
-
-	.field-update-button--small {
-		padding: 0.65rem 1rem;
-		border-radius: 999px;
-		font-size: 0.95rem;
-		font-weight: 800;
-		min-height: 40px;
 	}
 
 	.field-update-button:hover {
@@ -475,6 +455,29 @@
 		color: #b91c1c;
 	}
 
+	.field-updates-error {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.retry {
+		border: 1px solid #d1d5db;
+		background: #fff;
+		color: #111827;
+		border-radius: 10px;
+		padding: 0.55rem 0.85rem;
+		font-weight: 800;
+		min-height: 40px;
+		cursor: pointer;
+	}
+
+	.retry:hover {
+		background: #f3f4f6;
+	}
+
 	.updates {
 		display: grid;
 		gap: 1rem;
@@ -516,11 +519,6 @@
 		color: #111827;
 		line-height: 1.45;
 		white-space: pre-wrap;
-	}
-
-	.update-links h5 {
-		margin: 0 0 0.35rem;
-		font-size: 0.95rem;
 	}
 
 	.details-grid {
@@ -581,10 +579,6 @@
 		.field-updates-header {
 			flex-direction: column;
 			align-items: stretch;
-		}
-
-		.field-update-button--small {
-			width: 100%;
 		}
 
 		.field-update-button {
