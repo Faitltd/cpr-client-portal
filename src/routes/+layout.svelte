@@ -89,7 +89,7 @@
 		min-height: 100vh;
 		font-family: Helvetica, Arial, sans-serif;
 		--bg-fade: 0.78;
-		background: url('/images/cpr-logo.png') center/contain no-repeat;
+		background: url('/images/cpr-bg.png') center/contain no-repeat;
 		background-attachment: scroll;
 	}
 

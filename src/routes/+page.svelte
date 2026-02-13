@@ -40,13 +40,17 @@
 	}
 
 	.btn-primary {
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		padding: 1rem 2rem;
 		background: #0066cc;
 		color: white;
 		text-decoration: none;
 		border-radius: 4px;
 		font-weight: 600;
+		min-height: 44px;
+		box-sizing: border-box;
 	}
 
 	.btn-primary:hover {
@@ -54,7 +58,9 @@
 	}
 
 	.btn-secondary {
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		padding: 1rem 2rem;
 		background: #f5f5f5;
 		color: #1a1a1a;
@@ -62,6 +68,8 @@
 		border-radius: 4px;
 		font-weight: 600;
 		border: 1px solid #d0d0d0;
+		min-height: 44px;
+		box-sizing: border-box;
 	}
 
 	.btn-secondary:hover {
@@ -81,12 +89,14 @@
 		.cta-row {
 			flex-direction: column;
 			width: 100%;
+			align-items: center;
 		}
 
 		.btn-primary,
 		.btn-secondary {
-			width: 100%;
-			text-align: center;
+			width: min(100%, 18rem);
+			padding: 0.75rem 1.25rem;
+			font-size: 0.95rem;
 		}
 	}
 </style>
