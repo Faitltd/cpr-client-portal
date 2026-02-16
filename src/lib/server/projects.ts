@@ -201,12 +201,18 @@ function stripTrailingDateSuffix(value: string) {
 }
 
 function getDealNameCandidates(deal: any) {
-	const dealName = getDealName(deal);
-	if (!dealName) return [];
 	const candidates = new Set<string>();
-	candidates.add(dealName);
-	const stripped = stripTrailingDateSuffix(dealName);
-	if (stripped) candidates.add(stripped);
+	const dealName = getDealName(deal);
+	if (dealName) {
+		candidates.add(dealName);
+		const stripped = stripTrailingDateSuffix(dealName);
+		if (stripped) candidates.add(stripped);
+	}
+	const contactName = getLookupName(deal?.Contact_Name);
+	if (contactName) {
+		candidates.add(contactName);
+	}
+	if (candidates.size === 0) return [];
 	return Array.from(candidates)
 		.map((name) => normalizeProjectMatchName(name))
 		.filter(Boolean);
@@ -239,7 +245,7 @@ function scoreProjectNameMatch(dealCandidate: string, projectName: string) {
 	const overlap = countTokenOverlap(dealCandidate, projectName);
 	if (overlap >= 3) return 86;
 	if (overlap >= 2) return 83;
-	if (overlap >= 1 && (projectName.includes(dealCandidate) || dealCandidate.includes(projectName))) return 80;
+	if (overlap >= 1) return 80;
 
 	return 0;
 }
@@ -277,7 +283,7 @@ function findBestProjectMatchForDeal(
 	}
 
 	if (!best) return null;
-	if (best.score < 83) return null;
+	if (best.score < 80) return null;
 	if (best.score - secondBestScore < 5) return null;
 	return best;
 }
