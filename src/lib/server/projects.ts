@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import { findContactByEmail, getContactDeals } from './auth';
+import { findContactByEmail, getContactDeals, isPortalActiveStage } from './auth';
 import { getZohoTokens, upsertZohoTokens } from './db';
 import { refreshAccessToken, zohoApiCall } from './zoho';
 
@@ -286,6 +286,36 @@ function getDealNameCandidates(deal: any) {
 	return Array.from(candidates)
 		.map((name) => normalizeProjectMatchName(name))
 		.filter(Boolean);
+}
+
+function toTimestamp(value: unknown) {
+	if (typeof value !== 'string') return 0;
+	const parsed = new Date(value);
+	return Number.isFinite(parsed.valueOf()) ? parsed.valueOf() : 0;
+}
+
+function getDealSortTimestamp(deal: any) {
+	return Math.max(
+		toTimestamp(deal?.Modified_Time),
+		toTimestamp(deal?.Created_Time),
+		toTimestamp(deal?.Closing_Date)
+	);
+}
+
+function sortDealsForProjectMatching(deals: any[]) {
+	return [...(deals || [])].sort((left, right) => {
+		const leftActive = isPortalActiveStage(typeof left?.Stage === 'string' ? left.Stage : null) ? 1 : 0;
+		const rightActive = isPortalActiveStage(typeof right?.Stage === 'string' ? right.Stage : null) ? 1 : 0;
+		if (leftActive !== rightActive) return rightActive - leftActive;
+
+		const leftTime = getDealSortTimestamp(left);
+		const rightTime = getDealSortTimestamp(right);
+		if (leftTime !== rightTime) return rightTime - leftTime;
+
+		const leftName = (getDealName(left) || '').toLowerCase();
+		const rightName = (getDealName(right) || '').toLowerCase();
+		return leftName.localeCompare(rightName);
+	});
 }
 
 function getMatchTokens(value: string) {
@@ -1311,8 +1341,9 @@ export async function getProjectLinksForClient(
 			);
 			const usedProjectIds = new Set<string>(byProjectId.keys());
 			const unresolvedDeals: any[] = [];
+			const candidateDeals = sortDealsForProjectMatching(unmappedDeals);
 
-			for (const deal of unmappedDeals) {
+			for (const deal of candidateDeals) {
 				const match =
 					findBestProjectMatchForDeal(deal, activeProjects, usedProjectIds) ||
 					findBestProjectMatchForDeal(deal, projects, usedProjectIds);
