@@ -6,6 +6,8 @@ import { refreshAccessToken, zohoApiCall } from './zoho';
 const DEFAULT_PROJECTS_API_BASE = 'https://projectsapi.zoho.com';
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGES = 25;
+const CRM_RELATED_LIST_PAGE_SIZE = 200;
+const CRM_RELATED_LIST_MAX_PAGES = 10;
 const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Deal_Name',
 	'Stage',
@@ -218,6 +220,25 @@ function hasMorePages(payload: any, itemCount: number, perPage: number) {
 	return itemCount >= perPage;
 }
 
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	limit: number,
+	mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+	if (items.length === 0) return [];
+	const results: R[] = new Array(items.length);
+	let nextIndex = 0;
+	const workerCount = Math.min(limit, items.length);
+	const workers = Array.from({ length: workerCount }, async () => {
+		while (nextIndex < items.length) {
+			const currentIndex = nextIndex++;
+			results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+		}
+	});
+	await Promise.all(workers);
+	return results;
+}
+
 async function fetchAllPages<T>(
 	endpointFactory: (page: number, perPage: number) => string,
 	arrayKey: string,
@@ -404,6 +425,116 @@ export async function listPortals() {
 	}
 
 	return response.json();
+}
+
+function pickCrmArray(payload: any, arrayKey: string) {
+	if (Array.isArray(payload?.data)) return payload.data as any[];
+	if (Array.isArray(payload?.[arrayKey])) return payload[arrayKey] as any[];
+	return [];
+}
+
+function readActivityType(record: any) {
+	const value =
+		record?.Activity_Type ??
+		record?.activity_type ??
+		record?.Type ??
+		record?.type ??
+		record?.$activity_type ??
+		null;
+	if (typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function isTaskActivity(record: any) {
+	const type = readActivityType(record);
+	return Boolean(type && type.includes('task'));
+}
+
+async function countDealRelatedListRecords(
+	accessToken: string,
+	dealId: string,
+	relatedListApiName: string,
+	options?: { taskOnly?: boolean }
+) {
+	let count = 0;
+
+	for (let page = 1; page <= CRM_RELATED_LIST_MAX_PAGES; page += 1) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals/${encodeURIComponent(dealId)}/${encodeURIComponent(relatedListApiName)}?per_page=${CRM_RELATED_LIST_PAGE_SIZE}&page=${page}`
+		);
+
+		const items = pickCrmArray(response, relatedListApiName);
+		if (items.length === 0) break;
+
+		if (options?.taskOnly) {
+			const typedTasks = items.filter((item) => isTaskActivity(item));
+			const hasTypedActivities = items.some((item) => readActivityType(item) !== null);
+			count += hasTypedActivities ? typedTasks.length : items.length;
+		} else {
+			count += items.length;
+		}
+
+		if (!hasMorePages(response, items.length, CRM_RELATED_LIST_PAGE_SIZE)) break;
+	}
+
+	return count;
+}
+
+async function getDealTaskCount(accessToken: string, dealId: string): Promise<number | null> {
+	const candidates: Array<{ apiName: string; taskOnly?: boolean }> = [
+		{ apiName: 'Tasks' },
+		{ apiName: 'Activities', taskOnly: true },
+		{ apiName: 'Open_Activities', taskOnly: true }
+	];
+
+	for (const candidate of candidates) {
+		try {
+			return await countDealRelatedListRecords(accessToken, dealId, candidate.apiName, {
+				taskOnly: candidate.taskOnly
+			});
+		} catch {
+			// Continue trying additional related-list candidates.
+		}
+	}
+
+	return null;
+}
+
+export async function getDealTaskCounts(
+	dealIds: string[],
+	concurrency = 2
+): Promise<Map<string, number | null>> {
+	const normalizedIds = Array.from(
+		new Set(
+			(dealIds || [])
+				.map((id) => (id === null || id === undefined ? '' : String(id).trim()))
+				.filter(Boolean)
+		)
+	);
+	const countsByDealId = new Map<string, number | null>();
+	if (normalizedIds.length === 0) return countsByDealId;
+
+	const accessToken = await getValidAccessToken();
+	const workerLimit = Math.max(1, Math.min(concurrency, 4));
+
+	const results = await mapWithConcurrency(normalizedIds, workerLimit, async (dealId) => {
+		try {
+			const taskCount = await getDealTaskCount(accessToken, dealId);
+			return { dealId, taskCount };
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.warn('Failed to fetch CRM task count for deal', { dealId, error: message });
+			return { dealId, taskCount: null as number | null };
+		}
+	});
+
+	for (const result of results) {
+		countsByDealId.set(result.dealId, result.taskCount);
+	}
+
+	return countsByDealId;
 }
 
 // Map CRM Deals -> Zoho Projects projects via a custom Deal field: Zoho_Projects_ID.
