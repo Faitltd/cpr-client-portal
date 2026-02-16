@@ -9,6 +9,9 @@ const MAX_PAGES = 25;
 const CRM_RELATED_LIST_PAGE_SIZE = 200;
 const CRM_RELATED_LIST_MAX_PAGES = 10;
 const PORTAL_ID_CACHE_TTL_MS = 10 * 60 * 1000;
+const PROJECT_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 250;
 const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Deal_Name',
 	'Stage',
@@ -20,6 +23,8 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 ].join(',');
 
 let discoveredPortalIdCache: { portalId: string; fetchedAt: number } | null = null;
+let projectCatalogCache: { fetchedAt: number; projects: any[] } | null = null;
+const membershipProjectIdsByEmailCache = new Map<string, { fetchedAt: number; projectIds: string[] }>();
 
 function getProjectsApiBase() {
 	const base = env.ZOHO_PROJECTS_API_BASE || DEFAULT_PROJECTS_API_BASE;
@@ -120,10 +125,18 @@ function parseProjectIdsInternal(value: unknown, output: string[]) {
 	if (typeof value === 'object') {
 		const record = value as Record<string, unknown>;
 		const preferredKeys = ['id', 'project_id', 'projectId', 'value', 'display_value', 'displayValue'];
+		let matchedPreferredKey = false;
 		for (const key of preferredKeys) {
 			if (record[key] !== undefined) {
+				matchedPreferredKey = true;
 				parseProjectIdsInternal(record[key], output);
 				return;
+			}
+		}
+
+		if (!matchedPreferredKey) {
+			for (const candidate of Object.values(record)) {
+				parseProjectIdsInternal(candidate, output);
 			}
 		}
 	}
@@ -417,6 +430,85 @@ async function mapWithConcurrency<T, R>(
 	});
 	await Promise.all(workers);
 	return results;
+}
+
+function normalizeEmail(value: unknown) {
+	if (typeof value !== 'string') return '';
+	return value.trim().toLowerCase();
+}
+
+function dedupeProjectsById(projects: any[]) {
+	const deduped: any[] = [];
+	const seen = new Set<string>();
+	for (const project of projects || []) {
+		const id = getProjectId(project);
+		if (!id || seen.has(id)) continue;
+		seen.add(id);
+		deduped.push(project);
+	}
+	return deduped;
+}
+
+function parseProjectUsers(payload: any) {
+	if (!payload) return [];
+	if (Array.isArray(payload?.users)) return payload.users;
+	if (Array.isArray(payload?.data)) return payload.data;
+	return [];
+}
+
+async function getProjectCatalogForMatching() {
+	if (projectCatalogCache && Date.now() - projectCatalogCache.fetchedAt < PROJECT_CATALOG_CACHE_TTL_MS) {
+		return projectCatalogCache.projects;
+	}
+
+	const [activeResult, archivedResult] = await Promise.allSettled([
+		listAllProjects('active', 100),
+		listAllProjects('archived', 100)
+	]);
+
+	const activeProjects = activeResult.status === 'fulfilled' ? activeResult.value : [];
+	const archivedProjects = archivedResult.status === 'fulfilled' ? archivedResult.value : [];
+	const merged = dedupeProjectsById([...activeProjects, ...archivedProjects]);
+	projectCatalogCache = { fetchedAt: Date.now(), projects: merged };
+	return merged;
+}
+
+async function getProjectIdsByClientEmail(projects: any[], email: string) {
+	const normalizedEmail = normalizeEmail(email);
+	if (!normalizedEmail) return new Set<string>();
+
+	const cached = membershipProjectIdsByEmailCache.get(normalizedEmail);
+	if (cached && Date.now() - cached.fetchedAt < PROJECT_MEMBERSHIP_CACHE_TTL_MS) {
+		return new Set(cached.projectIds);
+	}
+
+	const projectIds = dedupeProjectsById(projects)
+		.map((project) => getProjectId(project))
+		.filter((id): id is string => Boolean(id))
+		.slice(0, MAX_PROJECT_MEMBERSHIP_LOOKUPS);
+
+	const matches = await mapWithConcurrency(projectIds, 3, async (projectId) => {
+		try {
+			const usersPayload = await getProjectUsers(projectId);
+			const users = parseProjectUsers(usersPayload);
+			const hasEmail = users.some((user: any) => {
+				const userEmail = normalizeEmail(
+					user?.email ?? user?.user_email ?? user?.mail ?? user?.login_email ?? user?.zuid_email
+				);
+				return userEmail === normalizedEmail;
+			});
+			return hasEmail ? projectId : '';
+		} catch {
+			return '';
+		}
+	});
+
+	const matchedProjectIds = matches.filter(Boolean);
+	membershipProjectIdsByEmailCache.set(normalizedEmail, {
+		fetchedAt: Date.now(),
+		projectIds: matchedProjectIds
+	});
+	return new Set(matchedProjectIds);
 }
 
 async function fetchAllPages<T>(
@@ -1092,12 +1184,16 @@ export async function getProjectLinksForClient(
 
 	if (unmappedDeals.length > 0) {
 		try {
-			const projects = await listAllProjects('active', 100);
+			const projects = await getProjectCatalogForMatching();
 			const usedProjectIds = new Set<string>(byProjectId.keys());
+			const unresolvedDeals: any[] = [];
 
 			for (const deal of unmappedDeals) {
 				const match = findBestProjectMatchForDeal(deal, projects, usedProjectIds);
-				if (!match) continue;
+				if (!match) {
+					unresolvedDeals.push(deal);
+					continue;
+				}
 
 				const dealId = deal?.id ? String(deal.id) : null;
 				const dealName = getDealName(deal);
@@ -1112,6 +1208,28 @@ export async function getProjectLinksForClient(
 					stage,
 					modifiedTime
 				});
+			}
+
+			// Secondary fallback: if name matching misses, infer by explicit project membership.
+			if (unresolvedDeals.length === 1 && email) {
+				const memberProjectIds = await getProjectIdsByClientEmail(projects, email);
+				const availableMemberIds = Array.from(memberProjectIds).filter((id) => !usedProjectIds.has(id));
+				if (availableMemberIds.length === 1) {
+					const projectId = availableMemberIds[0];
+					const deal = unresolvedDeals[0];
+					const dealId = deal?.id ? String(deal.id) : null;
+					const dealName = getDealName(deal);
+					const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
+					const modifiedTime = typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null;
+					usedProjectIds.add(projectId);
+					byProjectId.set(projectId, {
+						projectId,
+						dealId,
+						dealName,
+						stage,
+						modifiedTime
+					});
+				}
 			}
 		} catch (err) {
 			console.warn('Failed to discover Zoho Projects links by deal-name matching', err);
