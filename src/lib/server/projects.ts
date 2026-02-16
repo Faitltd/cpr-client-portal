@@ -36,6 +36,15 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Contact_Name',
 	'Zoho_Projects_ID'
 ].join(',');
+const CRM_DEAL_REHYDRATE_FIELDS = [
+	'Deal_Name',
+	'Stage',
+	'Created_Time',
+	'Modified_Time',
+	'Closing_Date',
+	'Contact_Name',
+	'Zoho_Projects_ID'
+].join(',');
 
 let discoveredPortalIdCache: { portalId: string; base: string; fetchedAt: number } | null = null;
 let discoveredProjectsApiBaseCache: { base: string; fetchedAt: number } | null = null;
@@ -734,6 +743,73 @@ async function fetchDealsByEmailFallback(accessToken: string, email: string) {
 	});
 
 	return dedupeDealsById(matched);
+}
+
+async function fetchDealsByIds(accessToken: string, dealIds: string[]) {
+	const uniqueIds = Array.from(
+		new Set(
+			(dealIds || [])
+				.map((id) => (id === null || id === undefined ? '' : String(id).trim()))
+				.filter(Boolean)
+		)
+	);
+	if (uniqueIds.length === 0) return [] as any[];
+
+	const results: any[] = [];
+	const chunkSize = 100;
+
+	for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+		const chunk = uniqueIds.slice(i, i + chunkSize);
+		try {
+			const response = await zohoApiCall(
+				accessToken,
+				`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(CRM_DEAL_REHYDRATE_FIELDS)}`
+			);
+			const deals = Array.isArray(response?.data) ? response.data : [];
+			results.push(...deals);
+		} catch (err) {
+			console.warn('Failed to rehydrate Deals by IDs for project mapping', {
+				chunkSize: chunk.length,
+				error: err
+			});
+		}
+	}
+
+	return results;
+}
+
+async function rehydrateDealsForProjectMapping(accessToken: string, deals: any[]) {
+	const deduped = dedupeDealsById(deals || []);
+	if (deduped.length === 0) return deduped;
+
+	const dealIds = deduped
+		.map((deal) => getDealId(deal))
+		.filter((id): id is string => Boolean(id))
+		.slice(0, 250);
+	if (dealIds.length === 0) return deduped;
+
+	const freshDeals = await fetchDealsByIds(accessToken, dealIds);
+	if (freshDeals.length === 0) return deduped;
+
+	const freshById = new Map<string, any>(
+		freshDeals
+			.map((deal) => {
+				const id = getDealId(deal);
+				return id ? ([id, deal] as const) : null;
+			})
+			.filter(Boolean) as Array<readonly [string, any]>
+	);
+
+	return deduped.map((deal) => {
+		const dealId = getDealId(deal);
+		if (!dealId) return deal;
+		const fresh = freshById.get(dealId);
+		if (!fresh) return deal;
+		return {
+			...deal,
+			...fresh
+		};
+	});
 }
 
 export type ContactProjectLink = {
@@ -1546,7 +1622,6 @@ export async function getDealsForClient(
 			const primaryDeals = await getContactDeals(accessToken, trimmedContactId);
 			if (Array.isArray(primaryDeals) && primaryDeals.length > 0) {
 				collectedDeals.push(...primaryDeals);
-				return dedupeDealsById(collectedDeals);
 			}
 		} catch (err) {
 			console.warn('Failed to fetch deals by session contact id', { contactId: trimmedContactId, err });
@@ -1579,7 +1654,13 @@ export async function getDealsForClient(
 		}
 	}
 
-	return dedupeDealsById(collectedDeals);
+	const dedupedDeals = dedupeDealsById(collectedDeals);
+	try {
+		return await rehydrateDealsForProjectMapping(accessToken, dedupedDeals);
+	} catch (err) {
+		console.warn('Failed to rehydrate deals for Zoho Projects mapping', err);
+		return dedupedDeals;
+	}
 }
 
 export async function getProjectLinksForClient(
