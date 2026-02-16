@@ -36,7 +36,7 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Contact_Name',
 	'Zoho_Projects_ID'
 ].join(',');
-const CRM_DEAL_REHYDRATE_FIELDS = [
+const CRM_DEAL_REHYDRATE_BASE_FIELDS = [
 	'Deal_Name',
 	'Stage',
 	'Created_Time',
@@ -44,11 +44,13 @@ const CRM_DEAL_REHYDRATE_FIELDS = [
 	'Closing_Date',
 	'Contact_Name',
 	'Zoho_Projects_ID'
-].join(',');
+];
+const DEAL_PROJECT_FIELD_CACHE_TTL_MS = 60 * 60 * 1000;
 
 let discoveredPortalIdCache: { portalId: string; base: string; fetchedAt: number } | null = null;
 let discoveredProjectsApiBaseCache: { base: string; fetchedAt: number } | null = null;
 let dealProjectRelatedListApiNamesCache: { fetchedAt: number; apiNames: string[] } | null = null;
+let dealProjectFieldApiNamesCache: { fetchedAt: number; apiNames: string[] } | null = null;
 let projectCatalogCache: { fetchedAt: number; projects: any[] } | null = null;
 const portalIdsByBaseCache = new Map<string, { fetchedAt: number; portalIds: string[] }>();
 const projectRouteByIdCache = new Map<string, { fetchedAt: number; base: string; portalId: string }>();
@@ -365,6 +367,20 @@ function getDealName(deal: any) {
 	return getLookupName(deal.Deal_Name);
 }
 
+function getDealProjectIdsForLinking(deal: any) {
+	const projectIds = new Set<string>();
+	if (!deal || typeof deal !== 'object') return [] as string[];
+
+	addProjectIdsFromUnknownValue((deal as any)?.Zoho_Projects_ID, projectIds);
+
+	for (const [key, value] of Object.entries(deal as Record<string, unknown>)) {
+		if (!key.toLowerCase().includes('project')) continue;
+		addProjectIdsFromUnknownValue(value, projectIds);
+	}
+
+	return Array.from(projectIds);
+}
+
 function getProjectName(project: any) {
 	if (!project || typeof project !== 'object') return null;
 	const value = project.name ?? project.project_name ?? project.Project_Name ?? null;
@@ -447,6 +463,66 @@ function normalizeRelatedListApiName(value: unknown) {
 	if (typeof value !== 'string') return '';
 	const trimmed = value.trim();
 	return trimmed || '';
+}
+
+function containsProjectText(value: unknown) {
+	if (typeof value !== 'string') return false;
+	return value.toLowerCase().includes('project');
+}
+
+function normalizeDealFieldApiName(value: unknown) {
+	if (typeof value !== 'string') return '';
+	const trimmed = value.trim();
+	return trimmed || '';
+}
+
+function isProjectDealField(field: any) {
+	if (!field || typeof field !== 'object') return false;
+	return (
+		containsProjectText(field?.api_name) ||
+		containsProjectText(field?.field_label) ||
+		containsProjectText(field?.data_type) ||
+		containsProjectText(field?.lookup?.module)
+	);
+}
+
+async function getDealProjectFieldApiNames(accessToken: string) {
+	if (
+		dealProjectFieldApiNamesCache &&
+		Date.now() - dealProjectFieldApiNamesCache.fetchedAt < DEAL_PROJECT_FIELD_CACHE_TTL_MS
+	) {
+		return dealProjectFieldApiNamesCache.apiNames;
+	}
+
+	const defaults = ['Zoho_Projects_ID'];
+	const discovered: string[] = [];
+	try {
+		const payload = await zohoApiCall(accessToken, '/settings/fields?module=Deals');
+		const fields = Array.isArray(payload?.fields)
+			? payload.fields
+			: Array.isArray(payload?.data)
+				? payload.data
+				: [];
+		for (const field of fields) {
+			if (!isProjectDealField(field)) continue;
+			const apiName = normalizeDealFieldApiName(field?.api_name);
+			if (apiName) discovered.push(apiName);
+		}
+	} catch (err) {
+		console.warn('Failed to discover Deals project field API names', err);
+	}
+
+	const uniqueApiNames: string[] = [];
+	const seen = new Set<string>();
+	for (const apiName of [...defaults, ...discovered]) {
+		const normalized = normalizeDealFieldApiName(apiName);
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		uniqueApiNames.push(normalized);
+	}
+
+	dealProjectFieldApiNamesCache = { fetchedAt: Date.now(), apiNames: uniqueApiNames };
+	return uniqueApiNames;
 }
 
 function pickRelatedListsArray(payload: any) {
@@ -745,7 +821,7 @@ async function fetchDealsByEmailFallback(accessToken: string, email: string) {
 	return dedupeDealsById(matched);
 }
 
-async function fetchDealsByIds(accessToken: string, dealIds: string[]) {
+async function fetchDealsByIds(accessToken: string, dealIds: string[], fields: string[] = CRM_DEAL_REHYDRATE_BASE_FIELDS) {
 	const uniqueIds = Array.from(
 		new Set(
 			(dealIds || [])
@@ -763,7 +839,7 @@ async function fetchDealsByIds(accessToken: string, dealIds: string[]) {
 		try {
 			const response = await zohoApiCall(
 				accessToken,
-				`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(CRM_DEAL_REHYDRATE_FIELDS)}`
+				`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(fields.join(','))}`
 			);
 			const deals = Array.isArray(response?.data) ? response.data : [];
 			results.push(...deals);
@@ -788,7 +864,11 @@ async function rehydrateDealsForProjectMapping(accessToken: string, deals: any[]
 		.slice(0, 250);
 	if (dealIds.length === 0) return deduped;
 
-	const freshDeals = await fetchDealsByIds(accessToken, dealIds);
+	const projectFieldApiNames = await getDealProjectFieldApiNames(accessToken);
+	const requestedFields = Array.from(
+		new Set([...CRM_DEAL_REHYDRATE_BASE_FIELDS, ...projectFieldApiNames])
+	);
+	const freshDeals = await fetchDealsByIds(accessToken, dealIds, requestedFields);
 	if (freshDeals.length === 0) return deduped;
 
 	const freshById = new Map<string, any>(
@@ -1786,8 +1866,7 @@ export async function getProjectLinksForClient(
 
 	const byProjectId = new Map<string, ContactProjectLink>();
 	for (const deal of deals || []) {
-		const raw = (deal as any)?.Zoho_Projects_ID;
-		const ids = parseZohoProjectIds(raw);
+		const ids = getDealProjectIdsForLinking(deal);
 		if (ids.length === 0) continue;
 
 		const dealId = deal?.id ? String(deal.id) : null;
@@ -1810,7 +1889,7 @@ export async function getProjectLinksForClient(
 	// Fallback discovery: if a deal is missing Zoho_Projects_ID, try to match it by name
 	// against active Zoho Projects so clients still land on real project detail/tasks.
 	const unmappedDeals = (deals || []).filter((deal) => {
-		const ids = parseZohoProjectIds((deal as any)?.Zoho_Projects_ID);
+		const ids = getDealProjectIdsForLinking(deal);
 		return ids.length === 0;
 	});
 	const sortedUnmappedDeals = sortDealsForProjectMatching(unmappedDeals);
