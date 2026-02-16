@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession } from '$lib/server/db';
 import {
+	getAllProjectTasks,
 	getDealTaskSummaries,
 	getDealsForClient,
 	getProject,
@@ -11,6 +12,8 @@ import {
 } from '$lib/server/projects';
 
 const MAX_DEAL_TASK_LOOKUPS = 30;
+const MAX_PROJECT_TASK_LOOKUPS = 20;
+const PROJECT_TASK_PREVIEW_LIMIT = 4;
 
 async function mapWithConcurrency<T, R>(
 	items: T[],
@@ -118,6 +121,78 @@ function buildDealTaskHintMap(deals: any[]) {
 	return counts;
 }
 
+function getProjectTaskName(task: any, index: number) {
+	const candidates = [task?.name, task?.task_name, task?.title];
+	for (const candidate of candidates) {
+		if (typeof candidate !== 'string') continue;
+		const trimmed = candidate.trim();
+		if (trimmed) return trimmed;
+	}
+	return `Task ${index + 1}`;
+}
+
+function getProjectTaskStatus(task: any) {
+	const candidates = [task?.status, task?.task_status, task?.status_name];
+	for (const candidate of candidates) {
+		if (typeof candidate !== 'string') continue;
+		const trimmed = candidate.trim();
+		if (trimmed) return trimmed;
+	}
+	return 'Open';
+}
+
+function getProjectTaskPercent(task: any) {
+	const candidates = [
+		task?.percent_complete,
+		task?.percent_completed,
+		task?.completed_percent,
+		task?.completion_percentage
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+		if (typeof candidate === 'string') {
+			const parsed = Number(candidate.trim().replace('%', ''));
+			if (Number.isFinite(parsed)) return parsed;
+		}
+	}
+	return null;
+}
+
+function isProjectTaskCompleted(task: any) {
+	const status = getProjectTaskStatus(task).toLowerCase();
+	if (
+		status.includes('complete') ||
+		status.includes('closed') ||
+		status.includes('done') ||
+		status.includes('finished')
+	) {
+		return true;
+	}
+	const percent = getProjectTaskPercent(task);
+	return typeof percent === 'number' && percent >= 100;
+}
+
+function attachProjectTaskSummary(project: any, tasks: any[]) {
+	if (!project || typeof project !== 'object') return project;
+	if (!Array.isArray(tasks)) return project;
+
+	const taskCount = tasks.length;
+	const completedCount = tasks.filter((task) => isProjectTaskCompleted(task)).length;
+	const taskPreview = tasks.slice(0, PROJECT_TASK_PREVIEW_LIMIT).map((task, index) => ({
+		id: task?.id ? String(task.id) : `task-${index + 1}`,
+		name: getProjectTaskName(task, index),
+		status: getProjectTaskStatus(task),
+		completed: isProjectTaskCompleted(task)
+	}));
+
+	return {
+		...project,
+		task_count: taskCount,
+		task_completed_count: completedCount,
+		task_preview: taskPreview
+	};
+}
+
 function toMappedFallbackProjects(
 	links: Array<{
 		projectId: string;
@@ -150,7 +225,8 @@ function toUnmappedDealProjects(
 	deals: any[],
 	taskCountsByDealId: Map<string, number | null>,
 	taskCompletedByDealId: Map<string, number | null>,
-	taskPreviewByDealId: Map<string, any[]>
+	taskPreviewByDealId: Map<string, any[]>,
+	linkedDealIds: Set<string>
 ) {
 	const items: any[] = [];
 	const seen = new Set<string>();
@@ -158,6 +234,7 @@ function toUnmappedDealProjects(
 		const dealId = deal?.id ? String(deal.id) : '';
 		if (!dealId || seen.has(dealId)) continue;
 		seen.add(dealId);
+		if (linkedDealIds.has(dealId)) continue;
 
 		const projectIds = parseZohoProjectIds(deal?.Zoho_Projects_ID);
 		if (projectIds.length > 0) continue;
@@ -223,11 +300,16 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		const taskCountsByDealId = buildDealTaskHintMap(deals);
 		const taskCompletedByDealId = new Map<string, number | null>();
 		const taskPreviewByDealId = new Map<string, any[]>();
+		const linkedDealIds = new Set<string>(
+			(links || [])
+				.map((link) => (link?.dealId ? String(link.dealId) : ''))
+				.filter((dealId) => Boolean(dealId))
+		);
 		const dealIds = Array.from(
 			new Set(
 				(deals || [])
 					.map((deal) => (deal?.id ? String(deal.id) : ''))
-					.filter((dealId) => Boolean(dealId))
+					.filter((dealId) => Boolean(dealId) && !linkedDealIds.has(dealId))
 			)
 		);
 		const dealIdsToLookup = dealIds.slice(0, MAX_DEAL_TASK_LOOKUPS);
@@ -255,7 +337,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			deals,
 			taskCountsByDealId,
 			taskCompletedByDealId,
-			taskPreviewByDealId
+			taskPreviewByDealId,
+			linkedDealIds
 		);
 
 		if (links.length === 0) {
@@ -274,13 +357,25 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		}
 
 		const projectIds = links.map((link) => link.projectId);
-		const concurrency = projectIds.length > 25 ? 2 : 3;
+		const concurrency = projectIds.length > 10 ? 2 : 3;
 
 		try {
-			const projects = await mapWithConcurrency(projectIds, concurrency, async (projectId) => {
+			const projects = await mapWithConcurrency(projectIds, concurrency, async (projectId, index) => {
 				try {
 					const response = await getProject(projectId);
-					return normalizeProjectResponse(response);
+					const project = normalizeProjectResponse(response);
+					if (!project) return null;
+
+					if (index >= MAX_PROJECT_TASK_LOOKUPS) return project;
+
+					try {
+						const tasks = await getAllProjectTasks(projectId, 100);
+						return attachProjectTaskSummary(project, Array.isArray(tasks) ? tasks : []);
+					} catch (taskErr) {
+						const message = taskErr instanceof Error ? taskErr.message : String(taskErr);
+						console.warn(`Failed to fetch Zoho Projects tasks for ${projectId}:`, message);
+						return project;
+					}
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
 					console.error(`Failed to fetch Zoho Projects project ${projectId}:`, message);

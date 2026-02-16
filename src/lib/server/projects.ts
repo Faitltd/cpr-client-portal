@@ -102,6 +102,95 @@ function getDealName(deal: any) {
 	return getLookupName(deal.Deal_Name);
 }
 
+function getProjectName(project: any) {
+	if (!project || typeof project !== 'object') return null;
+	const value = project.name ?? project.project_name ?? project.Project_Name ?? null;
+	if (typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	return trimmed || null;
+}
+
+function getProjectId(project: any) {
+	if (!project || typeof project !== 'object') return null;
+	const id = project.id ?? project.project_id ?? project.project?.id ?? null;
+	return id === null || id === undefined ? null : String(id);
+}
+
+function normalizeProjectMatchName(value: string) {
+	return value
+		.toLowerCase()
+		.replace(/[_-]+/g, ' ')
+		.replace(/[^a-z0-9 ]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function stripTrailingDateSuffix(value: string) {
+	return value
+		.replace(/\s*-\s*\d{1,2}\/\d{1,2}\/\d{2,4}\s*$/i, '')
+		.replace(/\s*-\s*\d{4}-\d{2}-\d{2}\s*$/i, '')
+		.trim();
+}
+
+function getDealNameCandidates(deal: any) {
+	const dealName = getDealName(deal);
+	if (!dealName) return [];
+	const candidates = new Set<string>();
+	candidates.add(dealName);
+	const stripped = stripTrailingDateSuffix(dealName);
+	if (stripped) candidates.add(stripped);
+	return Array.from(candidates)
+		.map((name) => normalizeProjectMatchName(name))
+		.filter(Boolean);
+}
+
+function scoreProjectNameMatch(dealCandidate: string, projectName: string) {
+	if (!dealCandidate || !projectName) return 0;
+	if (dealCandidate === projectName) return 100;
+	if (projectName.startsWith(dealCandidate) && dealCandidate.length >= 8) return 90;
+	if (dealCandidate.startsWith(projectName) && projectName.length >= 8) return 88;
+	if (projectName.includes(dealCandidate) && dealCandidate.length >= 10) return 84;
+	return 0;
+}
+
+function findBestProjectMatchForDeal(
+	deal: any,
+	projects: any[],
+	usedProjectIds: Set<string>
+): { projectId: string; score: number } | null {
+	const dealCandidates = getDealNameCandidates(deal);
+	if (dealCandidates.length === 0) return null;
+
+	let best: { projectId: string; score: number } | null = null;
+	let secondBestScore = 0;
+
+	for (const project of projects || []) {
+		const projectId = getProjectId(project);
+		if (!projectId || usedProjectIds.has(projectId)) continue;
+		const projectNameRaw = getProjectName(project);
+		if (!projectNameRaw) continue;
+		const projectName = normalizeProjectMatchName(projectNameRaw);
+		if (!projectName) continue;
+
+		let score = 0;
+		for (const candidate of dealCandidates) {
+			score = Math.max(score, scoreProjectNameMatch(candidate, projectName));
+		}
+
+		if (score > (best?.score ?? 0)) {
+			secondBestScore = best?.score ?? 0;
+			best = { projectId, score };
+		} else if (score > secondBestScore) {
+			secondBestScore = score;
+		}
+	}
+
+	if (!best) return null;
+	if (best.score < 88) return null;
+	if (best.score - secondBestScore < 5) return null;
+	return best;
+}
+
 function getDealId(deal: any) {
 	if (!deal || typeof deal !== 'object') return null;
 	const id = deal.id ?? deal.Deal_ID ?? deal.deal_id ?? null;
@@ -352,6 +441,19 @@ export async function listProjects(params?: {
 	if (params?.per_page) query.set('per_page', String(params.per_page));
 	const qs = query.toString() ? `?${query}` : '';
 	return projectsApiCall(`/projects${qs}`);
+}
+
+export async function listAllProjects(
+	status: 'active' | 'archived' = 'active',
+	perPage = DEFAULT_PAGE_SIZE
+) {
+	return fetchAllPages((page, size) => {
+		const query = new URLSearchParams();
+		query.set('status', status);
+		query.set('page', String(page));
+		query.set('per_page', String(size));
+		return `/projects?${query}`;
+	}, 'projects', perPage);
 }
 
 export async function getProject(projectId: string) {
@@ -900,6 +1002,41 @@ export async function getProjectLinksForClient(
 				stage,
 				modifiedTime
 			});
+		}
+	}
+
+	// Fallback discovery: if a deal is missing Zoho_Projects_ID, try to match it by name
+	// against active Zoho Projects so clients still land on real project detail/tasks.
+	const unmappedDeals = (deals || []).filter((deal) => {
+		const ids = parseZohoProjectIds((deal as any)?.Zoho_Projects_ID);
+		return ids.length === 0;
+	});
+
+	if (unmappedDeals.length > 0 && isProjectsPortalConfigured()) {
+		try {
+			const projects = await listAllProjects('active', 100);
+			const usedProjectIds = new Set<string>(byProjectId.keys());
+
+			for (const deal of unmappedDeals) {
+				const match = findBestProjectMatchForDeal(deal, projects, usedProjectIds);
+				if (!match) continue;
+
+				const dealId = deal?.id ? String(deal.id) : null;
+				const dealName = getDealName(deal);
+				const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
+				const modifiedTime = typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null;
+
+				usedProjectIds.add(match.projectId);
+				byProjectId.set(match.projectId, {
+					projectId: match.projectId,
+					dealId,
+					dealName,
+					stage,
+					modifiedTime
+				});
+			}
+		} catch (err) {
+			console.warn('Failed to discover Zoho Projects links by deal-name matching', err);
 		}
 	}
 
