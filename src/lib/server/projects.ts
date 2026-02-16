@@ -8,10 +8,12 @@ const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGES = 25;
 const CRM_RELATED_LIST_PAGE_SIZE = 200;
 const CRM_RELATED_LIST_MAX_PAGES = 10;
+const MAX_DEAL_RELATED_PROJECT_LOOKUPS = 40;
 const PORTAL_ID_CACHE_TTL_MS = 10 * 60 * 1000;
 const PROJECTS_API_BASE_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
+const DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 250;
 const KNOWN_PROJECTS_API_BASES = [
 	'https://projectsapi.zoho.com',
@@ -35,6 +37,7 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 
 let discoveredPortalIdCache: { portalId: string; fetchedAt: number } | null = null;
 let discoveredProjectsApiBaseCache: { base: string; fetchedAt: number } | null = null;
+let dealProjectRelatedListApiNamesCache: { fetchedAt: number; apiNames: string[] } | null = null;
 let projectCatalogCache: { fetchedAt: number; projects: any[] } | null = null;
 const membershipProjectIdsByEmailCache = new Map<string, { fetchedAt: number; projectIds: string[] }>();
 
@@ -316,6 +319,132 @@ function sortDealsForProjectMatching(deals: any[]) {
 		const rightName = (getDealName(right) || '').toLowerCase();
 		return leftName.localeCompare(rightName);
 	});
+}
+
+function normalizeRelatedListApiName(value: unknown) {
+	if (typeof value !== 'string') return '';
+	const trimmed = value.trim();
+	return trimmed || '';
+}
+
+function pickRelatedListsArray(payload: any) {
+	if (Array.isArray(payload?.related_lists)) return payload.related_lists;
+	if (Array.isArray(payload?.data)) return payload.data;
+	return [];
+}
+
+function isProjectsRelatedList(record: any) {
+	if (!record || typeof record !== 'object') return false;
+	const candidates = [record.api_name, record.display_label, record.plural_label, record.module, record.name];
+	return candidates.some((candidate) => {
+		if (typeof candidate !== 'string') return false;
+		return candidate.toLowerCase().includes('project');
+	});
+}
+
+async function getDealProjectRelatedListApiNames(accessToken: string) {
+	if (
+		dealProjectRelatedListApiNamesCache &&
+		Date.now() - dealProjectRelatedListApiNamesCache.fetchedAt < DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS
+	) {
+		return dealProjectRelatedListApiNamesCache.apiNames;
+	}
+
+	const defaults = ['Projects', 'Zoho_Projects'];
+	const discovered: string[] = [];
+	try {
+		const payload = await zohoApiCall(accessToken, '/settings/related_lists?module=Deals');
+		const relatedLists = pickRelatedListsArray(payload);
+		for (const relatedList of relatedLists) {
+			if (!isProjectsRelatedList(relatedList)) continue;
+			const apiName = normalizeRelatedListApiName(relatedList?.api_name ?? relatedList?.name);
+			if (apiName) discovered.push(apiName);
+		}
+	} catch (err) {
+		console.warn('Failed to discover Deals related lists for project mapping', err);
+	}
+
+	const uniqueApiNames: string[] = [];
+	const seen = new Set<string>();
+	for (const apiName of [...defaults, ...discovered]) {
+		const normalized = normalizeRelatedListApiName(apiName);
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		uniqueApiNames.push(normalized);
+	}
+
+	dealProjectRelatedListApiNamesCache = {
+		fetchedAt: Date.now(),
+		apiNames: uniqueApiNames
+	};
+	return uniqueApiNames;
+}
+
+function normalizeCandidateProjectId(value: string) {
+	const trimmed = value.trim();
+	if (!trimmed) return '';
+
+	const fromProjectUrl = trimmed.match(/\/projects\/(\d{6,})/i);
+	if (fromProjectUrl?.[1]) return fromProjectUrl[1];
+
+	return /^\d{6,}$/.test(trimmed) ? trimmed : '';
+}
+
+function addProjectIdsFromUnknownValue(value: unknown, output: Set<string>) {
+	const parsedIds = parseZohoProjectIds(value);
+	for (const parsedId of parsedIds) {
+		const normalizedId = normalizeCandidateProjectId(parsedId);
+		if (!normalizedId) continue;
+		output.add(normalizedId);
+	}
+}
+
+function extractProjectIdsFromRelatedRecord(record: any) {
+	const projectIds = new Set<string>();
+	if (!record || typeof record !== 'object') return [] as string[];
+
+	for (const [key, value] of Object.entries(record)) {
+		if (!key.toLowerCase().includes('project')) continue;
+		addProjectIdsFromUnknownValue(value, projectIds);
+	}
+
+	// For a true "Projects" related list, the row id is often the project id.
+	if (projectIds.size === 0) {
+		addProjectIdsFromUnknownValue(record.id, projectIds);
+	}
+
+	return Array.from(projectIds);
+}
+
+async function getProjectIdsFromDealRelatedLists(accessToken: string, dealId: string, relatedListApiNames: string[]) {
+	const projectIds = new Set<string>();
+	const candidateApiNames = relatedListApiNames
+		.map((value) => normalizeRelatedListApiName(value))
+		.filter(Boolean);
+
+	for (const apiName of candidateApiNames) {
+		try {
+			for (let page = 1; page <= CRM_RELATED_LIST_MAX_PAGES; page += 1) {
+				const payload = await zohoApiCall(
+					accessToken,
+					`/Deals/${encodeURIComponent(dealId)}/${encodeURIComponent(apiName)}?per_page=${CRM_RELATED_LIST_PAGE_SIZE}&page=${page}`
+				);
+				const rows = pickCrmArray(payload, apiName);
+				if (rows.length === 0) break;
+
+				for (const row of rows) {
+					const ids = extractProjectIdsFromRelatedRecord(row);
+					for (const id of ids) projectIds.add(id);
+				}
+
+				if (!hasMorePages(payload, rows.length, CRM_RELATED_LIST_PAGE_SIZE)) break;
+			}
+		} catch {
+			// Continue; related list names can vary by org and customizations.
+		}
+	}
+
+	return Array.from(projectIds);
 }
 
 function getMatchTokens(value: string) {
@@ -1326,8 +1455,59 @@ export async function getProjectLinksForClient(
 		const ids = parseZohoProjectIds((deal as any)?.Zoho_Projects_ID);
 		return ids.length === 0;
 	});
+	const sortedUnmappedDeals = sortDealsForProjectMatching(unmappedDeals);
+	const mappedDealIds = new Set<string>(
+		Array.from(byProjectId.values())
+			.map((link) => (link.dealId ? String(link.dealId) : ''))
+			.filter(Boolean)
+	);
 
-	if (unmappedDeals.length > 0 || (byProjectId.size === 0 && email)) {
+	// Automatic CRM related-list mapping: discover project ids directly from Deal related lists.
+	// This covers orgs where Zoho_Projects_ID is not populated but Deal->Projects related data exists.
+	if (sortedUnmappedDeals.length > 0) {
+		try {
+			const accessToken = await getValidAccessToken();
+			const relatedListApiNames = await getDealProjectRelatedListApiNames(accessToken);
+			const dealsToLookup = sortedUnmappedDeals.slice(0, MAX_DEAL_RELATED_PROJECT_LOOKUPS);
+			const results = await mapWithConcurrency(dealsToLookup, 2, async (deal) => {
+				const dealId = getDealId(deal);
+				if (!dealId) return { deal, projectIds: [] as string[] };
+				const projectIds = await getProjectIdsFromDealRelatedLists(accessToken, dealId, relatedListApiNames);
+				return { deal, projectIds };
+			});
+
+			for (const result of results) {
+				const deal = result.deal;
+				const dealId = getDealId(deal);
+				if (!dealId || result.projectIds.length === 0) continue;
+
+				const dealName = getDealName(deal);
+				const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
+				const modifiedTime = typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null;
+
+				for (const projectId of result.projectIds) {
+					if (byProjectId.has(projectId)) continue;
+					byProjectId.set(projectId, {
+						projectId,
+						dealId,
+						dealName,
+						stage,
+						modifiedTime
+					});
+					mappedDealIds.add(dealId);
+				}
+			}
+		} catch (err) {
+			console.warn('Failed to discover Zoho Projects links from Deal related lists', err);
+		}
+	}
+
+	const unresolvedUnmappedDeals = sortedUnmappedDeals.filter((deal) => {
+		const dealId = getDealId(deal);
+		return !dealId || !mappedDealIds.has(dealId);
+	});
+
+	if (unresolvedUnmappedDeals.length > 0 || (byProjectId.size === 0 && email)) {
 		try {
 			const projects = await getProjectCatalogForMatching();
 			const activeProjects = projects.filter((project) => !isProjectLikelyArchived(project));
@@ -1341,7 +1521,7 @@ export async function getProjectLinksForClient(
 			);
 			const usedProjectIds = new Set<string>(byProjectId.keys());
 			const unresolvedDeals: any[] = [];
-			const candidateDeals = sortDealsForProjectMatching(unmappedDeals);
+			const candidateDeals = unresolvedUnmappedDeals;
 
 			for (const deal of candidateDeals) {
 				const match =
