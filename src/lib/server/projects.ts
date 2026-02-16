@@ -1,11 +1,20 @@
 import { env } from '$env/dynamic/private';
 import { findContactByEmail, getContactDeals } from './auth';
 import { getZohoTokens, upsertZohoTokens } from './db';
-import { refreshAccessToken } from './zoho';
+import { refreshAccessToken, zohoApiCall } from './zoho';
 
 const DEFAULT_PROJECTS_API_BASE = 'https://projectsapi.zoho.com';
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGES = 25;
+const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
+	'Deal_Name',
+	'Stage',
+	'Created_Time',
+	'Modified_Time',
+	'Closing_Date',
+	'Contact_Name',
+	'Zoho_Projects_ID'
+].join(',');
 
 function getProjectsApiBase() {
 	const base = env.ZOHO_PROJECTS_API_BASE || DEFAULT_PROJECTS_API_BASE;
@@ -109,6 +118,77 @@ function dedupeDealsById(deals: any[]) {
 		if (!byId.has(id)) byId.set(id, deal);
 	}
 	return [...byId.values(), ...unnamed];
+}
+
+async function fetchContactEmailsByIds(accessToken: string, contactIds: string[]) {
+	if (contactIds.length === 0) return new Map<string, string>();
+
+	const emailByContactId = new Map<string, string>();
+	const chunkSize = 100;
+
+	for (let i = 0; i < contactIds.length; i += chunkSize) {
+		const chunk = contactIds.slice(i, i + chunkSize);
+		try {
+			const response = await zohoApiCall(
+				accessToken,
+				`/Contacts?ids=${chunk.join(',')}&fields=${encodeURIComponent('Email')}`
+			);
+			const contacts = Array.isArray(response.data) ? response.data : [];
+			for (const contact of contacts) {
+				const id = contact?.id ? String(contact.id) : '';
+				const email = typeof contact?.Email === 'string' ? contact.Email.trim() : '';
+				if (id && email) emailByContactId.set(id, email.toLowerCase());
+			}
+		} catch (err) {
+			console.warn('Failed to fetch contacts chunk for deal-email fallback', {
+				chunkSize: chunk.length,
+				error: err
+			});
+		}
+	}
+
+	return emailByContactId;
+}
+
+async function fetchDealsByEmailFallback(accessToken: string, email: string) {
+	const normalizedEmail = email.trim().toLowerCase();
+	if (!normalizedEmail) return [];
+
+	const perPage = 200;
+	const maxPages = 20;
+	const allDeals: any[] = [];
+
+	for (let page = 1; page <= maxPages; page += 1) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals?fields=${encodeURIComponent(CRM_DEAL_EMAIL_FALLBACK_FIELDS)}&per_page=${perPage}&page=${page}`
+		);
+		const deals = Array.isArray(response.data) ? response.data : [];
+		if (deals.length === 0) break;
+
+		allDeals.push(...deals);
+		const hasMore = response.info?.more_records;
+		if (hasMore === false) break;
+		if (hasMore !== true && deals.length < perPage) break;
+	}
+
+	if (allDeals.length === 0) return [];
+
+	const contactIdSet = new Set<string>();
+	for (const deal of allDeals) {
+		const contactId = deal?.Contact_Name?.id ? String(deal.Contact_Name.id) : '';
+		if (contactId) contactIdSet.add(contactId);
+	}
+
+	const emailByContactId = await fetchContactEmailsByIds(accessToken, Array.from(contactIdSet));
+	const matched = allDeals.filter((deal) => {
+		const contactId = deal?.Contact_Name?.id ? String(deal.Contact_Name.id) : '';
+		if (!contactId) return false;
+		const contactEmail = emailByContactId.get(contactId);
+		return Boolean(contactEmail && contactEmail === normalizedEmail);
+	});
+
+	return dedupeDealsById(matched);
 }
 
 export type ContactProjectLink = {
@@ -369,6 +449,17 @@ export async function getDealsForClient(
 			}
 		} catch (err) {
 			console.warn('Failed to resolve contact by email for deals fallback', { email: trimmedEmail, err });
+		}
+
+		if (collectedDeals.length === 0) {
+			try {
+				const emailMatchedDeals = await fetchDealsByEmailFallback(accessToken, trimmedEmail);
+				if (emailMatchedDeals.length > 0) {
+					collectedDeals.push(...emailMatchedDeals);
+				}
+			} catch (err) {
+				console.warn('Failed to fetch deals by email fallback scan', { email: trimmedEmail, err });
+			}
 		}
 	}
 
