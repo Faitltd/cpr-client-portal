@@ -222,10 +222,10 @@ export function parseZohoProjectIds(value: unknown): string[] {
 	const normalized: string[] = [];
 	const seen = new Set<string>();
 	for (const id of rawIds) {
-		const trimmed = id.trim();
-		if (!trimmed || seen.has(trimmed)) continue;
-		seen.add(trimmed);
-		normalized.push(trimmed);
+		const normalizedId = normalizeCandidateProjectId(id);
+		if (!normalizedId || seen.has(normalizedId)) continue;
+		seen.add(normalizedId);
+		normalized.push(normalizedId);
 	}
 	return normalized;
 }
@@ -1425,6 +1425,14 @@ export async function getProjectLinksForClient(
 	email?: string | null
 ): Promise<ContactProjectLink[]> {
 	const deals = await getDealsForClient(zohoContactId, email);
+	const dealsById = new Map<string, any>(
+		(deals || [])
+			.map((deal) => {
+				const id = getDealId(deal);
+				return id ? ([id, deal] as const) : null;
+			})
+			.filter(Boolean) as Array<readonly [string, any]>
+	);
 
 	const byProjectId = new Map<string, ContactProjectLink>();
 	for (const deal of deals || []) {
@@ -1507,7 +1515,7 @@ export async function getProjectLinksForClient(
 		return !dealId || !mappedDealIds.has(dealId);
 	});
 
-	if (unresolvedUnmappedDeals.length > 0 || (byProjectId.size === 0 && email)) {
+	if (byProjectId.size > 0 || unresolvedUnmappedDeals.length > 0 || (byProjectId.size === 0 && email)) {
 		try {
 			const projects = await getProjectCatalogForMatching();
 			const activeProjects = projects.filter((project) => !isProjectLikelyArchived(project));
@@ -1519,9 +1527,22 @@ export async function getProjectLinksForClient(
 					})
 					.filter(Boolean) as Array<readonly [string, any]>
 			);
+			const invalidMappedDeals: any[] = [];
+			for (const [projectId, link] of Array.from(byProjectId.entries())) {
+				if (projectsById.has(projectId)) continue;
+				byProjectId.delete(projectId);
+
+				const dealId = link?.dealId ? String(link.dealId) : '';
+				if (!dealId) continue;
+				const deal = dealsById.get(dealId);
+				if (deal) invalidMappedDeals.push(deal);
+			}
+
+			const candidateDeals = sortDealsForProjectMatching(
+				dedupeDealsById([...unresolvedUnmappedDeals, ...invalidMappedDeals])
+			);
 			const usedProjectIds = new Set<string>(byProjectId.keys());
 			const unresolvedDeals: any[] = [];
-			const candidateDeals = unresolvedUnmappedDeals;
 
 			for (const deal of candidateDeals) {
 				const match =
