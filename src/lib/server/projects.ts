@@ -377,6 +377,47 @@ function getKnownDealProjectFieldApiNames() {
 	return Array.from(names);
 }
 
+function collectProjectTextCandidates(value: unknown, output: Set<string>) {
+	if (value === null || value === undefined) return;
+
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		if (!trimmed) return;
+		const looksLikeProjectId = normalizeCandidateProjectId(trimmed);
+		if (!looksLikeProjectId || looksLikeProjectId !== trimmed) {
+			output.add(trimmed);
+		}
+		return;
+	}
+
+	if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+		return;
+	}
+
+	if (Array.isArray(value)) {
+		for (const item of value) collectProjectTextCandidates(item, output);
+		return;
+	}
+
+	if (typeof value === 'object') {
+		const record = value as Record<string, unknown>;
+		const preferred = ['name', 'display_value', 'displayValue', 'label', 'value'];
+		for (const key of preferred) {
+			if (record[key] !== undefined) collectProjectTextCandidates(record[key], output);
+		}
+	}
+}
+
+function getDealProjectNameCandidates(deal: any) {
+	const names = new Set<string>();
+	for (const apiName of getKnownDealProjectFieldApiNames()) {
+		const value = deal?.[apiName];
+		if (value === undefined) continue;
+		collectProjectTextCandidates(value, names);
+	}
+	return Array.from(names);
+}
+
 function getDealProjectIdsForLinking(deal: any) {
 	const projectIds = new Set<string>();
 	if (!deal || typeof deal !== 'object') return [] as string[];
@@ -436,6 +477,9 @@ function getDealNameCandidates(deal: any) {
 	const contactName = getLookupName(deal?.Contact_Name);
 	if (contactName) {
 		candidates.add(contactName);
+	}
+	for (const projectName of getDealProjectNameCandidates(deal)) {
+		candidates.add(projectName);
 	}
 	if (candidates.size === 0) return [];
 	return Array.from(candidates)
