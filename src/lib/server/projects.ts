@@ -4,6 +4,7 @@ import { getZohoTokens, upsertZohoTokens } from './db';
 import { refreshAccessToken, zohoApiCall } from './zoho';
 
 const DEFAULT_PROJECTS_API_BASE = 'https://projectsapi.zoho.com';
+const DEFAULT_PROJECTS_FETCH_TIMEOUT_MS = 10_000;
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGES = 25;
 const CRM_RELATED_LIST_PAGE_SIZE = 200;
@@ -17,6 +18,7 @@ const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_ROUTE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 80;
+const MAX_PROJECT_ROUTE_ATTEMPTS = 12;
 const KNOWN_PROJECTS_API_BASES = [
 	'https://projectsapi.zoho.com',
 	'https://projectsapi.zoho.eu',
@@ -93,10 +95,55 @@ function cacheProjectsApiBase(base: string) {
 	};
 }
 
+function getProjectsFetchTimeoutMs() {
+	const parsed = Number(env.ZOHO_PROJECTS_FETCH_TIMEOUT_MS || '');
+	if (Number.isFinite(parsed) && parsed >= 1000) {
+		return Math.round(parsed);
+	}
+	return DEFAULT_PROJECTS_FETCH_TIMEOUT_MS;
+}
+
+async function fetchProjectsApiWithTimeout(url: string, init: RequestInit, context: string) {
+	const timeoutMs = getProjectsFetchTimeoutMs();
+	const controller = new AbortController();
+	let detachAbortListener: (() => void) | null = null;
+	const externalSignal = init.signal;
+
+	if (externalSignal) {
+		if (externalSignal.aborted) {
+			controller.abort();
+		} else {
+			const onAbort = () => controller.abort();
+			externalSignal.addEventListener('abort', onAbort, { once: true });
+			detachAbortListener = () => externalSignal.removeEventListener('abort', onAbort);
+		}
+	}
+
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await fetch(url, {
+			...init,
+			signal: controller.signal
+		});
+	} catch (err) {
+		if (err instanceof Error && err.name === 'AbortError') {
+			throw new Error(`Zoho Projects API timeout after ${timeoutMs}ms (${context})`);
+		}
+		throw err;
+	} finally {
+		clearTimeout(timer);
+		detachAbortListener?.();
+	}
+}
+
 async function fetchPortalsPayload(accessToken: string, base: string) {
-	const response = await fetch(`${base}/api/v3/portals`, {
-		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
-	});
+	const response = await fetchProjectsApiWithTimeout(
+		`${base}/api/v3/portals`,
+		{
+			headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
+		},
+		`list portals (${base})`
+	);
 
 	if (response.status === 429) {
 		const text = await response.text().catch(() => '');
@@ -1216,9 +1263,13 @@ async function fetchProjectsPageForBasePortal(
 	query.set('per_page', String(perPage));
 
 	const url = `${base}/api/v3/portal/${portalId}/projects?${query.toString()}`;
-	const response = await fetch(url, {
-		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
-	});
+	const response = await fetchProjectsApiWithTimeout(
+		url,
+		{
+			headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
+		},
+		`list projects (${base} portal ${portalId})`
+	);
 
 	if (response.status === 204) return {};
 
@@ -1332,8 +1383,10 @@ export async function projectsApiCall(endpoint: string, options: RequestInit = {
 	const seenBases = new Set<string>();
 	const errors: string[] = [];
 	let firstEmptyProjectsPayload: any = null;
+	let routeAttemptCount = 0;
+	let stoppedByRouteAttemptLimit = false;
 
-	for (const base of baseCandidates) {
+	baseLoop: for (const base of baseCandidates) {
 		if (seenBases.has(base)) continue;
 		seenBases.add(base);
 
@@ -1354,15 +1407,25 @@ export async function projectsApiCall(endpoint: string, options: RequestInit = {
 		}
 
 		for (const portalId of portalIds) {
+			if (projectId && routeAttemptCount >= MAX_PROJECT_ROUTE_ATTEMPTS) {
+				stoppedByRouteAttemptLimit = true;
+				break baseLoop;
+			}
+			if (projectId) routeAttemptCount += 1;
+
 			const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
-			const response = await fetch(url, {
-				...options,
-				headers: {
-					Authorization: `Zoho-oauthtoken ${accessToken}`,
-					'Content-Type': 'application/json',
-					...options.headers
-				}
-			});
+			const response = await fetchProjectsApiWithTimeout(
+				url,
+				{
+					...options,
+					headers: {
+						Authorization: `Zoho-oauthtoken ${accessToken}`,
+						'Content-Type': 'application/json',
+						...options.headers
+					}
+				},
+				`${endpoint} (${base} portal ${portalId})`
+			);
 
 			if (response.status === 204) {
 				cacheProjectsApiBase(base);
@@ -1402,6 +1465,10 @@ export async function projectsApiCall(endpoint: string, options: RequestInit = {
 
 	if (isProjectsListEndpoint && firstEmptyProjectsPayload !== null) {
 		return firstEmptyProjectsPayload;
+	}
+
+	if (stoppedByRouteAttemptLimit) {
+		errors.push(`stopped after ${MAX_PROJECT_ROUTE_ATTEMPTS} route attempts`);
 	}
 
 	throw new Error(
