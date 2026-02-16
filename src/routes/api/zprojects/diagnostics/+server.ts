@@ -3,11 +3,19 @@ import type { RequestHandler } from './$types';
 import { isValidAdminSession } from '$lib/server/admin';
 import { isPortalActiveStage } from '$lib/server/auth';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { getDealsForClient } from '$lib/server/projects';
+import { getDealsForClient, getProjectLinksForClient, parseZohoProjectIds } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
 const BASE_DEAL_FIELDS = ['id', 'Deal_Name', 'Stage', 'Created_Time', 'Modified_Time', 'Contact_Name'];
 const MAX_SAMPLE_DEALS = 20;
+const REQUIRED_PROJECT_SCOPES = [
+	'ZohoProjects.portals.READ',
+	'ZohoProjects.projects.READ',
+	'ZohoProjects.tasks.READ',
+	'ZohoProjects.tasklists.READ',
+	'ZohoProjects.milestones.READ',
+	'ZohoProjects.users.READ'
+];
 
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
@@ -83,6 +91,25 @@ function extractDealName(deal: any) {
 		if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
 	}
 	return null;
+}
+
+function normalizeScopeTokens(rawScope: string | null | undefined) {
+	return (rawScope || '')
+		.split(/[,\s]+/g)
+		.map((value) => value.trim())
+		.filter(Boolean);
+}
+
+function extractProjectIdsFromDealRecord(deal: any, candidateFieldApiNames: string[]) {
+	const ids = new Set<string>();
+	const fieldNames = Array.from(new Set(['Zoho_Projects_ID', ...candidateFieldApiNames]));
+	for (const fieldName of fieldNames) {
+		const value = deal?.[fieldName];
+		for (const id of parseZohoProjectIds(value)) {
+			ids.add(id);
+		}
+	}
+	return Array.from(ids);
 }
 
 async function fetchDealsByIds(accessToken: string, dealIds: string[], fields: string[]) {
@@ -240,19 +267,92 @@ export const GET: RequestHandler = async ({ cookies }) => {
 				projectFields[apiName] = summarizeValue(deal[apiName]);
 			}
 		}
+		const extractedProjectIds = extractProjectIdsFromDealRecord(deal, candidateFieldApiNames);
 
 		return {
 			id: deal?.id ? String(deal.id) : null,
 			dealName: extractDealName(deal),
 			stage: typeof deal?.Stage === 'string' ? deal.Stage : null,
 			modifiedTime: typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null,
-			projectFields
+			projectFields,
+			extractedProjectIds
 		};
 	});
+
+	const scopeTokens = normalizeScopeTokens(tokens.scope ?? null);
+	const missingProjectScopes = REQUIRED_PROJECT_SCOPES.filter((scope) => !scopeTokens.includes(scope));
+	let clientMappingPreview: {
+		dealsCount: number;
+		linksCount: number;
+		sampleLink: {
+			projectId: string;
+			dealId: string | null;
+			dealName: string | null;
+			stage: string | null;
+		} | null;
+		sampleDeal: {
+			id: string | null;
+			dealName: string | null;
+			stage: string | null;
+			extractedProjectIds: string[];
+		} | null;
+	} | null = null;
+
+	try {
+		if (portalSession?.client) {
+			const [clientDeals, clientLinks] = await Promise.all([
+				getDealsForClient(portalSession.client.zoho_contact_id, portalSession.client.email),
+				getProjectLinksForClient(portalSession.client.zoho_contact_id, portalSession.client.email)
+			]);
+			const sampleDealRaw = (clientDeals || [])[0] || null;
+			const sampleDeal = sampleDealRaw
+				? {
+						id: sampleDealRaw?.id ? String(sampleDealRaw.id) : null,
+						dealName: extractDealName(sampleDealRaw),
+						stage: typeof sampleDealRaw?.Stage === 'string' ? sampleDealRaw.Stage : null,
+						extractedProjectIds: extractProjectIdsFromDealRecord(sampleDealRaw, candidateFieldApiNames)
+					}
+				: null;
+			const sampleLinkRaw = (clientLinks || [])[0] || null;
+			const sampleLink = sampleLinkRaw
+				? {
+						projectId: sampleLinkRaw.projectId,
+						dealId: sampleLinkRaw.dealId,
+						dealName: sampleLinkRaw.dealName,
+						stage: sampleLinkRaw.stage
+					}
+				: null;
+
+			clientMappingPreview = {
+				dealsCount: clientDeals.length,
+				linksCount: clientLinks.length,
+				sampleLink,
+				sampleDeal
+			};
+		}
+	} catch (err) {
+		clientMappingPreview = {
+			dealsCount: 0,
+			linksCount: 0,
+			sampleLink: null,
+			sampleDeal: {
+				id: null,
+				dealName: null,
+				stage: null,
+				extractedProjectIds: []
+			}
+		};
+	}
 
 	return json({
 		mode: hasAdminSession ? 'admin' : 'client',
 		scope: tokens.scope ?? null,
+		scopeInfo: {
+			tokenCount: scopeTokens.length,
+			scopeTokens,
+			requiredProjectScopes: REQUIRED_PROJECT_SCOPES,
+			missingProjectScopes
+		},
 		fields: {
 			total: fields.length,
 			error: fieldsError,
@@ -280,6 +380,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			requestedFields,
 			sampleCount: sampleDeals.length,
 			sampleDeals
-		}
+		},
+		clientMappingPreview
 	});
 };
