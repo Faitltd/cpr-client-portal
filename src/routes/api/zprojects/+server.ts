@@ -280,12 +280,13 @@ function dedupeProjects(projects: any[]) {
 
 // GET /api/zprojects
 // Returns client projects from Zoho Projects when configured, with CRM fallback for unmapped deals.
-export const GET: RequestHandler = async ({ cookies }) => {
+export const GET: RequestHandler = async ({ cookies, url }) => {
 	const sessionToken = cookies.get('portal_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
 
 	const session = await getSession(sessionToken);
 	if (!session) throw error(401, 'Invalid session');
+	const debugEnabled = url.searchParams.get('debug') === '1';
 
 	const zohoContactId = session.client?.zoho_contact_id ?? null;
 	const clientEmail = session.client?.email ?? null;
@@ -295,6 +296,24 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			getProjectLinksForClient(zohoContactId, clientEmail),
 			getDealsForClient(zohoContactId, clientEmail)
 		]);
+		const debug: Record<string, unknown> = debugEnabled
+			? {
+					client: {
+						zohoContactId,
+						email: clientEmail
+					},
+					counts: {
+						deals: deals.length,
+						links: links.length
+					},
+					links: links.slice(0, 20).map((link) => ({
+						projectId: link.projectId,
+						dealId: link.dealId,
+						dealName: link.dealName,
+						stage: link.stage
+					}))
+				}
+			: {};
 
 		const taskCountsByDealId = buildDealTaskHintMap(deals);
 		const taskCompletedByDealId = new Map<string, number | null>();
@@ -353,6 +372,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 		const projectIds = links.map((link) => link.projectId);
 		const concurrency = projectIds.length > 10 ? 2 : 3;
+		const projectFetchErrors = new Map<string, string>();
+		const projectTaskFetchErrors = new Map<string, string>();
 
 		try {
 			const projects = await mapWithConcurrency(projectIds, concurrency, async (projectId, index) => {
@@ -369,11 +390,13 @@ export const GET: RequestHandler = async ({ cookies }) => {
 					} catch (taskErr) {
 						const message = taskErr instanceof Error ? taskErr.message : String(taskErr);
 						console.warn(`Failed to fetch Zoho Projects tasks for ${projectId}:`, message);
+						projectTaskFetchErrors.set(projectId, message);
 						return project;
 					}
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
 					console.error(`Failed to fetch Zoho Projects project ${projectId}:`, message);
+					projectFetchErrors.set(projectId, message);
 					return null;
 				}
 			});
@@ -383,19 +406,44 @@ export const GET: RequestHandler = async ({ cookies }) => {
 				const missingMappedProjects = mappedFallbackProjects.filter(
 					(project) => !seenIds.has(getProjectId(project))
 				);
-
-				if (normalized.length > 0) {
-					return json({
-						projects: dedupeProjects([...normalized, ...missingMappedProjects])
-					});
+				if (debugEnabled) {
+					debug.normalizedProjectCount = normalized.length;
+					debug.missingMappedProjectCount = missingMappedProjects.length;
+					debug.projectFetchErrors = Array.from(projectFetchErrors.entries()).map(([projectId, message]) => ({
+						projectId,
+						message
+					}));
+					debug.projectTaskFetchErrors = Array.from(projectTaskFetchErrors.entries()).map(
+						([projectId, message]) => ({
+							projectId,
+							message
+						})
+					);
 				}
 
-				return json({
+				if (normalized.length > 0) {
+					const payload: Record<string, unknown> = {
+						projects: dedupeProjects([...normalized, ...missingMappedProjects])
+					};
+					if (debugEnabled) payload._debug = debug;
+					return json(payload);
+				}
+
+				const payload: Record<string, unknown> = {
 					projects: dedupeProjects([...normalized, ...missingMappedProjects, ...unmappedDealProjects])
-				});
+				};
+				if (debugEnabled) payload._debug = debug;
+				return json(payload);
 		} catch (err) {
 			console.error('Zoho Projects lookup failed, returning fallback data:', err);
-			return json({ projects: dedupeProjects([...mappedFallbackProjects, ...unmappedDealProjects]) });
+			if (debugEnabled) {
+				debug.lookupError = err instanceof Error ? err.message : String(err);
+			}
+			const payload: Record<string, unknown> = {
+				projects: dedupeProjects([...mappedFallbackProjects, ...unmappedDealProjects])
+			};
+			if (debugEnabled) payload._debug = debug;
+			return json(payload);
 		}
 	} catch (err) {
 		console.error('Failed to fetch client projects list:', err);
