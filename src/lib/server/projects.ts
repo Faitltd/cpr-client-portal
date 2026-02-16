@@ -199,6 +199,31 @@ function getCachedProjectRoute(projectId: string) {
 	return cached;
 }
 
+function derivePortalIdCandidatesFromProjectId(projectId: string) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!/^\d{8,}$/.test(normalizedProjectId)) return [] as string[];
+
+	const candidates: string[] = [];
+	const seen = new Set<string>();
+	const add = (value: string) => {
+		const trimmed = value.trim();
+		if (!/^\d{6,12}$/.test(trimmed) || seen.has(trimmed)) return;
+		seen.add(trimmed);
+		candidates.push(trimmed);
+	};
+
+	// Common Zoho pattern: [PORTAL_ID][00000...][ENTITY_ID]
+	const prefixed = normalizedProjectId.match(/^(\d{6,12})0{4,}\d+$/);
+	if (prefixed?.[1]) add(prefixed[1]);
+
+	for (const length of [7, 8, 9, 10, 11, 12, 6]) {
+		if (normalizedProjectId.length <= length) continue;
+		add(normalizedProjectId.slice(0, length));
+	}
+
+	return candidates;
+}
+
 async function getPortalIdCandidatesForBase(accessToken: string, base: string, projectId?: string) {
 	const ids: string[] = [];
 	const seen = new Set<string>();
@@ -218,6 +243,12 @@ async function getPortalIdCandidatesForBase(accessToken: string, base: string, p
 
 	const configured = (env.ZOHO_PROJECTS_PORTAL_ID || '').trim();
 	addId(configured);
+
+	if (projectId) {
+		for (const derivedId of derivePortalIdCandidatesFromProjectId(projectId)) {
+			addId(derivedId);
+		}
+	}
 
 	if (
 		discoveredPortalIdCache &&
@@ -487,6 +518,33 @@ function getDealNameCandidates(deal: any) {
 		.filter(Boolean);
 }
 
+function getDealExactMatchNameCandidates(deal: any) {
+	const candidates = new Set<string>();
+	const dealName = getDealName(deal);
+	if (dealName) candidates.add(dealName);
+	for (const projectName of getDealProjectNameCandidates(deal)) {
+		candidates.add(projectName);
+	}
+	return Array.from(candidates)
+		.map((name) => normalizeProjectMatchName(name))
+		.filter(Boolean);
+}
+
+function buildExactProjectNameIndex(projects: any[]) {
+	const index = new Map<string, string[]>();
+	for (const project of projects || []) {
+		const projectId = getProjectId(project);
+		const projectName = getProjectName(project);
+		if (!projectId || !projectName) continue;
+		const key = normalizeProjectMatchName(projectName);
+		if (!key) continue;
+		const existing = index.get(key) || [];
+		if (!existing.includes(projectId)) existing.push(projectId);
+		index.set(key, existing);
+	}
+	return index;
+}
+
 function toTimestamp(value: unknown) {
 	if (typeof value !== 'string') return 0;
 	const parsed = new Date(value);
@@ -636,7 +694,7 @@ async function getDealProjectRelatedListApiNames(accessToken: string) {
 	return uniqueApiNames;
 }
 
-function normalizeCandidateProjectId(value: string) {
+function normalizeCandidateProjectId(value: string): string {
 	const trimmed = value.trim();
 	if (!trimmed) return '';
 
@@ -653,8 +711,8 @@ function normalizeCandidateProjectId(value: string) {
 	if (fromProjectParam?.[1]) return fromProjectParam[1];
 
 	const digitRuns = trimmed.match(/\d{6,}/g) || [];
-	if (digitRuns.length === 1) return digitRuns[0];
-	if (/project/i.test(trimmed) && digitRuns.length > 1) return digitRuns[0];
+	if (digitRuns.length === 1) return digitRuns[0] ?? '';
+	if (/project/i.test(trimmed) && digitRuns.length > 1) return digitRuns[0] ?? '';
 
 	return '';
 }
@@ -2015,6 +2073,61 @@ export async function getProjectLinksForClient(
 					.filter(Boolean) as Array<readonly [string, any]>
 			);
 			const hasUsableProjectCatalog = projectsById.size > 0;
+
+			// Prefer exact name matches first (e.g. Deal_Name exactly equals Zoho Project name).
+			// This avoids falling through to CRM task cards when a canonical project exists.
+			if (hasUsableProjectCatalog) {
+				const exactProjectNameIndex = buildExactProjectNameIndex(
+					dedupeProjectsById([...activeProjects, ...projects])
+				);
+				const usedProjectIds = new Set<string>(Array.from(byProjectId.keys()));
+				const candidateDeals = sortDealsForProjectMatching(deals || []);
+
+				for (const deal of candidateDeals) {
+					const dealId = getDealId(deal);
+					if (!dealId) continue;
+					const exactNameCandidates = getDealExactMatchNameCandidates(deal);
+					if (exactNameCandidates.length === 0) continue;
+
+					let matchedProjectId = '';
+					for (const candidateName of exactNameCandidates) {
+						const projectIds = exactProjectNameIndex.get(candidateName) || [];
+						const preferred = projectIds.find((projectId) => !usedProjectIds.has(projectId));
+						if (preferred) {
+							matchedProjectId = preferred;
+							break;
+						}
+						const alreadyMappedToDeal = projectIds.find((projectId) => {
+							const link = byProjectId.get(projectId);
+							return link?.dealId === dealId;
+						});
+						if (alreadyMappedToDeal) {
+							matchedProjectId = alreadyMappedToDeal;
+							break;
+						}
+					}
+					if (!matchedProjectId) continue;
+
+					for (const [projectId, link] of Array.from(byProjectId.entries())) {
+						if (link?.dealId === dealId && projectId !== matchedProjectId) {
+							byProjectId.delete(projectId);
+						}
+					}
+
+					const dealName = getDealName(deal);
+					const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
+					const modifiedTime = typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null;
+					usedProjectIds.add(matchedProjectId);
+					byProjectId.set(matchedProjectId, {
+						projectId: matchedProjectId,
+						dealId,
+						dealName,
+						stage,
+						modifiedTime
+					});
+					mappedDealIds.add(dealId);
+				}
+			}
 			const invalidMappedDeals: any[] = [];
 			if (hasUsableProjectCatalog) {
 				for (const [projectId, link] of Array.from(byProjectId.entries())) {
