@@ -9,9 +9,20 @@ const MAX_PAGES = 25;
 const CRM_RELATED_LIST_PAGE_SIZE = 200;
 const CRM_RELATED_LIST_MAX_PAGES = 10;
 const PORTAL_ID_CACHE_TTL_MS = 10 * 60 * 1000;
+const PROJECTS_API_BASE_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 250;
+const KNOWN_PROJECTS_API_BASES = [
+	'https://projectsapi.zoho.com',
+	'https://projectsapi.zoho.eu',
+	'https://projectsapi.zoho.in',
+	'https://projectsapi.zoho.com.au',
+	'https://projectsapi.zoho.jp',
+	'https://projectsapi.zoho.ca',
+	'https://projectsapi.zoho.sa',
+	'https://projectsapi.zoho.com.cn'
+] as const;
 const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Deal_Name',
 	'Stage',
@@ -23,12 +34,77 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 ].join(',');
 
 let discoveredPortalIdCache: { portalId: string; fetchedAt: number } | null = null;
+let discoveredProjectsApiBaseCache: { base: string; fetchedAt: number } | null = null;
 let projectCatalogCache: { fetchedAt: number; projects: any[] } | null = null;
 const membershipProjectIdsByEmailCache = new Map<string, { fetchedAt: number; projectIds: string[] }>();
 
-function getProjectsApiBase() {
-	const base = env.ZOHO_PROJECTS_API_BASE || DEFAULT_PROJECTS_API_BASE;
-	return base.replace(/\/$/, '');
+function normalizeProjectsApiBase(value: string) {
+	const trimmed = value.trim().replace(/\/$/, '');
+	if (!trimmed) return '';
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	return `https://${trimmed}`;
+}
+
+function getConfiguredProjectsApiBase() {
+	const configured = normalizeProjectsApiBase(env.ZOHO_PROJECTS_API_BASE || '');
+	return configured || DEFAULT_PROJECTS_API_BASE;
+}
+
+function getProjectsApiBaseCandidates() {
+	const candidates = [
+		discoveredProjectsApiBaseCache?.base,
+		getConfiguredProjectsApiBase(),
+		...KNOWN_PROJECTS_API_BASES
+	].filter(Boolean) as string[];
+
+	const unique: string[] = [];
+	const seen = new Set<string>();
+	for (const candidate of candidates) {
+		const normalized = normalizeProjectsApiBase(candidate);
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		unique.push(normalized);
+	}
+	return unique;
+}
+
+function cacheProjectsApiBase(base: string) {
+	discoveredProjectsApiBaseCache = {
+		base: normalizeProjectsApiBase(base),
+		fetchedAt: Date.now()
+	};
+}
+
+async function fetchPortalsPayload(accessToken: string, base: string) {
+	const response = await fetch(`${base}/api/v3/portals`, {
+		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
+	});
+
+	if (response.status === 429) {
+		const text = await response.text().catch(() => '');
+		console.warn(
+			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
+			{ endpoint: '/api/v3/portals', base, response: text }
+		);
+		throw new Error(`Zoho Projects API error 429: ${text}`);
+	}
+
+	if (!response.ok) {
+		const text = await response.text().catch(() => '');
+		throw new Error(`Portals API error ${response.status}: ${text}`);
+	}
+
+	return response.json();
+}
+
+function getPreferredProjectsApiBase() {
+	if (
+		discoveredProjectsApiBaseCache &&
+		Date.now() - discoveredProjectsApiBaseCache.fetchedAt < PROJECTS_API_BASE_CACHE_TTL_MS
+	) {
+		return discoveredProjectsApiBaseCache.base;
+	}
+	return getConfiguredProjectsApiBase();
 }
 
 function parsePortalIdFromPayload(payload: any) {
@@ -47,27 +123,21 @@ function parsePortalIdFromPayload(payload: any) {
 }
 
 async function discoverPortalId(accessToken: string) {
-	const base = getProjectsApiBase();
-	const response = await fetch(`${base}/api/v3/portals`, {
-		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
-	});
-
-	if (response.status === 429) {
-		const text = await response.text().catch(() => '');
-		console.warn(
-			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
-			{ endpoint: '/api/v3/portals', response: text }
-		);
-		throw new Error(`Zoho Projects API error 429: ${text}`);
+	const errors: string[] = [];
+	for (const base of getProjectsApiBaseCandidates()) {
+		try {
+			const payload = await fetchPortalsPayload(accessToken, base);
+			cacheProjectsApiBase(base);
+			const portalId = parsePortalIdFromPayload(payload);
+			if (portalId) return portalId;
+			errors.push(`${base}: no portals returned`);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			errors.push(`${base}: ${message}`);
+		}
 	}
 
-	if (!response.ok) {
-		const text = await response.text().catch(() => '');
-		throw new Error(`Portals API error ${response.status}: ${text}`);
-	}
-
-	const payload = await response.json();
-	return parsePortalIdFromPayload(payload);
+	throw new Error(`Portals discovery failed across candidate API bases. ${errors.join(' | ')}`);
 }
 
 async function resolvePortalId(accessToken: string) {
@@ -588,36 +658,55 @@ async function getValidAccessToken(): Promise<string> {
 // Base pattern: https://projectsapi.zoho.com/api/v3/portal/{portal_id}/...
 export async function projectsApiCall(endpoint: string, options: RequestInit = {}) {
 	const accessToken = await getValidAccessToken();
-	const base = getProjectsApiBase();
 	const portalId = await resolvePortalId(accessToken);
-	const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
+	const preferredBase = getPreferredProjectsApiBase();
+	const baseCandidates = [preferredBase, ...getProjectsApiBaseCandidates()]
+		.map((base) => normalizeProjectsApiBase(base))
+		.filter(Boolean);
 
-	const response = await fetch(url, {
-		...options,
-		headers: {
-			Authorization: `Zoho-oauthtoken ${accessToken}`,
-			'Content-Type': 'application/json',
-			...options.headers
+	const seenBases = new Set<string>();
+	const errors: string[] = [];
+
+	for (const base of baseCandidates) {
+		if (seenBases.has(base)) continue;
+		seenBases.add(base);
+
+		const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
+		const response = await fetch(url, {
+			...options,
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				'Content-Type': 'application/json',
+				...options.headers
+			}
+		});
+
+		if (response.status === 204) {
+			cacheProjectsApiBase(base);
+			return {};
 		}
-	});
 
-	if (response.status === 204) return {};
+		if (response.status === 429) {
+			const text = await response.text().catch(() => '');
+			console.warn(
+				'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
+				{ endpoint, base, response: text }
+			);
+			throw new Error(`Zoho Projects API error 429: ${text}`);
+		}
 
-	if (response.status === 429) {
+		if (response.ok) {
+			cacheProjectsApiBase(base);
+			return response.json();
+		}
+
 		const text = await response.text().catch(() => '');
-		console.warn(
-			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
-			{ endpoint, response: text }
-		);
-		throw new Error(`Zoho Projects API error 429: ${text}`);
+		errors.push(`${base} -> ${response.status}: ${text}`);
 	}
 
-	if (!response.ok) {
-		const text = await response.text().catch(() => '');
-		throw new Error(`Zoho Projects API error ${response.status}: ${text}`);
-	}
-
-	return response.json();
+	throw new Error(
+		`Zoho Projects API request failed across candidate API bases for ${endpoint}. ${errors.join(' | ')}`
+	);
 }
 
 export async function listProjects(params?: {
@@ -709,27 +798,33 @@ export async function getProjectDocuments(projectId: string) {
 // Admin-only helper: list portals (use once to discover ZOHO_PROJECTS_PORTAL_ID).
 export async function listPortals() {
 	const accessToken = await getValidAccessToken();
-	const base = getProjectsApiBase();
+	const preferredBase = getPreferredProjectsApiBase();
+	const baseCandidates = [preferredBase, ...getProjectsApiBaseCandidates()]
+		.map((base) => normalizeProjectsApiBase(base))
+		.filter(Boolean);
+	const seenBases = new Set<string>();
+	const errors: string[] = [];
 
-	const response = await fetch(`${base}/api/v3/portals`, {
-		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
-	});
+	for (const base of baseCandidates) {
+		if (seenBases.has(base)) continue;
+		seenBases.add(base);
 
-	if (response.status === 429) {
-		const text = await response.text().catch(() => '');
-		console.warn(
-			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
-			{ endpoint: '/api/v3/portals', response: text }
-		);
-		throw new Error(`Zoho Projects API error 429: ${text}`);
+		try {
+			const payload = await fetchPortalsPayload(accessToken, base);
+			cacheProjectsApiBase(base);
+			return {
+				...payload,
+				_meta: {
+					base
+				}
+			};
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			errors.push(`${base}: ${message}`);
+		}
 	}
 
-	if (!response.ok) {
-		const text = await response.text().catch(() => '');
-		throw new Error(`Portals API error ${response.status}: ${text}`);
-	}
-
-	return response.json();
+	throw new Error(`Portals API failed across candidate API bases. ${errors.join(' | ')}`);
 }
 
 function pickCrmArray(payload: any, arrayKey: string) {
