@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession } from '$lib/server/db';
 import {
-	getDealTaskCounts,
+	getDealTaskSummaries,
 	getDealsForClient,
 	getProject,
 	getProjectLinksForClient,
@@ -126,7 +126,9 @@ function toMappedFallbackProjects(
 		stage: string | null;
 		modifiedTime: string | null;
 	}>,
-	taskCountsByDealId: Map<string, number | null>
+	taskCountsByDealId: Map<string, number | null>,
+	taskCompletedByDealId: Map<string, number | null>,
+	taskPreviewByDealId: Map<string, any[]>
 ) {
 	return links.map((link) => ({
 		id: link.projectId,
@@ -135,6 +137,8 @@ function toMappedFallbackProjects(
 		start_date: null,
 		end_date: null,
 		task_count: link.dealId ? (taskCountsByDealId.get(link.dealId) ?? 0) : 0,
+		task_completed_count: link.dealId ? (taskCompletedByDealId.get(link.dealId) ?? null) : null,
+		task_preview: link.dealId ? (taskPreviewByDealId.get(link.dealId) ?? []) : [],
 		milestone_count: null,
 		deal_id: link.dealId,
 		modified_time: link.modifiedTime,
@@ -142,7 +146,12 @@ function toMappedFallbackProjects(
 	}));
 }
 
-function toUnmappedDealProjects(deals: any[], taskCountsByDealId: Map<string, number | null>) {
+function toUnmappedDealProjects(
+	deals: any[],
+	taskCountsByDealId: Map<string, number | null>,
+	taskCompletedByDealId: Map<string, number | null>,
+	taskPreviewByDealId: Map<string, any[]>
+) {
 	const items: any[] = [];
 	const seen = new Set<string>();
 	for (const deal of deals || []) {
@@ -162,17 +171,19 @@ function toUnmappedDealProjects(deals: any[], taskCountsByDealId: Map<string, nu
 					? taskCountFromDeal
 					: 0;
 
-		items.push({
-			id: dealId,
-			deal_id: dealId,
-			name: getDealName(deal) || `Deal ${dealId.slice(-6)}`,
-			status: typeof deal?.Stage === 'string' ? deal.Stage : 'Unknown',
-			start_date: typeof deal?.Created_Time === 'string' ? deal.Created_Time : null,
-			end_date: typeof deal?.Closing_Date === 'string' ? deal.Closing_Date : null,
-			task_count: taskCount,
-			milestone_count: null,
-			source: 'crm_deal'
-		});
+			items.push({
+				id: dealId,
+				deal_id: dealId,
+				name: getDealName(deal) || `Deal ${dealId.slice(-6)}`,
+				status: typeof deal?.Stage === 'string' ? deal.Stage : 'Unknown',
+				start_date: typeof deal?.Created_Time === 'string' ? deal.Created_Time : null,
+				end_date: typeof deal?.Closing_Date === 'string' ? deal.Closing_Date : null,
+				task_count: taskCount,
+				task_completed_count: taskCompletedByDealId.get(dealId) ?? null,
+				task_preview: taskPreviewByDealId.get(dealId) ?? [],
+				milestone_count: null,
+				source: 'crm_deal'
+			});
 	}
 	return items;
 }
@@ -210,6 +221,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		]);
 
 		const taskCountsByDealId = buildDealTaskHintMap(deals);
+		const taskCompletedByDealId = new Map<string, number | null>();
+		const taskPreviewByDealId = new Map<string, any[]>();
 		const dealIds = Array.from(
 			new Set(
 				(deals || [])
@@ -217,27 +230,44 @@ export const GET: RequestHandler = async ({ cookies }) => {
 					.filter((dealId) => Boolean(dealId))
 			)
 		);
-		const dealIdsToLookup = dealIds
-			.filter((dealId) => !taskCountsByDealId.has(dealId))
-			.slice(0, MAX_DEAL_TASK_LOOKUPS);
+		const dealIdsToLookup = dealIds.slice(0, MAX_DEAL_TASK_LOOKUPS);
 		if (dealIdsToLookup.length > 0) {
 			try {
-				const fetchedTaskCounts = await getDealTaskCounts(dealIdsToLookup, 2);
-				for (const [dealId, taskCount] of fetchedTaskCounts.entries()) {
-					taskCountsByDealId.set(dealId, taskCount);
+				const fetchedTaskSummaries = await getDealTaskSummaries(dealIdsToLookup, {
+					concurrency: 2,
+					previewLimit: 4
+				});
+				for (const [dealId, summary] of fetchedTaskSummaries.entries()) {
+					if (summary && typeof summary.taskCount === 'number') {
+						taskCountsByDealId.set(dealId, summary.taskCount);
+					}
+					if (summary && typeof summary.completedCount === 'number') {
+						taskCompletedByDealId.set(dealId, summary.completedCount);
+					}
+					taskPreviewByDealId.set(dealId, summary?.preview || []);
 				}
 			} catch (err) {
-				console.warn('Failed to fetch CRM task counts for deal fallback cards:', err);
+				console.warn('Failed to fetch CRM task summaries for deal fallback cards:', err);
 			}
 		}
 
-		const unmappedDealProjects = toUnmappedDealProjects(deals, taskCountsByDealId);
+		const unmappedDealProjects = toUnmappedDealProjects(
+			deals,
+			taskCountsByDealId,
+			taskCompletedByDealId,
+			taskPreviewByDealId
+		);
 
 		if (links.length === 0) {
 			return json({ projects: dedupeProjects(unmappedDealProjects) });
 		}
 
-		const mappedFallbackProjects = toMappedFallbackProjects(links, taskCountsByDealId);
+		const mappedFallbackProjects = toMappedFallbackProjects(
+			links,
+			taskCountsByDealId,
+			taskCompletedByDealId,
+			taskPreviewByDealId
+		);
 
 		if (!isProjectsPortalConfigured()) {
 			return json({ projects: dedupeProjects([...mappedFallbackProjects, ...unmappedDealProjects]) });

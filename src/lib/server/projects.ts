@@ -201,6 +201,19 @@ export type ContactProjectLink = {
 	modifiedTime: string | null;
 };
 
+export type DealTaskPreview = {
+	id: string;
+	name: string;
+	status: string | null;
+	completed: boolean;
+};
+
+export type DealTaskSummary = {
+	taskCount: number;
+	completedCount: number;
+	preview: DealTaskPreview[];
+};
+
 function hasMorePages(payload: any, itemCount: number, perPage: number) {
 	const infoMoreRecords = payload?.info?.more_records;
 	if (typeof infoMoreRecords === 'boolean') return infoMoreRecords;
@@ -451,12 +464,89 @@ function isTaskActivity(record: any) {
 	return Boolean(type && type.includes('task'));
 }
 
+function getTaskName(record: any, index: number) {
+	const candidates = [
+		record?.Subject,
+		record?.Task_Name,
+		record?.name,
+		record?.task_name,
+		record?.title
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate !== 'string') continue;
+		const trimmed = candidate.trim();
+		if (trimmed) return trimmed;
+	}
+	return `Task ${index + 1}`;
+}
+
+function getTaskStatus(record: any) {
+	const candidates = [record?.Status, record?.status, record?.Task_Status, record?.task_status];
+	for (const candidate of candidates) {
+		if (typeof candidate !== 'string') continue;
+		const trimmed = candidate.trim();
+		if (trimmed) return trimmed;
+	}
+	return null;
+}
+
+function getTaskPercent(record: any) {
+	const candidates = [
+		record?.Percent_Complete,
+		record?.percent_complete,
+		record?.percent_completed,
+		record?.completed_percent,
+		record?.Completion,
+		record?.completion
+	];
+
+	for (const candidate of candidates) {
+		if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+		if (typeof candidate === 'string') {
+			const parsed = Number(candidate.trim().replace('%', ''));
+			if (Number.isFinite(parsed)) return parsed;
+		}
+	}
+
+	return null;
+}
+
+function isTaskCompleted(record: any) {
+	const status = getTaskStatus(record);
+	const normalizedStatus = status ? status.toLowerCase() : '';
+	if (
+		normalizedStatus.includes('complete') ||
+		normalizedStatus.includes('closed') ||
+		normalizedStatus.includes('done') ||
+		normalizedStatus.includes('resolved') ||
+		normalizedStatus.includes('finished')
+	) {
+		return true;
+	}
+
+	const percent = getTaskPercent(record);
+	if (typeof percent === 'number' && percent >= 100) return true;
+
+	if (record?.Completed === true || record?.completed === true) return true;
+	return false;
+}
+
+function toTaskPreview(record: any, index: number): DealTaskPreview {
+	const id = record?.id ? String(record.id) : `task-${index + 1}`;
+	return {
+		id,
+		name: getTaskName(record, index),
+		status: getTaskStatus(record),
+		completed: isTaskCompleted(record)
+	};
+}
+
 function escapeCoqlString(value: string) {
 	return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-async function countDealTasksViaTasksSearch(accessToken: string, dealId: string) {
-	let count = 0;
+async function fetchDealTasksViaTasksSearch(accessToken: string, dealId: string) {
+	const tasks: any[] = [];
 	const encodedCriteria = encodeURIComponent(`(What_Id:equals:${dealId})`);
 
 	for (let page = 1; page <= CRM_RELATED_LIST_MAX_PAGES; page += 1) {
@@ -467,12 +557,17 @@ async function countDealTasksViaTasksSearch(accessToken: string, dealId: string)
 
 		const items = pickCrmArray(response, 'Tasks');
 		if (items.length === 0) break;
-		count += items.length;
+		tasks.push(...items);
 
 		if (!hasMorePages(response, items.length, CRM_RELATED_LIST_PAGE_SIZE)) break;
 	}
 
-	return count;
+	return tasks;
+}
+
+async function countDealTasksViaTasksSearch(accessToken: string, dealId: string) {
+	const tasks = await fetchDealTasksViaTasksSearch(accessToken, dealId);
+	return tasks.length;
 }
 
 async function countDealTasksViaTasksCoql(accessToken: string, dealId: string) {
@@ -506,7 +601,7 @@ async function countDealRelatedListRecords(
 	relatedListApiName: string,
 	options?: { taskOnly?: boolean }
 ) {
-	let count = 0;
+	const records: any[] = [];
 
 	for (let page = 1; page <= CRM_RELATED_LIST_MAX_PAGES; page += 1) {
 		const response = await zohoApiCall(
@@ -520,15 +615,51 @@ async function countDealRelatedListRecords(
 		if (options?.taskOnly) {
 			const typedTasks = items.filter((item) => isTaskActivity(item));
 			const hasTypedActivities = items.some((item) => readActivityType(item) !== null);
-			count += hasTypedActivities ? typedTasks.length : items.length;
+			records.push(...(hasTypedActivities ? typedTasks : items));
 		} else {
-			count += items.length;
+			records.push(...items);
 		}
 
 		if (!hasMorePages(response, items.length, CRM_RELATED_LIST_PAGE_SIZE)) break;
 	}
 
-	return count;
+	return records.length;
+}
+
+async function fetchDealTasksViaRelatedList(
+	accessToken: string,
+	dealId: string,
+	relatedListApiName: string,
+	options?: { taskOnly?: boolean }
+) {
+	let count = 0;
+	const records: any[] = [];
+
+	for (let page = 1; page <= CRM_RELATED_LIST_MAX_PAGES; page += 1) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals/${encodeURIComponent(dealId)}/${encodeURIComponent(relatedListApiName)}?per_page=${CRM_RELATED_LIST_PAGE_SIZE}&page=${page}`
+		);
+
+		const items = pickCrmArray(response, relatedListApiName);
+		if (items.length === 0) break;
+
+		if (options?.taskOnly) {
+			const typedTasks = items.filter((item) => isTaskActivity(item));
+			const hasTypedActivities = items.some((item) => readActivityType(item) !== null);
+			const taskItems = hasTypedActivities ? typedTasks : items;
+			count += taskItems.length;
+			records.push(...taskItems);
+		} else {
+			count += items.length;
+			records.push(...items);
+		}
+
+		if (!hasMorePages(response, items.length, CRM_RELATED_LIST_PAGE_SIZE)) break;
+	}
+
+	if (count === 0) return [];
+	return records;
 }
 
 async function getDealTaskCount(accessToken: string, dealId: string): Promise<number | null> {
@@ -565,6 +696,87 @@ async function getDealTaskCount(accessToken: string, dealId: string): Promise<nu
 
 	if (successfulCounts.length === 0) return null;
 	return Math.max(...successfulCounts);
+}
+
+async function getDealTaskSummary(
+	accessToken: string,
+	dealId: string,
+	previewLimit = 4
+): Promise<DealTaskSummary | null> {
+	let records: any[] | null = null;
+
+	try {
+		records = await fetchDealTasksViaTasksSearch(accessToken, dealId);
+	} catch {
+		records = null;
+	}
+
+	if (!records || records.length === 0) {
+		try {
+			records = await fetchDealTasksViaRelatedList(accessToken, dealId, 'Tasks');
+		} catch {
+			records = null;
+		}
+	}
+
+	if (!records || records.length === 0) {
+		try {
+			records = await fetchDealTasksViaRelatedList(accessToken, dealId, 'Activities', { taskOnly: true });
+		} catch {
+			records = null;
+		}
+	}
+
+	if (!records || records.length === 0) {
+		try {
+			records = await fetchDealTasksViaRelatedList(accessToken, dealId, 'Open_Activities', { taskOnly: true });
+		} catch {
+			records = null;
+		}
+	}
+
+	if (!records) return null;
+
+	const taskCount = records.length;
+	const completedCount = records.filter((record) => isTaskCompleted(record)).length;
+	const preview = records.slice(0, Math.max(0, previewLimit)).map((record, index) => toTaskPreview(record, index));
+	return { taskCount, completedCount, preview };
+}
+
+export async function getDealTaskSummaries(
+	dealIds: string[],
+	options?: { concurrency?: number; previewLimit?: number }
+): Promise<Map<string, DealTaskSummary | null>> {
+	const normalizedIds = Array.from(
+		new Set(
+			(dealIds || [])
+				.map((id) => (id === null || id === undefined ? '' : String(id).trim()))
+				.filter(Boolean)
+		)
+	);
+	const summariesByDealId = new Map<string, DealTaskSummary | null>();
+	if (normalizedIds.length === 0) return summariesByDealId;
+
+	const accessToken = await getValidAccessToken();
+	const workerLimit = Math.max(1, Math.min(options?.concurrency ?? 2, 4));
+	const previewLimit = Math.max(0, Math.min(options?.previewLimit ?? 4, 8));
+
+	const results = await mapWithConcurrency(normalizedIds, workerLimit, async (dealId) => {
+		try {
+			const summary = await getDealTaskSummary(accessToken, dealId, previewLimit);
+			return { dealId, summary };
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.warn('Failed to fetch CRM task summary for deal', { dealId, error: message });
+			return { dealId, summary: null as DealTaskSummary | null };
+		}
+	});
+
+	for (const result of results) {
+		summariesByDealId.set(result.dealId, result.summary);
+	}
+
+	return summariesByDealId;
 }
 
 export async function getDealTaskCounts(

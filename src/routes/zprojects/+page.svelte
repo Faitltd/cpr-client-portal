@@ -30,6 +30,22 @@
 	const getEndDate = (project: any) => project?.end_date ?? project?.end_date_string ?? null;
 	const getTaskCount = (project: any) =>
 		project?.task_count ?? project?.tasks_count ?? project?.taskCount ?? null;
+	const getTaskCompletedCount = (project: any) =>
+		project?.task_completed_count ??
+		project?.completed_task_count ??
+		project?.tasks_completed_count ??
+		null;
+	const getTaskPreview = (project: any) => (Array.isArray(project?.task_preview) ? project.task_preview : []);
+	const getTaskPreviewName = (task: any) =>
+		task?.name ?? task?.task_name ?? task?.Subject ?? task?.title ?? 'Untitled task';
+	const getTaskPreviewStatus = (task: any) => task?.status ?? task?.task_status ?? 'Open';
+	const isTaskPreviewCompleted = (task: any) =>
+		Boolean(
+			task?.completed === true ||
+				String(task?.status ?? task?.task_status ?? '')
+					.toLowerCase()
+					.includes('complete')
+		);
 	const getMilestoneCount = (project: any) =>
 		project?.milestone_count ?? project?.milestones_count ?? project?.milestoneCount ?? null;
 
@@ -87,8 +103,21 @@
 							</p>
 							<div class="meta">
 								<span>Tasks: {getTaskCount(project) ?? '—'}</span>
+								{#if getTaskCompletedCount(project) !== null && getTaskCount(project) !== null}
+									<span>Completed: {getTaskCompletedCount(project)}/{getTaskCount(project)}</span>
+								{/if}
 								<span>Milestones: {getMilestoneCount(project) ?? '—'}</span>
 							</div>
+							{#if getTaskPreview(project).length > 0}
+								<ul class="task-preview">
+									{#each getTaskPreview(project) as task}
+										<li class:done={isTaskPreviewCompleted(task)}>
+											<span class="task-name">{getTaskPreviewName(task)}</span>
+											<span class="task-state">{getTaskPreviewStatus(task)}</span>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 							</div>
 							<div class="project-actions">
 								<span class="btn-view">{project?.source === 'crm_deal' ? 'View Deal' : 'View Details'}</span>
@@ -188,6 +217,40 @@
 		color: #374151;
 		font-size: 0.95rem;
 		flex-wrap: wrap;
+	}
+
+	.task-preview {
+		margin: 0.9rem 0 0;
+		padding: 0;
+		list-style: none;
+		display: grid;
+		gap: 0.4rem;
+	}
+
+	.task-preview li {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		color: #374151;
+		font-size: 0.92rem;
+	}
+
+	.task-preview li.done .task-name {
+		text-decoration: line-through;
+		color: #4b5563;
+	}
+
+	.task-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.task-state {
+		color: #6b7280;
+		flex-shrink: 0;
+		font-size: 0.82rem;
 	}
 
 	.project-actions {
