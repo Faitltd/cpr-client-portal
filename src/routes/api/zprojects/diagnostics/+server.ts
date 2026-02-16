@@ -2,7 +2,8 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { isValidAdminSession } from '$lib/server/admin';
 import { isPortalActiveStage } from '$lib/server/auth';
-import { getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getDealsForClient } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
 const BASE_DEAL_FIELDS = ['id', 'Deal_Name', 'Stage', 'Created_Time', 'Modified_Time', 'Contact_Name'];
@@ -84,9 +85,57 @@ function extractDealName(deal: any) {
 	return null;
 }
 
+async function fetchDealsByIds(accessToken: string, dealIds: string[], fields: string[]) {
+	const uniqueIds = Array.from(
+		new Set(
+			(dealIds || [])
+				.map((id) => (id === null || id === undefined ? '' : String(id).trim()))
+				.filter(Boolean)
+		)
+	);
+	if (uniqueIds.length === 0) return [] as any[];
+
+	const results: any[] = [];
+	const chunkSize = 100;
+	for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+		const chunk = uniqueIds.slice(i, i + chunkSize);
+		const payload = await zohoApiCall(
+			accessToken,
+			`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(fields.join(','))}`
+		);
+		const deals = getArray(payload, 'data', 'Deals');
+		results.push(...deals);
+	}
+	return results;
+}
+
 export const GET: RequestHandler = async ({ cookies }) => {
-	if (!isValidAdminSession(cookies.get('admin_session'))) {
-		throw error(401, 'Admin only');
+	const hasAdminSession = isValidAdminSession(cookies.get('admin_session'));
+	let portalSession:
+		| {
+				client: {
+					zoho_contact_id: string | null;
+					email: string;
+				};
+		  }
+		| null = null;
+
+	if (!hasAdminSession) {
+		const portalSessionToken = cookies.get('portal_session');
+		if (portalSessionToken) {
+			const session = await getSession(portalSessionToken);
+			if (session?.client) {
+				portalSession = {
+					client: {
+						zoho_contact_id: session.client.zoho_contact_id,
+						email: session.client.email
+					}
+				};
+			}
+		}
+		if (!portalSession) {
+			throw error(401, 'Admin or portal session required');
+		}
 	}
 
 	const tokens = await getZohoTokens();
@@ -145,24 +194,40 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	let dealsError: string | null = null;
 
 	try {
-		const perPage = 100;
-		for (let page = 1; page <= 3; page += 1) {
-			const payload = await zohoApiCall(
-				accessToken,
-				`/Deals?fields=${encodeURIComponent(requestedFields.join(','))}&per_page=${perPage}&page=${page}`
-			);
-			const deals = getArray(payload, 'data', 'Deals');
-			if (deals.length === 0) break;
+		if (hasAdminSession) {
+			const perPage = 100;
+			for (let page = 1; page <= 3; page += 1) {
+				const payload = await zohoApiCall(
+					accessToken,
+					`/Deals?fields=${encodeURIComponent(requestedFields.join(','))}&per_page=${perPage}&page=${page}`
+				);
+				const deals = getArray(payload, 'data', 'Deals');
+				if (deals.length === 0) break;
 
-			for (const deal of deals) {
-				const stage = typeof deal?.Stage === 'string' ? deal.Stage : '';
-				if (!isPortalActiveStage(stage)) continue;
-				sampledDeals.push(deal);
+				for (const deal of deals) {
+					const stage = typeof deal?.Stage === 'string' ? deal.Stage : '';
+					if (!isPortalActiveStage(stage)) continue;
+					sampledDeals.push(deal);
+					if (sampledDeals.length >= MAX_SAMPLE_DEALS) break;
+				}
+
 				if (sampledDeals.length >= MAX_SAMPLE_DEALS) break;
+				if (payload?.info?.more_records !== true && deals.length < perPage) break;
 			}
-
-			if (sampledDeals.length >= MAX_SAMPLE_DEALS) break;
-			if (payload?.info?.more_records !== true && deals.length < perPage) break;
+		} else if (portalSession) {
+			const clientDeals = await getDealsForClient(
+				portalSession.client.zoho_contact_id,
+				portalSession.client.email
+			);
+			const activeClientDeals = (clientDeals || []).filter((deal) =>
+				isPortalActiveStage(typeof deal?.Stage === 'string' ? deal.Stage : '')
+			);
+			const clientDealIds = activeClientDeals
+				.map((deal) => (deal?.id ? String(deal.id) : ''))
+				.filter(Boolean)
+				.slice(0, MAX_SAMPLE_DEALS);
+			const fullDeals = await fetchDealsByIds(accessToken, clientDealIds, requestedFields);
+			sampledDeals.push(...fullDeals.slice(0, MAX_SAMPLE_DEALS));
 		}
 	} catch (err) {
 		dealsError = err instanceof Error ? err.message : String(err);
@@ -186,6 +251,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	});
 
 	return json({
+		mode: hasAdminSession ? 'admin' : 'client',
 		scope: tokens.scope ?? null,
 		fields: {
 			total: fields.length,
