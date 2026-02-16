@@ -284,7 +284,9 @@ function findBestProjectMatchForDeal(
 
 	if (!best) return null;
 	if (best.score < 80) return null;
-	if (best.score - secondBestScore < 5) return null;
+	// Allow high-confidence matches even when duplicates exist (for example, an archived
+	// copy of the same project name). Keep the ambiguity guard for weaker fuzzy matches.
+	if (best.score < 90 && best.score - secondBestScore < 5) return null;
 	return best;
 }
 
@@ -1203,6 +1205,7 @@ export async function getProjectLinksForClient(
 	if (unmappedDeals.length > 0 || (byProjectId.size === 0 && email)) {
 		try {
 			const projects = await getProjectCatalogForMatching();
+			const activeProjects = projects.filter((project) => !isProjectLikelyArchived(project));
 			const projectsById = new Map<string, any>(
 				dedupeProjectsById(projects)
 					.map((project) => {
@@ -1215,7 +1218,9 @@ export async function getProjectLinksForClient(
 			const unresolvedDeals: any[] = [];
 
 			for (const deal of unmappedDeals) {
-				const match = findBestProjectMatchForDeal(deal, projects, usedProjectIds);
+				const match =
+					findBestProjectMatchForDeal(deal, activeProjects, usedProjectIds) ||
+					findBestProjectMatchForDeal(deal, projects, usedProjectIds);
 				if (!match) {
 					unresolvedDeals.push(deal);
 					continue;
