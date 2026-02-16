@@ -6,8 +6,7 @@ import {
 	getAllProjectTasks,
 	getProject,
 	getProjectLinksForClient,
-	getProjectMilestones,
-	isProjectsPortalConfigured
+	getProjectMilestones
 } from '$lib/server/projects';
 
 function normalizeProjectResponse(payload: any) {
@@ -63,15 +62,6 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const link = projectLinks.find((item) => item.projectId === projectId);
 	if (!link) {
 		throw error(403, 'Not authorized for this project');
-	}
-
-	if (!isProjectsPortalConfigured()) {
-		return json({
-			project: toFallbackProject(link),
-			tasks: [],
-			milestones: [],
-			activities: []
-		});
 	}
 
 	try {

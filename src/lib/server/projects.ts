@@ -8,6 +8,7 @@ const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGES = 25;
 const CRM_RELATED_LIST_PAGE_SIZE = 200;
 const CRM_RELATED_LIST_MAX_PAGES = 10;
+const PORTAL_ID_CACHE_TTL_MS = 10 * 60 * 1000;
 const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Deal_Name',
 	'Stage',
@@ -18,19 +19,73 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Zoho_Projects_ID'
 ].join(',');
 
+let discoveredPortalIdCache: { portalId: string; fetchedAt: number } | null = null;
+
 function getProjectsApiBase() {
 	const base = env.ZOHO_PROJECTS_API_BASE || DEFAULT_PROJECTS_API_BASE;
 	return base.replace(/\/$/, '');
 }
 
-function getPortalId() {
-	const portalId = env.ZOHO_PROJECTS_PORTAL_ID || '';
-	if (!portalId) {
-		throw new Error(
-			'Missing ZOHO_PROJECTS_PORTAL_ID. Set it after calling the admin endpoint /api/zprojects/portals.'
-		);
+function parsePortalIdFromPayload(payload: any) {
+	const portals = Array.isArray(payload?.portals)
+		? payload.portals
+		: Array.isArray(payload?.data)
+			? payload.data
+			: [];
+	for (const portal of portals) {
+		const id = portal?.id ?? portal?.portal_id ?? portal?.portalId ?? null;
+		if (id === null || id === undefined) continue;
+		const trimmed = String(id).trim();
+		if (trimmed) return trimmed;
 	}
-	return portalId;
+	return null;
+}
+
+async function discoverPortalId(accessToken: string) {
+	const base = getProjectsApiBase();
+	const response = await fetch(`${base}/api/v3/portals`, {
+		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
+	});
+
+	if (response.status === 429) {
+		const text = await response.text().catch(() => '');
+		console.warn(
+			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
+			{ endpoint: '/api/v3/portals', response: text }
+		);
+		throw new Error(`Zoho Projects API error 429: ${text}`);
+	}
+
+	if (!response.ok) {
+		const text = await response.text().catch(() => '');
+		throw new Error(`Portals API error ${response.status}: ${text}`);
+	}
+
+	const payload = await response.json();
+	return parsePortalIdFromPayload(payload);
+}
+
+async function resolvePortalId(accessToken: string) {
+	const configured = (env.ZOHO_PROJECTS_PORTAL_ID || '').trim();
+	if (configured) return configured;
+
+	if (discoveredPortalIdCache && Date.now() - discoveredPortalIdCache.fetchedAt < PORTAL_ID_CACHE_TTL_MS) {
+		return discoveredPortalIdCache.portalId;
+	}
+
+	const discovered = await discoverPortalId(accessToken);
+	if (discovered) {
+		discoveredPortalIdCache = { portalId: discovered, fetchedAt: Date.now() };
+		console.warn(
+			'Using auto-discovered Zoho Projects portal ID. Set ZOHO_PROJECTS_PORTAL_ID in env for stable production behavior.',
+			{ portalId: discovered }
+		);
+		return discovered;
+	}
+
+	throw new Error(
+		'Missing ZOHO_PROJECTS_PORTAL_ID and no portals were auto-discovered. Configure ZOHO_PROJECTS_PORTAL_ID.'
+	);
 }
 
 export function isProjectsPortalConfigured() {
@@ -144,12 +199,35 @@ function getDealNameCandidates(deal: any) {
 		.filter(Boolean);
 }
 
+function getMatchTokens(value: string) {
+	return value
+		.split(' ')
+		.map((token) => token.trim())
+		.filter((token) => token.length >= 3);
+}
+
+function countTokenOverlap(left: string, right: string) {
+	const leftTokens = new Set(getMatchTokens(left));
+	const rightTokens = new Set(getMatchTokens(right));
+	let overlap = 0;
+	for (const token of leftTokens) {
+		if (rightTokens.has(token)) overlap += 1;
+	}
+	return overlap;
+}
+
 function scoreProjectNameMatch(dealCandidate: string, projectName: string) {
 	if (!dealCandidate || !projectName) return 0;
 	if (dealCandidate === projectName) return 100;
 	if (projectName.startsWith(dealCandidate) && dealCandidate.length >= 8) return 90;
 	if (dealCandidate.startsWith(projectName) && projectName.length >= 8) return 88;
 	if (projectName.includes(dealCandidate) && dealCandidate.length >= 10) return 84;
+
+	const overlap = countTokenOverlap(dealCandidate, projectName);
+	if (overlap >= 3) return 86;
+	if (overlap >= 2) return 83;
+	if (overlap >= 1 && (projectName.includes(dealCandidate) || dealCandidate.includes(projectName))) return 80;
+
 	return 0;
 }
 
@@ -186,7 +264,7 @@ function findBestProjectMatchForDeal(
 	}
 
 	if (!best) return null;
-	if (best.score < 88) return null;
+	if (best.score < 83) return null;
 	if (best.score - secondBestScore < 5) return null;
 	return best;
 }
@@ -399,7 +477,7 @@ async function getValidAccessToken(): Promise<string> {
 export async function projectsApiCall(endpoint: string, options: RequestInit = {}) {
 	const accessToken = await getValidAccessToken();
 	const base = getProjectsApiBase();
-	const portalId = getPortalId();
+	const portalId = await resolvePortalId(accessToken);
 	const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
 
 	const response = await fetch(url, {
@@ -1012,7 +1090,7 @@ export async function getProjectLinksForClient(
 		return ids.length === 0;
 	});
 
-	if (unmappedDeals.length > 0 && isProjectsPortalConfigured()) {
+	if (unmappedDeals.length > 0) {
 		try {
 			const projects = await listAllProjects('active', 100);
 			const usedProjectIds = new Set<string>(byProjectId.keys());

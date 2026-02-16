@@ -7,7 +7,6 @@ import {
 	getDealsForClient,
 	getProject,
 	getProjectLinksForClient,
-	isProjectsPortalConfigured,
 	parseZohoProjectIds
 } from '$lib/server/projects';
 
@@ -351,10 +350,6 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			taskCompletedByDealId,
 			taskPreviewByDealId
 		);
-
-		if (!isProjectsPortalConfigured()) {
-			return json({ projects: dedupeProjects([...mappedFallbackProjects, ...unmappedDealProjects]) });
-		}
 
 		const projectIds = links.map((link) => link.projectId);
 		const concurrency = projectIds.length > 10 ? 2 : 3;
