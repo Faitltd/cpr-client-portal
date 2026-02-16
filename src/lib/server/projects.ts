@@ -449,6 +449,18 @@ function dedupeProjectsById(projects: any[]) {
 	return deduped;
 }
 
+function getProjectStatusName(project: any) {
+	const candidate = project?.status ?? project?.project_status ?? project?.status_name ?? null;
+	if (typeof candidate !== 'string') return '';
+	return candidate.trim().toLowerCase();
+}
+
+function isProjectLikelyArchived(project: any) {
+	const status = getProjectStatusName(project);
+	if (!status) return false;
+	return status.includes('archive');
+}
+
 function parseProjectUsers(payload: any) {
 	if (!payload) return [];
 	if (Array.isArray(payload?.users)) return payload.users;
@@ -1182,9 +1194,17 @@ export async function getProjectLinksForClient(
 		return ids.length === 0;
 	});
 
-	if (unmappedDeals.length > 0) {
+	if (unmappedDeals.length > 0 || (byProjectId.size === 0 && email)) {
 		try {
 			const projects = await getProjectCatalogForMatching();
+			const projectsById = new Map<string, any>(
+				dedupeProjectsById(projects)
+					.map((project) => {
+						const id = getProjectId(project);
+						return id ? ([id, project] as const) : null;
+					})
+					.filter(Boolean) as Array<readonly [string, any]>
+			);
 			const usedProjectIds = new Set<string>(byProjectId.keys());
 			const unresolvedDeals: any[] = [];
 
@@ -1210,24 +1230,48 @@ export async function getProjectLinksForClient(
 				});
 			}
 
-			// Secondary fallback: if name matching misses, infer by explicit project membership.
-			if (unresolvedDeals.length === 1 && email) {
+			// Secondary fallback: infer by explicit project membership and keep unmatched member
+			// projects visible so we can still show real Zoho Projects tasks.
+			if (email) {
 				const memberProjectIds = await getProjectIdsByClientEmail(projects, email);
-				const availableMemberIds = Array.from(memberProjectIds).filter((id) => !usedProjectIds.has(id));
-				if (availableMemberIds.length === 1) {
-					const projectId = availableMemberIds[0];
-					const deal = unresolvedDeals[0];
+				const activeMemberIds = Array.from(memberProjectIds).filter((id) => {
+					if (usedProjectIds.has(id)) return false;
+					const project = projectsById.get(id);
+					return project ? !isProjectLikelyArchived(project) : true;
+				});
+
+				const memberProjectsForMatching = activeMemberIds
+					.map((id) => projectsById.get(id))
+					.filter(Boolean);
+
+				for (const deal of unresolvedDeals) {
+					const match = findBestProjectMatchForDeal(deal, memberProjectsForMatching, usedProjectIds);
+					if (!match) continue;
+
 					const dealId = deal?.id ? String(deal.id) : null;
 					const dealName = getDealName(deal);
 					const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
 					const modifiedTime = typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null;
-					usedProjectIds.add(projectId);
-					byProjectId.set(projectId, {
-						projectId,
+
+					usedProjectIds.add(match.projectId);
+					byProjectId.set(match.projectId, {
+						projectId: match.projectId,
 						dealId,
 						dealName,
 						stage,
 						modifiedTime
+					});
+				}
+
+				for (const projectId of activeMemberIds) {
+					if (usedProjectIds.has(projectId)) continue;
+					usedProjectIds.add(projectId);
+					byProjectId.set(projectId, {
+						projectId,
+						dealId: null,
+						dealName: null,
+						stage: null,
+						modifiedTime: null
 					});
 				}
 			}

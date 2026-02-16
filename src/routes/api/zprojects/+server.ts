@@ -380,13 +380,19 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 			const normalized = projects.filter(Boolean);
 			const seenIds = new Set(normalized.map((project) => getProjectId(project)).filter(Boolean));
-			const missingMappedProjects = mappedFallbackProjects.filter(
-				(project) => !seenIds.has(getProjectId(project))
-			);
+				const missingMappedProjects = mappedFallbackProjects.filter(
+					(project) => !seenIds.has(getProjectId(project))
+				);
 
-			return json({
-				projects: dedupeProjects([...normalized, ...missingMappedProjects, ...unmappedDealProjects])
-			});
+				if (normalized.length > 0) {
+					return json({
+						projects: dedupeProjects([...normalized, ...missingMappedProjects])
+					});
+				}
+
+				return json({
+					projects: dedupeProjects([...normalized, ...missingMappedProjects, ...unmappedDealProjects])
+				});
 		} catch (err) {
 			console.error('Zoho Projects lookup failed, returning fallback data:', err);
 			return json({ projects: dedupeProjects([...mappedFallbackProjects, ...unmappedDealProjects]) });
