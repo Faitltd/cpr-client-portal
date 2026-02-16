@@ -1191,53 +1191,89 @@ function parseProjectTasklists(payload: any) {
 	if (Array.isArray(payload?.tasklists)) return payload.tasklists;
 	if (Array.isArray(payload?.tasklist)) return payload.tasklist;
 	if (Array.isArray(payload?.task_lists)) return payload.task_lists;
+	if (payload?.tasklists && typeof payload.tasklists === 'object') {
+		const values = Object.values(payload.tasklists);
+		if (values.some((item) => item && typeof item === 'object')) return values;
+	}
+	if (payload?.tasklist && typeof payload.tasklist === 'object') {
+		const values = Object.values(payload.tasklist);
+		if (values.some((item) => item && typeof item === 'object')) return values;
+	}
 	if (Array.isArray(payload?.data)) return payload.data;
 	return [];
 }
 
+function looksLikeProjectTaskRecord(value: any) {
+	if (!value || typeof value !== 'object') return false;
+	const record = value as Record<string, unknown>;
+	const keys = Object.keys(record).map((key) => key.toLowerCase());
+	if (keys.length === 0) return false;
+	if (keys.includes('task_name') || keys.includes('task_status')) return true;
+	if (keys.includes('percent_complete') || keys.includes('percent_completed')) return true;
+	if (keys.includes('completion_percentage')) return true;
+	if (keys.includes('completed') || keys.includes('is_completed')) return true;
+	if (keys.includes('task_id') || keys.includes('taskid')) return true;
+	if ((keys.includes('name') || keys.includes('title')) && (keys.includes('status') || keys.includes('id'))) {
+		return true;
+	}
+	return false;
+}
+
 function parseProjectTasks(payload: any) {
-	const arrays: any[][] = [];
-	const addArray = (value: unknown) => {
-		if (Array.isArray(value)) arrays.push(value as any[]);
+	const collected: any[] = [];
+	const seen = new Set<string>();
+	const addTask = (value: unknown) => {
+		if (!looksLikeProjectTaskRecord(value)) return;
+		const task = value as any;
+		const key = getProjectTaskDedupKey(task);
+		if (seen.has(key)) return;
+		seen.add(key);
+		collected.push(task);
 	};
 
-	addArray(payload);
-	if (payload && typeof payload === 'object') {
-		addArray(payload?.tasks);
-		addArray(payload?.task);
-		addArray(payload?.task_details);
-		addArray(payload?.data);
-		addArray(payload?.items);
+	const visit = (value: unknown, depth = 0, keyHint = '') => {
+		if (depth > 6 || value === null || value === undefined) return;
 
-		if (payload?.tasks && typeof payload.tasks === 'object') {
-			addArray(payload.tasks?.tasks);
-			addArray(payload.tasks?.task);
-			addArray(payload.tasks?.data);
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				if (looksLikeProjectTaskRecord(item)) {
+					addTask(item);
+				}
+			}
+			for (const item of value) {
+				if (item && typeof item === 'object' && !looksLikeProjectTaskRecord(item)) {
+					visit(item, depth + 1, keyHint);
+				}
+			}
+			return;
 		}
 
-		if (payload?.task && typeof payload.task === 'object') {
-			addArray(payload.task?.tasks);
-			addArray(payload.task?.task);
-			addArray(payload.task?.data);
+		if (typeof value !== 'object') return;
+		const record = value as Record<string, unknown>;
+
+		if (looksLikeProjectTaskRecord(record)) {
+			addTask(record);
+			return;
 		}
 
-		const tasklists = parseProjectTasklists(payload);
-		for (const tasklist of tasklists) {
-			addArray(tasklist?.tasks);
-			addArray(tasklist?.task);
-			addArray(tasklist?.task_details);
-			addArray(tasklist?.data);
+		for (const [key, child] of Object.entries(record)) {
+			if (!child) continue;
+			const lowerKey = key.toLowerCase();
+			const prioritize =
+				lowerKey.includes('task') ||
+				lowerKey.includes('todo') ||
+				lowerKey.includes('item') ||
+				lowerKey.includes('open') ||
+				lowerKey.includes('close') ||
+				keyHint.includes('task');
+			if (prioritize || depth <= 2) {
+				visit(child, depth + 1, lowerKey);
+			}
 		}
-	}
+	};
 
-	const merged: any[] = [];
-	for (const items of arrays) {
-		for (const item of items) {
-			if (!item || typeof item !== 'object') continue;
-			merged.push(item);
-		}
-	}
-	return merged;
+	visit(payload, 0, '');
+	return collected;
 }
 
 function getProjectTaskDedupKey(task: any) {
@@ -1322,6 +1358,8 @@ async function fetchAllTasksForEndpoint(
 		const query = new URLSearchParams();
 		query.set('page', String(page));
 		query.set('per_page', String(perPage));
+		query.set('index', String((page - 1) * perPage + 1));
+		query.set('range', String(perPage));
 		for (const [key, value] of Object.entries(extraParams || {})) {
 			if (!value) continue;
 			query.set(key, value);
