@@ -1970,15 +1970,18 @@ export async function getProjectLinksForClient(
 					})
 					.filter(Boolean) as Array<readonly [string, any]>
 			);
+			const hasUsableProjectCatalog = projectsById.size > 0;
 			const invalidMappedDeals: any[] = [];
-			for (const [projectId, link] of Array.from(byProjectId.entries())) {
-				if (projectsById.has(projectId)) continue;
-				byProjectId.delete(projectId);
+			if (hasUsableProjectCatalog) {
+				for (const [projectId, link] of Array.from(byProjectId.entries())) {
+					if (projectsById.has(projectId)) continue;
+					byProjectId.delete(projectId);
 
-				const dealId = link?.dealId ? String(link.dealId) : '';
-				if (!dealId) continue;
-				const deal = dealsById.get(dealId);
-				if (deal) invalidMappedDeals.push(deal);
+					const dealId = link?.dealId ? String(link.dealId) : '';
+					if (!dealId) continue;
+					const deal = dealsById.get(dealId);
+					if (deal) invalidMappedDeals.push(deal);
+				}
 			}
 
 			const candidateDeals = sortDealsForProjectMatching(
@@ -1987,7 +1990,7 @@ export async function getProjectLinksForClient(
 			const usedProjectIds = new Set<string>(byProjectId.keys());
 			const unresolvedDeals: any[] = [];
 
-			for (const deal of candidateDeals) {
+			for (const deal of hasUsableProjectCatalog ? candidateDeals : []) {
 				const match =
 					findBestProjectMatchForDeal(deal, activeProjects, usedProjectIds) ||
 					findBestProjectMatchForDeal(deal, projects, usedProjectIds);
@@ -2013,7 +2016,7 @@ export async function getProjectLinksForClient(
 
 			// Secondary fallback: infer by explicit project membership and keep unmatched member
 			// projects visible so we can still show real Zoho Projects tasks.
-			if (email && byProjectId.size === 0) {
+			if (email && byProjectId.size === 0 && hasUsableProjectCatalog) {
 				const memberProjectIds = await getProjectIdsByClientEmail(projects, email);
 				const activeMemberIds = Array.from(memberProjectIds).filter((id) => {
 					if (usedProjectIds.has(id)) return false;
