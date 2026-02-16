@@ -16,7 +16,7 @@ const PROJECT_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_ROUTE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 250;
+const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 80;
 const KNOWN_PROJECTS_API_BASES = [
 	'https://projectsapi.zoho.com',
 	'https://projectsapi.zoho.eu',
@@ -912,13 +912,31 @@ async function getProjectCatalogForMatching() {
 		return projectCatalogCache.projects;
 	}
 
+	const accessToken = await getValidAccessToken();
 	const [activeResult, archivedResult] = await Promise.allSettled([
-		listAllProjects('active', 100),
-		listAllProjects('archived', 100)
+		listAllProjectsAcrossPortals(accessToken, 'active', 100),
+		listAllProjectsAcrossPortals(accessToken, 'archived', 100)
 	]);
 
-	const activeProjects = activeResult.status === 'fulfilled' ? activeResult.value : [];
-	const archivedProjects = archivedResult.status === 'fulfilled' ? archivedResult.value : [];
+	let activeProjects = activeResult.status === 'fulfilled' ? activeResult.value : [];
+	let archivedProjects = archivedResult.status === 'fulfilled' ? archivedResult.value : [];
+
+	// Fallback to the default paginator path if cross-portal catalog lookup fails.
+	if (activeProjects.length === 0) {
+		try {
+			activeProjects = await listAllProjects('active', 100);
+		} catch {
+			activeProjects = [];
+		}
+	}
+	if (archivedProjects.length === 0) {
+		try {
+			archivedProjects = await listAllProjects('archived', 100);
+		} catch {
+			archivedProjects = [];
+		}
+	}
+
 	const merged = dedupeProjectsById([...activeProjects, ...archivedProjects]);
 	projectCatalogCache = { fetchedAt: Date.now(), projects: merged };
 	return merged;
@@ -980,6 +998,95 @@ async function fetchAllPages<T>(
 	}
 
 	return results;
+}
+
+function pickProjectsArray(payload: any) {
+	if (Array.isArray(payload?.projects)) return payload.projects;
+	if (Array.isArray(payload?.data)) return payload.data;
+	return [];
+}
+
+async function fetchProjectsPageForBasePortal(
+	accessToken: string,
+	base: string,
+	portalId: string,
+	status: 'active' | 'archived',
+	page: number,
+	perPage: number
+) {
+	const query = new URLSearchParams();
+	query.set('status', status);
+	query.set('page', String(page));
+	query.set('per_page', String(perPage));
+
+	const url = `${base}/api/v3/portal/${portalId}/projects?${query.toString()}`;
+	const response = await fetch(url, {
+		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
+	});
+
+	if (response.status === 204) return {};
+
+	if (response.status === 429) {
+		const text = await response.text().catch(() => '');
+		console.warn(
+			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
+			{ endpoint: '/projects', base, portalId, response: text }
+		);
+		throw new Error(`Zoho Projects API error 429: ${text}`);
+	}
+
+	if (!response.ok) {
+		const text = await response.text().catch(() => '');
+		throw new Error(`Projects API error ${response.status}: ${text}`);
+	}
+
+	return response.json();
+}
+
+async function listAllProjectsAcrossPortals(
+	accessToken: string,
+	status: 'active' | 'archived',
+	perPage = DEFAULT_PAGE_SIZE
+) {
+	const merged: any[] = [];
+	const mergedById = new Set<string>();
+	const baseCandidates = getProjectsApiBaseCandidates();
+
+	for (const base of baseCandidates) {
+		const portalIds = await getPortalIdCandidatesForBase(accessToken, base);
+		for (const portalId of portalIds) {
+			let hadResultsForPortal = false;
+			for (let page = 1; page <= MAX_PAGES; page += 1) {
+				let payload: any = {};
+				try {
+					payload = await fetchProjectsPageForBasePortal(accessToken, base, portalId, status, page, perPage);
+				} catch {
+					break;
+				}
+
+				const projects = pickProjectsArray(payload);
+				if (projects.length === 0) break;
+				hadResultsForPortal = true;
+
+				for (const project of projects) {
+					const projectId = getProjectId(project);
+					if (!projectId || mergedById.has(projectId)) continue;
+					mergedById.add(projectId);
+					cacheProjectRoute(projectId, base, portalId);
+					merged.push(project);
+				}
+
+				if (!hasMorePages(payload, projects.length, perPage)) break;
+			}
+
+			if (hadResultsForPortal) {
+				cacheProjectsApiBase(base);
+				discoveredPortalIdCache = { portalId, base, fetchedAt: Date.now() };
+			}
+		}
+	}
+
+	return merged;
 }
 
 let accessTokenInFlight: Promise<string> | null = null;
@@ -1715,7 +1822,7 @@ export async function getProjectLinksForClient(
 
 	// Automatic CRM related-list mapping: discover project ids directly from Deal related lists.
 	// This covers orgs where Zoho_Projects_ID is not populated but Deal->Projects related data exists.
-	if (sortedUnmappedDeals.length > 0) {
+	if (byProjectId.size === 0 && sortedUnmappedDeals.length > 0) {
 		try {
 			const accessToken = await getValidAccessToken();
 			const relatedListApiNames = await getDealProjectRelatedListApiNames(accessToken);
@@ -1813,7 +1920,7 @@ export async function getProjectLinksForClient(
 
 			// Secondary fallback: infer by explicit project membership and keep unmatched member
 			// projects visible so we can still show real Zoho Projects tasks.
-			if (email) {
+			if (email && byProjectId.size === 0) {
 				const memberProjectIds = await getProjectIdsByClientEmail(projects, email);
 				const activeMemberIds = Array.from(memberProjectIds).filter((id) => {
 					if (usedProjectIds.has(id)) return false;
