@@ -127,6 +127,20 @@ export async function getClientAuthById(clientId: string): Promise<ClientAuth | 
 }
 
 /**
+ * Fetch full client profile by id
+ */
+export async function getClientById(clientId: string): Promise<Client | null> {
+	const { data, error } = await getSupabase()
+		.from('clients')
+		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone, portal_active')
+		.eq('id', clientId)
+		.single();
+
+	if (error || !data) return null;
+	return data as Client;
+}
+
+/**
  * Fetch client auth details by email
  */
 export async function getClientAuthByEmail(email: string): Promise<ClientAuth | null> {

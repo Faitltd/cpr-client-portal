@@ -3,7 +3,26 @@
 		clients: { id: string; email: string; full_name?: string | null }[];
 		tradePartners: { id: string; email: string; name?: string | null }[];
 	};
-	export let form: { message?: string } | undefined;
+	export let form:
+		| {
+				message?: string;
+				audit?: {
+					scannedDeals: number;
+					activeDeals: number;
+					mappedDeals: number;
+					missingDeals: number;
+					missingPercent: number;
+					topStages: string[];
+					sampleMissingDeals: Array<{
+						dealId: string;
+						dealName: string | null;
+						stage: string | null;
+						contactName: string | null;
+						modifiedTime: string | null;
+					}>;
+				};
+		  }
+		| undefined;
 
 	const sortLabel = (value: string | null | undefined) => (value || '').toLowerCase();
 	$: sortedClients = [...(data?.clients || [])].sort((a, b) => {
@@ -34,9 +53,39 @@
 		<form method="POST" action="?/syncTradePartners" class="sync-form">
 			<button type="submit">Sync Trade Partners</button>
 		</form>
+		<form method="POST" action="?/auditProjects" class="sync-form">
+			<button type="submit">Audit Project Mapping</button>
+		</form>
 		<a class="oauth-button" href="/auth/login">Reconnect Zoho OAuth</a>
 		{#if form?.message}
 			<p class="message">{form.message}</p>
+		{/if}
+		{#if form?.audit}
+			<section class="audit-card">
+				<h2>Project Mapping Audit</h2>
+				<p>Deals scanned: {form.audit.scannedDeals}</p>
+				<p>Active-stage deals: {form.audit.activeDeals}</p>
+				<p>Mapped deals: {form.audit.mappedDeals}</p>
+				<p>Missing mappings: {form.audit.missingDeals} ({form.audit.missingPercent}%)</p>
+				{#if form.audit.topStages.length > 0}
+					<p>Top active stages: {form.audit.topStages.join(', ')}</p>
+				{/if}
+				{#if form.audit.sampleMissingDeals.length > 0}
+					<details>
+						<summary>Sample missing deals ({form.audit.sampleMissingDeals.length})</summary>
+						<ul>
+							{#each form.audit.sampleMissingDeals as deal}
+								<li>
+									<strong>{deal.dealName || 'Untitled deal'}</strong>
+									<span> [{deal.dealId}]</span>
+									<span> • {deal.stage || 'No stage'}</span>
+									<span> • {deal.contactName || 'No contact'}</span>
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
+			</section>
 		{/if}
 	</div>
 
@@ -176,6 +225,43 @@
 	.message {
 		margin-top: 0.5rem;
 		color: #065f46;
+	}
+
+	.audit-card {
+		border: 1px solid #bfdbfe;
+		background: #eff6ff;
+		border-radius: 8px;
+		padding: 1rem;
+	}
+
+	.audit-card h2 {
+		margin: 0 0 0.5rem;
+		font-size: 1rem;
+	}
+
+	.audit-card p {
+		margin: 0.35rem 0;
+		color: #1e3a8a;
+	}
+
+	.audit-card details {
+		margin-top: 0.75rem;
+	}
+
+	.audit-card summary {
+		cursor: pointer;
+		font-weight: 600;
+		color: #1e3a8a;
+	}
+
+	.audit-card ul {
+		margin: 0.75rem 0 0;
+		padding-left: 1rem;
+	}
+
+	.audit-card li {
+		margin: 0.4rem 0;
+		color: #1f2937;
 	}
 
 	@media (max-width: 720px) {

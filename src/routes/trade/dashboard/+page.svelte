@@ -191,7 +191,11 @@
 				if (!serverMessage) {
 					serverMessage = (await res.text().catch(() => '')).trim();
 				}
-				throw new Error(serverMessage || `Failed to fetch field updates (${res.status})`);
+				throw new Error(
+					serverMessage
+						? `${serverMessage} (${res.status})`
+						: `Failed to fetch field updates (${res.status})`
+				);
 			}
 			const payload = await res.json().catch(() => ({}));
 			fieldUpdates = Array.isArray(payload?.data) ? payload.data : [];

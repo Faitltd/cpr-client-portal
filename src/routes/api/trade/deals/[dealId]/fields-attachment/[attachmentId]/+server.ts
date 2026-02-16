@@ -25,6 +25,87 @@ function safeFileName(value: string) {
 	return value.replace(/[/\\]/g, '_').replace(/"/g, "'");
 }
 
+function addIdCandidate(candidates: Set<string>, value: unknown) {
+	if (value === null || value === undefined) return;
+	const text = String(value).trim();
+	if (!text) return;
+	candidates.add(text);
+}
+
+function collectIdCandidatesFromValue(value: any, candidates: Set<string>) {
+	if (!value) return;
+	if (Array.isArray(value)) {
+		for (const item of value) collectIdCandidatesFromValue(item, candidates);
+		return;
+	}
+	if (typeof value !== 'object') return;
+
+	addIdCandidate(candidates, value.id);
+	addIdCandidate(candidates, value.ID);
+	addIdCandidate(candidates, value.Id);
+	addIdCandidate(candidates, value.deal_id);
+	addIdCandidate(candidates, value.Deal_ID);
+}
+
+function collectDealIdCandidates(deal: any) {
+	const candidates = new Set<string>();
+	if (!deal || typeof deal !== 'object') return candidates;
+
+	addIdCandidate(candidates, deal.id);
+	addIdCandidate(candidates, deal.crm_deal_id);
+	addIdCandidate(candidates, deal.source_record_id);
+	addIdCandidate(candidates, deal.sourceRecordId);
+	addIdCandidate(candidates, deal.deal_id);
+	addIdCandidate(candidates, deal.Deal_ID);
+
+	for (const key of [
+		'Deal',
+		'Deal_Name',
+		'Potential_Name',
+		'Portal_Deal',
+		'Portal_Deals',
+		'Portal_Deals1',
+		'Portal_Deals2',
+		'Portal_Deals3',
+		'Active_Deal',
+		'Active_Deals',
+		'Active_Deals1',
+		'Active_Deals2',
+		'Active_Deals3',
+		'Project',
+		'Project_Name'
+	]) {
+		collectIdCandidatesFromValue((deal as any)[key], candidates);
+	}
+
+	for (const [key, value] of Object.entries(deal)) {
+		if (!/(^|_)deals?(\d+)?$/i.test(key) && !/(^|_)project(_name)?$/i.test(key)) continue;
+		collectIdCandidatesFromValue(value, candidates);
+	}
+
+	return candidates;
+}
+
+function resolveDealIdForTradePartner(deals: any[], requestedDealId: string) {
+	const requested = String(requestedDealId || '').trim();
+	if (!requested) return null;
+
+	for (const deal of deals || []) {
+		const candidates = collectDealIdCandidates(deal);
+		if (!candidates.has(requested)) continue;
+
+		const canonical = String(deal?.id || '').trim();
+		if (canonical) return canonical;
+
+		for (const candidate of candidates) {
+			if (/^\d{10,}$/.test(candidate)) return candidate;
+		}
+		return requested;
+	}
+
+	return null;
+}
+
 export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const sessionToken = cookies.get('trade_session');
 	if (!sessionToken) {
@@ -67,13 +148,13 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 
 	const apiDomain = tokens.api_domain || undefined;
 	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
-	const allowed = deals.some((deal: any) => String(deal?.id) === String(dealId));
-	if (!allowed) {
+	const resolvedDealId = resolveDealIdForTradePartner(deals, dealId);
+	if (!resolvedDealId) {
 		throw error(403, 'Access denied');
 	}
 
 	const base = getZohoApiBase(apiDomain) || ZOHO_API_BASE;
-	const downloadUrl = `${base}/Deals/${dealId}/actions/download_fields_attachment?fields_attachment_id=${encodeURIComponent(attachmentId)}`;
+	const downloadUrl = `${base}/Deals/${resolvedDealId}/actions/download_fields_attachment?fields_attachment_id=${encodeURIComponent(attachmentId)}`;
 
 	const response = await fetch(downloadUrl, {
 		method: 'GET',

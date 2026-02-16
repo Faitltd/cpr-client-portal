@@ -41,6 +41,69 @@ function getId(value: any): string | null {
 	return (value.id || value.ID || value.Id || null) as string | null;
 }
 
+function addIdCandidate(candidates: Set<string>, value: unknown) {
+	if (value === null || value === undefined) return;
+	const text = String(value).trim();
+	if (!text) return;
+	candidates.add(text);
+}
+
+function collectIdCandidatesFromValue(value: any, candidates: Set<string>) {
+	if (!value) return;
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectIdCandidatesFromValue(item, candidates);
+		}
+		return;
+	}
+	if (typeof value !== 'object') return;
+
+	addIdCandidate(candidates, value.id);
+	addIdCandidate(candidates, value.ID);
+	addIdCandidate(candidates, value.Id);
+	addIdCandidate(candidates, value.deal_id);
+	addIdCandidate(candidates, value.Deal_ID);
+}
+
+function collectDealIdCandidates(deal: any) {
+	const candidates = new Set<string>();
+	if (!deal || typeof deal !== 'object') return candidates;
+
+	addIdCandidate(candidates, deal.id);
+	addIdCandidate(candidates, deal.crm_deal_id);
+	addIdCandidate(candidates, deal.source_record_id);
+	addIdCandidate(candidates, deal.sourceRecordId);
+	addIdCandidate(candidates, deal.deal_id);
+	addIdCandidate(candidates, deal.Deal_ID);
+
+	for (const key of [
+		'Deal',
+		'Deal_Name',
+		'Potential_Name',
+		'Portal_Deal',
+		'Portal_Deals',
+		'Portal_Deals1',
+		'Portal_Deals2',
+		'Portal_Deals3',
+		'Active_Deal',
+		'Active_Deals',
+		'Active_Deals1',
+		'Active_Deals2',
+		'Active_Deals3',
+		'Project',
+		'Project_Name'
+	]) {
+		collectIdCandidatesFromValue((deal as any)[key], candidates);
+	}
+
+	for (const [key, value] of Object.entries(deal)) {
+		if (!/(^|_)deals?(\d+)?$/i.test(key) && !/(^|_)project(_name)?$/i.test(key)) continue;
+		collectIdCandidatesFromValue(value, candidates);
+	}
+
+	return candidates;
+}
+
 function extractDealIdFromFieldUpdate(record: Record<string, any>): string | null {
 	if (!record || typeof record !== 'object') return null;
 	for (const [key, value] of Object.entries(record)) {
@@ -79,10 +142,12 @@ async function tradePartnerCanAccessDeal(
 		const deal = response.data?.[0];
 		const field = deal?.Portal_Trade_Partners;
 		if (Array.isArray(field)) {
-			return field.some((item: any) => String(item?.id) === String(tradePartnerId));
+			const match = field.some((item: any) => String(item?.id) === String(tradePartnerId));
+			if (match) return true;
 		}
 		if (field && typeof field === 'object') {
-			return String(field?.id) === String(tradePartnerId);
+			const match = String(field?.id) === String(tradePartnerId);
+			if (match) return true;
 		}
 	} catch {
 		// Fall through.
@@ -97,7 +162,8 @@ async function tradePartnerCanAccessDeal(
 			{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 			apiDomain
 		);
-		return (response.data || []).some((deal: any) => String(deal?.id) === String(dealId));
+		const match = (response.data || []).some((deal: any) => String(deal?.id) === String(dealId));
+		if (match) return true;
 	} catch {
 		// Fall through.
 	}
@@ -105,7 +171,8 @@ async function tradePartnerCanAccessDeal(
 	// Final fallback: match the deal id using the same robust lookup logic as the dashboard.
 	try {
 		const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
-		return (deals || []).some((deal: any) => String(deal?.id) === String(dealId));
+		const requested = String(dealId || '').trim();
+		return (deals || []).some((deal: any) => collectDealIdCandidates(deal).has(requested));
 	} catch {
 		return false;
 	}

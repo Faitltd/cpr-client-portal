@@ -44,7 +44,8 @@ const DEAL_FIELDS = [
 	'External_Link',
 	'Progress_Photos',
 	'Client_Portal_Folder',
-	'Portal_Trade_Partners'
+	'Portal_Trade_Partners',
+	'Zoho_Projects_ID'
 ].join(',');
 
 const CONTACT_FIELDS = [
@@ -294,36 +295,23 @@ function findDealLookup(record: Record<string, any>) {
 		const lookup = extractLookup(value);
 		if (lookup) return { ...lookup, key };
 	}
-
-	const ignoredKeys = new Set([
-		'Owner',
-		'Portal_Trade_Partners',
-		'Contact_Name',
-		'Account_Name',
-		'Created_Time',
-		'Modified_Time',
-		'Stage',
-		'id'
-	]);
-	for (const [key, value] of Object.entries(record)) {
-		if (ignoredKeys.has(key)) continue;
-		const lookup = extractLookup(value);
-		if (lookup) return { ...lookup, key };
-	}
 	return null;
 }
 
 function normalizeDealRecord(deal: any) {
 	if (!deal || typeof deal !== 'object') return deal;
 	const lookup = findDealLookup(deal);
-	const id =
-		deal.id ||
+	// Many Zoho related-list/junction records include their own `id` plus a Deal lookup field.
+	// We want the *Deal* id consistently so downstream endpoints can safely call `/Deals/:id/...`.
+	const inferredDealId =
 		deal.Deal?.id ||
-		deal.Deal_ID ||
-		deal.deal_id ||
 		deal?.Deal_Name?.id ||
 		deal?.Potential_Name?.id ||
-		lookup?.id;
+		lookup?.id ||
+		deal.Deal_ID ||
+		deal.deal_id ||
+		null;
+	const id = inferredDealId || deal.id;
 	const name =
 		extractDisplayValue(deal.Deal_Name) ||
 		lookup?.name ||
@@ -336,8 +324,18 @@ function normalizeDealRecord(deal: any) {
 		extractDisplayValue(deal.display_name) ||
 		(id ? `Deal ${String(id).slice(-6)}` : null);
 	const normalized = { ...deal };
-	if (!normalized.id && id) normalized.id = id;
-	if (!normalized.Deal_Name && name) normalized.Deal_Name = name;
+	if (inferredDealId) {
+		normalized.id = inferredDealId;
+	} else if (!normalized.id && id) {
+		normalized.id = id;
+	}
+
+	// Normalize the display name to a plain string for consistent rendering.
+	if (name && (typeof normalized.Deal_Name !== 'string' || !normalized.Deal_Name)) {
+		normalized.Deal_Name = name;
+	} else if (!normalized.Deal_Name && name) {
+		normalized.Deal_Name = name;
+	}
 
 	const textFields = [
 		'Address',
@@ -440,53 +438,90 @@ export async function getAuthenticatedContact(accessToken: string, apiDomain?: s
  * Filter deals to only show those related to the authenticated contact
  */
 export async function getContactDeals(accessToken: string, contactId: string, apiDomain?: string) {
+	const perPage = 200;
+	const maxPages = 20;
+
 	// 1) Try search endpoint (most reliable without COQL)
 	try {
 		const criteria = `(Contact_Name:equals:${contactId})`;
-		const search = await zohoApiCall(
-			accessToken,
-			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
-			{},
-			apiDomain
-		);
-		if (search.data?.length) return search.data;
+		const searchResults: any[] = [];
+
+		for (let page = 1; page <= maxPages; page += 1) {
+			const search = await zohoApiCall(
+				accessToken,
+				`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+				{},
+				apiDomain
+			);
+			const pageData = Array.isArray(search.data) ? search.data : [];
+			if (pageData.length === 0) break;
+
+			searchResults.push(...pageData);
+			const hasMore = search.info?.more_records;
+			if (hasMore === false) break;
+			if (hasMore !== true && pageData.length < perPage) break;
+		}
+
+		if (searchResults.length > 0) return searchResults;
 	} catch (error) {
 		console.warn('Deals search failed, falling back to COQL');
 	}
 
 	// 2) Try COQL if enabled
 	try {
-		const query = {
-			select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Contact_Name = '${contactId}' ORDER BY Created_Time DESC`
-		};
+		const escapedContactId = contactId.replace(/'/g, "\\'");
+		const coqlResults: any[] = [];
 
-		const response = await zohoApiCall(
-			accessToken,
-			'/coql',
-			{
-				method: 'POST',
-				body: JSON.stringify(query)
-			},
-			apiDomain
-		);
+		for (let page = 0; page < maxPages; page += 1) {
+			const offset = page * perPage;
+			const query = {
+				select_query: `SELECT ${DEAL_FIELDS} FROM Deals WHERE Contact_Name = '${escapedContactId}' ORDER BY Created_Time DESC LIMIT ${perPage} OFFSET ${offset}`
+			};
 
-		if (response.data?.length) return response.data;
+			const response = await zohoApiCall(
+				accessToken,
+				'/coql',
+				{
+					method: 'POST',
+					body: JSON.stringify(query)
+				},
+				apiDomain
+			);
+			const pageData = Array.isArray(response.data) ? response.data : [];
+			if (pageData.length === 0) break;
+
+			coqlResults.push(...pageData);
+			if (pageData.length < perPage) break;
+		}
+
+		if (coqlResults.length > 0) return coqlResults;
 	} catch (error) {
 		console.warn('COQL query failed, falling back to standard API');
 	}
 
 	// 3) Fallback to standard list + client-side filter
-	const deals = await zohoApiCall(
-		accessToken,
-		`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
-		{},
-		apiDomain
-	);
+	const allDeals: any[] = [];
+	for (let page = 1; page <= maxPages; page += 1) {
+		const deals = await zohoApiCall(
+			accessToken,
+			`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+			{},
+			apiDomain
+		);
 
-	const filtered = (deals.data || []).filter((deal: any) => deal.Contact_Name?.id === contactId);
+		const pageData = Array.isArray(deals.data) ? deals.data : [];
+		if (pageData.length === 0) break;
+
+		allDeals.push(...pageData);
+		const hasMore = deals.info?.more_records;
+		if (hasMore === false) break;
+		if (hasMore !== true && pageData.length < perPage) break;
+	}
+
+	const filtered = allDeals.filter((deal: any) => deal.Contact_Name?.id === contactId);
 
 	if (filtered.length === 0 && dev && PORTAL_DEV_SHOW_ALL === 'true') {
-		return deals.data || [];
+		return allDeals;
 	}
 
 	return filtered;

@@ -40,7 +40,7 @@ cp .env.example .env
 4. Register your application in Zoho Developer Console:
    - Application Type: Server-based
    - Authorized Redirect URI: `http://localhost:5173/auth/callback` (development)
-   - Required Scopes: `ZohoCRM.modules.contacts.READ,ZohoCRM.modules.deals.READ,ZohoCRM.modules.deals.UPDATE,ZohoCRM.modules.Attachments.READ,ZohoCRM.users.READ,ZohoCRM.modules.custom.READ,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ,ZohoSign.documents.READ`
+   - Required Scopes: use the `ZOHO_SCOPE` value from `.env.example`
 
 5. Update `.env` with your credentials:
    - `ZOHO_CLIENT_ID`
@@ -49,6 +49,8 @@ cp .env.example .env
    - `ZOHO_BOOKS_ORG_ID`
    - `ZOHO_TRADE_PARTNERS_MODULE`
    - `ZOHO_SIGN_HOST`
+   - `ZOHO_PROJECTS_API_BASE`
+   - `ZOHO_PROJECTS_PORTAL_ID`
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
 
@@ -63,7 +65,19 @@ npm run dev
 8. Connect Zoho (admin):
    - Visit `http://localhost:5173/auth/login` once
 
-9. Client login:
+9. If you add scopes later:
+   - Re-authorize via `/auth/login` so the stored refresh token includes new scopes.
+
+10. Zoho Projects portal discovery:
+   - Log in as admin and call `/api/zprojects/portals`
+   - Set `ZOHO_PROJECTS_PORTAL_ID` from the returned portal id
+   - Restart the app after updating env vars
+
+11. Mapping audit (admin):
+   - Call `/api/zprojects/audit`
+   - Confirm `summary.missingDeals` is `0` (or review `sampleMissingDeals` for fixes)
+
+12. Client login:
    - Visit `http://localhost:5173/auth/client`
    - Enter email + password
    - Admins can set/reset passwords at `/admin/login`

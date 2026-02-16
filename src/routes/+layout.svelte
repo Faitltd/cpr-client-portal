@@ -9,6 +9,8 @@
 		!pathname.startsWith('/admin') &&
 		!pathname.startsWith('/auth');
 	$: isTradePortal = pathname.startsWith('/trade');
+	$: hasPortalSession = Boolean($page.data?.hasPortalSession);
+	$: hasZProjectsConfigured = Boolean($page.data?.hasZProjectsConfigured);
 	$: accountHref = isTradePortal ? '/trade/account' : '/account';
 	$: if (pathname) menuOpen = false;
 
@@ -72,6 +74,9 @@
 					Menu
 				</button>
 				<div class:open={menuOpen} class="portal-actions">
+					{#if hasPortalSession && hasZProjectsConfigured && !isTradePortal}
+						<a class="portal-link" href="/zprojects">Projects</a>
+					{/if}
 					<a class="portal-link" href={accountHref}>Account</a>
 					<a class="portal-link" href="/api/logout?next=/">Log out</a>
 				</div>

@@ -1,10 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
 import {
 	debugTradePartnerRecord,
+	isPortalActiveStage,
 	listContactsForActiveDeals,
 	listContactsForPasswordSeedDeals,
 	listTradePartnersWithStats
 } from '$lib/server/auth';
+import { parseZohoProjectIds } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { isValidAdminSession } from '$lib/server/admin';
 import {
@@ -20,6 +22,8 @@ import {
 } from '$lib/server/db';
 import { hashPassword } from '$lib/server/password';
 import type { Actions, PageServerLoad } from './$types';
+
+const PROJECT_AUDIT_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Zoho_Projects_ID', 'Modified_Time'].join(',');
 
 function requireAdmin(session: string | undefined) {
 	if (!isValidAdminSession(session)) {
@@ -52,6 +56,14 @@ function toTenDigitPhone(value: string | null | undefined) {
 	if (digits.length === 10) {
 		return digits;
 	}
+	return null;
+}
+
+function getLookupName(value: unknown) {
+	if (!value || typeof value !== 'object') return null;
+	const record = value as Record<string, unknown>;
+	const candidate = record.name ?? record.display_value ?? record.displayValue ?? null;
+	if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
 	return null;
 }
 
@@ -232,7 +244,7 @@ export const actions: Actions = {
 		const message = `Deals scanned: ${total}. Missing stage: ${missingStage}. Missing contact: ${missingContact}. Top stages: ${topStages}`;
 		return { message };
 	},
-	syncTradePartners: async ({ cookies }) => {
+		syncTradePartners: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
 		const tokens = await getZohoTokens();
 		if (!tokens) {
@@ -282,9 +294,108 @@ export const actions: Actions = {
 				? `${baseMessage} Zoho returned ${totalRecords} records. Missing email: ${missingEmail}. Recovered: ${recovered}.${moduleSummary}`
 				: baseMessage;
 
-		return { message };
-	},
-	debugTradePartner: async ({ request, cookies }) => {
+			return { message };
+		},
+		auditProjects: async ({ cookies }) => {
+			requireAdmin(cookies.get('admin_session'));
+
+			const tokens = await getZohoTokens();
+			if (!tokens) {
+				return fail(500, { message: 'Zoho is not connected yet.' });
+			}
+
+			let accessToken = tokens.access_token;
+			if (new Date(tokens.expires_at) < new Date()) {
+				const refreshed = await refreshAccessToken(tokens.refresh_token);
+				accessToken = refreshed.access_token;
+				await upsertZohoTokens({
+					user_id: tokens.user_id,
+					access_token: refreshed.access_token,
+					refresh_token: refreshed.refresh_token,
+					expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+					scope: tokens.scope
+				});
+			}
+
+			const perPage = 200;
+			let page = 1;
+			let more = true;
+			let scannedDeals = 0;
+			let activeDeals = 0;
+			let mappedDeals = 0;
+			let missingDeals = 0;
+			const stageCounts = new Map<string, number>();
+			const sampleMissingDeals: Array<{
+				dealId: string;
+				dealName: string | null;
+				stage: string | null;
+				contactName: string | null;
+				modifiedTime: string | null;
+			}> = [];
+
+			while (more) {
+				const response = await zohoApiCall(
+					accessToken,
+					`/Deals?fields=${encodeURIComponent(PROJECT_AUDIT_FIELDS)}&page=${page}&per_page=${perPage}`
+				);
+				const deals = Array.isArray(response.data) ? response.data : [];
+				scannedDeals += deals.length;
+
+				for (const deal of deals) {
+					const stage = typeof deal?.Stage === 'string' ? deal.Stage.trim() : '';
+					if (!isPortalActiveStage(stage)) continue;
+
+					activeDeals += 1;
+					const stageKey = stage || '(missing)';
+					stageCounts.set(stageKey, (stageCounts.get(stageKey) || 0) + 1);
+
+					const mappedProjectIds = parseZohoProjectIds(deal?.Zoho_Projects_ID);
+					if (mappedProjectIds.length > 0) {
+						mappedDeals += 1;
+						continue;
+					}
+
+					missingDeals += 1;
+					if (sampleMissingDeals.length < 25) {
+						sampleMissingDeals.push({
+							dealId: String(deal?.id || ''),
+							dealName:
+								typeof deal?.Deal_Name === 'string'
+									? deal.Deal_Name
+									: getLookupName(deal?.Deal_Name) || null,
+							stage: stage || null,
+							contactName: getLookupName(deal?.Contact_Name),
+							modifiedTime:
+								typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null
+						});
+					}
+				}
+
+				more = Boolean(response.info?.more_records);
+				page += 1;
+			}
+
+			const missingPercent = activeDeals > 0 ? Number(((missingDeals / activeDeals) * 100).toFixed(2)) : 0;
+			const topStages = Array.from(stageCounts.entries())
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 8)
+				.map(([stage, count]) => `${stage}=${count}`);
+			const message = `Projects mapping audit: ${mappedDeals}/${activeDeals} active deals mapped. Missing: ${missingDeals} (${missingPercent}%).`;
+
+			return {
+				message,
+				audit: {
+					scannedDeals,
+					activeDeals,
+					mappedDeals,
+					missingDeals,
+					missingPercent,
+					topStages,
+					sampleMissingDeals
+				}
+			};
+		},
+		debugTradePartner: async ({ request, cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
 		const form = await request.formData();
 		const zohoId = String(form.get('zoho_trade_partner_id') || '').trim();

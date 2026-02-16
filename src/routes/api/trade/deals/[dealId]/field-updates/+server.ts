@@ -66,6 +66,102 @@ function getId(value: any): string | null {
 	return (value.id || value.ID || value.Id || value.record_id || value.recordId || null) as string | null;
 }
 
+function addIdCandidate(candidates: Set<string>, value: unknown) {
+	if (value === null || value === undefined) return;
+	const text = String(value).trim();
+	if (!text) return;
+	candidates.add(text);
+}
+
+function collectIdCandidatesFromValue(value: any, candidates: Set<string>) {
+	if (!value) return;
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			collectIdCandidatesFromValue(item, candidates);
+		}
+		return;
+	}
+	if (typeof value !== 'object') return;
+
+	addIdCandidate(candidates, value.id);
+	addIdCandidate(candidates, value.ID);
+	addIdCandidate(candidates, value.Id);
+	addIdCandidate(candidates, value.deal_id);
+	addIdCandidate(candidates, value.Deal_ID);
+	addIdCandidate(candidates, value.record_id);
+	addIdCandidate(candidates, value.recordId);
+}
+
+function collectDealIdCandidates(deal: any) {
+	const candidates = new Set<string>();
+	if (!deal || typeof deal !== 'object') return candidates;
+
+	addIdCandidate(candidates, deal.id);
+	addIdCandidate(candidates, deal.crm_deal_id);
+	addIdCandidate(candidates, deal.source_record_id);
+	addIdCandidate(candidates, deal.sourceRecordId);
+	addIdCandidate(candidates, deal.deal_id);
+	addIdCandidate(candidates, deal.Deal_ID);
+
+	const preferredLookupKeys = [
+		'Deal',
+		'Deal_Name',
+		'Potential_Name',
+		'Portal_Deal',
+		'Portal_Deals',
+		'Portal_Deals1',
+		'Portal_Deals2',
+		'Portal_Deals3',
+		'Active_Deal',
+		'Active_Deals',
+		'Active_Deals1',
+		'Active_Deals2',
+		'Active_Deals3',
+		'Project',
+		'Project_Name'
+	];
+	for (const key of preferredLookupKeys) {
+		collectIdCandidatesFromValue(deal[key], candidates);
+	}
+
+	for (const [key, value] of Object.entries(deal)) {
+		if (!/(^|_)deals?(\d+)?$/i.test(key) && !/(^|_)project(_name)?$/i.test(key)) continue;
+		collectIdCandidatesFromValue(value, candidates);
+	}
+
+	return candidates;
+}
+
+function isLikelyZohoId(value: string) {
+	return /^\d{10,}$/.test(String(value || '').trim());
+}
+
+function pickCanonicalDealIdForQuery(deal: any, requestedDealId: string) {
+	const preferred: string[] = [];
+	if (deal && typeof deal === 'object') {
+		preferred.push(
+			String(deal.id || '').trim(),
+			String(deal.crm_deal_id || '').trim(),
+			String(deal.Deal?.id || '').trim(),
+			String(deal.Deal_Name?.id || '').trim(),
+			String(deal.Potential_Name?.id || '').trim(),
+			String(deal.Deal_ID || '').trim(),
+			String(deal.deal_id || '').trim()
+		);
+	}
+	for (const id of preferred) {
+		if (isLikelyZohoId(id)) return id;
+	}
+
+	const candidates = Array.from(collectDealIdCandidates(deal));
+	for (const id of candidates) {
+		if (isLikelyZohoId(id)) return id;
+	}
+
+	if (isLikelyZohoId(requestedDealId)) return requestedDealId;
+	return preferred.find(Boolean) || candidates.find(Boolean) || requestedDealId;
+}
+
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) {
@@ -112,6 +208,35 @@ function extractZohoErrorInfo(err: unknown): ZohoErrorInfo | null {
 		}
 	} catch {
 		// ignore
+	}
+
+	return null;
+}
+
+function isZohoAccessError(err: unknown) {
+	const info = extractZohoErrorInfo(err);
+	const code = info?.code;
+	if (code === 'ACCESS_DENIED' || code === 'OAUTH_SCOPE_MISMATCH') return true;
+
+	const message = err instanceof Error ? err.message : String(err || '');
+	return message.includes('ACCESS_DENIED') || message.includes('OAUTH_SCOPE_MISMATCH');
+}
+
+function toSafeClientErrorMessage(err: unknown) {
+	const info = extractZohoErrorInfo(err);
+	const code = info?.code;
+	if (!code) return null;
+
+	if (code === 'ACCESS_DENIED') {
+		return 'Zoho CRM returned ACCESS_DENIED for Field Updates. Check the Zoho user/profile that authorized the portal has permission to the Field Updates module and related lists.';
+	}
+
+	if (code === 'OAUTH_SCOPE_MISMATCH') {
+		return 'Zoho OAuth scope mismatch. Re-authorize at /auth/login with the required Zoho CRM scopes (modules/settings/coql).';
+	}
+
+	if (code === 'INVALID_MODULE') {
+		return 'Zoho CRM module not found for Field Updates. Confirm the module API name (or set ZOHO_FIELD_UPDATES_MODULE).';
 	}
 
 	return null;
@@ -419,12 +544,15 @@ async function tradePartnerCanAccessDeal(
 		const deal = response.data?.[0];
 		const field = deal?.Portal_Trade_Partners;
 		if (Array.isArray(field)) {
-			return field.some((item: any) => String(item?.id) === String(tradePartnerId));
+			const match = field.some((item: any) => String(item?.id) === String(tradePartnerId));
+			if (match) return true;
 		}
 		if (field && typeof field === 'object') {
-			return String(field?.id) === String(tradePartnerId);
+			const match = String(field?.id) === String(tradePartnerId);
+			if (match) return true;
 		}
-	} catch {
+	} catch (err) {
+		if (isZohoAccessError(err)) throw err;
 		// Fall through.
 	}
 
@@ -437,19 +565,41 @@ async function tradePartnerCanAccessDeal(
 			{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
 			apiDomain
 		);
-		return (response.data || []).some((deal: any) => String(deal?.id) === String(dealId));
-	} catch {
+		const match = (response.data || []).some((deal: any) => String(deal?.id) === String(dealId));
+		if (match) return true;
+	} catch (err) {
+		if (isZohoAccessError(err)) throw err;
 		// Fall through.
 	}
 
-	// Final fallback: use the same robust deal lookup logic used by the dashboard.
-	// This covers orgs where the Portal_Trade_Partners lookup isn't populated on the Deal.
-	try {
-		const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
-		return (deals || []).some((deal: any) => String(deal?.id) === String(dealId));
-	} catch {
-		return false;
+	// Robust final check: use the same deal lookup logic used by the dashboard.
+	// This covers orgs where Portal_Trade_Partners isn't populated on the Deal.
+	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	const requested = String(dealId || '').trim();
+	return (deals || []).some((deal: any) => collectDealIdCandidates(deal).has(requested));
+}
+
+async function resolveAuthorizedDealId(
+	accessToken: string,
+	requestedDealId: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const requested = String(requestedDealId || '').trim();
+	if (!requested) return null;
+
+	if (await tradePartnerCanAccessDeal(accessToken, requested, tradePartnerId, apiDomain)) {
+		return requested;
 	}
+
+	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	for (const deal of deals || []) {
+		const candidates = collectDealIdCandidates(deal);
+		if (!candidates.has(requested)) continue;
+		return pickCanonicalDealIdForQuery(deal, requested);
+	}
+
+	return null;
 }
 
 async function fetchFieldUpdatesByIdsWithFields(
@@ -794,12 +944,20 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		}
 
 		const apiDomain = tokens.api_domain || undefined;
-		const allowed = await tradePartnerCanAccessDeal(accessToken, dealId, tradePartnerId, apiDomain);
-		if (!allowed) {
+		const resolvedDealId = await resolveAuthorizedDealId(accessToken, dealId, tradePartnerId, apiDomain);
+		if (!resolvedDealId) {
+			console.warn('Trade field updates access denied', { dealId, tradePartnerId });
 			return json({ message: 'Access denied' }, { status: 403 });
 		}
+		if (resolvedDealId !== dealId) {
+			console.info('Trade field updates resolved deal id alias', {
+				requestedDealId: dealId,
+				resolvedDealId,
+				tradePartnerId
+			});
+		}
 
-		const records = await fetchFieldUpdatesForDeal(accessToken, dealId, apiDomain);
+		const records = await fetchFieldUpdatesForDeal(accessToken, resolvedDealId, apiDomain);
 		const normalized = (records || [])
 			.map((record) => normalizeFieldUpdate(record || {}))
 			.filter((item) => item.id);
@@ -812,8 +970,9 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 		return json({ data: normalized });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Failed to fetch field updates';
-		console.error('Trade field updates failed', { dealId, tradePartnerId, error: message });
-		return json({ message }, { status: 500 });
+		const safeMessage = toSafeClientErrorMessage(err);
+		const message = safeMessage || (err instanceof Error ? err.message : 'Failed to fetch field updates');
+		console.error('Trade field updates failed', { dealId, tradePartnerId, error: err });
+		return json({ message }, { status: safeMessage ? 502 : 500 });
 	}
 };
