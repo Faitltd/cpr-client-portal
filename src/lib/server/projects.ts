@@ -78,6 +78,27 @@ export function parseZohoProjectIds(value: unknown): string[] {
 	return normalized;
 }
 
+function getLookupName(value: unknown) {
+	if (!value || typeof value !== 'object') return null;
+	const record = value as Record<string, unknown>;
+	const candidate = record.name ?? record.display_value ?? record.displayValue ?? null;
+	return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null;
+}
+
+function getDealName(deal: any) {
+	if (!deal) return null;
+	if (typeof deal.Deal_Name === 'string' && deal.Deal_Name.trim()) return deal.Deal_Name.trim();
+	return getLookupName(deal.Deal_Name);
+}
+
+export type ContactProjectLink = {
+	projectId: string;
+	dealId: string | null;
+	dealName: string | null;
+	stage: string | null;
+	modifiedTime: string | null;
+};
+
 function hasMorePages(payload: any, itemCount: number, perPage: number) {
 	const infoMoreRecords = payload?.info?.more_records;
 	if (typeof infoMoreRecords === 'boolean') return infoMoreRecords;
@@ -287,15 +308,36 @@ export async function listPortals() {
 
 // Map CRM Deals -> Zoho Projects projects via a custom Deal field: Zoho_Projects_ID.
 export async function getProjectIdsForContact(zohoContactId: string): Promise<string[]> {
+	const links = await getProjectLinksForContact(zohoContactId);
+	return links.map((link) => link.projectId);
+}
+
+export async function getProjectLinksForContact(zohoContactId: string): Promise<ContactProjectLink[]> {
 	const accessToken = await getValidAccessToken();
 	const deals = await getContactDeals(accessToken, zohoContactId);
 
-	const projectIds: string[] = [];
+	const byProjectId = new Map<string, ContactProjectLink>();
 	for (const deal of deals || []) {
 		const raw = (deal as any)?.Zoho_Projects_ID;
 		const ids = parseZohoProjectIds(raw);
-		if (ids.length > 0) projectIds.push(...ids);
+		if (ids.length === 0) continue;
+
+		const dealId = deal?.id ? String(deal.id) : null;
+		const dealName = getDealName(deal);
+		const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
+		const modifiedTime = typeof deal?.Modified_Time === 'string' ? deal.Modified_Time : null;
+
+		for (const projectId of ids) {
+			if (byProjectId.has(projectId)) continue;
+			byProjectId.set(projectId, {
+				projectId,
+				dealId,
+				dealName,
+				stage,
+				modifiedTime
+			});
+		}
 	}
 
-	return [...new Set(projectIds)];
+	return Array.from(byProjectId.values());
 }

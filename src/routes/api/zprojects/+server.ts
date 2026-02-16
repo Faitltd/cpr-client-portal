@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { getSession } from '$lib/server/db';
 import {
 	getProject,
-	getProjectIdsForContact,
+	getProjectLinksForContact,
 	isProjectsPortalConfigured
 } from '$lib/server/projects';
 
@@ -35,6 +35,33 @@ function normalizeProjectResponse(payload: any) {
 	return payload;
 }
 
+function getProjectId(project: any) {
+	if (!project || typeof project !== 'object') return '';
+	const id = project.id ?? project.project_id ?? project.project?.id ?? '';
+	return id === null || id === undefined ? '' : String(id);
+}
+
+function toFallbackProjects(
+	links: Array<{
+		projectId: string;
+		dealId: string | null;
+		dealName: string | null;
+		stage: string | null;
+		modifiedTime: string | null;
+	}>
+) {
+	return links.map((link) => ({
+		id: link.projectId,
+		name: link.dealName || `Project ${link.projectId}`,
+		status: link.stage || 'Mapped in CRM',
+		start_date: null,
+		end_date: null,
+		deal_id: link.dealId,
+		modified_time: link.modifiedTime,
+		source: 'crm'
+	}));
+}
+
 // GET /api/zprojects
 // Returns Zoho Projects linked to the client's CRM Deals (via Deal.Zoho_Projects_ID).
 export const GET: RequestHandler = async ({ cookies }) => {
@@ -47,13 +74,15 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	const zohoContactId = session.client?.zoho_contact_id;
 	if (!zohoContactId) return json({ projects: [] });
 
-	if (!isProjectsPortalConfigured()) {
-		throw error(500, 'Zoho Projects portal is not configured');
-	}
-
 	try {
-		const projectIds = await getProjectIdsForContact(zohoContactId);
-		if (projectIds.length === 0) return json({ projects: [] });
+		const links = await getProjectLinksForContact(zohoContactId);
+		if (links.length === 0) return json({ projects: [] });
+
+		if (!isProjectsPortalConfigured()) {
+			return json({ projects: toFallbackProjects(links) });
+		}
+
+		const projectIds = links.map((link) => link.projectId);
 
 		// Be mindful of Zoho Projects rate limits (100 requests / 2 min).
 		// Lower parallelism for larger project sets while still returning all linked projects.
@@ -67,17 +96,23 @@ export const GET: RequestHandler = async ({ cookies }) => {
 				console.error(`Failed to fetch Zoho Projects project ${projectId}:`, message);
 				return null;
 			}
-		});
+			});
 
-		const normalized = projects.filter((project) => Boolean(project));
-		if (normalized.length === 0) {
-			throw error(502, 'Unable to fetch project details from Zoho Projects');
-		}
+			const normalized = projects.filter((project) => Boolean(project));
+			const seenIds = new Set(normalized.map((project) => getProjectId(project)).filter(Boolean));
+			const merged = [
+				...normalized,
+				...toFallbackProjects(links).filter((project) => !seenIds.has(getProjectId(project)))
+			];
 
-		return json({ projects: normalized });
-	} catch (err) {
-		console.error('Failed to fetch Zoho Projects projects:', err);
-		if (err instanceof Error && 'status' in err) {
+			if (merged.length === 0) {
+				return json({ projects: toFallbackProjects(links) });
+			}
+
+			return json({ projects: merged });
+		} catch (err) {
+			console.error('Failed to fetch Zoho Projects projects:', err);
+			if (err instanceof Error && 'status' in err) {
 			throw err;
 		}
 		throw error(500, 'Failed to fetch projects');

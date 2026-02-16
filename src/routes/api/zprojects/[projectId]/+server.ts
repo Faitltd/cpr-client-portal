@@ -5,8 +5,9 @@ import {
 	getAllProjectActivities,
 	getAllProjectTasks,
 	getProject,
-	getProjectIdsForContact,
+	getProjectLinksForContact,
 	getProjectMilestones,
+	isProjectsPortalConfigured
 } from '$lib/server/projects';
 
 function normalizeProjectResponse(payload: any) {
@@ -19,6 +20,25 @@ function normalizeProjectResponse(payload: any) {
 function pickArray(payload: any, key: string) {
 	const value = payload?.[key];
 	return Array.isArray(value) ? value : [];
+}
+
+function toFallbackProject(link: {
+	projectId: string;
+	dealId: string | null;
+	dealName: string | null;
+	stage: string | null;
+	modifiedTime: string | null;
+}) {
+	return {
+		id: link.projectId,
+		name: link.dealName || `Project ${link.projectId}`,
+		status: link.stage || 'Mapped in CRM',
+		start_date: null,
+		end_date: null,
+		deal_id: link.dealId,
+		modified_time: link.modifiedTime,
+		source: 'crm'
+	};
 }
 
 // GET /api/zprojects/:projectId
@@ -39,9 +59,19 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const projectId = params.projectId;
 	if (!projectId) throw error(400, 'Project ID required');
 
-	const authorizedIds = await getProjectIdsForContact(zohoContactId);
-	if (!authorizedIds.includes(projectId)) {
+	const projectLinks = await getProjectLinksForContact(zohoContactId);
+	const link = projectLinks.find((item) => item.projectId === projectId);
+	if (!link) {
 		throw error(403, 'Not authorized for this project');
+	}
+
+	if (!isProjectsPortalConfigured()) {
+		return json({
+			project: toFallbackProject(link),
+			tasks: [],
+			milestones: [],
+			activities: []
+		});
 	}
 
 	try {
@@ -60,6 +90,11 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		return json({ project, tasks, milestones, activities });
 	} catch (err) {
 		console.error('Failed to fetch Zoho Projects project detail:', err);
-		throw error(500, 'Failed to fetch project');
+		return json({
+			project: toFallbackProject(link),
+			tasks: [],
+			milestones: [],
+			activities: []
+		});
 	}
 };
