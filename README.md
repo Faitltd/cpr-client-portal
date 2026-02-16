@@ -40,7 +40,7 @@ cp .env.example .env
 4. Register your application in Zoho Developer Console:
    - Application Type: Server-based
    - Authorized Redirect URI: `http://localhost:5173/auth/callback` (development)
-   - Required Scopes: use the `ZOHO_SCOPE` value from `.env.example`
+   - Required Scopes: use the `ZOHO_SCOPE` value from `.env.example` (comma-separated, no extra tokens)
 
 5. Update `.env` with your credentials:
    - `ZOHO_CLIENT_ID`
@@ -67,6 +67,7 @@ npm run dev
 
 9. If you add scopes later:
    - Re-authorize via `/auth/login` so the stored refresh token includes new scopes.
+   - The login route now ignores unknown scope tokens in `ZOHO_SCOPE` to prevent OAuth failures.
 
 10. Zoho Projects portal discovery:
    - Log in as admin and call `/api/zprojects/portals`

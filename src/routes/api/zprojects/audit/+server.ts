@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { isValidAdminSession } from '$lib/server/admin';
 import { isPortalActiveStage } from '$lib/server/auth';
 import { getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { getProject, isProjectsPortalConfigured, parseZohoProjectIds } from '$lib/server/projects';
+import { getProject, parseZohoProjectIds } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
 const AUDIT_DEAL_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Zoho_Projects_ID', 'Modified_Time'].join(',');
@@ -163,57 +163,56 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	}> = [];
 
 	if (mappedProjectIds.length > 0) {
-		if (!isProjectsPortalConfigured()) {
-			projectsError = 'ZOHO_PROJECTS_PORTAL_ID is not configured.';
-		} else {
-			const maxProjectLookups = 120;
-			const lookupIds = mappedProjectIds.slice(0, maxProjectLookups);
-			const projectResults = await mapWithConcurrency(lookupIds, 3, async (projectId) => {
-				try {
-					const response = await getProject(projectId);
-					const project = normalizeProjectResponse(response);
-					return { projectId, project, error: null as string | null };
-				} catch (err) {
-					const message = err instanceof Error ? err.message : String(err);
-					return { projectId, project: null, error: message };
-				}
-			});
+		const maxProjectLookups = 120;
+		const lookupIds = mappedProjectIds.slice(0, maxProjectLookups);
+		const projectResults = await mapWithConcurrency(lookupIds, 3, async (projectId) => {
+			try {
+				const response = await getProject(projectId);
+				const project = normalizeProjectResponse(response);
+				return { projectId, project, error: null as string | null };
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				return { projectId, project: null, error: message };
+			}
+		});
 
-			const resolved = projectResults.filter((item) => item.project && !item.error);
-			resolvedProjects = resolved.length;
-			unresolvedProjectIds = projectResults.filter((item) => !item.project).map((item) => item.projectId);
-
-			sampleProjects = resolved.slice(0, 30).map((item) => {
-				const project = item.project as any;
-				return {
-					projectId: item.projectId,
-					name:
-						typeof project?.name === 'string'
-							? project.name
-							: typeof project?.project_name === 'string'
-								? project.project_name
-								: null,
-					status:
-						typeof project?.status === 'string'
-							? project.status
-							: typeof project?.project_status === 'string'
-								? project.project_status
-								: null,
-					startDate:
-						typeof project?.start_date === 'string'
-							? project.start_date
-							: typeof project?.start_date_string === 'string'
-								? project.start_date_string
-								: null,
-					endDate:
-						typeof project?.end_date === 'string'
-							? project.end_date
-							: typeof project?.end_date_string === 'string'
-								? project.end_date_string
-								: null
-				};
-			});
+		const resolved = projectResults.filter((item) => item.project && !item.error);
+		resolvedProjects = resolved.length;
+		unresolvedProjectIds = projectResults.filter((item) => !item.project).map((item) => item.projectId);
+		if (resolvedProjects === 0) {
+			projectsError = projectResults.find((item) => item.error)?.error || null;
 		}
+
+		sampleProjects = resolved.slice(0, 30).map((item) => {
+			const project = item.project as any;
+			return {
+				projectId: item.projectId,
+				name:
+					typeof project?.name === 'string'
+						? project.name
+						: typeof project?.project_name === 'string'
+							? project.project_name
+							: null,
+				status:
+					typeof project?.status === 'string'
+						? project.status
+						: typeof project?.project_status === 'string'
+							? project.project_status
+							: null,
+				startDate:
+					typeof project?.start_date === 'string'
+						? project.start_date
+						: typeof project?.start_date_string === 'string'
+							? project.start_date_string
+							: null,
+				endDate:
+					typeof project?.end_date === 'string'
+						? project.end_date
+						: typeof project?.end_date_string === 'string'
+							? project.end_date_string
+							: null
+			};
+		});
 	}
 
 	return json({

@@ -64,22 +64,15 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		throw error(403, 'Not authorized for this project');
 	}
 
-	try {
-		const [projectRes, tasksRes, milestonesRes, activitiesRes] = await Promise.all([
-			getProject(projectId),
-			getAllProjectTasks(projectId, 100),
-			getProjectMilestones(projectId),
-			getAllProjectActivities(projectId, 50)
-		]);
+	const [projectResult, tasksResult, milestonesResult, activitiesResult] = await Promise.allSettled([
+		getProject(projectId),
+		getAllProjectTasks(projectId, 100),
+		getProjectMilestones(projectId),
+		getAllProjectActivities(projectId, 50)
+	]);
 
-		const project = normalizeProjectResponse(projectRes);
-		const tasks = Array.isArray(tasksRes) ? tasksRes : [];
-		const milestones = pickArray(milestonesRes, 'milestones');
-		const activities = Array.isArray(activitiesRes) ? activitiesRes : [];
-
-		return json({ project, tasks, milestones, activities });
-	} catch (err) {
-		console.error('Failed to fetch Zoho Projects project detail:', err);
+	if (projectResult.status === 'rejected') {
+		console.error('Failed to fetch Zoho Projects project detail:', projectResult.reason);
 		return json({
 			project: toFallbackProject(link),
 			tasks: [],
@@ -87,4 +80,25 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 			activities: []
 		});
 	}
+
+	const project = normalizeProjectResponse(projectResult.value);
+	const tasks = tasksResult.status === 'fulfilled' && Array.isArray(tasksResult.value) ? tasksResult.value : [];
+	const milestones =
+		milestonesResult.status === 'fulfilled' ? pickArray(milestonesResult.value, 'milestones') : [];
+	const activities =
+		activitiesResult.status === 'fulfilled' && Array.isArray(activitiesResult.value)
+			? activitiesResult.value
+			: [];
+
+	if (tasksResult.status === 'rejected') {
+		console.warn(`Failed to fetch Zoho Projects tasks for ${projectId}:`, tasksResult.reason);
+	}
+	if (milestonesResult.status === 'rejected') {
+		console.warn(`Failed to fetch Zoho Projects milestones for ${projectId}:`, milestonesResult.reason);
+	}
+	if (activitiesResult.status === 'rejected') {
+		console.warn(`Failed to fetch Zoho Projects activities for ${projectId}:`, activitiesResult.reason);
+	}
+
+	return json({ project, tasks, milestones, activities });
 };
