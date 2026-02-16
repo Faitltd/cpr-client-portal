@@ -18,6 +18,7 @@ const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_ROUTE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 80;
+const MAX_TASKLIST_TASK_LOOKUPS = 40;
 const MAX_PROJECT_ROUTE_ATTEMPTS = 12;
 const KNOWN_PROJECTS_API_BASES = [
 	'https://projectsapi.zoho.com',
@@ -1185,6 +1186,168 @@ function parseProjectUsers(payload: any) {
 	return [];
 }
 
+function parseProjectTasklists(payload: any) {
+	if (!payload) return [];
+	if (Array.isArray(payload?.tasklists)) return payload.tasklists;
+	if (Array.isArray(payload?.tasklist)) return payload.tasklist;
+	if (Array.isArray(payload?.task_lists)) return payload.task_lists;
+	if (Array.isArray(payload?.data)) return payload.data;
+	return [];
+}
+
+function parseProjectTasks(payload: any) {
+	const arrays: any[][] = [];
+	const addArray = (value: unknown) => {
+		if (Array.isArray(value)) arrays.push(value as any[]);
+	};
+
+	addArray(payload);
+	if (payload && typeof payload === 'object') {
+		addArray(payload?.tasks);
+		addArray(payload?.task);
+		addArray(payload?.task_details);
+		addArray(payload?.data);
+		addArray(payload?.items);
+
+		if (payload?.tasks && typeof payload.tasks === 'object') {
+			addArray(payload.tasks?.tasks);
+			addArray(payload.tasks?.task);
+			addArray(payload.tasks?.data);
+		}
+
+		if (payload?.task && typeof payload.task === 'object') {
+			addArray(payload.task?.tasks);
+			addArray(payload.task?.task);
+			addArray(payload.task?.data);
+		}
+
+		const tasklists = parseProjectTasklists(payload);
+		for (const tasklist of tasklists) {
+			addArray(tasklist?.tasks);
+			addArray(tasklist?.task);
+			addArray(tasklist?.task_details);
+			addArray(tasklist?.data);
+		}
+	}
+
+	const merged: any[] = [];
+	for (const items of arrays) {
+		for (const item of items) {
+			if (!item || typeof item !== 'object') continue;
+			merged.push(item);
+		}
+	}
+	return merged;
+}
+
+function getProjectTaskDedupKey(task: any) {
+	const idCandidates = [task?.id, task?.task_id, task?.taskId, task?.key];
+	for (const candidate of idCandidates) {
+		if (candidate === null || candidate === undefined) continue;
+		const trimmed = String(candidate).trim();
+		if (trimmed) return `id:${trimmed}`;
+	}
+
+	const name =
+		typeof task?.name === 'string'
+			? task.name.trim()
+			: typeof task?.task_name === 'string'
+				? task.task_name.trim()
+				: typeof task?.title === 'string'
+					? task.title.trim()
+					: '';
+	const status =
+		typeof task?.status === 'string'
+			? task.status.trim()
+			: typeof task?.task_status === 'string'
+				? task.task_status.trim()
+				: typeof task?.status_name === 'string'
+					? task.status_name.trim()
+					: '';
+	const start =
+		typeof task?.start_date === 'string'
+			? task.start_date.trim()
+			: typeof task?.start_time === 'string'
+				? task.start_time.trim()
+				: '';
+	const end =
+		typeof task?.end_date === 'string'
+			? task.end_date.trim()
+			: typeof task?.due_date === 'string'
+				? task.due_date.trim()
+				: '';
+
+	const fingerprint = `${name}|${status}|${start}|${end}`;
+	if (fingerprint !== '|||') return `meta:${fingerprint}`;
+
+	try {
+		return `json:${JSON.stringify(task)}`;
+	} catch {
+		return 'json:{}';
+	}
+}
+
+function dedupeProjectTasks(tasks: any[]) {
+	const deduped: any[] = [];
+	const seen = new Set<string>();
+	for (const task of tasks || []) {
+		const key = getProjectTaskDedupKey(task);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		deduped.push(task);
+	}
+	return deduped;
+}
+
+function getProjectTasklistId(tasklist: any) {
+	if (!tasklist || typeof tasklist !== 'object') return '';
+	const candidates = [tasklist.id, tasklist.tasklist_id, tasklist.task_list_id, tasklist.tasklistId];
+	for (const candidate of candidates) {
+		if (candidate === null || candidate === undefined) continue;
+		const trimmed = String(candidate).trim();
+		if (trimmed) return trimmed;
+	}
+	return '';
+}
+
+async function fetchAllTasksForEndpoint(
+	baseEndpoint: string,
+	perPage: number,
+	extraParams?: Record<string, string>
+) {
+	const collected: any[] = [];
+	const seen = new Set<string>();
+
+	for (let page = 1; page <= MAX_PAGES; page += 1) {
+		const query = new URLSearchParams();
+		query.set('page', String(page));
+		query.set('per_page', String(perPage));
+		for (const [key, value] of Object.entries(extraParams || {})) {
+			if (!value) continue;
+			query.set(key, value);
+		}
+		const qs = query.toString();
+		const endpoint = qs ? `${baseEndpoint}?${qs}` : baseEndpoint;
+		const payload = await projectsApiCall(endpoint);
+		const items = dedupeProjectTasks(parseProjectTasks(payload));
+		if (items.length === 0) return { tasks: dedupeProjectTasks(collected), hadSuccess: true };
+
+		let newCount = 0;
+		for (const item of items) {
+			const key = getProjectTaskDedupKey(item);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			collected.push(item);
+			newCount += 1;
+		}
+
+		if (newCount === 0) return { tasks: dedupeProjectTasks(collected), hadSuccess: true };
+		if (!hasMorePages(payload, items.length, perPage)) return { tasks: dedupeProjectTasks(collected), hadSuccess: true };
+	}
+
+	return { tasks: dedupeProjectTasks(collected), hadSuccess: true };
+}
+
 async function getProjectCatalogForMatching() {
 	if (projectCatalogCache && Date.now() - projectCatalogCache.fetchedAt < PROJECT_CATALOG_CACHE_TTL_MS) {
 		return projectCatalogCache.projects;
@@ -1546,11 +1709,19 @@ export async function getProjectTasks(
 	params?: {
 		page?: number;
 		per_page?: number;
+		status?: string;
+		view_type?: string;
+		index?: number;
+		range?: number;
 	}
 ) {
 	const query = new URLSearchParams();
 	if (params?.page) query.set('page', String(params.page));
 	if (params?.per_page) query.set('per_page', String(params.per_page));
+	if (params?.status) query.set('status', String(params.status));
+	if (params?.view_type) query.set('view_type', String(params.view_type));
+	if (params?.index !== undefined) query.set('index', String(params.index));
+	if (params?.range !== undefined) query.set('range', String(params.range));
 	const qs = query.toString() ? `?${query}` : '';
 	return projectsApiCall(`/projects/${projectId}/tasks${qs}`);
 }
@@ -1578,7 +1749,65 @@ export async function getProjectActivities(
 }
 
 export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PAGE_SIZE) {
-	return fetchAllPages((page, size) => `/projects/${projectId}/tasks?page=${page}&per_page=${size}`, 'tasks', perPage);
+	let lastError: unknown = null;
+	let hadSuccessfulTaskFetch = false;
+
+	const endpointStrategies: Array<Record<string, string>> = [
+		{ status: 'all', view_type: 'all' },
+		{ status: 'all' },
+		{}
+	];
+
+	for (const strategy of endpointStrategies) {
+		try {
+			const result = await fetchAllTasksForEndpoint(`/projects/${projectId}/tasks`, perPage, strategy);
+			if (result.hadSuccess) hadSuccessfulTaskFetch = true;
+			if (result.tasks.length > 0) return result.tasks;
+		} catch (err) {
+			lastError = err;
+		}
+	}
+
+	try {
+		const tasklistsPayload = await getProjectTasklists(projectId);
+		const tasklists = parseProjectTasklists(tasklistsPayload);
+		const tasklistIds = Array.from(
+			new Set(
+				tasklists
+					.map((tasklist: any) => getProjectTasklistId(tasklist))
+					.filter((tasklistId: string): tasklistId is string => Boolean(tasklistId))
+			)
+		).slice(0, MAX_TASKLIST_TASK_LOOKUPS);
+
+		if (tasklistIds.length > 0) {
+			const tasklistResults = await mapWithConcurrency(tasklistIds, 2, async (tasklistId) => {
+				for (const strategy of endpointStrategies) {
+					try {
+						const result = await fetchAllTasksForEndpoint(
+							`/projects/${projectId}/tasklists/${tasklistId}/tasks`,
+							perPage,
+							strategy
+						);
+						if (result.tasks.length > 0) return result.tasks;
+					} catch {
+						// Continue trying additional tasklist fetch variants.
+					}
+				}
+				return [] as any[];
+			});
+
+			const mergedTasklistTasks = dedupeProjectTasks(tasklistResults.flat());
+			if (mergedTasklistTasks.length > 0) return mergedTasklistTasks;
+			hadSuccessfulTaskFetch = true;
+		}
+	} catch (err) {
+		lastError = lastError ?? err;
+	}
+
+	if (!hadSuccessfulTaskFetch && lastError) {
+		throw lastError;
+	}
+	return [];
 }
 
 export async function getAllProjectActivities(projectId: string, perPage = DEFAULT_PAGE_SIZE) {

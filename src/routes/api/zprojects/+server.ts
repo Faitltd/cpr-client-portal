@@ -175,8 +175,23 @@ function attachProjectTaskSummary(project: any, tasks: any[]) {
 	if (!project || typeof project !== 'object') return project;
 	if (!Array.isArray(tasks)) return project;
 
-	const taskCount = tasks.length;
-	const completedCount = tasks.filter((task) => isProjectTaskCompleted(task)).length;
+	const existingTaskCount = toCount(
+		project?.task_count ??
+			project?.tasks_count ??
+			project?.task_total ??
+			project?.task_count_total ??
+			project?.open_task_count
+	);
+	const existingCompletedCount = toCount(
+		project?.task_completed_count ??
+			project?.completed_task_count ??
+			project?.completed_tasks_count ??
+			project?.closed_task_count
+	);
+	const fetchedTaskCount = tasks.length;
+	const taskCount = fetchedTaskCount > 0 ? fetchedTaskCount : (existingTaskCount ?? 0);
+	const completedCount =
+		fetchedTaskCount > 0 ? tasks.filter((task) => isProjectTaskCompleted(task)).length : existingCompletedCount;
 	const taskPreview = tasks.slice(0, PROJECT_TASK_PREVIEW_LIMIT).map((task, index) => ({
 		id: task?.id ? String(task.id) : `task-${index + 1}`,
 		name: getProjectTaskName(task, index),
@@ -188,7 +203,8 @@ function attachProjectTaskSummary(project: any, tasks: any[]) {
 		...project,
 		task_count: taskCount,
 		task_completed_count: completedCount,
-		task_preview: taskPreview
+		task_preview: taskPreview,
+		source: typeof project?.source === 'string' && project.source.trim() ? project.source : 'zprojects'
 	};
 }
 
@@ -401,7 +417,16 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 				}
 			});
 
-			const normalized = projects.filter(Boolean);
+			const normalized = projects
+				.filter(Boolean)
+				.map((project) =>
+					typeof project?.source === 'string' && project.source.trim()
+						? project
+						: {
+								...project,
+								source: 'zprojects'
+							}
+				);
 			const seenIds = new Set(normalized.map((project) => getProjectId(project)).filter(Boolean));
 				const missingMappedProjects = mappedFallbackProjects.filter(
 					(project) => !seenIds.has(getProjectId(project))
