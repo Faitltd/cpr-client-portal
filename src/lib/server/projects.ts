@@ -451,6 +451,55 @@ function isTaskActivity(record: any) {
 	return Boolean(type && type.includes('task'));
 }
 
+function escapeCoqlString(value: string) {
+	return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+async function countDealTasksViaTasksSearch(accessToken: string, dealId: string) {
+	let count = 0;
+	const encodedCriteria = encodeURIComponent(`(What_Id:equals:${dealId})`);
+
+	for (let page = 1; page <= CRM_RELATED_LIST_MAX_PAGES; page += 1) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Tasks/search?criteria=${encodedCriteria}&per_page=${CRM_RELATED_LIST_PAGE_SIZE}&page=${page}`
+		);
+
+		const items = pickCrmArray(response, 'Tasks');
+		if (items.length === 0) break;
+		count += items.length;
+
+		if (!hasMorePages(response, items.length, CRM_RELATED_LIST_PAGE_SIZE)) break;
+	}
+
+	return count;
+}
+
+async function countDealTasksViaTasksCoql(accessToken: string, dealId: string) {
+	let count = 0;
+	const escapedDealId = escapeCoqlString(dealId);
+
+	for (let page = 0; page < CRM_RELATED_LIST_MAX_PAGES; page += 1) {
+		const offset = page * CRM_RELATED_LIST_PAGE_SIZE;
+		const query = {
+			select_query: `SELECT id FROM Tasks WHERE What_Id = '${escapedDealId}' LIMIT ${CRM_RELATED_LIST_PAGE_SIZE} OFFSET ${offset}`
+		};
+
+		const response = await zohoApiCall(accessToken, '/coql', {
+			method: 'POST',
+			body: JSON.stringify(query)
+		});
+
+		const items = pickCrmArray(response, 'data');
+		if (items.length === 0) break;
+		count += items.length;
+
+		if (items.length < CRM_RELATED_LIST_PAGE_SIZE) break;
+	}
+
+	return count;
+}
+
 async function countDealRelatedListRecords(
 	accessToken: string,
 	dealId: string,
@@ -483,6 +532,20 @@ async function countDealRelatedListRecords(
 }
 
 async function getDealTaskCount(accessToken: string, dealId: string): Promise<number | null> {
+	const successfulCounts: number[] = [];
+
+	try {
+		successfulCounts.push(await countDealTasksViaTasksSearch(accessToken, dealId));
+	} catch {
+		// Continue trying additional task-count strategies.
+	}
+
+	try {
+		successfulCounts.push(await countDealTasksViaTasksCoql(accessToken, dealId));
+	} catch {
+		// Continue trying additional task-count strategies.
+	}
+
 	const candidates: Array<{ apiName: string; taskOnly?: boolean }> = [
 		{ apiName: 'Tasks' },
 		{ apiName: 'Activities', taskOnly: true },
@@ -491,15 +554,17 @@ async function getDealTaskCount(accessToken: string, dealId: string): Promise<nu
 
 	for (const candidate of candidates) {
 		try {
-			return await countDealRelatedListRecords(accessToken, dealId, candidate.apiName, {
+			const count = await countDealRelatedListRecords(accessToken, dealId, candidate.apiName, {
 				taskOnly: candidate.taskOnly
 			});
+			successfulCounts.push(count);
 		} catch {
 			// Continue trying additional related-list candidates.
 		}
 	}
 
-	return null;
+	if (successfulCounts.length === 0) return null;
+	return Math.max(...successfulCounts);
 }
 
 export async function getDealTaskCounts(
