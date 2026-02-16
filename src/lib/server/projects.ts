@@ -177,21 +177,56 @@ function parsePortalIdFromPayload(payload: any) {
 	return portalIds[0] || null;
 }
 
+function extractPortalIdFromUrl(value: unknown) {
+	if (typeof value !== 'string') return '';
+	const trimmed = value.trim();
+	if (!trimmed) return '';
+	const match = trimmed.match(/\/portal\/([a-z0-9_-]{3,})/i);
+	if (!match?.[1]) return '';
+	return match[1].trim();
+}
+
 function parsePortalIdsFromPayload(payload: any) {
-	const portals = Array.isArray(payload?.portals)
-		? payload.portals
-		: Array.isArray(payload?.data)
-			? payload.data
-			: [];
+	const portals = Array.isArray(payload)
+		? payload
+		: Array.isArray(payload?.portals)
+			? payload.portals
+			: Array.isArray(payload?.data)
+				? payload.data
+				: payload?.portal_details && typeof payload.portal_details === 'object'
+					? [payload.portal_details]
+					: [];
 	const portalIds: string[] = [];
 	const seen = new Set<string>();
 	for (const portal of portals) {
-		const id = portal?.id ?? portal?.portal_id ?? portal?.portalId ?? null;
-		if (id === null || id === undefined) continue;
-		const trimmed = String(id).trim();
-		if (!trimmed || seen.has(trimmed)) continue;
-		seen.add(trimmed);
-		portalIds.push(trimmed);
+		const directCandidates = [
+			portal?.id,
+			portal?.portal_id,
+			portal?.portalId,
+			portal?.zsoid,
+			portal?.org_id,
+			portal?.organization_id
+		];
+		for (const candidate of directCandidates) {
+			const trimmed = candidate === null || candidate === undefined ? '' : String(candidate).trim();
+			if (!trimmed || seen.has(trimmed)) continue;
+			seen.add(trimmed);
+			portalIds.push(trimmed);
+		}
+
+		const urlCandidates = [
+			portal?.link?.project?.url,
+			portal?.link?.self?.url,
+			portal?.project_url,
+			portal?.portal_url,
+			portal?.url
+		];
+		for (const urlCandidate of urlCandidates) {
+			const portalIdFromUrl = extractPortalIdFromUrl(urlCandidate);
+			if (!portalIdFromUrl || seen.has(portalIdFromUrl)) continue;
+			seen.add(portalIdFromUrl);
+			portalIds.push(portalIdFromUrl);
+		}
 	}
 	return portalIds;
 }
