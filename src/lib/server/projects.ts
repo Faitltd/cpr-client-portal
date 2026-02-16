@@ -367,14 +367,28 @@ function getDealName(deal: any) {
 	return getLookupName(deal.Deal_Name);
 }
 
+function getKnownDealProjectFieldApiNames() {
+	const names = new Set<string>(['Zoho_Projects_ID']);
+	const cached = dealProjectFieldApiNamesCache?.apiNames || [];
+	for (const apiName of cached) {
+		const normalized = normalizeDealFieldApiName(apiName);
+		if (normalized) names.add(normalized);
+	}
+	return Array.from(names);
+}
+
 function getDealProjectIdsForLinking(deal: any) {
 	const projectIds = new Set<string>();
 	if (!deal || typeof deal !== 'object') return [] as string[];
+	const knownFieldApiNames = getKnownDealProjectFieldApiNames();
+	const knownFieldApiNameSet = new Set<string>(knownFieldApiNames);
 
-	addProjectIdsFromUnknownValue((deal as any)?.Zoho_Projects_ID, projectIds);
+	for (const apiName of knownFieldApiNames) {
+		addProjectIdsFromUnknownValue((deal as any)?.[apiName], projectIds);
+	}
 
 	for (const [key, value] of Object.entries(deal as Record<string, unknown>)) {
-		if (!key.toLowerCase().includes('project')) continue;
+		if (!key.toLowerCase().includes('project') && !knownFieldApiNameSet.has(key)) continue;
 		addProjectIdsFromUnknownValue(value, projectIds);
 	}
 
