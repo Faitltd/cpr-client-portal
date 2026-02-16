@@ -3,10 +3,29 @@ import type { RequestHandler } from './$types';
 import { isValidAdminSession } from '$lib/server/admin';
 import { isPortalActiveStage } from '$lib/server/auth';
 import { getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { parseZohoProjectIds } from '$lib/server/projects';
+import { getProject, isProjectsPortalConfigured, parseZohoProjectIds } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
 const AUDIT_DEAL_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Zoho_Projects_ID', 'Modified_Time'].join(',');
+
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	limit: number,
+	mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+	if (items.length === 0) return [];
+	const results: R[] = new Array(items.length);
+	let nextIndex = 0;
+	const workerCount = Math.min(limit, items.length);
+	const workers = Array.from({ length: workerCount }, async () => {
+		while (nextIndex < items.length) {
+			const index = nextIndex++;
+			results[index] = await mapper(items[index], index);
+		}
+	});
+	await Promise.all(workers);
+	return results;
+}
 
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
@@ -24,6 +43,13 @@ function getLookupName(value: unknown) {
 	const candidate = record.name ?? record.display_value ?? record.displayValue ?? null;
 	if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
 	return null;
+}
+
+function normalizeProjectResponse(payload: any) {
+	if (!payload) return null;
+	if (payload.project && typeof payload.project === 'object') return payload.project;
+	if (Array.isArray(payload.projects) && payload.projects[0]) return payload.projects[0];
+	return payload;
 }
 
 export const GET: RequestHandler = async ({ cookies }) => {
@@ -58,6 +84,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	let mappedDeals = 0;
 	let missingDeals = 0;
 	const stageCounts = new Map<string, number>();
+	const mappedProjectIdSet = new Set<string>();
 	const missingByContact = new Map<string, number>();
 	const sampleMissingDeals: Array<{
 		dealId: string;
@@ -86,6 +113,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 			const ids = parseZohoProjectIds(deal?.Zoho_Projects_ID);
 			if (ids.length > 0) {
+				for (const projectId of ids) {
+					mappedProjectIdSet.add(projectId);
+				}
 				mappedDeals += 1;
 				continue;
 			}
@@ -120,6 +150,72 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		.sort((a, b) => b[1] - a[1])
 		.map(([stage, count]) => ({ stage, count }));
 
+	const mappedProjectIds = Array.from(mappedProjectIdSet);
+	let resolvedProjects = 0;
+	let unresolvedProjectIds: string[] = [];
+	let projectsError: string | null = null;
+	let sampleProjects: Array<{
+		projectId: string;
+		name: string | null;
+		status: string | null;
+		startDate: string | null;
+		endDate: string | null;
+	}> = [];
+
+	if (mappedProjectIds.length > 0) {
+		if (!isProjectsPortalConfigured()) {
+			projectsError = 'ZOHO_PROJECTS_PORTAL_ID is not configured.';
+		} else {
+			const maxProjectLookups = 120;
+			const lookupIds = mappedProjectIds.slice(0, maxProjectLookups);
+			const projectResults = await mapWithConcurrency(lookupIds, 3, async (projectId) => {
+				try {
+					const response = await getProject(projectId);
+					const project = normalizeProjectResponse(response);
+					return { projectId, project, error: null as string | null };
+				} catch (err) {
+					const message = err instanceof Error ? err.message : String(err);
+					return { projectId, project: null, error: message };
+				}
+			});
+
+			const resolved = projectResults.filter((item) => item.project && !item.error);
+			resolvedProjects = resolved.length;
+			unresolvedProjectIds = projectResults.filter((item) => !item.project).map((item) => item.projectId);
+
+			sampleProjects = resolved.slice(0, 30).map((item) => {
+				const project = item.project as any;
+				return {
+					projectId: item.projectId,
+					name:
+						typeof project?.name === 'string'
+							? project.name
+							: typeof project?.project_name === 'string'
+								? project.project_name
+								: null,
+					status:
+						typeof project?.status === 'string'
+							? project.status
+							: typeof project?.project_status === 'string'
+								? project.project_status
+								: null,
+					startDate:
+						typeof project?.start_date === 'string'
+							? project.start_date
+							: typeof project?.start_date_string === 'string'
+								? project.start_date_string
+								: null,
+					endDate:
+						typeof project?.end_date === 'string'
+							? project.end_date
+							: typeof project?.end_date_string === 'string'
+								? project.end_date_string
+								: null
+				};
+			});
+		}
+	}
+
 	return json({
 		summary: {
 			scannedDeals,
@@ -127,10 +223,18 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			mappedDeals,
 			missingDeals,
 			missingPercent: activeDeals > 0 ? Number(((missingDeals / activeDeals) * 100).toFixed(2)) : 0,
-			uniqueContactsMissing: missingByContact.size
+			uniqueContactsMissing: missingByContact.size,
+			mappedProjectIds: mappedProjectIds.length,
+			resolvedProjects
 		},
 		stages,
+		projects: {
+			mappedProjectIds,
+			resolvedProjects,
+			unresolvedProjectIds,
+			sampleProjects,
+			projectsError
+		},
 		sampleMissingDeals
 	});
 };
-

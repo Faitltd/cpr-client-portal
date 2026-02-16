@@ -6,17 +6,28 @@
 	export let form:
 		| {
 				message?: string;
-				audit?: {
-					scannedDeals: number;
-					activeDeals: number;
-					mappedDeals: number;
-					missingDeals: number;
-					missingPercent: number;
-					topStages: string[];
-					sampleMissingDeals: Array<{
-						dealId: string;
-						dealName: string | null;
-						stage: string | null;
+					audit?: {
+						scannedDeals: number;
+						activeDeals: number;
+						mappedDeals: number;
+						missingDeals: number;
+						missingPercent: number;
+						mappedProjectIds: number;
+						resolvedProjects: number;
+						unresolvedProjectIds: string[];
+						sampleProjects: Array<{
+							projectId: string;
+							name: string | null;
+							status: string | null;
+							startDate: string | null;
+							endDate: string | null;
+						}>;
+						projectsError: string | null;
+						topStages: string[];
+						sampleMissingDeals: Array<{
+							dealId: string;
+							dealName: string | null;
+							stage: string | null;
 						contactName: string | null;
 						modifiedTime: string | null;
 					}>;
@@ -67,8 +78,39 @@
 				<p>Active-stage deals: {form.audit.activeDeals}</p>
 				<p>Mapped deals: {form.audit.mappedDeals}</p>
 				<p>Missing mappings: {form.audit.missingDeals} ({form.audit.missingPercent}%)</p>
+				<p>Unique mapped project IDs: {form.audit.mappedProjectIds}</p>
+				<p>Resolved Zoho Projects: {form.audit.resolvedProjects}</p>
+				{#if form.audit.projectsError}
+					<p>Projects lookup error: {form.audit.projectsError}</p>
+				{/if}
 				{#if form.audit.topStages.length > 0}
 					<p>Top active stages: {form.audit.topStages.join(', ')}</p>
+				{/if}
+				{#if form.audit.sampleProjects.length > 0}
+					<details>
+						<summary>Resolved projects ({form.audit.sampleProjects.length})</summary>
+						<ul>
+							{#each form.audit.sampleProjects as project}
+								<li>
+									<strong>{project.name || 'Untitled project'}</strong>
+									<span> [{project.projectId}]</span>
+									{#if project.status}
+										<span> • {project.status}</span>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
+				{#if form.audit.unresolvedProjectIds.length > 0}
+					<details>
+						<summary>Unresolved project IDs ({form.audit.unresolvedProjectIds.length})</summary>
+						<ul>
+							{#each form.audit.unresolvedProjectIds as id}
+								<li>{id}</li>
+							{/each}
+						</ul>
+					</details>
 				{/if}
 				{#if form.audit.sampleMissingDeals.length > 0}
 					<details>
