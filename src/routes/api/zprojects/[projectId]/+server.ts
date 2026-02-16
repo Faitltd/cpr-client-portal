@@ -5,7 +5,7 @@ import {
 	getAllProjectActivities,
 	getAllProjectTasks,
 	getProject,
-	getProjectLinksForContact,
+	getProjectLinksForClient,
 	getProjectMilestones,
 	isProjectsPortalConfigured
 } from '$lib/server/projects';
@@ -59,7 +59,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const projectId = params.projectId;
 	if (!projectId) throw error(400, 'Project ID required');
 
-	const projectLinks = await getProjectLinksForContact(zohoContactId);
+	const projectLinks = await getProjectLinksForClient(zohoContactId, session.client?.email ?? null);
 	const link = projectLinks.find((item) => item.projectId === projectId);
 	if (!link) {
 		throw error(403, 'Not authorized for this project');

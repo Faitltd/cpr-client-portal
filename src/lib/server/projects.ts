@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import { getContactDeals } from './auth';
+import { findContactByEmail, getContactDeals } from './auth';
 import { getZohoTokens, upsertZohoTokens } from './db';
 import { refreshAccessToken } from './zoho';
 
@@ -89,6 +89,26 @@ function getDealName(deal: any) {
 	if (!deal) return null;
 	if (typeof deal.Deal_Name === 'string' && deal.Deal_Name.trim()) return deal.Deal_Name.trim();
 	return getLookupName(deal.Deal_Name);
+}
+
+function getDealId(deal: any) {
+	if (!deal || typeof deal !== 'object') return null;
+	const id = deal.id ?? deal.Deal_ID ?? deal.deal_id ?? null;
+	return id === null || id === undefined ? null : String(id);
+}
+
+function dedupeDealsById(deals: any[]) {
+	const byId = new Map<string, any>();
+	const unnamed: any[] = [];
+	for (const deal of deals || []) {
+		const id = getDealId(deal);
+		if (!id) {
+			unnamed.push(deal);
+			continue;
+		}
+		if (!byId.has(id)) byId.set(id, deal);
+	}
+	return [...byId.values(), ...unnamed];
 }
 
 export type ContactProjectLink = {
@@ -313,8 +333,53 @@ export async function getProjectIdsForContact(zohoContactId: string): Promise<st
 }
 
 export async function getProjectLinksForContact(zohoContactId: string): Promise<ContactProjectLink[]> {
+	return getProjectLinksForClient(zohoContactId, null);
+}
+
+export async function getDealsForClient(
+	zohoContactId: string | null | undefined,
+	email?: string | null
+): Promise<any[]> {
 	const accessToken = await getValidAccessToken();
-	const deals = await getContactDeals(accessToken, zohoContactId);
+	const trimmedContactId = zohoContactId ? String(zohoContactId).trim() : '';
+	const trimmedEmail = email ? String(email).trim() : '';
+	const collectedDeals: any[] = [];
+
+	if (trimmedContactId) {
+		try {
+			const primaryDeals = await getContactDeals(accessToken, trimmedContactId);
+			if (Array.isArray(primaryDeals) && primaryDeals.length > 0) {
+				collectedDeals.push(...primaryDeals);
+				return dedupeDealsById(collectedDeals);
+			}
+		} catch (err) {
+			console.warn('Failed to fetch deals by session contact id', { contactId: trimmedContactId, err });
+		}
+	}
+
+	if (trimmedEmail) {
+		try {
+			const contact = await findContactByEmail(accessToken, trimmedEmail);
+			const resolvedContactId = contact?.zoho_contact_id ? String(contact.zoho_contact_id).trim() : '';
+			if (resolvedContactId && resolvedContactId !== trimmedContactId) {
+				const emailMatchedDeals = await getContactDeals(accessToken, resolvedContactId);
+				if (Array.isArray(emailMatchedDeals) && emailMatchedDeals.length > 0) {
+					collectedDeals.push(...emailMatchedDeals);
+				}
+			}
+		} catch (err) {
+			console.warn('Failed to resolve contact by email for deals fallback', { email: trimmedEmail, err });
+		}
+	}
+
+	return dedupeDealsById(collectedDeals);
+}
+
+export async function getProjectLinksForClient(
+	zohoContactId: string | null | undefined,
+	email?: string | null
+): Promise<ContactProjectLink[]> {
+	const deals = await getDealsForClient(zohoContactId, email);
 
 	const byProjectId = new Map<string, ContactProjectLink>();
 	for (const deal of deals || []) {

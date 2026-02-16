@@ -15,6 +15,13 @@
 
 	const getId = (project: any) =>
 		project?.id ?? project?.project_id ?? project?.project?.id ?? '';
+	const getHref = (project: any) => {
+		const source = project?.source;
+		const id = getId(project);
+		if (!id) return '/zprojects';
+		if (source === 'crm_deal') return `/project/${id}`;
+		return `/zprojects/${id}`;
+	};
 	const getName = (project: any) =>
 		project?.name ?? project?.project_name ?? project?.Project_Name ?? 'Untitled Project';
 	const getStatus = (project: any) =>
@@ -70,11 +77,11 @@
 	{:else}
 		<section class="projects-section">
 			<div class="projects-grid">
-				{#each projects as project}
-					<a class="project-card" href={`/zprojects/${getId(project)}`}>
-						<div class="project-info">
-							<h3>{getName(project)}</h3>
-							<p class="status">Status: {getStatus(project)}</p>
+					{#each projects as project}
+						<a class="project-card" href={getHref(project)}>
+							<div class="project-info">
+								<h3>{getName(project)}</h3>
+								<p class="status">Status: {getStatus(project)}</p>
 							<p class="date">
 								Dates: {formatDate(getStartDate(project))} to {formatDate(getEndDate(project))}
 							</p>
@@ -82,12 +89,12 @@
 								<span>Tasks: {getTaskCount(project) ?? '—'}</span>
 								<span>Milestones: {getMilestoneCount(project) ?? '—'}</span>
 							</div>
-						</div>
-						<div class="project-actions">
-							<span class="btn-view">View Details</span>
-						</div>
-					</a>
-				{/each}
+							</div>
+							<div class="project-actions">
+								<span class="btn-view">{project?.source === 'crm_deal' ? 'View Deal' : 'View Details'}</span>
+							</div>
+						</a>
+					{/each}
 			</div>
 		</section>
 	{/if}

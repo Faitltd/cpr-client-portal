@@ -2,9 +2,16 @@ import { json, error } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { zohoApiCall, refreshAccessToken } from '$lib/server/zoho';
 import { getContactDocuments, getDealNotes } from '$lib/server/auth';
+import { getDealsForClient } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
 const sanitizeText = (value: unknown) => String(value ?? '').trim();
+
+async function canClientAccessDeal(session: Awaited<ReturnType<typeof getSession>>, dealId: string) {
+	if (!session?.client) return false;
+	const deals = await getDealsForClient(session.client.zoho_contact_id, session.client.email);
+	return deals.some((deal) => String(deal?.id || '') === dealId);
+}
 
 async function getAccessToken() {
 	const tokens = await getZohoTokens();
@@ -58,10 +65,11 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 			throw error(404, 'Deal not found');
 		}
 
-		// Security: Verify this deal belongs to the authenticated contact
-		if (deal.Contact_Name?.id !== session.client.zoho_contact_id) {
-			throw error(403, 'Access denied to this project');
-		}
+			// Security: verify deal belongs to the authenticated client.
+			// Fallback accepts an email-resolved contact id if the stored contact id is stale.
+			if (!(await canClientAccessDeal(session, dealId))) {
+				throw error(403, 'Access denied to this project');
+			}
 
 		// Fetch related data
 		const [documents, notes] = await Promise.all([
@@ -125,9 +133,9 @@ export const PATCH: RequestHandler = async ({ params, cookies, request }) => {
 			throw error(404, 'Deal not found');
 		}
 
-		if (deal.Contact_Name?.id !== session.client.zoho_contact_id) {
-			throw error(403, 'Access denied to this project');
-		}
+			if (!(await canClientAccessDeal(session, dealId))) {
+				throw error(403, 'Access denied to this project');
+			}
 
 		const updateResponse = await zohoApiCall(
 			accessToken,
