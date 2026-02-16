@@ -10,10 +10,12 @@ const CRM_RELATED_LIST_PAGE_SIZE = 200;
 const CRM_RELATED_LIST_MAX_PAGES = 10;
 const MAX_DEAL_RELATED_PROJECT_LOOKUPS = 40;
 const PORTAL_ID_CACHE_TTL_MS = 10 * 60 * 1000;
+const PORTAL_IDS_CACHE_TTL_MS = 10 * 60 * 1000;
 const PROJECTS_API_BASE_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
+const PROJECT_ROUTE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 250;
 const KNOWN_PROJECTS_API_BASES = [
 	'https://projectsapi.zoho.com',
@@ -35,10 +37,12 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Zoho_Projects_ID'
 ].join(',');
 
-let discoveredPortalIdCache: { portalId: string; fetchedAt: number } | null = null;
+let discoveredPortalIdCache: { portalId: string; base: string; fetchedAt: number } | null = null;
 let discoveredProjectsApiBaseCache: { base: string; fetchedAt: number } | null = null;
 let dealProjectRelatedListApiNamesCache: { fetchedAt: number; apiNames: string[] } | null = null;
 let projectCatalogCache: { fetchedAt: number; projects: any[] } | null = null;
+const portalIdsByBaseCache = new Map<string, { fetchedAt: number; portalIds: string[] }>();
+const projectRouteByIdCache = new Map<string, { fetchedAt: number; base: string; portalId: string }>();
 const membershipProjectIdsByEmailCache = new Map<string, { fetchedAt: number; projectIds: string[] }>();
 
 function normalizeProjectsApiBase(value: string) {
@@ -111,27 +115,125 @@ function getPreferredProjectsApiBase() {
 }
 
 function parsePortalIdFromPayload(payload: any) {
+	const portalIds = parsePortalIdsFromPayload(payload);
+	return portalIds[0] || null;
+}
+
+function parsePortalIdsFromPayload(payload: any) {
 	const portals = Array.isArray(payload?.portals)
 		? payload.portals
 		: Array.isArray(payload?.data)
 			? payload.data
 			: [];
+	const portalIds: string[] = [];
+	const seen = new Set<string>();
 	for (const portal of portals) {
 		const id = portal?.id ?? portal?.portal_id ?? portal?.portalId ?? null;
 		if (id === null || id === undefined) continue;
 		const trimmed = String(id).trim();
-		if (trimmed) return trimmed;
+		if (!trimmed || seen.has(trimmed)) continue;
+		seen.add(trimmed);
+		portalIds.push(trimmed);
 	}
-	return null;
+	return portalIds;
+}
+
+function getCachedPortalIdsForBase(base: string) {
+	const cached = portalIdsByBaseCache.get(base);
+	if (!cached) return null;
+	if (Date.now() - cached.fetchedAt >= PORTAL_IDS_CACHE_TTL_MS) return null;
+	return cached.portalIds;
+}
+
+async function getPortalIdsForBase(accessToken: string, base: string) {
+	const cached = getCachedPortalIdsForBase(base);
+	if (cached) return cached;
+
+	const payload = await fetchPortalsPayload(accessToken, base);
+	const portalIds = parsePortalIdsFromPayload(payload);
+	if (portalIds.length > 0) {
+		discoveredPortalIdCache = {
+			portalId: portalIds[0],
+			base,
+			fetchedAt: Date.now()
+		};
+	}
+	portalIdsByBaseCache.set(base, { fetchedAt: Date.now(), portalIds });
+	return portalIds;
+}
+
+function extractProjectIdFromEndpoint(endpoint: string) {
+	const match = endpoint.match(/^\/projects\/([^/?#]+)/i);
+	if (!match?.[1]) return '';
+	return normalizeCandidateProjectId(match[1]);
+}
+
+function cacheProjectRoute(projectId: string, base: string, portalId: string) {
+	if (!projectId || !base || !portalId) return;
+	projectRouteByIdCache.set(projectId, {
+		fetchedAt: Date.now(),
+		base,
+		portalId
+	});
+}
+
+function getCachedProjectRoute(projectId: string) {
+	if (!projectId) return null;
+	const cached = projectRouteByIdCache.get(projectId);
+	if (!cached) return null;
+	if (Date.now() - cached.fetchedAt >= PROJECT_ROUTE_CACHE_TTL_MS) {
+		projectRouteByIdCache.delete(projectId);
+		return null;
+	}
+	return cached;
+}
+
+async function getPortalIdCandidatesForBase(accessToken: string, base: string, projectId?: string) {
+	const ids: string[] = [];
+	const seen = new Set<string>();
+	const addId = (value: string | null | undefined) => {
+		const id = value ? String(value).trim() : '';
+		if (!id || seen.has(id)) return;
+		seen.add(id);
+		ids.push(id);
+	};
+
+	if (projectId) {
+		const cachedRoute = getCachedProjectRoute(projectId);
+		if (cachedRoute?.base === base) {
+			addId(cachedRoute.portalId);
+		}
+	}
+
+	const configured = (env.ZOHO_PROJECTS_PORTAL_ID || '').trim();
+	addId(configured);
+
+	if (
+		discoveredPortalIdCache &&
+		discoveredPortalIdCache.base === base &&
+		Date.now() - discoveredPortalIdCache.fetchedAt < PORTAL_ID_CACHE_TTL_MS
+	) {
+		addId(discoveredPortalIdCache.portalId);
+	}
+
+	try {
+		const fetchedIds = await getPortalIdsForBase(accessToken, base);
+		for (const id of fetchedIds) addId(id);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.warn('Failed to list portal ids for base candidate', { base, error: message });
+	}
+
+	return ids;
 }
 
 async function discoverPortalId(accessToken: string) {
 	const errors: string[] = [];
 	for (const base of getProjectsApiBaseCandidates()) {
 		try {
-			const payload = await fetchPortalsPayload(accessToken, base);
+			const portalIds = await getPortalIdsForBase(accessToken, base);
 			cacheProjectsApiBase(base);
-			const portalId = parsePortalIdFromPayload(payload);
+			const portalId = portalIds[0] || null;
 			if (portalId) return portalId;
 			errors.push(`${base}: no portals returned`);
 		} catch (err) {
@@ -147,13 +249,24 @@ async function resolvePortalId(accessToken: string) {
 	const configured = (env.ZOHO_PROJECTS_PORTAL_ID || '').trim();
 	if (configured) return configured;
 
-	if (discoveredPortalIdCache && Date.now() - discoveredPortalIdCache.fetchedAt < PORTAL_ID_CACHE_TTL_MS) {
+	if (
+		discoveredPortalIdCache &&
+		Date.now() - discoveredPortalIdCache.fetchedAt < PORTAL_ID_CACHE_TTL_MS
+	) {
 		return discoveredPortalIdCache.portalId;
 	}
 
 	const discovered = await discoverPortalId(accessToken);
 	if (discovered) {
-		discoveredPortalIdCache = { portalId: discovered, fetchedAt: Date.now() };
+		const discoveredBase =
+			discoveredPortalIdCache?.portalId === discovered
+				? discoveredPortalIdCache.base
+				: getPreferredProjectsApiBase();
+		discoveredPortalIdCache = {
+			portalId: discovered,
+			base: discoveredBase,
+			fetchedAt: Date.now()
+		};
 		console.warn(
 			'Using auto-discovered Zoho Projects portal ID. Set ZOHO_PROJECTS_PORTAL_ID in env for stable production behavior.',
 			{ portalId: discovered }
@@ -817,50 +930,86 @@ async function getValidAccessToken(): Promise<string> {
 // Base pattern: https://projectsapi.zoho.com/api/v3/portal/{portal_id}/...
 export async function projectsApiCall(endpoint: string, options: RequestInit = {}) {
 	const accessToken = await getValidAccessToken();
-	const portalId = await resolvePortalId(accessToken);
 	const preferredBase = getPreferredProjectsApiBase();
+	const projectId = extractProjectIdFromEndpoint(endpoint);
+	const isProjectsListEndpoint = endpoint === '/projects' || endpoint.startsWith('/projects?');
 	const baseCandidates = [preferredBase, ...getProjectsApiBaseCandidates()]
 		.map((base) => normalizeProjectsApiBase(base))
 		.filter(Boolean);
 
 	const seenBases = new Set<string>();
 	const errors: string[] = [];
+	let firstEmptyProjectsPayload: any = null;
 
 	for (const base of baseCandidates) {
 		if (seenBases.has(base)) continue;
 		seenBases.add(base);
 
-		const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
-		const response = await fetch(url, {
-			...options,
-			headers: {
-				Authorization: `Zoho-oauthtoken ${accessToken}`,
-				'Content-Type': 'application/json',
-				...options.headers
+		let portalIds = await getPortalIdCandidatesForBase(accessToken, base, projectId || undefined);
+		if (portalIds.length === 0) {
+			try {
+				const fallbackPortalId = await resolvePortalId(accessToken);
+				if (fallbackPortalId) portalIds = [fallbackPortalId];
+			} catch {
+				// No fallback portal id found; continue to next base candidate.
+				portalIds = [];
 			}
-		});
-
-		if (response.status === 204) {
-			cacheProjectsApiBase(base);
-			return {};
 		}
 
-		if (response.status === 429) {
+		if (portalIds.length === 0) {
+			errors.push(`${base} -> no portal ids available`);
+			continue;
+		}
+
+		for (const portalId of portalIds) {
+			const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
+			const response = await fetch(url, {
+				...options,
+				headers: {
+					Authorization: `Zoho-oauthtoken ${accessToken}`,
+					'Content-Type': 'application/json',
+					...options.headers
+				}
+			});
+
+			if (response.status === 204) {
+				cacheProjectsApiBase(base);
+				discoveredPortalIdCache = { portalId, base, fetchedAt: Date.now() };
+				if (projectId) cacheProjectRoute(projectId, base, portalId);
+				return {};
+			}
+
+			if (response.status === 429) {
+				const text = await response.text().catch(() => '');
+				console.warn(
+					'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
+					{ endpoint, base, portalId, response: text }
+				);
+				throw new Error(`Zoho Projects API error 429: ${text}`);
+			}
+
+			if (response.ok) {
+				const payload = await response.json().catch(() => ({}));
+				const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+
+				if (isProjectsListEndpoint && projects.length === 0) {
+					if (firstEmptyProjectsPayload === null) firstEmptyProjectsPayload = payload;
+					continue;
+				}
+
+				cacheProjectsApiBase(base);
+				discoveredPortalIdCache = { portalId, base, fetchedAt: Date.now() };
+				if (projectId) cacheProjectRoute(projectId, base, portalId);
+				return payload;
+			}
+
 			const text = await response.text().catch(() => '');
-			console.warn(
-				'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
-				{ endpoint, base, response: text }
-			);
-			throw new Error(`Zoho Projects API error 429: ${text}`);
+			errors.push(`${base} portal ${portalId} -> ${response.status}: ${text}`);
 		}
+	}
 
-		if (response.ok) {
-			cacheProjectsApiBase(base);
-			return response.json();
-		}
-
-		const text = await response.text().catch(() => '');
-		errors.push(`${base} -> ${response.status}: ${text}`);
+	if (isProjectsListEndpoint && firstEmptyProjectsPayload !== null) {
+		return firstEmptyProjectsPayload;
 	}
 
 	throw new Error(
