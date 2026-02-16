@@ -497,10 +497,23 @@ function normalizeCandidateProjectId(value: string) {
 	const trimmed = value.trim();
 	if (!trimmed) return '';
 
-	const fromProjectUrl = trimmed.match(/\/projects\/(\d{6,})/i);
-	if (fromProjectUrl?.[1]) return fromProjectUrl[1];
+	// Direct ID token (Zoho projects IDs are usually long numeric strings, but some orgs
+	// persist identifiers with prefixes/suffixes or as URL fragments).
+	if (/^[a-z0-9_-]{6,}$/i.test(trimmed)) return trimmed;
 
-	return /^\d{6,}$/.test(trimmed) ? trimmed : '';
+	const fromProjectPath = trimmed.match(/\/projects?\/([a-z0-9_-]{6,})/i);
+	if (fromProjectPath?.[1]) return fromProjectPath[1];
+
+	const fromProjectParam = trimmed.match(
+		/(?:^|[?&#])(?:project(?:_id|id)?|proj(?:ect)?id)=([a-z0-9_-]{6,})/i
+	);
+	if (fromProjectParam?.[1]) return fromProjectParam[1];
+
+	const digitRuns = trimmed.match(/\d{6,}/g) || [];
+	if (digitRuns.length === 1) return digitRuns[0];
+	if (/project/i.test(trimmed) && digitRuns.length > 1) return digitRuns[0];
+
+	return '';
 }
 
 function addProjectIdsFromUnknownValue(value: unknown, output: Set<string>) {
