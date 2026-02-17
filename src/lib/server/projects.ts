@@ -1370,6 +1370,8 @@ async function fetchAllTasksForEndpoint(
 			if (!value) continue;
 			query.set(key, value);
 		}
+		if (!query.has('sort_column')) query.set('sort_column', 'created_time');
+		if (!query.has('sort_order')) query.set('sort_order', 'ascending');
 		const qs = query.toString();
 		const endpoint = qs ? `${baseEndpoint}?${qs}` : baseEndpoint;
 		const payload = await projectsApiCall(endpoint);
@@ -1835,7 +1837,7 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 		).slice(0, MAX_TASKLIST_TASK_LOOKUPS);
 
 		if (tasklistIds.length > 0) {
-			const tasklistResults = await mapWithConcurrency(tasklistIds, 2, async (tasklistId) => {
+			const tasklistResults = await mapWithConcurrency(tasklistIds, 1, async (tasklistId) => {
 				for (const strategy of endpointStrategies) {
 					try {
 						const result = await fetchAllTasksForEndpoint(
