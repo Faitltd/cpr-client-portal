@@ -75,16 +75,6 @@
 					.toLowerCase()
 					.includes('complete')
 		);
-	const getMilestoneCount = (project: any) => {
-		const direct = toCount(
-			project?.milestone_count ?? project?.milestones_count ?? project?.milestoneCount ?? null
-		);
-		if (direct !== null) return direct;
-		const open = toCount(project?.milestones?.open_count ?? project?.milestones?.open ?? null);
-		const closed = toCount(project?.milestones?.closed_count ?? project?.milestones?.closed ?? null);
-		if (open === null && closed === null) return null;
-		return (open ?? 0) + (closed ?? 0);
-	};
 
 	onMount(async () => {
 		try {
@@ -143,7 +133,6 @@
 								{#if getTaskCompletedCount(project) !== null && getTaskCount(project) !== null}
 									<span>Completed: {getTaskCompletedCount(project)}/{getTaskCount(project)}</span>
 								{/if}
-								<span>Milestones: {getMilestoneCount(project) ?? '—'}</span>
 							</div>
 							{#if getTaskPreview(project).length > 0}
 								<ul class="task-preview">
