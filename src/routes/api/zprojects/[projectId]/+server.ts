@@ -16,6 +16,33 @@ function normalizeProjectResponse(payload: any) {
 	return payload;
 }
 
+function toCount(value: unknown): number | null {
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		return value >= 0 ? Math.round(value) : null;
+	}
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		if (!trimmed) return null;
+		const parsed = Number(trimmed);
+		if (Number.isFinite(parsed) && parsed >= 0) return Math.round(parsed);
+		return null;
+	}
+	return null;
+}
+
+function getTaskCountHint(project: any): number | null {
+	const direct = toCount(project?.task_count ?? project?.tasks_count ?? project?.task_total);
+	if (direct !== null) return direct;
+	const tasks = project?.tasks;
+	if (!tasks || typeof tasks !== 'object') return null;
+	const total = toCount(tasks.total_count ?? tasks.count ?? tasks.total);
+	if (total !== null) return total;
+	const open = toCount(tasks.open_count ?? tasks.open);
+	const closed = toCount(tasks.closed_count ?? tasks.closed);
+	if (open === null && closed === null) return null;
+	return (open ?? 0) + (closed ?? 0);
+}
+
 function pickArray(payload: any, key: string) {
 	const value = payload?.[key];
 	return Array.isArray(value) ? value : [];
@@ -64,15 +91,11 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		throw error(403, 'Not authorized for this project');
 	}
 
-	const [projectResult, tasksResult, milestonesResult, activitiesResult] = await Promise.allSettled([
-		getProject(projectId),
-		getAllProjectTasks(projectId, 100),
-		getProjectMilestones(projectId),
-		getAllProjectActivities(projectId, 50)
-	]);
-
-	if (projectResult.status === 'rejected') {
-		console.error('Failed to fetch Zoho Projects project detail:', projectResult.reason);
+	let projectPayload: any = null;
+	try {
+		projectPayload = await getProject(projectId);
+	} catch (projectErr) {
+		console.error('Failed to fetch Zoho Projects project detail:', projectErr);
 		return json({
 			project: toFallbackProject(link),
 			tasks: [],
@@ -81,7 +104,23 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		});
 	}
 
-	const project = normalizeProjectResponse(projectResult.value);
+	const project = normalizeProjectResponse(projectPayload);
+	const taskCountHint = getTaskCountHint(project);
+	const [tasksResult, milestonesResult, activitiesResult] = await Promise.allSettled([
+		taskCountHint === 0 ? Promise.resolve([]) : getAllProjectTasks(projectId, 100),
+		getProjectMilestones(projectId),
+		getAllProjectActivities(projectId, 50)
+	]);
+
+	if (!project) {
+		console.error('Failed to normalize Zoho Projects project detail payload for project:', projectId);
+		return json({
+			project: toFallbackProject(link),
+			tasks: [],
+			milestones: [],
+			activities: []
+		});
+	}
 	const tasks = tasksResult.status === 'fulfilled' && Array.isArray(tasksResult.value) ? tasksResult.value : [];
 	const milestones =
 		milestonesResult.status === 'fulfilled' ? pickArray(milestonesResult.value, 'milestones') : [];

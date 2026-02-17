@@ -16,18 +16,38 @@
 
 	const formatDate = (value: any) => {
 		if (!value) return '—';
-		const parsed = new Date(value);
-		return Number.isNaN(parsed.valueOf()) ? String(value) : parsed.toLocaleDateString();
+		const raw = String(value).trim();
+		const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+		if (dateOnly) {
+			const [, y, m, d] = dateOnly;
+			const local = new Date(Number(y), Number(m) - 1, Number(d));
+			return local.toLocaleDateString();
+		}
+		const parsed = new Date(raw);
+		return Number.isNaN(parsed.valueOf()) ? raw : parsed.toLocaleDateString();
 	};
 
 	const formatDateTime = (value: any) => {
 		if (!value) return '—';
-		const parsed = new Date(value);
-		return Number.isNaN(parsed.valueOf()) ? String(value) : parsed.toLocaleString();
+		const raw = String(value).trim();
+		const parsed = new Date(raw);
+		return Number.isNaN(parsed.valueOf()) ? raw : parsed.toLocaleString();
+	};
+
+	const asText = (value: any, fallback = 'Unknown') => {
+		if (typeof value === 'string') {
+			const trimmed = value.trim();
+			return trimmed || fallback;
+		}
+		if (value && typeof value === 'object') {
+			const candidate = value?.name ?? value?.display_value ?? value?.value ?? null;
+			if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+		}
+		return fallback;
 	};
 
 	const getProjectName = (p: any) => p?.name ?? p?.project_name ?? p?.Project_Name ?? 'Project';
-	const getProjectStatus = (p: any) => p?.status ?? p?.project_status ?? p?.Status ?? 'Unknown';
+	const getProjectStatus = (p: any) => asText(p?.status ?? p?.project_status ?? p?.Status ?? null);
 	const getProjectStart = (p: any) => p?.start_date ?? p?.start_date_string ?? null;
 	const getProjectEnd = (p: any) => p?.end_date ?? p?.end_date_string ?? null;
 	const getProjectPercent = (p: any) =>
@@ -55,7 +75,7 @@
 	});
 
 	const getTaskName = (task: any) => task?.name ?? task?.task_name ?? 'Untitled task';
-	const getTaskStatus = (task: any) => task?.status ?? task?.task_status ?? 'Unknown';
+	const getTaskStatus = (task: any) => asText(task?.status ?? task?.task_status ?? null);
 	const getTaskAssignee = (task: any) =>
 		task?.owner?.name ?? task?.assignee?.name ?? task?.person_responsible ?? task?.user_name ?? '—';
 	const getTaskPriority = (task: any) => task?.priority ?? task?.task_priority ?? '—';
@@ -63,7 +83,7 @@
 		task?.percent_complete ?? task?.percent_completed ?? task?.completed_percent ?? null;
 
 	const getMilestoneName = (m: any) => m?.name ?? m?.milestone_name ?? 'Milestone';
-	const getMilestoneStatus = (m: any) => m?.status ?? m?.milestone_status ?? 'Unknown';
+	const getMilestoneStatus = (m: any) => asText(m?.status ?? m?.milestone_status ?? null);
 	const getMilestoneStart = (m: any) => m?.start_date ?? m?.start_date_string ?? null;
 	const getMilestoneEnd = (m: any) => m?.end_date ?? m?.end_date_string ?? null;
 

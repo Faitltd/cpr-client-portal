@@ -9,8 +9,24 @@
 
 	const formatDate = (value: any) => {
 		if (!value) return '—';
-		const parsed = new Date(value);
-		return Number.isNaN(parsed.valueOf()) ? String(value) : parsed.toLocaleDateString();
+		const raw = String(value).trim();
+		const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+		if (dateOnly) {
+			const [, y, m, d] = dateOnly;
+			const local = new Date(Number(y), Number(m) - 1, Number(d));
+			return local.toLocaleDateString();
+		}
+		const parsed = new Date(raw);
+		return Number.isNaN(parsed.valueOf()) ? raw : parsed.toLocaleDateString();
+	};
+
+	const toCount = (value: any): number | null => {
+		if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value);
+		if (typeof value === 'string') {
+			const parsed = Number(value.trim());
+			return Number.isFinite(parsed) ? Math.round(parsed) : null;
+		}
+		return null;
 	};
 
 	const getId = (project: any) =>
@@ -24,12 +40,25 @@
 	};
 	const getName = (project: any) =>
 		project?.name ?? project?.project_name ?? project?.Project_Name ?? 'Untitled Project';
-	const getStatus = (project: any) =>
-		project?.status ?? project?.project_status ?? project?.Status ?? 'Unknown';
+	const getStatus = (project: any) => {
+		const candidate = project?.status ?? project?.project_status ?? project?.Status ?? null;
+		if (typeof candidate === 'string') return candidate;
+		if (candidate && typeof candidate === 'object') {
+			const name = candidate?.name ?? candidate?.display_value ?? candidate?.value ?? null;
+			if (typeof name === 'string' && name.trim()) return name.trim();
+		}
+		return 'Unknown';
+	};
 	const getStartDate = (project: any) => project?.start_date ?? project?.start_date_string ?? null;
 	const getEndDate = (project: any) => project?.end_date ?? project?.end_date_string ?? null;
-	const getTaskCount = (project: any) =>
-		project?.task_count ?? project?.tasks_count ?? project?.taskCount ?? null;
+	const getTaskCount = (project: any) => {
+		const direct = toCount(project?.task_count ?? project?.tasks_count ?? project?.taskCount ?? null);
+		if (direct !== null) return direct;
+		const open = toCount(project?.tasks?.open_count ?? project?.tasks?.open ?? null);
+		const closed = toCount(project?.tasks?.closed_count ?? project?.tasks?.closed ?? null);
+		if (open === null && closed === null) return null;
+		return (open ?? 0) + (closed ?? 0);
+	};
 	const getTaskCompletedCount = (project: any) =>
 		project?.task_completed_count ??
 		project?.completed_task_count ??
@@ -46,8 +75,16 @@
 					.toLowerCase()
 					.includes('complete')
 		);
-	const getMilestoneCount = (project: any) =>
-		project?.milestone_count ?? project?.milestones_count ?? project?.milestoneCount ?? null;
+	const getMilestoneCount = (project: any) => {
+		const direct = toCount(
+			project?.milestone_count ?? project?.milestones_count ?? project?.milestoneCount ?? null
+		);
+		if (direct !== null) return direct;
+		const open = toCount(project?.milestones?.open_count ?? project?.milestones?.open ?? null);
+		const closed = toCount(project?.milestones?.closed_count ?? project?.milestones?.closed ?? null);
+		if (open === null && closed === null) return null;
+		return (open ?? 0) + (closed ?? 0);
+	};
 
 	onMount(async () => {
 		try {

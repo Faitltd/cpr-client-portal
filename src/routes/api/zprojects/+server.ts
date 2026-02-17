@@ -89,6 +89,107 @@ function toCount(value: unknown): number | null {
 	return null;
 }
 
+function toText(value: unknown): string | null {
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		return trimmed || null;
+	}
+	if (!value || typeof value !== 'object') return null;
+	const record = value as Record<string, unknown>;
+	const candidates = [record.name, record.display_value, record.displayValue, record.value, record.label];
+	for (const candidate of candidates) {
+		if (typeof candidate !== 'string') continue;
+		const trimmed = candidate.trim();
+		if (trimmed) return trimmed;
+	}
+	return null;
+}
+
+function sumCounts(left: number | null, right: number | null) {
+	if (left === null && right === null) return null;
+	return (left ?? 0) + (right ?? 0);
+}
+
+function getProjectTaskCountHint(project: any): number | null {
+	const direct = toCount(
+		project?.task_count ??
+			project?.tasks_count ??
+			project?.taskCount ??
+			project?.task_total ??
+			project?.task_count_total ??
+			project?.open_task_count
+	);
+	if (direct !== null) return direct;
+
+	const container = project?.tasks;
+	if (!container || typeof container !== 'object') return null;
+	const total = toCount(container.total_count ?? container.count ?? container.total);
+	if (total !== null) return total;
+	const open = toCount(container.open_count ?? container.open ?? container.open_tasks_count);
+	const closed = toCount(container.closed_count ?? container.closed ?? container.closed_tasks_count);
+	return sumCounts(open, closed);
+}
+
+function getProjectTaskCompletedCountHint(project: any): number | null {
+	const direct = toCount(
+		project?.task_completed_count ??
+			project?.completed_task_count ??
+			project?.completed_tasks_count ??
+			project?.closed_task_count
+	);
+	if (direct !== null) return direct;
+	const container = project?.tasks;
+	if (!container || typeof container !== 'object') return null;
+	return toCount(container.closed_count ?? container.closed ?? container.closed_tasks_count);
+}
+
+function getProjectMilestoneCountHint(project: any): number | null {
+	const direct = toCount(
+		project?.milestone_count ??
+			project?.milestones_count ??
+			project?.milestoneCount ??
+			project?.milestone_total ??
+			project?.milestone_count_total
+	);
+	if (direct !== null) return direct;
+
+	const container = project?.milestones;
+	if (!container || typeof container !== 'object') return null;
+	const total = toCount(container.total_count ?? container.count ?? container.total);
+	if (total !== null) return total;
+	const open = toCount(container.open_count ?? container.open ?? container.open_milestones_count);
+	const closed = toCount(container.closed_count ?? container.closed ?? container.closed_milestones_count);
+	return sumCounts(open, closed);
+}
+
+function normalizeProjectForList(project: any) {
+	if (!project || typeof project !== 'object') return project;
+
+	const status = toText(project?.status ?? project?.project_status ?? project?.status_name ?? project?.Status);
+	const startDate = toText(project?.start_date ?? project?.start_date_string ?? project?.startDate);
+	const endDate = toText(project?.end_date ?? project?.end_date_string ?? project?.endDate);
+	const taskCount = getProjectTaskCountHint(project);
+	const taskCompletedCount = getProjectTaskCompletedCountHint(project);
+	const milestoneCount = getProjectMilestoneCountHint(project);
+
+	return {
+		...project,
+		status: status ?? project?.status ?? 'Unknown',
+		start_date: startDate ?? project?.start_date ?? null,
+		end_date: endDate ?? project?.end_date ?? null,
+		task_count: taskCount ?? (project?.task_count ?? 0),
+		task_completed_count:
+			taskCompletedCount !== null && taskCompletedCount !== undefined
+				? taskCompletedCount
+				: (project?.task_completed_count ?? null),
+		milestone_count:
+			milestoneCount !== null && milestoneCount !== undefined
+				? milestoneCount
+				: (project?.milestone_count ?? null),
+		source: typeof project?.source === 'string' && project.source.trim() ? project.source : 'zprojects'
+	};
+}
+
 function getDealTaskCountHint(deal: any): number | null {
 	const candidateKeys = [
 		'task_count',
@@ -174,20 +275,10 @@ function isProjectTaskCompleted(task: any) {
 function attachProjectTaskSummary(project: any, tasks: any[]) {
 	if (!project || typeof project !== 'object') return project;
 	if (!Array.isArray(tasks)) return project;
+	const normalizedProject = normalizeProjectForList(project);
 
-	const existingTaskCount = toCount(
-		project?.task_count ??
-			project?.tasks_count ??
-			project?.task_total ??
-			project?.task_count_total ??
-			project?.open_task_count
-	);
-	const existingCompletedCount = toCount(
-		project?.task_completed_count ??
-			project?.completed_task_count ??
-			project?.completed_tasks_count ??
-			project?.closed_task_count
-	);
+	const existingTaskCount = toCount(normalizedProject?.task_count);
+	const existingCompletedCount = toCount(normalizedProject?.task_completed_count);
 	const fetchedTaskCount = tasks.length;
 	const taskCount = fetchedTaskCount > 0 ? fetchedTaskCount : (existingTaskCount ?? 0);
 	const completedCount =
@@ -200,11 +291,14 @@ function attachProjectTaskSummary(project: any, tasks: any[]) {
 	}));
 
 	return {
-		...project,
+		...normalizedProject,
 		task_count: taskCount,
 		task_completed_count: completedCount,
 		task_preview: taskPreview,
-		source: typeof project?.source === 'string' && project.source.trim() ? project.source : 'zprojects'
+		source:
+			typeof normalizedProject?.source === 'string' && normalizedProject.source.trim()
+				? normalizedProject.source
+				: 'zprojects'
 	};
 }
 
@@ -392,41 +486,36 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		const projectTaskFetchErrors = new Map<string, string>();
 
 		try {
-			const projects = await mapWithConcurrency(projectIds, concurrency, async (projectId, index) => {
-				try {
-					const response = await getProject(projectId);
-					const project = normalizeProjectResponse(response);
-					if (!project) return null;
-
-					if (index >= MAX_PROJECT_TASK_LOOKUPS) return project;
-
+				const projects = await mapWithConcurrency(projectIds, concurrency, async (projectId, index) => {
 					try {
-						const tasks = await getAllProjectTasks(projectId, 100);
-						return attachProjectTaskSummary(project, Array.isArray(tasks) ? tasks : []);
-					} catch (taskErr) {
-						const message = taskErr instanceof Error ? taskErr.message : String(taskErr);
-						console.warn(`Failed to fetch Zoho Projects tasks for ${projectId}:`, message);
-						projectTaskFetchErrors.set(projectId, message);
-						return project;
-					}
-				} catch (err) {
-					const message = err instanceof Error ? err.message : String(err);
+						const response = await getProject(projectId);
+						const project = normalizeProjectResponse(response);
+						if (!project) return null;
+						const normalizedProject = normalizeProjectForList(project);
+
+						const taskCountHint = getProjectTaskCountHint(normalizedProject);
+						if (index >= MAX_PROJECT_TASK_LOOKUPS || taskCountHint === 0) {
+							return attachProjectTaskSummary(normalizedProject, []);
+						}
+
+						try {
+							const tasks = await getAllProjectTasks(projectId, 100);
+							return attachProjectTaskSummary(normalizedProject, Array.isArray(tasks) ? tasks : []);
+						} catch (taskErr) {
+							const message = taskErr instanceof Error ? taskErr.message : String(taskErr);
+							console.warn(`Failed to fetch Zoho Projects tasks for ${projectId}:`, message);
+							projectTaskFetchErrors.set(projectId, message);
+							return attachProjectTaskSummary(normalizedProject, []);
+						}
+					} catch (err) {
+						const message = err instanceof Error ? err.message : String(err);
 					console.error(`Failed to fetch Zoho Projects project ${projectId}:`, message);
 					projectFetchErrors.set(projectId, message);
 					return null;
 				}
 			});
 
-			const normalized = projects
-				.filter(Boolean)
-				.map((project) =>
-					typeof project?.source === 'string' && project.source.trim()
-						? project
-						: {
-								...project,
-								source: 'zprojects'
-							}
-				);
+			const normalized = projects.filter(Boolean).map((project) => normalizeProjectForList(project));
 			const seenIds = new Set(normalized.map((project) => getProjectId(project)).filter(Boolean));
 				const missingMappedProjects = mappedFallbackProjects.filter(
 					(project) => !seenIds.has(getProjectId(project))
