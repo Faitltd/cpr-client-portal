@@ -1346,20 +1346,26 @@ function getProjectTasklistId(tasklist: any) {
 	return '';
 }
 
+type TaskPaginationMode = 'page' | 'index';
+
 async function fetchAllTasksForEndpoint(
 	baseEndpoint: string,
 	perPage: number,
-	extraParams?: Record<string, string>
+	extraParams?: Record<string, string>,
+	paginationMode: TaskPaginationMode = 'page'
 ) {
 	const collected: any[] = [];
 	const seen = new Set<string>();
 
 	for (let page = 1; page <= MAX_PAGES; page += 1) {
 		const query = new URLSearchParams();
-		query.set('page', String(page));
-		query.set('per_page', String(perPage));
-		query.set('index', String((page - 1) * perPage + 1));
-		query.set('range', String(perPage));
+		if (paginationMode === 'index') {
+			query.set('index', String((page - 1) * perPage + 1));
+			query.set('range', String(perPage));
+		} else {
+			query.set('page', String(page));
+			query.set('per_page', String(perPage));
+		}
 		for (const [key, value] of Object.entries(extraParams || {})) {
 			if (!value) continue;
 			query.set(key, value);
@@ -1790,15 +1796,26 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 	let lastError: unknown = null;
 	let hadSuccessfulTaskFetch = false;
 
-	const endpointStrategies: Array<Record<string, string>> = [
-		{ status: 'all', view_type: 'all' },
-		{ status: 'all' },
-		{}
+	const endpointStrategies: Array<{
+		params: Record<string, string>;
+		paginationMode: TaskPaginationMode;
+	}> = [
+		{ params: { status: 'all', view_type: 'all' }, paginationMode: 'page' },
+		{ params: { status: 'all', view_type: 'all' }, paginationMode: 'index' },
+		{ params: { status: 'all' }, paginationMode: 'page' },
+		{ params: { status: 'all' }, paginationMode: 'index' },
+		{ params: {}, paginationMode: 'page' },
+		{ params: {}, paginationMode: 'index' }
 	];
 
 	for (const strategy of endpointStrategies) {
 		try {
-			const result = await fetchAllTasksForEndpoint(`/projects/${projectId}/tasks`, perPage, strategy);
+			const result = await fetchAllTasksForEndpoint(
+				`/projects/${projectId}/tasks`,
+				perPage,
+				strategy.params,
+				strategy.paginationMode
+			);
 			if (result.hadSuccess) hadSuccessfulTaskFetch = true;
 			if (result.tasks.length > 0) return result.tasks;
 		} catch (err) {
@@ -1824,7 +1841,8 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 						const result = await fetchAllTasksForEndpoint(
 							`/projects/${projectId}/tasklists/${tasklistId}/tasks`,
 							perPage,
-							strategy
+							strategy.params,
+							strategy.paginationMode
 						);
 						if (result.tasks.length > 0) return result.tasks;
 					} catch {
