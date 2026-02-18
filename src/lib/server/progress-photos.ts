@@ -65,7 +65,7 @@ function collectUrls(value: unknown, output: string[], depth = 0) {
 }
 
 export function getProgressPhotosLinkCandidates(deal: any): string[] {
-	const values = [deal?.Progress_Photos, deal?.Client_Portal_Folder, deal?.External_Link];
+	const values = [deal?.Client_Portal_Folder, deal?.Progress_Photos, deal?.External_Link];
 	const collected: string[] = [];
 	for (const value of values) {
 		collectUrls(value, collected);
@@ -78,6 +78,22 @@ export function getProgressPhotosLinkCandidates(deal: any): string[] {
 		deduped.push(candidate);
 	}
 	return deduped;
+}
+
+function scoreCandidate(url: string) {
+	const text = String(url || '').toLowerCase();
+	let score = 0;
+	if (text.includes('workdrive')) score += 30;
+	if (text.includes('/folder/')) score += 20;
+	if (text.includes('client')) score += 10;
+	if (text.includes('photo')) score += 8;
+	if (text.includes('external_link')) score -= 10;
+	return score;
+}
+
+export function pickBestProgressPhotosFallback(candidates: string[]): string {
+	if (!Array.isArray(candidates) || candidates.length === 0) return '';
+	return [...candidates].sort((a, b) => scoreCandidate(b) - scoreCandidate(a))[0] || '';
 }
 
 function looksLikeInvalidLinkPage(html: string) {

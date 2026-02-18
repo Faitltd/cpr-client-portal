@@ -2,7 +2,11 @@ import { error, redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getDealsForClient } from '$lib/server/projects';
-import { getProgressPhotosLinkCandidates, resolveProgressPhotosLink } from '$lib/server/progress-photos';
+import {
+	getProgressPhotosLinkCandidates,
+	pickBestProgressPhotosFallback,
+	resolveProgressPhotosLink
+} from '$lib/server/progress-photos';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
 const DEAL_LINK_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -63,7 +67,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (!deal) throw error(404, 'Deal not found');
 
 	const candidates = getProgressPhotosLinkCandidates(deal);
-	const url = (await resolveProgressPhotosLink(deal)) || candidates[0] || '';
+	const url = (await resolveProgressPhotosLink(deal)) || pickBestProgressPhotosFallback(candidates);
 	if (!url) {
 		throw error(404, 'No valid progress photos link is configured for this project.');
 	}
