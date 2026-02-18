@@ -4,12 +4,10 @@
 
 	type ZProject = any;
 	type ZTask = any;
-	type ZMilestone = any;
 	type ZActivity = any;
 
 	let project = $state<ZProject | null>(null);
 	let tasks = $state<ZTask[]>([]);
-	let milestones = $state<ZMilestone[]>([]);
 	let activities = $state<ZActivity[]>([]);
 	let loading = $state(true);
 	let error = $state('');
@@ -82,11 +80,6 @@
 	const getTaskPercent = (task: any) =>
 		task?.percent_complete ?? task?.percent_completed ?? task?.completed_percent ?? null;
 
-	const getMilestoneName = (m: any) => m?.name ?? m?.milestone_name ?? 'Milestone';
-	const getMilestoneStatus = (m: any) => asText(m?.status ?? m?.milestone_status ?? null);
-	const getMilestoneStart = (m: any) => m?.start_date ?? m?.start_date_string ?? null;
-	const getMilestoneEnd = (m: any) => m?.end_date ?? m?.end_date_string ?? null;
-
 	const getActivityText = (a: any) =>
 		a?.description ??
 		a?.activity ??
@@ -116,7 +109,6 @@
 			const data = await res.json().catch(() => ({}));
 			project = data.project ?? null;
 			tasks = data.tasks || [];
-			milestones = data.milestones || [];
 			activities = data.activities || [];
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
@@ -151,30 +143,6 @@
 				<p class="sub">Complete: {Number(getProjectPercent(project)).toFixed(0)}%</p>
 			{/if}
 		</header>
-
-		<section class="section">
-			<h2>Milestones</h2>
-			{#if milestones.length === 0}
-				<p class="section-empty">No milestones found.</p>
-			{:else}
-				<div class="table">
-					<div class="row head">
-						<div>Name</div>
-						<div>Status</div>
-						<div>Start</div>
-						<div>End</div>
-					</div>
-					{#each milestones as milestone}
-						<div class="row">
-							<div class="name">{getMilestoneName(milestone)}</div>
-							<div>{getMilestoneStatus(milestone)}</div>
-							<div>{formatDate(getMilestoneStart(milestone))}</div>
-							<div>{formatDate(getMilestoneEnd(milestone))}</div>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</section>
 
 		<section class="section">
 			<h2>Tasks</h2>
@@ -304,34 +272,6 @@
 		margin: 0.5rem 0 0;
 	}
 
-	.table {
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		overflow: hidden;
-		background: #fff;
-	}
-
-	.row {
-		display: grid;
-		grid-template-columns: 2fr 1fr 1fr 1fr;
-		gap: 0.75rem;
-		padding: 0.85rem 1rem;
-		border-top: 1px solid #f1f5f9;
-		align-items: center;
-	}
-
-	.row.head {
-		border-top: none;
-		background: #f8fafc;
-		font-weight: 700;
-		color: #374151;
-	}
-
-	.name {
-		font-weight: 600;
-		color: #111827;
-	}
-
 	.group-title {
 		margin: 1rem 0 0.75rem;
 		color: #374151;
@@ -397,10 +337,6 @@
 	@media (max-width: 720px) {
 		.zproject-detail {
 			padding: 1.5rem 1.25rem;
-		}
-
-		.row {
-			grid-template-columns: 1.6fr 1fr 1fr 1fr;
 		}
 	}
 </style>

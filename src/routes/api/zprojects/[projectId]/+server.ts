@@ -5,8 +5,7 @@ import {
 	getAllProjectActivities,
 	getAllProjectTasks,
 	getProject,
-	getProjectLinksForClient,
-	getProjectMilestones
+	getProjectLinksForClient
 } from '$lib/server/projects';
 
 const projectTasksCache = new Map<string, { fetchedAt: number; tasks: any[] }>();
@@ -44,11 +43,6 @@ function getTaskCountHint(project: any): number | null {
 	const closed = toCount(tasks.closed_count ?? tasks.closed);
 	if (open === null && closed === null) return null;
 	return (open ?? 0) + (closed ?? 0);
-}
-
-function pickArray(payload: any, key: string) {
-	const value = payload?.[key];
-	return Array.isArray(value) ? value : [];
 }
 
 function toFallbackProject(link: {
@@ -102,7 +96,6 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		return json({
 			project: toFallbackProject(link),
 			tasks: [],
-			milestones: [],
 			activities: []
 		});
 	}
@@ -111,13 +104,12 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const taskCountHint = getTaskCountHint(project);
 	const cachedTasks = projectTasksCache.get(projectId);
 	const useTaskCache = cachedTasks && Date.now() - cachedTasks.fetchedAt < PROJECT_TASKS_CACHE_TTL_MS;
-	const [tasksResult, milestonesResult, activitiesResult] = await Promise.allSettled([
+	const [tasksResult, activitiesResult] = await Promise.allSettled([
 		useTaskCache
 			? Promise.resolve(cachedTasks!.tasks)
 			: taskCountHint === 0
 				? Promise.resolve([])
 				: getAllProjectTasks(projectId, 100),
-		getProjectMilestones(projectId),
 		getAllProjectActivities(projectId, 50)
 	]);
 
@@ -126,7 +118,6 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		return json({
 			project: toFallbackProject(link),
 			tasks: [],
-			milestones: [],
 			activities: []
 		});
 	}
@@ -139,8 +130,6 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	) {
 		projectTasksCache.set(projectId, { fetchedAt: Date.now(), tasks: tasksResult.value });
 	}
-	const milestones =
-		milestonesResult.status === 'fulfilled' ? pickArray(milestonesResult.value, 'milestones') : [];
 	const activities =
 		activitiesResult.status === 'fulfilled' && Array.isArray(activitiesResult.value)
 			? activitiesResult.value
@@ -149,12 +138,9 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (tasksResult.status === 'rejected') {
 		console.warn(`Failed to fetch Zoho Projects tasks for ${projectId}:`, tasksResult.reason);
 	}
-	if (milestonesResult.status === 'rejected') {
-		console.warn(`Failed to fetch Zoho Projects milestones for ${projectId}:`, milestonesResult.reason);
-	}
 	if (activitiesResult.status === 'rejected') {
 		console.warn(`Failed to fetch Zoho Projects activities for ${projectId}:`, activitiesResult.reason);
 	}
 
-	return json({ project, tasks, milestones, activities });
+	return json({ project, tasks, activities });
 };
