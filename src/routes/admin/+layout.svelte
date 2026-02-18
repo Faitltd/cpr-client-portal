@@ -23,6 +23,7 @@
 			</button>
 			<nav class:open={menuOpen} class="admin-nav">
 				<a class="admin-link" href="/admin/clients">Dashboard</a>
+				<a class="admin-link" href="/admin/zprojects">Projects</a>
 				<a class="admin-link" href="/admin/logout">Log out</a>
 			</nav>
 		</div>
