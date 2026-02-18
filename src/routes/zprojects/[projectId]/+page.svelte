@@ -6,10 +6,13 @@
 	type ZTask = any;
 	type ZActivity = any;
 
+	const CACHE_PREFIX = 'cpr:zprojects:detail:';
+
 	let project = $state<ZProject | null>(null);
 	let tasks = $state<ZTask[]>([]);
 	let activities = $state<ZActivity[]>([]);
 	let loading = $state(true);
+	let refreshing = $state(false);
 	let error = $state('');
 
 	const formatDate = (value: any) => {
@@ -89,7 +92,37 @@
 		'Activity';
 	const getActivityWhen = (a: any) => a?.time ?? a?.created_time ?? a?.created_time_string ?? a?.date ?? null;
 
-	onMount(async () => {
+	function getCacheKey() {
+		return `${CACHE_PREFIX}${$page.params.projectId}`;
+	}
+
+	function loadFromCache(): boolean {
+		try {
+			const raw = sessionStorage.getItem(getCacheKey());
+			if (!raw) return false;
+			const cached = JSON.parse(raw);
+			if (cached?.project) {
+				project = cached.project;
+				tasks = cached.tasks || [];
+				activities = cached.activities || [];
+				return true;
+			}
+		} catch {
+			/* ignore corrupt cache */
+		}
+		return false;
+	}
+
+	function saveToCache(data: { project: any; tasks: any[]; activities: any[] }) {
+		try {
+			sessionStorage.setItem(getCacheKey(), JSON.stringify({ ...data, ts: Date.now() }));
+		} catch {
+			/* storage full or unavailable */
+		}
+	}
+
+	async function fetchDetail(isRefresh: boolean) {
+		if (isRefresh) refreshing = true;
 		try {
 			const projectId = $page.params.projectId;
 			const res = await fetch(`/api/zprojects/${projectId}`);
@@ -110,10 +143,25 @@
 			project = data.project ?? null;
 			tasks = data.tasks || [];
 			activities = data.activities || [];
+			saveToCache({ project, tasks, activities });
+			error = '';
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Unknown error';
+			if (!isRefresh) {
+				error = err instanceof Error ? err.message : 'Unknown error';
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
+		}
+	}
+
+	onMount(() => {
+		const hadCache = loadFromCache();
+		if (hadCache) {
+			loading = false;
+			fetchDetail(true);
+		} else {
+			fetchDetail(false);
 		}
 	});
 </script>
@@ -131,6 +179,9 @@
 			<a href="/zprojects">Return to Projects</a>
 		</div>
 	{:else if project}
+		{#if refreshing}
+			<div class="refreshing">Updating...</div>
+		{/if}
 		<header class="header">
 			<div class="title-row">
 				<h1>{getProjectName(project)}</h1>
@@ -213,6 +264,14 @@
 		padding: 2rem;
 		text-align: center;
 		color: #666;
+	}
+
+	.refreshing {
+		padding: 0.4rem 0.75rem;
+		margin-bottom: 0.75rem;
+		font-size: 0.88rem;
+		color: #6b7280;
+		text-align: center;
 	}
 
 	.error {

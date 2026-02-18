@@ -3,8 +3,11 @@
 
 	type ZProject = any;
 
+	const CACHE_KEY = 'cpr:zprojects:list';
+
 	let projects = $state<ZProject[]>([]);
 	let loading = $state(true);
+	let refreshing = $state(false);
 	let error = $state('');
 
 	const formatDate = (value: any) => {
@@ -76,7 +79,31 @@
 					.includes('complete')
 		);
 
-	onMount(async () => {
+	function loadFromCache(): boolean {
+		try {
+			const raw = sessionStorage.getItem(CACHE_KEY);
+			if (!raw) return false;
+			const cached = JSON.parse(raw);
+			if (Array.isArray(cached?.projects) && cached.projects.length > 0) {
+				projects = cached.projects;
+				return true;
+			}
+		} catch {
+			/* ignore corrupt cache */
+		}
+		return false;
+	}
+
+	function saveToCache(data: ZProject[]) {
+		try {
+			sessionStorage.setItem(CACHE_KEY, JSON.stringify({ projects: data, ts: Date.now() }));
+		} catch {
+			/* storage full or unavailable */
+		}
+	}
+
+	async function fetchProjects(isRefresh: boolean) {
+		if (isRefresh) refreshing = true;
 		try {
 			const res = await fetch('/api/zprojects');
 			if (!res.ok) {
@@ -89,11 +116,27 @@
 			}
 
 			const data = await res.json().catch(() => ({}));
-			projects = data.projects || [];
+			const fresh = data.projects || [];
+			projects = fresh;
+			saveToCache(fresh);
+			error = '';
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Unknown error';
+			if (!isRefresh) {
+				error = err instanceof Error ? err.message : 'Unknown error';
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
+		}
+	}
+
+	onMount(() => {
+		const hadCache = loadFromCache();
+		if (hadCache) {
+			loading = false;
+			fetchProjects(true);
+		} else {
+			fetchProjects(false);
 		}
 	});
 </script>
@@ -118,6 +161,9 @@
 			<p>No active projects</p>
 		</div>
 	{:else}
+		{#if refreshing}
+			<div class="refreshing">Updating...</div>
+		{/if}
 		<section class="projects-section">
 			<div class="projects-grid">
 					{#each projects as project}
@@ -174,6 +220,14 @@
 		padding: 2rem;
 		text-align: center;
 		color: #666;
+	}
+
+	.refreshing {
+		padding: 0.4rem 0.75rem;
+		margin-bottom: 0.75rem;
+		font-size: 0.88rem;
+		color: #6b7280;
+		text-align: center;
 	}
 
 	.error {
