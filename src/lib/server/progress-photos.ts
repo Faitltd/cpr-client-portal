@@ -114,7 +114,8 @@ async function isLinkReachable(url: string): Promise<boolean> {
 			}
 		}
 	} catch {
-		ok = false;
+		// Network checks can fail due remote throttling; keep candidate usable.
+		ok = true;
 	}
 
 	linkValidationCache.set(url, { checkedAt: Date.now(), ok });

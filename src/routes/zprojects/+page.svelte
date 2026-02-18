@@ -161,10 +161,6 @@
 </script>
 
 <div class="zprojects">
-	<nav class="back-nav">
-		<a class="dashboard-btn" href="/dashboard">Finances</a>
-	</nav>
-
 	<header>
 		<div>
 			<h1>Projects</h1>
@@ -237,30 +233,6 @@
 
 	h1 {
 		margin: 0 0 0.5rem;
-	}
-
-	.back-nav {
-		margin-bottom: 1.5rem;
-		display: flex;
-		justify-content: flex-start;
-	}
-
-	.dashboard-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.5rem 0.9rem;
-		border: 1px solid #d0d0d0;
-		border-radius: 999px;
-		background: #fff;
-		min-height: 44px;
-		color: #1a1a1a;
-		text-decoration: none;
-		font-size: 0.95rem;
-	}
-
-	.dashboard-btn:hover {
-		background: #f3f4f6;
 	}
 
 	.loading {
