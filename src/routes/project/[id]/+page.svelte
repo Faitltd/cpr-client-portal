@@ -15,22 +15,9 @@
 	let updateError = '';
 	let updating = false;
 	const getProgressPhotosLink = (deal: any) => {
-		const candidates = [deal?.Client_Portal_Folder, deal?.Progress_Photos, deal?.External_Link];
-		for (const value of candidates) {
-			if (!value) continue;
-			if (typeof value === 'string') return value;
-			if (typeof value === 'object') {
-				const url =
-					value.link_url ||
-					value.link ||
-					value.download_url ||
-					value.url ||
-					value.href ||
-					'';
-				if (url) return url;
-			}
-		}
-		return '';
+		const dealId = String(deal?.id || $page.params.id || '').trim();
+		if (!dealId) return '';
+		return `/api/project/${encodeURIComponent(dealId)}/progress-photos`;
 	};
 
 	const projectId = $page.params.id;
