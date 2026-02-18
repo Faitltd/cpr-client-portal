@@ -42,6 +42,22 @@
 		if (source === 'crm_deal') return `/project/${id}`;
 		return `/zprojects/${id}`;
 	};
+	const getPreferredProjectDetailHref = (projectList: any[]) => {
+		const preferred = (projectList || []).find((project) => {
+			const id = getId(project);
+			if (!id) return false;
+			return project?.source !== 'crm_deal';
+		});
+		if (!preferred) return '';
+		const id = getId(preferred);
+		return id ? `/zprojects/${id}` : '';
+	};
+	const redirectToPreferredProject = (projectList: any[]) => {
+		const href = getPreferredProjectDetailHref(projectList);
+		if (!href) return false;
+		void goto(href, { replaceState: true });
+		return true;
+	};
 	const getName = (project: any) =>
 		project?.name ?? project?.project_name ?? project?.Project_Name ?? 'Untitled Project';
 	const getStatus = (project: any) => {
@@ -119,13 +135,7 @@
 			const data = await res.json().catch(() => ({}));
 			const fresh = data.projects || [];
 			projects = fresh;
-			if (fresh.length === 1 && !isRefresh) {
-				const singleId = fresh[0]?.id ?? fresh[0]?.project_id ?? '';
-				if (singleId) {
-					goto(`/zprojects/${singleId}`, { replaceState: true });
-					return;
-				}
-			}
+			if (redirectToPreferredProject(fresh)) return;
 			saveToCache(fresh);
 			error = '';
 		} catch (err) {
@@ -141,6 +151,7 @@
 	onMount(() => {
 		const hadCache = loadFromCache();
 		if (hadCache) {
+			if (redirectToPreferredProject(projects)) return;
 			loading = false;
 			fetchProjects(true);
 		} else {
