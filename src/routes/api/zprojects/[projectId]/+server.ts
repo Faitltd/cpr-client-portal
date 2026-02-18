@@ -9,6 +9,9 @@ import {
 	getProjectMilestones
 } from '$lib/server/projects';
 
+const projectTasksCache = new Map<string, { fetchedAt: number; tasks: any[] }>();
+const PROJECT_TASKS_CACHE_TTL_MS = 2 * 60 * 1000;
+
 function normalizeProjectResponse(payload: any) {
 	if (!payload) return null;
 	if (payload.project && typeof payload.project === 'object') return payload.project;
@@ -106,8 +109,14 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 
 	const project = normalizeProjectResponse(projectPayload);
 	const taskCountHint = getTaskCountHint(project);
+	const cachedTasks = projectTasksCache.get(projectId);
+	const useTaskCache = cachedTasks && Date.now() - cachedTasks.fetchedAt < PROJECT_TASKS_CACHE_TTL_MS;
 	const [tasksResult, milestonesResult, activitiesResult] = await Promise.allSettled([
-		taskCountHint === 0 ? Promise.resolve([]) : getAllProjectTasks(projectId, 100),
+		useTaskCache
+			? Promise.resolve(cachedTasks!.tasks)
+			: taskCountHint === 0
+				? Promise.resolve([])
+				: getAllProjectTasks(projectId, 100),
 		getProjectMilestones(projectId),
 		getAllProjectActivities(projectId, 50)
 	]);
@@ -122,6 +131,14 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		});
 	}
 	const tasks = tasksResult.status === 'fulfilled' && Array.isArray(tasksResult.value) ? tasksResult.value : [];
+	if (
+		!useTaskCache &&
+		tasksResult.status === 'fulfilled' &&
+		Array.isArray(tasksResult.value) &&
+		tasksResult.value.length > 0
+	) {
+		projectTasksCache.set(projectId, { fetchedAt: Date.now(), tasks: tasksResult.value });
+	}
 	const milestones =
 		milestonesResult.status === 'fulfilled' ? pickArray(milestonesResult.value, 'milestones') : [];
 	const activities =

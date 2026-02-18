@@ -17,6 +17,8 @@ const PROJECT_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROJECT_MEMBERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_ROUTE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const TASK_STRATEGY_CACHE_TTL_MS = 30 * 60 * 1000;
+const CLIENT_PROJECT_LINKS_CACHE_TTL_MS = 3 * 60 * 1000;
 const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 80;
 const MAX_TASKLIST_TASK_LOOKUPS = 40;
 const MAX_PROJECT_ROUTE_ATTEMPTS = 12;
@@ -58,6 +60,11 @@ let projectCatalogCache: { fetchedAt: number; projects: any[] } | null = null;
 const portalIdsByBaseCache = new Map<string, { fetchedAt: number; portalIds: string[] }>();
 const projectRouteByIdCache = new Map<string, { fetchedAt: number; base: string; portalId: string }>();
 const membershipProjectIdsByEmailCache = new Map<string, { fetchedAt: number; projectIds: string[] }>();
+const taskStrategyCache = new Map<string, { fetchedAt: number; strategyIndex: number }>();
+const clientProjectLinksCache = new Map<
+	string,
+	{ fetchedAt: number; links: ContactProjectLink[] }
+>();
 
 function normalizeProjectsApiBase(value: string) {
 	const trimmed = value.trim().replace(/\/$/, '');
@@ -1810,7 +1817,27 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 		{ params: {}, paginationMode: 'index' }
 	];
 
-	for (const strategy of endpointStrategies) {
+	const cachedTaskStrategy = taskStrategyCache.get(projectId);
+	if (cachedTaskStrategy && Date.now() - cachedTaskStrategy.fetchedAt < TASK_STRATEGY_CACHE_TTL_MS) {
+		const strategy = endpointStrategies[cachedTaskStrategy.strategyIndex];
+		if (strategy) {
+			try {
+				const result = await fetchAllTasksForEndpoint(
+					`/projects/${projectId}/tasks`,
+					perPage,
+					strategy.params,
+					strategy.paginationMode
+				);
+				if (result.hadSuccess) hadSuccessfulTaskFetch = true;
+				if (result.tasks.length > 0) return result.tasks;
+			} catch (err) {
+				lastError = err;
+			}
+		}
+	}
+
+	for (let i = 0; i < endpointStrategies.length; i += 1) {
+		const strategy = endpointStrategies[i];
 		try {
 			const result = await fetchAllTasksForEndpoint(
 				`/projects/${projectId}/tasks`,
@@ -1819,7 +1846,10 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 				strategy.paginationMode
 			);
 			if (result.hadSuccess) hadSuccessfulTaskFetch = true;
-			if (result.tasks.length > 0) return result.tasks;
+			if (result.tasks.length > 0) {
+				taskStrategyCache.set(projectId, { fetchedAt: Date.now(), strategyIndex: i });
+				return result.tasks;
+			}
 		} catch (err) {
 			lastError = err;
 		}
@@ -2359,6 +2389,12 @@ export async function getProjectLinksForClient(
 	zohoContactId: string | null | undefined,
 	email?: string | null
 ): Promise<ContactProjectLink[]> {
+	const cacheKey = `${zohoContactId ?? ''}|${email ?? ''}`;
+	const cached = clientProjectLinksCache.get(cacheKey);
+	if (cached && Date.now() - cached.fetchedAt < CLIENT_PROJECT_LINKS_CACHE_TTL_MS) {
+		return cached.links;
+	}
+
 	const deals = await getDealsForClient(zohoContactId, email);
 	const dealsById = new Map<string, any>(
 		(deals || [])
@@ -2610,5 +2646,7 @@ export async function getProjectLinksForClient(
 		}
 	}
 
-	return Array.from(byProjectId.values());
+	const links = Array.from(byProjectId.values());
+	clientProjectLinksCache.set(cacheKey, { fetchedAt: Date.now(), links });
+	return links;
 }
