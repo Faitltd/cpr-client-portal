@@ -168,7 +168,7 @@
 
 <div class="zproject-detail">
 	<nav class="back-nav">
-		<a class="dashboard-btn" href="/dashboard">Dashboard</a>
+		<a class="dashboard-btn" href="/dashboard">Finances</a>
 	</nav>
 
 	{#if loading}

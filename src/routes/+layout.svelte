@@ -74,7 +74,7 @@
 				</button>
 				<div class:open={menuOpen} class="portal-actions">
 						{#if hasPortalSession && !isTradePortal}
-							<a class="portal-link" href="/zprojects">Projects</a>
+							<a class="portal-link" href="/zprojects">Project</a>
 						{/if}
 					<a class="portal-link" href={accountHref}>Account</a>
 					<a class="portal-link" href="/api/logout?next=/">Log out</a>

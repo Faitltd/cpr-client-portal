@@ -162,7 +162,7 @@
 
 <div class="zprojects">
 	<nav class="back-nav">
-		<a class="dashboard-btn" href="/dashboard">Dashboard</a>
+		<a class="dashboard-btn" href="/dashboard">Finances</a>
 	</nav>
 
 	<header>
