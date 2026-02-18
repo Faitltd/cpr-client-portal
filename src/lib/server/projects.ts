@@ -19,6 +19,7 @@ const DEAL_PROJECT_RELATED_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 const PROJECT_ROUTE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const TASK_STRATEGY_CACHE_TTL_MS = 30 * 60 * 1000;
 const CLIENT_PROJECT_LINKS_CACHE_TTL_MS = 3 * 60 * 1000;
+const CLIENT_DEALS_CACHE_TTL_MS = 3 * 60 * 1000;
 const MAX_PROJECT_MEMBERSHIP_LOOKUPS = 80;
 const MAX_TASKLIST_TASK_LOOKUPS = 40;
 const MAX_PROJECT_ROUTE_ATTEMPTS = 12;
@@ -61,10 +62,18 @@ const portalIdsByBaseCache = new Map<string, { fetchedAt: number; portalIds: str
 const projectRouteByIdCache = new Map<string, { fetchedAt: number; base: string; portalId: string }>();
 const membershipProjectIdsByEmailCache = new Map<string, { fetchedAt: number; projectIds: string[] }>();
 const taskStrategyCache = new Map<string, { fetchedAt: number; strategyIndex: number }>();
+const clientDealsCache = new Map<string, { fetchedAt: number; deals: any[] }>();
+const clientDealsInFlightByKey = new Map<string, Promise<any[]>>();
 const clientProjectLinksCache = new Map<
 	string,
 	{ fetchedAt: number; links: ContactProjectLink[] }
 >();
+
+function getClientCacheKey(zohoContactId: string | null | undefined, email?: string | null) {
+	const contactIdPart = zohoContactId ? String(zohoContactId).trim() : '';
+	const emailPart = email ? String(email).trim().toLowerCase() : '';
+	return `${contactIdPart}|${emailPart}`;
+}
 
 function normalizeProjectsApiBase(value: string) {
 	const trimmed = value.trim().replace(/\/$/, '');
@@ -2334,54 +2343,77 @@ export async function getDealsForClient(
 	zohoContactId: string | null | undefined,
 	email?: string | null
 ): Promise<any[]> {
-	const accessToken = await getValidAccessToken();
-	const trimmedContactId = zohoContactId ? String(zohoContactId).trim() : '';
-	const trimmedEmail = email ? String(email).trim() : '';
-	const collectedDeals: any[] = [];
-
-	if (trimmedContactId) {
-		try {
-			const primaryDeals = await getContactDeals(accessToken, trimmedContactId);
-			if (Array.isArray(primaryDeals) && primaryDeals.length > 0) {
-				collectedDeals.push(...primaryDeals);
-			}
-		} catch (err) {
-			console.warn('Failed to fetch deals by session contact id', { contactId: trimmedContactId, err });
-		}
+	const cacheKey = getClientCacheKey(zohoContactId, email);
+	const cached = clientDealsCache.get(cacheKey);
+	if (cached && Date.now() - cached.fetchedAt < CLIENT_DEALS_CACHE_TTL_MS) {
+		return cached.deals;
 	}
 
-	if (trimmedEmail) {
-		try {
-			const contact = await findContactByEmail(accessToken, trimmedEmail);
-			const resolvedContactId = contact?.zoho_contact_id ? String(contact.zoho_contact_id).trim() : '';
-			if (resolvedContactId && resolvedContactId !== trimmedContactId) {
-				const emailMatchedDeals = await getContactDeals(accessToken, resolvedContactId);
-				if (Array.isArray(emailMatchedDeals) && emailMatchedDeals.length > 0) {
-					collectedDeals.push(...emailMatchedDeals);
-				}
-			}
-		} catch (err) {
-			console.warn('Failed to resolve contact by email for deals fallback', { email: trimmedEmail, err });
-		}
+	const inFlight = clientDealsInFlightByKey.get(cacheKey);
+	if (inFlight) {
+		return inFlight;
+	}
 
-		if (collectedDeals.length === 0) {
+	const loadPromise = (async () => {
+		const accessToken = await getValidAccessToken();
+		const trimmedContactId = zohoContactId ? String(zohoContactId).trim() : '';
+		const trimmedEmail = email ? String(email).trim() : '';
+		const collectedDeals: any[] = [];
+
+		if (trimmedContactId) {
 			try {
-				const emailMatchedDeals = await fetchDealsByEmailFallback(accessToken, trimmedEmail);
-				if (emailMatchedDeals.length > 0) {
-					collectedDeals.push(...emailMatchedDeals);
+				const primaryDeals = await getContactDeals(accessToken, trimmedContactId);
+				if (Array.isArray(primaryDeals) && primaryDeals.length > 0) {
+					collectedDeals.push(...primaryDeals);
 				}
 			} catch (err) {
-				console.warn('Failed to fetch deals by email fallback scan', { email: trimmedEmail, err });
+				console.warn('Failed to fetch deals by session contact id', { contactId: trimmedContactId, err });
 			}
 		}
-	}
 
-	const dedupedDeals = dedupeDealsById(collectedDeals);
+		if (trimmedEmail) {
+			try {
+				const contact = await findContactByEmail(accessToken, trimmedEmail);
+				const resolvedContactId = contact?.zoho_contact_id ? String(contact.zoho_contact_id).trim() : '';
+				if (resolvedContactId && resolvedContactId !== trimmedContactId) {
+					const emailMatchedDeals = await getContactDeals(accessToken, resolvedContactId);
+					if (Array.isArray(emailMatchedDeals) && emailMatchedDeals.length > 0) {
+						collectedDeals.push(...emailMatchedDeals);
+					}
+				}
+			} catch (err) {
+				console.warn('Failed to resolve contact by email for deals fallback', { email: trimmedEmail, err });
+			}
+
+			if (collectedDeals.length === 0) {
+				try {
+					const emailMatchedDeals = await fetchDealsByEmailFallback(accessToken, trimmedEmail);
+					if (emailMatchedDeals.length > 0) {
+						collectedDeals.push(...emailMatchedDeals);
+					}
+				} catch (err) {
+					console.warn('Failed to fetch deals by email fallback scan', { email: trimmedEmail, err });
+				}
+			}
+		}
+
+		const dedupedDeals = dedupeDealsById(collectedDeals);
+		try {
+			const rehydratedDeals = await rehydrateDealsForProjectMapping(accessToken, dedupedDeals);
+			clientDealsCache.set(cacheKey, { fetchedAt: Date.now(), deals: rehydratedDeals });
+			return rehydratedDeals;
+		} catch (err) {
+			console.warn('Failed to rehydrate deals for Zoho Projects mapping', err);
+			clientDealsCache.set(cacheKey, { fetchedAt: Date.now(), deals: dedupedDeals });
+			return dedupedDeals;
+		}
+	})();
+
+	clientDealsInFlightByKey.set(cacheKey, loadPromise);
 	try {
-		return await rehydrateDealsForProjectMapping(accessToken, dedupedDeals);
-	} catch (err) {
-		console.warn('Failed to rehydrate deals for Zoho Projects mapping', err);
-		return dedupedDeals;
+		return await loadPromise;
+	} finally {
+		clientDealsInFlightByKey.delete(cacheKey);
 	}
 }
 
@@ -2389,7 +2421,7 @@ export async function getProjectLinksForClient(
 	zohoContactId: string | null | undefined,
 	email?: string | null
 ): Promise<ContactProjectLink[]> {
-	const cacheKey = `${zohoContactId ?? ''}|${email ?? ''}`;
+	const cacheKey = getClientCacheKey(zohoContactId, email);
 	const cached = clientProjectLinksCache.get(cacheKey);
 	if (cached && Date.now() - cached.fetchedAt < CLIENT_PROJECT_LINKS_CACHE_TTL_MS) {
 		return cached.links;
