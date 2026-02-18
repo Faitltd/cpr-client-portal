@@ -167,12 +167,8 @@
 </script>
 
 <div class="zproject-detail">
-	<nav class="top-nav">
-		<a href="/zprojects">← Back to Projects</a>
-	</nav>
-
 	<nav class="back-nav">
-		<a href="/dashboard">← Back to Dashboard</a>
+		<a class="dashboard-btn" href="/dashboard">Dashboard</a>
 	</nav>
 
 	{#if loading}
@@ -180,7 +176,6 @@
 	{:else if error}
 		<div class="error">
 			<p>{error}</p>
-			<a href="/zprojects">Return to Projects</a>
 		</div>
 	{:else if project}
 		{#if refreshing}
@@ -255,27 +250,28 @@
 		padding: 2rem;
 	}
 
-	.top-nav {
-		margin-bottom: 1.5rem;
-	}
-
-	.top-nav a {
-		color: #0066cc;
-		text-decoration: none;
-	}
-
 	.back-nav {
 		margin-bottom: 1.5rem;
+		display: flex;
+		justify-content: flex-start;
 	}
 
-	.back-nav a {
-		color: #0066cc;
+	.dashboard-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.5rem 0.9rem;
+		border: 1px solid #d0d0d0;
+		border-radius: 999px;
+		background: #fff;
+		min-height: 44px;
+		color: #1a1a1a;
 		text-decoration: none;
 		font-size: 0.95rem;
 	}
 
-	.back-nav a:hover {
-		text-decoration: underline;
+	.dashboard-btn:hover {
+		background: #f3f4f6;
 	}
 
 	.loading {
@@ -297,13 +293,6 @@
 		border: 1px solid #fecaca;
 		background: #fff5f5;
 		border-radius: 10px;
-	}
-
-	.error a {
-		display: inline-block;
-		margin-top: 0.75rem;
-		color: #0066cc;
-		text-decoration: none;
 	}
 
 	.header {

@@ -162,7 +162,7 @@
 
 <div class="zprojects">
 	<nav class="back-nav">
-		<a href="/dashboard">← Back to Dashboard</a>
+		<a class="dashboard-btn" href="/dashboard">Dashboard</a>
 	</nav>
 
 	<header>
@@ -241,16 +241,26 @@
 
 	.back-nav {
 		margin-bottom: 1.5rem;
+		display: flex;
+		justify-content: flex-start;
 	}
 
-	.back-nav a {
-		color: #0066cc;
+	.dashboard-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.5rem 0.9rem;
+		border: 1px solid #d0d0d0;
+		border-radius: 999px;
+		background: #fff;
+		min-height: 44px;
+		color: #1a1a1a;
 		text-decoration: none;
 		font-size: 0.95rem;
 	}
 
-	.back-nav a:hover {
-		text-decoration: underline;
+	.dashboard-btn:hover {
+		background: #f3f4f6;
 	}
 
 	.loading {
