@@ -2,7 +2,6 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession } from '$lib/server/db';
 import {
-	getAllProjectTasks,
 	getDealTaskSummaries,
 	getDealsForClient,
 	getProject,
@@ -11,7 +10,6 @@ import {
 } from '$lib/server/projects';
 
 const MAX_DEAL_TASK_LOOKUPS = 30;
-const MAX_PROJECT_TASK_LOOKUPS = 20;
 const PROJECT_TASK_PREVIEW_LIMIT = 4;
 
 async function mapWithConcurrency<T, R>(
@@ -400,30 +398,64 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 
 	const zohoContactId = session.client?.zoho_contact_id ?? null;
 	const clientEmail = session.client?.email ?? null;
+	const requestStartedAt = Date.now();
+	const debug: Record<string, unknown> = debugEnabled
+		? {
+				client: {
+					zohoContactId,
+					email: clientEmail
+				},
+				counts: {
+					deals: 0,
+					links: 0
+				},
+				t_links_ms: 0,
+				t_deals_ms: 0,
+				t_crm_tasks_ms: 0,
+				t_projects_ms: 0,
+				t_total_ms: 0
+			}
+		: {};
+
+	const withDebug = (payload: Record<string, unknown>) => {
+		if (debugEnabled) {
+			debug.t_total_ms = Date.now() - requestStartedAt;
+			payload._debug = debug;
+		}
+		return payload;
+	};
 
 	try {
-		const [links, deals] = await Promise.all([
-			getProjectLinksForClient(zohoContactId, clientEmail),
-			getDealsForClient(zohoContactId, clientEmail)
-		]);
-		const debug: Record<string, unknown> = debugEnabled
-			? {
-					client: {
-						zohoContactId,
-						email: clientEmail
-					},
-					counts: {
-						deals: deals.length,
-						links: links.length
-					},
-					links: links.slice(0, 20).map((link) => ({
-						projectId: link.projectId,
-						dealId: link.dealId,
-						dealName: link.dealName,
-						stage: link.stage
-					}))
-				}
-			: {};
+		const linksPromise = (async () => {
+			const startedAt = Date.now();
+			try {
+				return await getProjectLinksForClient(zohoContactId, clientEmail);
+			} finally {
+				if (debugEnabled) debug.t_links_ms = Date.now() - startedAt;
+			}
+		})();
+		const dealsPromise = (async () => {
+			const startedAt = Date.now();
+			try {
+				return await getDealsForClient(zohoContactId, clientEmail);
+			} finally {
+				if (debugEnabled) debug.t_deals_ms = Date.now() - startedAt;
+			}
+		})();
+
+		const [links, deals] = await Promise.all([linksPromise, dealsPromise]);
+		if (debugEnabled) {
+			debug.counts = {
+				deals: deals.length,
+				links: links.length
+			};
+			debug.links = links.slice(0, 20).map((link) => ({
+				projectId: link.projectId,
+				dealId: link.dealId,
+				dealName: link.dealName,
+				stage: link.stage
+			}));
+		}
 
 		const taskCountsByDealId = buildDealTaskHintMap(deals);
 		const taskCompletedByDealId = new Map<string, number | null>();
@@ -442,6 +474,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		);
 		const dealIdsToLookup = dealIds.slice(0, MAX_DEAL_TASK_LOOKUPS);
 		if (dealIdsToLookup.length > 0) {
+			const startedAt = Date.now();
 			try {
 				const fetchedTaskSummaries = await getDealTaskSummaries(dealIdsToLookup, {
 					concurrency: 2,
@@ -458,6 +491,8 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 				}
 			} catch (err) {
 				console.warn('Failed to fetch CRM task summaries for deal fallback cards:', err);
+			} finally {
+				if (debugEnabled) debug.t_crm_tasks_ms = Date.now() - startedAt;
 			}
 		}
 
@@ -470,7 +505,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		);
 
 		if (links.length === 0) {
-			return json({ projects: dedupeProjects(unmappedDealProjects) });
+			return json(withDebug({ projects: dedupeProjects(unmappedDealProjects) }));
 		}
 
 		const mappedFallbackProjects = toMappedFallbackProjects(
@@ -483,84 +518,72 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		const projectIds = links.map((link) => link.projectId);
 		const concurrency = projectIds.length > 10 ? 2 : 3;
 		const projectFetchErrors = new Map<string, string>();
-		const projectTaskFetchErrors = new Map<string, string>();
 
 		try {
-				const projects = await mapWithConcurrency(projectIds, concurrency, async (projectId, index) => {
+			const projectsStartedAt = Date.now();
+			let projects: any[] = [];
+			try {
+				projects = await mapWithConcurrency(projectIds, concurrency, async (projectId) => {
 					try {
 						const response = await getProject(projectId);
 						const project = normalizeProjectResponse(response);
 						if (!project) return null;
 						const normalizedProject = normalizeProjectForList(project);
-
-						const taskCountHint = getProjectTaskCountHint(normalizedProject);
-						if (index >= MAX_PROJECT_TASK_LOOKUPS || taskCountHint === 0) {
-							return attachProjectTaskSummary(normalizedProject, []);
-						}
-
-						try {
-							const tasks = await getAllProjectTasks(projectId, 100);
-							return attachProjectTaskSummary(normalizedProject, Array.isArray(tasks) ? tasks : []);
-						} catch (taskErr) {
-							const message = taskErr instanceof Error ? taskErr.message : String(taskErr);
-							console.warn(`Failed to fetch Zoho Projects tasks for ${projectId}:`, message);
-							projectTaskFetchErrors.set(projectId, message);
-							return attachProjectTaskSummary(normalizedProject, []);
-						}
+						return attachProjectTaskSummary(normalizedProject, []);
 					} catch (err) {
 						const message = err instanceof Error ? err.message : String(err);
-					console.error(`Failed to fetch Zoho Projects project ${projectId}:`, message);
-					projectFetchErrors.set(projectId, message);
-					return null;
-				}
-			});
+						console.error(`Failed to fetch Zoho Projects project ${projectId}:`, message);
+						projectFetchErrors.set(projectId, message);
+						return null;
+					}
+				});
+			} finally {
+				if (debugEnabled) debug.t_projects_ms = Date.now() - projectsStartedAt;
+			}
 
 			const normalized = projects.filter(Boolean).map((project) => normalizeProjectForList(project));
 			const seenIds = new Set(normalized.map((project) => getProjectId(project)).filter(Boolean));
-				const missingMappedProjects = mappedFallbackProjects.filter(
-					(project) => !seenIds.has(getProjectId(project))
-				);
-				if (debugEnabled) {
-					debug.normalizedProjectCount = normalized.length;
-					debug.missingMappedProjectCount = missingMappedProjects.length;
-					debug.projectFetchErrors = Array.from(projectFetchErrors.entries()).map(([projectId, message]) => ({
-						projectId,
-						message
-					}));
-					debug.projectTaskFetchErrors = Array.from(projectTaskFetchErrors.entries()).map(
-						([projectId, message]) => ({
-							projectId,
-							message
-						})
-					);
-				}
+			const missingMappedProjects = mappedFallbackProjects.filter(
+				(project) => !seenIds.has(getProjectId(project))
+			);
+			if (debugEnabled) {
+				debug.normalizedProjectCount = normalized.length;
+				debug.missingMappedProjectCount = missingMappedProjects.length;
+				debug.projectFetchErrors = Array.from(projectFetchErrors.entries()).map(([projectId, message]) => ({
+					projectId,
+					message
+				}));
+			}
 
-				if (normalized.length > 0) {
-					const payload: Record<string, unknown> = {
-						projects: dedupeProjects([...normalized, ...missingMappedProjects])
-					};
-					if (debugEnabled) payload._debug = debug;
-					return json(payload);
-				}
-
+			if (normalized.length > 0) {
 				const payload: Record<string, unknown> = {
-					projects: dedupeProjects([...normalized, ...missingMappedProjects, ...unmappedDealProjects])
+					projects: dedupeProjects([...normalized, ...missingMappedProjects])
 				};
-				if (debugEnabled) payload._debug = debug;
-				return json(payload);
+				return json(withDebug(payload));
+			}
+
+			const payload: Record<string, unknown> = {
+				projects: dedupeProjects([...normalized, ...missingMappedProjects, ...unmappedDealProjects])
+			};
+			return json(withDebug(payload));
 		} catch (err) {
 			console.error('Zoho Projects lookup failed, returning fallback data:', err);
 			if (debugEnabled) {
 				debug.lookupError = err instanceof Error ? err.message : String(err);
+				debug.t_projects_ms = Number(debug.t_projects_ms) || 0;
 			}
 			const payload: Record<string, unknown> = {
 				projects: dedupeProjects([...mappedFallbackProjects, ...unmappedDealProjects])
 			};
-			if (debugEnabled) payload._debug = debug;
-			return json(payload);
+			return json(withDebug(payload));
 		}
 	} catch (err) {
 		console.error('Failed to fetch client projects list:', err);
+		if (debugEnabled) {
+			debug.lookupError = err instanceof Error ? err.message : String(err);
+			const payload: Record<string, unknown> = { projects: [], error: 'Failed to fetch projects' };
+			return json(withDebug(payload), { status: 500 });
+		}
 		throw error(500, 'Failed to fetch projects');
 	}
 };
