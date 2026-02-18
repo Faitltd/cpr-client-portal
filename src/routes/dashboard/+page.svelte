@@ -10,7 +10,7 @@
 	const getProgressPhotosLink = (deal: any) => {
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '';
-		return `/api/project/${encodeURIComponent(dealId)}/progress-photos`;
+		return `/project/${encodeURIComponent(dealId)}/photos`;
 	};
 	const formatInvoiceDate = (invoice: any) => {
 		const raw =
