@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 
 	type ZProject = any;
 
@@ -118,6 +119,13 @@
 			const data = await res.json().catch(() => ({}));
 			const fresh = data.projects || [];
 			projects = fresh;
+			if (fresh.length === 1 && !isRefresh) {
+				const singleId = fresh[0]?.id ?? fresh[0]?.project_id ?? '';
+				if (singleId) {
+					goto(`/zprojects/${singleId}`, { replaceState: true });
+					return;
+				}
+			}
 			saveToCache(fresh);
 			error = '';
 		} catch (err) {
@@ -142,6 +150,10 @@
 </script>
 
 <div class="zprojects">
+	<nav class="back-nav">
+		<a href="/dashboard">← Back to Dashboard</a>
+	</nav>
+
 	<header>
 		<div>
 			<h1>Projects</h1>
@@ -214,6 +226,20 @@
 
 	h1 {
 		margin: 0 0 0.5rem;
+	}
+
+	.back-nav {
+		margin-bottom: 1.5rem;
+	}
+
+	.back-nav a {
+		color: #0066cc;
+		text-decoration: none;
+		font-size: 0.95rem;
+	}
+
+	.back-nav a:hover {
+		text-decoration: underline;
 	}
 
 	.loading {

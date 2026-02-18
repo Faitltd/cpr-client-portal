@@ -171,6 +171,10 @@
 		<a href="/zprojects">← Back to Projects</a>
 	</nav>
 
+	<nav class="back-nav">
+		<a href="/dashboard">← Back to Dashboard</a>
+	</nav>
+
 	{#if loading}
 		<div class="loading">Loading project...</div>
 	{:else if error}
@@ -258,6 +262,20 @@
 	.top-nav a {
 		color: #0066cc;
 		text-decoration: none;
+	}
+
+	.back-nav {
+		margin-bottom: 1.5rem;
+	}
+
+	.back-nav a {
+		color: #0066cc;
+		text-decoration: none;
+		font-size: 0.95rem;
+	}
+
+	.back-nav a:hover {
+		text-decoration: underline;
 	}
 
 	.loading {
