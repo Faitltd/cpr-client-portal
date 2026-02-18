@@ -9,7 +9,7 @@ import {
 } from '$lib/server/progress-photos';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
-const DEAL_LINK_CACHE_TTL_MS = 10 * 60 * 1000;
+const DEAL_LINK_CACHE_TTL_MS = 60 * 1000;
 
 const resolvedDealLinkCache = new Map<string, { fetchedAt: number; url: string }>();
 
@@ -70,6 +70,21 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const url = (await resolveProgressPhotosLink(deal)) || pickBestProgressPhotosFallback(candidates);
 	if (!url) {
 		throw error(404, 'No valid progress photos link is configured for this project.');
+	}
+
+	try {
+		const parsed = new URL(url);
+		console.info('Progress photos link selected', {
+			dealId,
+			candidateCount: candidates.length,
+			host: parsed.host,
+			path: parsed.pathname
+		});
+	} catch {
+		console.info('Progress photos link selected', {
+			dealId,
+			candidateCount: candidates.length
+		});
 	}
 
 	resolvedDealLinkCache.set(dealId, { fetchedAt: Date.now(), url });

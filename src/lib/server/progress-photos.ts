@@ -1,4 +1,4 @@
-const LINK_VALIDATION_TTL_MS = 15 * 60 * 1000;
+const LINK_VALIDATION_TTL_MS = 5 * 60 * 1000;
 const LINK_VALIDATION_TIMEOUT_MS = 7000;
 
 type ValidationCacheEntry = {
@@ -21,12 +21,29 @@ function toUrl(value: unknown): string | null {
 	}
 }
 
+function extractUrlsFromText(value: string): string[] {
+	const matches = value.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+	const seen = new Set<string>();
+	const urls: string[] = [];
+	for (const match of matches) {
+		const normalized = toUrl(match);
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		urls.push(normalized);
+	}
+	return urls;
+}
+
 function collectUrls(value: unknown, output: string[], depth = 0) {
 	if (depth > 3 || value === null || value === undefined) return;
 
 	if (typeof value === 'string') {
 		const url = toUrl(value);
-		if (url) output.push(url);
+		if (url) {
+			output.push(url);
+			return;
+		}
+		for (const extracted of extractUrlsFromText(value)) output.push(extracted);
 		return;
 	}
 
@@ -59,6 +76,15 @@ function collectUrls(value: unknown, output: string[], depth = 0) {
 	}
 
 	for (const nested of Object.values(record)) {
+		if (typeof nested === 'string') {
+			const url = toUrl(nested);
+			if (url) {
+				output.push(url);
+				continue;
+			}
+			for (const extracted of extractUrlsFromText(nested)) output.push(extracted);
+			continue;
+		}
 		if (!nested || typeof nested !== 'object') continue;
 		collectUrls(nested, output, depth + 1);
 	}
