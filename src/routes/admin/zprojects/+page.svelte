@@ -8,6 +8,10 @@
 	let portals = $state<{ loading: boolean; data: any; error: string }>({
 		loading: false, data: null, error: ''
 	});
+	let photosDiagnostics = $state<{ loading: boolean; data: any; error: string }>({
+		loading: false, data: null, error: ''
+	});
+	let photosDealId = $state('');
 
 	let copiedKey = $state('');
 
@@ -32,6 +36,26 @@
 		}
 	}
 
+	async function fetchPhotosDiagnostics() {
+		photosDiagnostics.loading = true;
+		photosDiagnostics.data = null;
+		photosDiagnostics.error = '';
+		try {
+			const dealId = photosDealId.trim();
+			if (!dealId) throw new Error('Enter a deal ID');
+			const res = await fetch(`/api/zprojects/photos-diagnostics?dealId=${encodeURIComponent(dealId)}`);
+			if (!res.ok) {
+				const text = await res.text().catch(() => '');
+				throw new Error(`${res.status} ${res.statusText}${text ? ': ' + text : ''}`);
+			}
+			photosDiagnostics.data = await res.json();
+		} catch (err) {
+			photosDiagnostics.error = err instanceof Error ? err.message : 'Unknown error';
+		} finally {
+			photosDiagnostics.loading = false;
+		}
+	}
+
 	function copyJson(key: string, data: any) {
 		try {
 			navigator.clipboard.writeText(JSON.stringify(data, null, 2));
@@ -43,6 +67,7 @@
 	function loadDiagnostics() { fetchEndpoint('diagnostics', diagnostics); }
 	function loadAudit() { fetchEndpoint('audit', audit); }
 	function loadPortals() { fetchEndpoint('portals', portals); }
+	function loadPhotosDiagnostics() { fetchPhotosDiagnostics(); }
 </script>
 
 <div class="zp-admin">
@@ -71,6 +96,32 @@
 		{/if}
 		{#if diagnostics.data}
 			<pre class="panel-json">{JSON.stringify(diagnostics.data, null, 2)}</pre>
+		{/if}
+	</section>
+
+	<section class="panel">
+		<div class="panel-header">
+			<h2>Photos Diagnostics</h2>
+			<div class="panel-actions">
+				<input class="deal-input" type="text" bind:value={photosDealId} placeholder="Deal ID" />
+				<button class="btn" on:click={loadPhotosDiagnostics} disabled={photosDiagnostics.loading}>
+					{photosDiagnostics.loading ? 'Loading…' : 'Fetch'}
+				</button>
+				{#if photosDiagnostics.data}
+					<button class="btn btn-copy" on:click={() => copyJson('photosDiagnostics', photosDiagnostics.data)}>
+						{copiedKey === 'photosDiagnostics' ? 'Copied!' : 'Copy JSON'}
+					</button>
+				{/if}
+			</div>
+		</div>
+		<p class="panel-desc">
+			Inspect progress-photo field values, parsed ID references, URL probes, and recommended durable source.
+		</p>
+		{#if photosDiagnostics.error}
+			<div class="panel-error">{photosDiagnostics.error}</div>
+		{/if}
+		{#if photosDiagnostics.data}
+			<pre class="panel-json">{JSON.stringify(photosDiagnostics.data, null, 2)}</pre>
 		{/if}
 	</section>
 
@@ -164,6 +215,17 @@
 	.panel-actions {
 		display: flex;
 		gap: 0.5rem;
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.deal-input {
+		min-width: 220px;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid #d1d5db;
+		border-radius: 999px;
+		font-size: 0.93rem;
+		min-height: 40px;
 	}
 
 	.panel-desc {

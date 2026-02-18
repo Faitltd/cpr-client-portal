@@ -125,6 +125,8 @@ export function pickBestProgressPhotosFallback(candidates: string[]): string {
 function looksLikeInvalidLinkPage(html: string) {
 	const text = html.toLowerCase();
 	return (
+		text.includes('document not found') ||
+		text.includes('invalid url') ||
 		text.includes('this link is no longer valid') ||
 		text.includes('the link may have expired') ||
 		text.includes('learn more about invalid links')
