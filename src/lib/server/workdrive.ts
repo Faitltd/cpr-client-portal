@@ -184,6 +184,22 @@ export function extractWorkDriveFolderId(value: unknown) {
 		const trimmed = input.trim();
 		if (!trimmed) return '';
 
+		try {
+			const url = new URL(trimmed);
+			const pathTokens = url.pathname.split('/').filter(Boolean);
+			const foldersIndex = pathTokens.findIndex((token) => {
+				const lower = token.toLowerCase();
+				return lower === 'folder' || lower === 'folders';
+			});
+			const folderId = foldersIndex >= 0 ? pathTokens[foldersIndex + 1] || '' : '';
+			if (folderId.trim()) {
+				console.log('WORKDRIVE extract id', { raw: input, folderId });
+				return folderId.trim();
+			}
+		} catch {
+			// ignore malformed url
+		}
+
 		const rawId = trimmed.match(/^[a-z0-9]{12,}$/i);
 		if (rawId) return trimmed;
 
