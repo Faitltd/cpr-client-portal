@@ -71,7 +71,7 @@
 </script>
 
 <div class="container">
-	<a class="back" href="/trade">← Back to Dashboard</a>
+	<a class="back" href="/trade/dashboard">← Back to Dashboard</a>
 
 	<header>
 		<h1>Progress Photos</h1>

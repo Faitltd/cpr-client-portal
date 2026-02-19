@@ -173,7 +173,10 @@ async function fetchTradePhotosForSession(
 	for (const deal of Array.isArray(deals) ? deals : []) {
 		const dealId = String(deal?.id || '').trim();
 		const projectName = getDealLabel(deal) || (dealId ? `Deal ${dealId.slice(-6)}` : 'Project');
-		const folderFromField = extractWorkDriveFolderId(deal?.Client_Portal_Folder);
+		const folderFromField =
+			extractWorkDriveFolderId(deal?.Client_Portal_Folder) ||
+			extractWorkDriveFolderId(deal?.Progress_Photos) ||
+			extractWorkDriveFolderId(deal?.External_Link);
 		const candidates = buildDealFolderCandidates(projectName);
 
 		let projectFolderId = folderFromField;

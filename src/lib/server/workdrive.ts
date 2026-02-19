@@ -177,21 +177,90 @@ function normalizeName(value: string) {
 		.trim();
 }
 
-export function extractWorkDriveFolderId(value: string | null | undefined) {
-	if (!value) return '';
-	const trimmed = String(value).trim();
-	if (!trimmed) return '';
-	const folderMatch = trimmed.match(/\/folders\/([a-z0-9]+)/i);
-	if (folderMatch?.[1] && folderMatch[1].toLowerCase() !== 'files') {
-		return folderMatch[1];
-	}
-	const resourceMatch = trimmed.match(/resource_id=([a-z0-9]+)/i);
-	if (resourceMatch?.[1]) return resourceMatch[1];
-	const folderIdMatch = trimmed.match(/folder_id=([a-z0-9]+)/i);
-	if (folderIdMatch?.[1]) return folderIdMatch[1];
-	const rawId = trimmed.match(/^[a-z0-9]{12,}$/i);
-	if (rawId) return trimmed;
-	return '';
+export function extractWorkDriveFolderId(value: unknown) {
+	const seen = new WeakSet<object>();
+
+	const extractFromString = (input: string) => {
+		const trimmed = input.trim();
+		if (!trimmed) return '';
+
+		const rawId = trimmed.match(/^[a-z0-9]{12,}$/i);
+		if (rawId) return trimmed;
+
+		const folderPathMatch = trimmed.match(/\/folders?\/([a-z0-9]+)/i);
+		if (folderPathMatch?.[1] && folderPathMatch[1].toLowerCase() !== 'files') {
+			return folderPathMatch[1];
+		}
+
+		const resourceMatch = trimmed.match(/resource_id=([a-z0-9]+)/i);
+		if (resourceMatch?.[1]) return resourceMatch[1];
+		const folderIdMatch = trimmed.match(/folder_id=([a-z0-9]+)/i);
+		if (folderIdMatch?.[1]) return folderIdMatch[1];
+		const folderIdAltMatch = trimmed.match(/folderId=([a-z0-9]+)/i);
+		if (folderIdAltMatch?.[1]) return folderIdAltMatch[1];
+
+		try {
+			const url = new URL(trimmed);
+			const folderQuery =
+				url.searchParams.get('folder_id') ||
+				url.searchParams.get('folderId') ||
+				url.searchParams.get('resource_id') ||
+				url.searchParams.get('resourceId');
+			if (folderQuery) return folderQuery;
+
+			const pathTokens = url.pathname.split('/').filter(Boolean);
+			for (let i = 0; i < pathTokens.length; i += 1) {
+				const token = pathTokens[i]?.toLowerCase();
+				const next = pathTokens[i + 1] || '';
+				if (!next) continue;
+				if (token === 'folder' || token === 'folders') return next;
+			}
+		} catch {
+			// ignore malformed url
+		}
+
+		return '';
+	};
+
+	const walk = (node: unknown, depth = 0): string => {
+		if (depth > 6 || node === null || node === undefined) return '';
+
+		if (typeof node === 'string') {
+			return extractFromString(node);
+		}
+
+		if (Array.isArray(node)) {
+			for (const item of node) {
+				const found = walk(item, depth + 1);
+				if (found) return found;
+			}
+			return '';
+		}
+
+		if (typeof node !== 'object') return '';
+		if (seen.has(node as object)) return '';
+		seen.add(node as object);
+
+		for (const [rawKey, rawValue] of Object.entries(node as Record<string, unknown>)) {
+			const key = rawKey.toLowerCase();
+			if (typeof rawValue === 'string') {
+				const fromString = extractFromString(rawValue);
+				if (fromString) return fromString;
+
+				if (key.includes('folder') || key.includes('resource')) {
+					const rawId = rawValue.trim();
+					if (/^[a-z0-9]{12,}$/i.test(rawId)) return rawId;
+				}
+			}
+
+			const nested = walk(rawValue, depth + 1);
+			if (nested) return nested;
+		}
+
+		return '';
+	};
+
+	return walk(value, 0);
 }
 
 export function buildDealFolderCandidates(dealName: string | null | undefined) {
