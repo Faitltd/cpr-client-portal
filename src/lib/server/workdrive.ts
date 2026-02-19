@@ -166,8 +166,7 @@ export function isImageFile(item: WorkDriveItem) {
 	const name = item?.name || '';
 	const lower = name.toLowerCase();
 	if (item?.mime && item.mime.startsWith('image/')) return true;
-	return (/
-\.(jpg|jpeg|png|gif|webp|bmp|heic|heif|tif|tiff)$/i).test(lower);
+		return /\.(jpg|jpeg|png|gif|webp|bmp|heic|heif|tif|tiff)$/i.test(lower);
 }
 
 function normalizeName(value: string) {
