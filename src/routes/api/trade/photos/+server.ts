@@ -263,7 +263,7 @@ async function fetchTradePhotosForSession(
 
 		if (!resolvedFieldUpdates) {
 			const projectFolder = findBestFolderByName(rootItems, candidates);
-			projectFolderId = projectFolder?.id || '';
+			if (projectFolder?.id) projectFolderId = projectFolder.id;
 			if (projectFolderId) {
 				try {
 					resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
