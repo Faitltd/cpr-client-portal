@@ -8,7 +8,6 @@ import {
 	extractWorkDriveFolderId,
 	findBestFolderByName,
 	findPhotosFolder,
-	getWorkDriveDownloadCandidates,
 	isImageFile,
 	listWorkDriveFolder
 } from '$lib/server/workdrive';
@@ -195,6 +194,11 @@ async function fetchTradePhotosForSession(
 	apiDomain?: string,
 	dealId?: string | null
 ): Promise<TradePhoto[]> {
+	console.log('TRADE_PHOTOS: fetchTradePhotosForSession called', {
+		tradePartnerId,
+		requestedDealId: dealId || null
+	});
+
 	const rootFolderId = getRootFolderId();
 	let rootItems: Awaited<ReturnType<typeof listWorkDriveFolder>> = [];
 
@@ -210,13 +214,31 @@ async function fetchTradePhotosForSession(
 		}
 	}
 
-	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	const allDeals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	const requestedDealId = dealId ? String(dealId).trim() : '';
+	const deals = Array.isArray(allDeals) ? allDeals : [];
+	const filteredDeals = requestedDealId
+		? deals.filter((deal) => String(deal?.id || '').trim() === requestedDealId)
+		: deals;
+	console.log('TRADE_PHOTOS: deals to process', {
+		allDealsCount: deals.length,
+		filteredDealsCount: filteredDeals.length,
+		requestedDealId: dealId || null,
+		dealIds: filteredDeals.map((deal) => String(deal?.id || '')),
+		dealFields: filteredDeals.map((deal) => Object.keys(deal || {}))
+	});
 	const photos: TradePhoto[] = [];
 
-	for (const deal of Array.isArray(deals) ? deals : []) {
+	for (const deal of deals) {
 		const currentDealId = String(deal?.id || '').trim();
 		if (requestedDealId && currentDealId !== requestedDealId) continue;
+		console.log('TRADE_PHOTOS: processing deal', {
+			dealId: currentDealId,
+			hasExternalLink: Boolean(deal?.External_Link),
+			externalLink: deal?.External_Link || null,
+			hasClientPortalFolder: Boolean(deal?.Client_Portal_Folder),
+			dealKeys: Object.keys(deal || {}).slice(0, 20)
+		});
 		const projectName =
 			getDealLabel(deal) || (currentDealId ? `Deal ${currentDealId.slice(-6)}` : 'Project');
 		const folderFromField =
@@ -382,6 +404,10 @@ async function fetchTradePhotosForSession(
 }
 
 export const GET: RequestHandler = async ({ cookies, url }) => {
+	console.log('[TRADE PHOTOS PROXY] Request received', {
+		timestamp: new Date().toISOString(),
+		fileId: url.searchParams.get('fileId')
+	});
 	const sessionToken = cookies.get('trade_session');
 	if (!sessionToken) {
 		return json({ message: 'Not authenticated' }, { status: 401 });
@@ -405,22 +431,31 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 
 	const fileId = url.searchParams.get('fileId');
 	if (fileId) {
-		const candidates = getWorkDriveDownloadCandidates(apiDomain);
+		const downloadUrls = [
+			`https://download.zoho.com/v1/workdrive/download/${encodeURIComponent(fileId)}`,
+			`https://workdrive.zoho.com/api/v1/download/${encodeURIComponent(fileId)}`
+		];
 		let lastStatus = 500;
 		let lastMessage = '';
+		let lastErrorBody = '';
 
-		for (const base of candidates) {
-			const downloadUrl = `${base.replace(/\/$/, '')}/${encodeURIComponent(fileId)}`;
+		for (const downloadUrl of downloadUrls) {
 			const response = await fetch(downloadUrl, {
 				method: 'GET',
 				headers: {
 					Authorization: `Zoho-oauthtoken ${accessToken}`
 				}
 			});
+			console.log('[TRADE PHOTOS PROXY] Attempt', {
+				downloadUrl,
+				responseStatus: response.status,
+				contentType: response.headers.get('content-type')
+			});
 
 			if (!response.ok) {
 				lastStatus = response.status;
-				lastMessage = await response.text().catch(() => '');
+				lastErrorBody = await response.text().catch(() => '');
+				lastMessage = lastErrorBody;
 				continue;
 			}
 
@@ -436,6 +471,9 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			});
 		}
 
+		console.log('[TRADE PHOTOS PROXY] FAILED', {
+			errorBody: lastErrorBody
+		});
 		return json({ message: lastMessage || 'Failed to download WorkDrive file' }, { status: lastStatus });
 	}
 

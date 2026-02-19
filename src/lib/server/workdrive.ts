@@ -15,7 +15,13 @@ export type WorkDriveItem = {
 };
 
 function getOriginFromApiDomain(apiDomain?: string) {
-	if (apiDomain) return apiDomain.replace(/\/$/, '');
+	if (apiDomain && apiDomain !== 'default') {
+		try {
+			return new URL(apiDomain).origin;
+		} catch {
+			return apiDomain.replace(/\/$/, '');
+		}
+	}
 	const fallback = env.ZOHO_API_BASE || '';
 	if (!fallback) return '';
 	try {
@@ -28,7 +34,7 @@ function getOriginFromApiDomain(apiDomain?: string) {
 export function getWorkDriveApiBase(apiDomain?: string) {
 	if (WORKDRIVE_API_BASE) return WORKDRIVE_API_BASE.replace(/\/$/, '');
 	const origin = getOriginFromApiDomain(apiDomain) || 'https://www.zohoapis.com';
-	return `${origin}/WorkDrive/api/v1`;
+	return `${origin}/workdrive/api/v1`;
 }
 
 export function getWorkDriveDownloadCandidates(apiDomain?: string) {
@@ -141,18 +147,43 @@ export async function listWorkDriveFolder(
 	const perPage = options.perPage ?? 200;
 	const maxPages = options.maxPages ?? 5;
 	const items: any[] = [];
+	const base = getWorkDriveApiBase(apiDomain);
+	const previewParams = new URLSearchParams({
+		'page[limit]': String(perPage),
+		'page[offset]': '0'
+	});
+	const previewUrl = `${base}/files/${encodeURIComponent(folderId)}/files?${previewParams.toString()}`;
+	console.log('WORKDRIVE listFolder request', {
+		folderId,
+		apiDomain: apiDomain || null,
+		url: previewUrl
+	});
 
 	for (let page = 1; page <= maxPages; page += 1) {
-const params = new URLSearchParams({
-                'page[limit]': String(perPage),
-                'page[offset]': String((page - 1) * perPage)
-            });
-			const payload = await workDriveCall(
-		accessToken,
-			`/files/${encodeURIComponent(folderId)}/files?${params.toString()}`,
-			{},
-			apiDomain
-		);
+		const params = new URLSearchParams({
+			'page[limit]': String(perPage),
+			'page[offset]': String((page - 1) * perPage)
+		});
+		const url = `${base}/files/${encodeURIComponent(folderId)}/files?${params.toString()}`;
+		const response = await fetch(url, {
+			method: 'GET',
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				'Content-Type': 'application/json'
+			}
+		});
+
+		if (!response.ok) {
+			const responseText = await response.text().catch(() => '');
+			console.log('WORKDRIVE listFolder response', {
+				status: response.status,
+				contentType: response.headers.get('content-type'),
+				bodyPreview: responseText.slice(0, 200)
+			});
+			throw new Error(`WorkDrive API call failed (${response.status}): ${responseText}`);
+		}
+
+		const payload = await response.json();
 		const data = Array.isArray(payload?.data) ? payload.data : [];
 		items.push(...data);
 		const moreRecords = Boolean(payload?.info?.more_records);
@@ -181,19 +212,20 @@ export function extractWorkDriveFolderId(value: unknown) {
 	const seen = new WeakSet<object>();
 
 	const extractFromString = (input: string) => {
+		console.log('WORKDRIVE raw input', input);
 		const trimmed = input.trim();
 		if (!trimmed) return '';
 
 		try {
 			const url = new URL(trimmed);
 			const pathTokens = url.pathname.split('/').filter(Boolean);
-			const foldersIndex = pathTokens.findIndex((token) => {
-				const lower = token.toLowerCase();
-				return lower === 'folder' || lower === 'folders';
+			const idx = pathTokens.findIndex((token) => {
+				const k = token.toLowerCase();
+				return k === 'folder' || k === 'folders';
 			});
-			const folderId = foldersIndex >= 0 ? pathTokens[foldersIndex + 1] || '' : '';
+			const folderId = idx >= 0 ? pathTokens[idx + 1] || '' : '';
 			if (folderId.trim()) {
-				console.log('WORKDRIVE extract id', { raw: input, folderId });
+				console.log('WORKDRIVE extract id', { raw: input, folderId: folderId.trim() });
 				return folderId.trim();
 			}
 		} catch {
@@ -277,6 +309,15 @@ export function extractWorkDriveFolderId(value: unknown) {
 	};
 
 	return walk(value, 0);
+}
+
+if (process.env.NODE_ENV !== 'production') {
+	console.log(
+		'WORKDRIVE manual test',
+		extractWorkDriveFolderId(
+			'https://workdrive.zoho.com/folder/2zgyn6a8d7dfb94b64f9a8393b736056c7e62'
+		)
+	);
 }
 
 export function buildDealFolderCandidates(dealName: string | null | undefined) {
