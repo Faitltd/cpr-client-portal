@@ -234,7 +234,12 @@
 			<a class="field-update-button" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
 				Open Field Update Form
 			</a>
-			<a class="field-update-secondary" href="/trade/photos">Progress Photos</a>
+			<a
+				class="field-update-secondary"
+				href={`/trade/photos?dealId=${encodeURIComponent(selectedDealId)}`}
+			>
+				Progress Photos
+			</a>
 		</div>
 		<p class="field-update-hint">
 			Opens in a new tab so camera/microphone permissions work reliably.

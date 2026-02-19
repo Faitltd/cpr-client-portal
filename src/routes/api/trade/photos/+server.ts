@@ -192,7 +192,8 @@ async function getAccessToken() {
 async function fetchTradePhotosForSession(
 	tradePartnerId: string,
 	accessToken: string,
-	apiDomain?: string
+	apiDomain?: string,
+	dealId?: string | null
 ): Promise<TradePhoto[]> {
 	const rootFolderId = getRootFolderId();
 	let rootItems: Awaited<ReturnType<typeof listWorkDriveFolder>> = [];
@@ -210,55 +211,65 @@ async function fetchTradePhotosForSession(
 	}
 
 	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	const requestedDealId = dealId ? String(dealId).trim() : '';
 	const photos: TradePhoto[] = [];
 
 	for (const deal of Array.isArray(deals) ? deals : []) {
-		const dealId = String(deal?.id || '').trim();
-		const projectName = getDealLabel(deal) || (dealId ? `Deal ${dealId.slice(-6)}` : 'Project');
+		const currentDealId = String(deal?.id || '').trim();
+		if (requestedDealId && currentDealId !== requestedDealId) continue;
+		const projectName =
+			getDealLabel(deal) || (currentDealId ? `Deal ${currentDealId.slice(-6)}` : 'Project');
 		const folderFromField =
-			extractWorkDriveFolderId(deal?.Client_Portal_Folder) ||
-			extractWorkDriveFolderId(deal?.Progress_Photos) ||
-			extractWorkDriveFolderId(deal?.External_Link);
+			extractWorkDriveFolderId(deal?.External_Link) ||
+			extractWorkDriveFolderId(deal?.Client_Portal_Folder);
 		const candidates = buildDealFolderCandidates(projectName);
+		console.info('TRADE_PHOTOS: deal start', {
+			dealId: currentDealId,
+			projectName,
+			folderFromField
+		});
 
 		let projectFolderId = folderFromField;
-		let fieldUpdatesFolder: { id: string; name: string } | null = null;
-		let fieldUpdatesLabel = DEFAULT_WORK_TYPE;
+		let resolvedFieldUpdates:
+			| { folder: { id: string; name: string }; label: string }
+			| null = null;
 
 		const loadFieldUpdates = async (folderId: string) => {
 			const resolved = await resolveFieldUpdatesFolder(accessToken, folderId, apiDomain);
-			if (!resolved) return false;
-			fieldUpdatesFolder = resolved.folder;
-			fieldUpdatesLabel = resolved.label;
-			return true;
+			console.info('TRADE_PHOTOS: resolveFieldUpdatesFolder', {
+				dealId: currentDealId,
+				projectName,
+				projectFolderId: folderId,
+				success: Boolean(resolved),
+				folderId: resolved?.folder?.id || null,
+				folderName: resolved?.folder?.name || null
+			});
+			return resolved || null;
 		};
 
 		if (projectFolderId) {
 			try {
-				const resolved = await loadFieldUpdates(projectFolderId);
-				if (!resolved) {
-					fieldUpdatesFolder = null;
-				}
+				resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
 			} catch (err) {
 				console.warn('Trade photos failed to list WorkDrive project folder', {
-					dealId,
+					dealId: currentDealId,
 					projectName,
 					projectFolderId,
 					error: err instanceof Error ? err.message : String(err)
 				});
-				fieldUpdatesFolder = null;
+				resolvedFieldUpdates = null;
 			}
 		}
 
-		if (!fieldUpdatesFolder) {
+		if (!resolvedFieldUpdates) {
 			const projectFolder = findBestFolderByName(rootItems, candidates);
 			projectFolderId = projectFolder?.id || '';
 			if (projectFolderId) {
 				try {
-					await loadFieldUpdates(projectFolderId);
+					resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
 				} catch (err) {
 					console.warn('Trade photos fallback project folder lookup failed', {
-						dealId,
+						dealId: currentDealId,
 						projectName,
 						projectFolderId,
 						error: err instanceof Error ? err.message : String(err)
@@ -267,18 +278,25 @@ async function fetchTradePhotosForSession(
 			}
 		}
 
-		if (!projectFolderId || !fieldUpdatesFolder) {
-			console.warn('Trade photos missing Field Updates folder', {
-				dealId,
+		if (!projectFolderId || !resolvedFieldUpdates) {
+			console.warn('TRADE_PHOTOS: missing Field Updates folder', {
+				dealId: currentDealId,
 				projectName,
 				projectFolderId,
-				candidates
+				candidates,
+				externalLink: deal?.External_Link
 			});
 			continue;
 		}
 
 		try {
-			const fieldItems = await listWorkDriveFolder(accessToken, fieldUpdatesFolder.id, apiDomain);
+			const fieldUpdatesFolder = resolvedFieldUpdates.folder;
+			const fieldUpdatesLabel = resolvedFieldUpdates.label || DEFAULT_WORK_TYPE;
+			const fieldItems = await listWorkDriveFolder(
+				accessToken,
+				fieldUpdatesFolder.id,
+				apiDomain
+			);
 			const imageFiles = fieldItems.filter((item) => item.type === 'file' && isImageFile(item));
 
 			for (const file of imageFiles) {
@@ -301,7 +319,7 @@ async function fetchTradePhotosForSession(
 			}
 		} catch (err) {
 			console.warn('Trade photos failed to list Field Updates files', {
-				dealId,
+				dealId: currentDealId,
 				projectName,
 				projectFolderId,
 				error: err instanceof Error ? err.message : String(err)
@@ -376,13 +394,14 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		return json({ message: lastMessage || 'Failed to download WorkDrive file' }, { status: lastStatus });
 	}
 
+	const dealId = url.searchParams.get('dealId');
 	const tradePartnerId = session.trade_partner.zoho_trade_partner_id;
 	if (!tradePartnerId) {
 		return json({ photos: [] });
 	}
 
 	try {
-		const photos = await fetchTradePhotosForSession(tradePartnerId, accessToken, apiDomain);
+		const photos = await fetchTradePhotosForSession(tradePartnerId, accessToken, apiDomain, dealId);
 		return json({ photos });
 	} catch (err) {
 		console.error('Trade photos failed', {

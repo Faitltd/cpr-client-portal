@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+		import { page } from '$app/stores';
 
 	type TradePhoto = {
 		id: string;
@@ -49,7 +50,9 @@
 		loading = true;
 		error = '';
 		try {
-			const res = await fetch('/api/trade/photos');
+			const dealId = $page.url.searchParams.get('dealId');
+			const query = dealId ? `?dealId=${encodeURIComponent(dealId)}` : '';
+			const res = await fetch(`/api/trade/photos${query}`);
 			if (res.status === 401) {
 				goto('/auth/trade');
 				return;
