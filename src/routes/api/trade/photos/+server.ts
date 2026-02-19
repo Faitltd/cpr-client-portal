@@ -278,14 +278,61 @@ async function fetchTradePhotosForSession(
 			}
 		}
 
-		if (!projectFolderId || !resolvedFieldUpdates) {
-			console.warn('TRADE_PHOTOS: missing Field Updates folder', {
+				if (!projectFolderId) {
+			console.warn('TRADE_PHOTOS: no project folder found', {
 				dealId: currentDealId,
 				projectName,
-				projectFolderId,
 				candidates,
 				externalLink: deal?.External_Link
 			});
+			continue;
+		}
+
+		if (!resolvedFieldUpdates) {
+			// Fallback: scan the project folder directly for image files
+			console.info('TRADE_PHOTOS: fallback to project folder for images', {
+				dealId: currentDealId,
+				projectName,
+				projectFolderId
+			});
+
+			try {
+				const directItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
+				const imageFiles = directItems.filter((item) => item.type === 'file' && isImageFile(item));
+
+				console.info('TRADE_PHOTOS: direct folder scan result', {
+					dealId: currentDealId,
+					totalItems: directItems.length,
+					imageCount: imageFiles.length
+				});
+
+				for (const file of imageFiles) {
+					const submittedAt =
+						toIsoOrNull(file.createdTime) ||
+						toIsoOrNull(file.modifiedTime) ||
+						new Date().toISOString();
+
+					const publicUrl = extractWorkDrivePublicUrl(file);
+					const url = publicUrl || `/api/trade/photos?fileId=${encodeURIComponent(file.id)}`;
+
+					photos.push({
+						id: file.id,
+						projectName,
+						workType: DEFAULT_WORK_TYPE,
+						submittedAt,
+						url,
+						caption: toCaption(file.name)
+					});
+				}
+			} catch (err) {
+				console.warn('Trade photos fallback direct scan failed', {
+					dealId: currentDealId,
+					projectName,
+					projectFolderId,
+					error: err instanceof Error ? err.message : String(err)
+				});
+			}
+
 			continue;
 		}
 
