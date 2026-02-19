@@ -147,7 +147,8 @@ const params = new URLSearchParams({
                 'page[limit]': String(perPage),
                 'page[offset]': String((page - 1) * perPage)
             });
-			accessToken,
+			const payload = await workDriveCall(
+		accessToken,
 			`/files/${encodeURIComponent(folderId)}/files?${params.toString()}`,
 			{},
 			apiDomain
