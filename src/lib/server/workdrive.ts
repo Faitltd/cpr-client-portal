@@ -143,11 +143,10 @@ export async function listWorkDriveFolder(
 	const items: any[] = [];
 
 	for (let page = 1; page <= maxPages; page += 1) {
-		const params = new URLSearchParams({
-			page: String(page),
-			per_page: String(perPage)
-		});
-		const payload = await workDriveCall(
+const params = new URLSearchParams({
+                'page[limit]': String(perPage),
+                'page[offset]': String((page - 1) * perPage)
+            });
 			accessToken,
 			`/files/${encodeURIComponent(folderId)}/files?${params.toString()}`,
 			{},
