@@ -7,6 +7,7 @@ import {
 	buildDealFolderCandidates,
 	extractWorkDriveFolderId,
 	findBestFolderByName,
+	findPhotosFolder,
 	getWorkDriveDownloadCandidates,
 	isImageFile,
 	listWorkDriveFolder
@@ -23,8 +24,9 @@ type TradePhoto = {
 };
 
 const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
-const FIELD_UPDATES_FOLDER_NAMES = ['Field Updates'];
+const FIELD_UPDATES_FOLDER_NAMES = ['Field Updates', 'Field Update', 'FieldUpdates'];
 const DEFAULT_WORK_TYPE = 'Field Update';
+const MAX_FIELD_UPDATES_SCAN = 20;
 
 function getRootFolderId() {
 	const parsed = extractWorkDriveFolderId(WORKDRIVE_ROOT_FOLDER_VALUE);
@@ -113,6 +115,46 @@ function extractWorkDrivePublicUrl(item: any): string | null {
 	return null;
 }
 
+function findFieldUpdatesFolder(items: Awaited<ReturnType<typeof listWorkDriveFolder>>) {
+	return findBestFolderByName(items, FIELD_UPDATES_FOLDER_NAMES);
+}
+
+async function resolveFieldUpdatesFolder(
+	accessToken: string,
+	projectFolderId: string,
+	apiDomain?: string
+): Promise<{ folder: { id: string; name: string }; label: string } | null> {
+	const projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
+	const directMatch = findFieldUpdatesFolder(projectItems);
+	if (directMatch) {
+		return { folder: directMatch, label: directMatch.name || DEFAULT_WORK_TYPE };
+	}
+
+	const photosFolder = findPhotosFolder(projectItems);
+	if (photosFolder) {
+		const photosItems = await listWorkDriveFolder(accessToken, photosFolder.id, apiDomain);
+		const photosMatch = findFieldUpdatesFolder(photosItems);
+		if (photosMatch) {
+			return { folder: photosMatch, label: photosMatch.name || DEFAULT_WORK_TYPE };
+		}
+	}
+
+	const childFolders = projectItems.filter((item) => item.type === 'folder').slice(0, MAX_FIELD_UPDATES_SCAN);
+	for (const child of childFolders) {
+		try {
+			const childItems = await listWorkDriveFolder(accessToken, child.id, apiDomain);
+			const childMatch = findFieldUpdatesFolder(childItems);
+			if (childMatch) {
+				return { folder: childMatch, label: childMatch.name || DEFAULT_WORK_TYPE };
+			}
+		} catch {
+			// ignore per-folder errors and keep scanning
+		}
+	}
+
+	return null;
+}
+
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) return date.toISOString();
@@ -180,32 +222,62 @@ async function fetchTradePhotosForSession(
 		const candidates = buildDealFolderCandidates(projectName);
 
 		let projectFolderId = folderFromField;
-		if (!projectFolderId) {
-			const projectFolder = findBestFolderByName(rootItems, candidates);
-			projectFolderId = projectFolder?.id || '';
+		let fieldUpdatesFolder: { id: string; name: string } | null = null;
+		let fieldUpdatesLabel = DEFAULT_WORK_TYPE;
+
+		const loadFieldUpdates = async (folderId: string) => {
+			const resolved = await resolveFieldUpdatesFolder(accessToken, folderId, apiDomain);
+			if (!resolved) return false;
+			fieldUpdatesFolder = resolved.folder;
+			fieldUpdatesLabel = resolved.label;
+			return true;
+		};
+
+		if (projectFolderId) {
+			try {
+				const resolved = await loadFieldUpdates(projectFolderId);
+				if (!resolved) {
+					fieldUpdatesFolder = null;
+				}
+			} catch (err) {
+				console.warn('Trade photos failed to list WorkDrive project folder', {
+					dealId,
+					projectName,
+					projectFolderId,
+					error: err instanceof Error ? err.message : String(err)
+				});
+				fieldUpdatesFolder = null;
+			}
 		}
 
-		if (!projectFolderId) {
-			console.warn('Trade photos missing WorkDrive project folder', {
+		if (!fieldUpdatesFolder) {
+			const projectFolder = findBestFolderByName(rootItems, candidates);
+			projectFolderId = projectFolder?.id || '';
+			if (projectFolderId) {
+				try {
+					await loadFieldUpdates(projectFolderId);
+				} catch (err) {
+					console.warn('Trade photos fallback project folder lookup failed', {
+						dealId,
+						projectName,
+						projectFolderId,
+						error: err instanceof Error ? err.message : String(err)
+					});
+				}
+			}
+		}
+
+		if (!projectFolderId || !fieldUpdatesFolder) {
+			console.warn('Trade photos missing Field Updates folder', {
 				dealId,
 				projectName,
+				projectFolderId,
 				candidates
 			});
 			continue;
 		}
 
 		try {
-			const projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
-			const fieldUpdatesFolder = findBestFolderByName(projectItems, FIELD_UPDATES_FOLDER_NAMES);
-			if (!fieldUpdatesFolder) {
-				console.warn('Trade photos missing Field Updates folder', {
-					dealId,
-					projectName,
-					projectFolderId
-				});
-				continue;
-			}
-
 			const fieldItems = await listWorkDriveFolder(accessToken, fieldUpdatesFolder.id, apiDomain);
 			const imageFiles = fieldItems.filter((item) => item.type === 'file' && isImageFile(item));
 
@@ -221,7 +293,7 @@ async function fetchTradePhotosForSession(
 				photos.push({
 					id: file.id,
 					projectName,
-					workType: fieldUpdatesFolder.name || DEFAULT_WORK_TYPE,
+					workType: fieldUpdatesLabel,
 					submittedAt,
 					url,
 					caption: toCaption(file.name)
