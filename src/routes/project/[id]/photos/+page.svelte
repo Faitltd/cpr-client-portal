@@ -33,6 +33,11 @@
 	};
 
 	onMount(async () => {
+		if (!projectId) {
+			error = 'Missing project id.';
+			loading = false;
+			return;
+		}
 		try {
 			const res = await fetch(`/api/project/${encodeURIComponent(projectId)}/photos`);
 			if (!res.ok) {

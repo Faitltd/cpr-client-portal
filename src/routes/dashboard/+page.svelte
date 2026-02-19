@@ -260,7 +260,7 @@
 		color: #1a1a1a;
 	}
 
-	.status, .amount, .date {
+	.status, .date {
 		margin: 0.5rem 0;
 		color: #666;
 	}

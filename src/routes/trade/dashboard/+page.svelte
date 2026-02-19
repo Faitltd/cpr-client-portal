@@ -230,9 +230,12 @@
 	</header>
 
 	<div class="field-update card">
-		<a class="field-update-button" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
-			Open Field Update Form
-		</a>
+		<div class="field-update-actions">
+			<a class="field-update-button" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
+				Open Field Update Form
+			</a>
+			<a class="field-update-secondary" href="/trade/photos">Progress Photos</a>
+		</div>
 		<p class="field-update-hint">
 			Opens in a new tab so camera/microphone permissions work reliably.
 		</p>
@@ -403,6 +406,12 @@
 		gap: 0.75rem;
 	}
 
+	.field-update-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
 	.field-update-button {
 		display: inline-flex;
 		align-items: center;
@@ -421,6 +430,28 @@
 
 	.field-update-button:hover {
 		background: #0052a3;
+	}
+
+	.field-update-secondary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #f9fafb;
+		color: #111827;
+		text-decoration: none;
+		font-weight: 700;
+		border-radius: 10px;
+		padding: 0.85rem 1.25rem;
+		min-height: 44px;
+		width: fit-content;
+		max-width: 100%;
+		box-sizing: border-box;
+		border: 1px solid #d1d5db;
+	}
+
+	.field-update-secondary:hover {
+		background: #f3f4f6;
+		border-color: #cbd5e1;
 	}
 
 	.field-update-hint {
@@ -629,6 +660,10 @@
 		}
 
 		.field-update-button {
+			width: 100%;
+		}
+
+		.field-update-actions a {
 			width: 100%;
 		}
 

@@ -80,11 +80,11 @@
 		<div class="panel-header">
 			<h2>Diagnostics</h2>
 			<div class="panel-actions">
-				<button class="btn" on:click={loadDiagnostics} disabled={diagnostics.loading}>
+				<button class="btn" onclick={loadDiagnostics} disabled={diagnostics.loading}>
 					{diagnostics.loading ? 'Loading…' : 'Fetch'}
 				</button>
 				{#if diagnostics.data}
-					<button class="btn btn-copy" on:click={() => copyJson('diagnostics', diagnostics.data)}>
+					<button class="btn btn-copy" onclick={() => copyJson('diagnostics', diagnostics.data)}>
 						{copiedKey === 'diagnostics' ? 'Copied!' : 'Copy JSON'}
 					</button>
 				{/if}
@@ -104,11 +104,11 @@
 			<h2>Photos Diagnostics</h2>
 			<div class="panel-actions">
 				<input class="deal-input" type="text" bind:value={photosDealId} placeholder="Deal ID" />
-				<button class="btn" on:click={loadPhotosDiagnostics} disabled={photosDiagnostics.loading}>
+				<button class="btn" onclick={loadPhotosDiagnostics} disabled={photosDiagnostics.loading}>
 					{photosDiagnostics.loading ? 'Loading…' : 'Fetch'}
 				</button>
 				{#if photosDiagnostics.data}
-					<button class="btn btn-copy" on:click={() => copyJson('photosDiagnostics', photosDiagnostics.data)}>
+					<button class="btn btn-copy" onclick={() => copyJson('photosDiagnostics', photosDiagnostics.data)}>
 						{copiedKey === 'photosDiagnostics' ? 'Copied!' : 'Copy JSON'}
 					</button>
 				{/if}
@@ -129,11 +129,11 @@
 		<div class="panel-header">
 			<h2>Mapping Audit</h2>
 			<div class="panel-actions">
-				<button class="btn" on:click={loadAudit} disabled={audit.loading}>
+				<button class="btn" onclick={loadAudit} disabled={audit.loading}>
 					{audit.loading ? 'Loading…' : 'Fetch'}
 				</button>
 				{#if audit.data}
-					<button class="btn btn-copy" on:click={() => copyJson('audit', audit.data)}>
+					<button class="btn btn-copy" onclick={() => copyJson('audit', audit.data)}>
 						{copiedKey === 'audit' ? 'Copied!' : 'Copy JSON'}
 					</button>
 				{/if}
@@ -152,11 +152,11 @@
 		<div class="panel-header">
 			<h2>Portal Discovery</h2>
 			<div class="panel-actions">
-				<button class="btn" on:click={loadPortals} disabled={portals.loading}>
+				<button class="btn" onclick={loadPortals} disabled={portals.loading}>
 					{portals.loading ? 'Loading…' : 'Fetch'}
 				</button>
 				{#if portals.data}
-					<button class="btn btn-copy" on:click={() => copyJson('portals', portals.data)}>
+					<button class="btn btn-copy" onclick={() => copyJson('portals', portals.data)}>
 						{copiedKey === 'portals' ? 'Copied!' : 'Copy JSON'}
 					</button>
 				{/if}
