@@ -312,8 +312,8 @@ async function fetchTradePhotosForSession(
 						toIsoOrNull(file.modifiedTime) ||
 						new Date().toISOString();
 
-					const publicUrl = extractWorkDrivePublicUrl(file);
-					const url = publicUrl || `/api/trade/photos?fileId=${encodeURIComponent(file.id)}`;
+					
+					const url = `/api/trade/photos?fileId=${encodeURIComponent(file.id)}`;
 
 					photos.push({
 						id: file.id,
@@ -351,10 +351,8 @@ async function fetchTradePhotosForSession(
 					toIsoOrNull(file.createdTime) ||
 					toIsoOrNull(file.modifiedTime) ||
 					new Date().toISOString();
-				const publicUrl = extractWorkDrivePublicUrl(file);
-				const url =
-					publicUrl ||
-					`/api/trade/photos?fileId=${encodeURIComponent(file.id)}`;
+				
+					const url = `/api/trade/photos?fileId=${encodeURIComponent(file.id)}`;
 				photos.push({
 					id: file.id,
 					projectName,
