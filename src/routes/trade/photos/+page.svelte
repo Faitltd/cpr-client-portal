@@ -226,6 +226,7 @@
 		overflow: hidden;
 		border: 1px solid #e5e7eb;
 		background: #f9fafb;
+		position: relative;
 	}
 
 	.photo-frame img {
@@ -233,6 +234,9 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+		position: absolute;
+		top: 0;
+		left: 0;
 	}
 
 	.caption {
