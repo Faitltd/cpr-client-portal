@@ -406,7 +406,7 @@ async function fetchTradePhotosForSession(
 }
 
 export const GET: RequestHandler = async ({ cookies, url }) => {
-	console.log('[TRADE PHOTOS PROXY] Request received', {
+	console.log('[TRADE PHOTOS PROXY] request', {
 		timestamp: new Date().toISOString(),
 		fileId: url.searchParams.get('fileId')
 	});
