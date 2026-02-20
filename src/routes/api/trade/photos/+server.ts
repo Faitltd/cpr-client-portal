@@ -8,6 +8,7 @@ import {
 	extractWorkDriveFolderId,
 	findBestFolderByName,
 	findPhotosFolder,
+	getWorkDriveDownloadCandidates,
 	isImageFile,
 	listWorkDriveFolder
 } from '$lib/server/workdrive';
@@ -399,15 +400,40 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			return json({ message: 'File not found' }, { status: 404 });
 		}
 
-		const downloadUrl =
-			metaJson?.data?.attributes?.download_url ||
-			metaJson?.data?.[0]?.attributes?.download_url ||
-			metaJson?.data?.attributes?.permalink ||
-			metaJson?.data?.[0]?.attributes?.permalink;
+		const attributes = metaJson?.data?.attributes || metaJson?.data?.[0]?.attributes || {};
+		const resourceId =
+			attributes?.resource_id ||
+			attributes?.resourceId ||
+			metaJson?.data?.id ||
+			metaJson?.data?.[0]?.id;
+		let downloadUrl: string | undefined =
+			attributes?.download_url || attributes?.downloadUrl || undefined;
+		let fromField = downloadUrl ? 'attributes.download_url' : '';
+
+		if (!downloadUrl && resourceId) {
+			const candidates = getWorkDriveDownloadCandidates(apiDomain);
+			if (candidates.length) {
+				downloadUrl = `${candidates[0].replace(/\/$/, '')}/${encodeURIComponent(resourceId)}`;
+				fromField = 'attributes.resource_id';
+			}
+		}
+
+		if (downloadUrl && !downloadUrl.includes('directDownload=')) {
+			const joiner = downloadUrl.includes('?') ? '&' : '?';
+			downloadUrl = `${downloadUrl}${joiner}directDownload=true`;
+			if (fromField === 'attributes.download_url') {
+				fromField = 'attributes.download_url+directDownload';
+			}
+		}
 		if (!downloadUrl || typeof downloadUrl !== 'string') {
 			console.warn('[TRADE PHOTOS] no download_url in metadata', { fileId, meta: metaJson });
 			return json({ message: 'No download URL' }, { status: 502 });
 		}
+		console.warn('[TRADE PHOTOS] using download URL', {
+			fileId,
+			fromField,
+			downloadUrl
+		});
 
 		const imageResponse = await fetch(downloadUrl, {
 			headers: {
