@@ -427,10 +427,9 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		}
 
 		const headers = new Headers();
-		const contentType = imageResponse.headers.get('content-type') || 'application/octet-stream';
+		const contentType = imageResponse.headers.get('content-type') || 'image/png';
 		headers.set('Content-Type', contentType);
-		const disposition = imageResponse.headers.get('content-disposition');
-		if (disposition) headers.set('Content-Disposition', disposition);
+		headers.set('Content-Disposition', 'inline');
 
 		return new Response(imageResponse.body, {
 			status: imageResponse.status,
