@@ -393,19 +393,20 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			return json({ message: 'File not found' }, { status: 404 });
 		}
 
-		let meta: any = null;
-		try {
-			meta = await metaResponse.json();
-		} catch {
+		const metaJson = await metaResponse.json().catch(() => null);
+		if (!metaJson) {
 			console.warn('[TRADE PHOTOS] could not resolve download URL', { fileId });
 			return json({ message: 'File not found' }, { status: 404 });
 		}
 
 		const downloadUrl =
-			meta?.data?.attributes?.download_url || meta?.data?.[0]?.attributes?.download_url;
+			metaJson?.data?.attributes?.download_url ||
+			metaJson?.data?.[0]?.attributes?.download_url ||
+			metaJson?.data?.attributes?.permalink ||
+			metaJson?.data?.[0]?.attributes?.permalink;
 		if (!downloadUrl || typeof downloadUrl !== 'string') {
-			console.warn('[TRADE PHOTOS] could not resolve download URL', { fileId });
-			return json({ message: 'File not found' }, { status: 404 });
+			console.warn('[TRADE PHOTOS] no download_url in metadata', { fileId, meta: metaJson });
+			return json({ message: 'No download URL' }, { status: 502 });
 		}
 
 		const imageResponse = await fetch(downloadUrl, {
@@ -419,12 +420,9 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			console.warn('[TRADE PHOTOS] download failed', {
 				fileId,
 				status: imageResponse.status,
-				errorBody: errorBody.slice(0, 200)
+				body: errorBody.slice(0, 200)
 			});
-			return json(
-				{ message: 'Failed to download WorkDrive file' },
-				{ status: imageResponse.status }
-			);
+			return json({ message: 'Download failed' }, { status: imageResponse.status });
 		}
 
 		const headers = new Headers();
