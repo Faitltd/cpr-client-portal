@@ -196,22 +196,13 @@ async function fetchTradePhotosForSession(
 	apiDomain?: string,
 	dealId?: string | null
 ): Promise<TradePhoto[]> {
-	console.log('TRADE_PHOTOS: fetchTradePhotosForSession called', {
-		tradePartnerId,
-		requestedDealId: dealId || null
-	});
-
 	const rootFolderId = getRootFolderId();
 	let rootItems: Awaited<ReturnType<typeof listWorkDriveFolder>> = [];
 
 	if (rootFolderId) {
 		try {
 			rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain);
-		} catch (err) {
-			console.warn('Trade photos failed to list WorkDrive root folder', {
-				rootFolderId,
-				error: err instanceof Error ? err.message : String(err)
-			});
+		} catch {
 			rootItems = [];
 		}
 	}
@@ -222,36 +213,17 @@ async function fetchTradePhotosForSession(
 	const filteredDeals = requestedDealId
 		? deals.filter((deal) => String(deal?.id || '').trim() === requestedDealId)
 		: deals;
-	console.log('TRADE_PHOTOS: deals to process', {
-		allDealsCount: deals.length,
-		filteredDealsCount: filteredDeals.length,
-		requestedDealId: dealId || null,
-		dealIds: filteredDeals.map((deal) => String(deal?.id || '')),
-		dealFields: filteredDeals.map((deal) => Object.keys(deal || {}))
-	});
 	const photos: TradePhoto[] = [];
 
 	for (const deal of deals) {
 		const currentDealId = String(deal?.id || '').trim();
 		if (requestedDealId && currentDealId !== requestedDealId) continue;
-		console.log('TRADE_PHOTOS: processing deal', {
-			dealId: currentDealId,
-			hasExternalLink: Boolean(deal?.External_Link),
-			externalLink: deal?.External_Link || null,
-			hasClientPortalFolder: Boolean(deal?.Client_Portal_Folder),
-			dealKeys: Object.keys(deal || {}).slice(0, 20)
-		});
 		const projectName =
 			getDealLabel(deal) || (currentDealId ? `Deal ${currentDealId.slice(-6)}` : 'Project');
 		const folderFromField =
 			extractWorkDriveFolderId(deal?.External_Link) ||
 			extractWorkDriveFolderId(deal?.Client_Portal_Folder);
 		const candidates = buildDealFolderCandidates(projectName);
-		console.info('TRADE_PHOTOS: deal start', {
-			dealId: currentDealId,
-			projectName,
-			folderFromField
-		});
 
 		let projectFolderId = folderFromField;
 		let resolvedFieldUpdates:
@@ -260,27 +232,13 @@ async function fetchTradePhotosForSession(
 
 		const loadFieldUpdates = async (folderId: string) => {
 			const resolved = await resolveFieldUpdatesFolder(accessToken, folderId, apiDomain);
-			console.info('TRADE_PHOTOS: resolveFieldUpdatesFolder', {
-				dealId: currentDealId,
-				projectName,
-				projectFolderId: folderId,
-				success: Boolean(resolved),
-				folderId: resolved?.folder?.id || null,
-				folderName: resolved?.folder?.name || null
-			});
 			return resolved || null;
 		};
 
 		if (projectFolderId) {
 			try {
 				resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
-			} catch (err) {
-				console.warn('Trade photos failed to list WorkDrive project folder', {
-					dealId: currentDealId,
-					projectName,
-					projectFolderId,
-					error: err instanceof Error ? err.message : String(err)
-				});
+			} catch {
 				resolvedFieldUpdates = null;
 			}
 		}
@@ -291,14 +249,7 @@ async function fetchTradePhotosForSession(
 			if (projectFolderId) {
 				try {
 					resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
-				} catch (err) {
-					console.warn('Trade photos fallback project folder lookup failed', {
-						dealId: currentDealId,
-						projectName,
-						projectFolderId,
-						error: err instanceof Error ? err.message : String(err)
-					});
-				}
+				} catch {}
 			}
 		}
 
@@ -314,21 +265,9 @@ async function fetchTradePhotosForSession(
 
 		if (!resolvedFieldUpdates) {
 			// Fallback: scan the project folder directly for image files
-			console.info('TRADE_PHOTOS: fallback to project folder for images', {
-				dealId: currentDealId,
-				projectName,
-				projectFolderId
-			});
-
 			try {
 				const directItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 				const imageFiles = directItems.filter((item) => item.type === 'file' && isImageFile(item));
-
-				console.info('TRADE_PHOTOS: direct folder scan result', {
-					dealId: currentDealId,
-					totalItems: directItems.length,
-					imageCount: imageFiles.length
-				});
 
 				for (const file of imageFiles) {
 					const submittedAt =
@@ -348,14 +287,7 @@ async function fetchTradePhotosForSession(
 						caption: toCaption(file.name)
 					});
 				}
-			} catch (err) {
-				console.warn('Trade photos fallback direct scan failed', {
-					dealId: currentDealId,
-					projectName,
-					projectFolderId,
-					error: err instanceof Error ? err.message : String(err)
-				});
-			}
+			} catch {}
 
 			continue;
 		}
@@ -386,14 +318,7 @@ async function fetchTradePhotosForSession(
 					caption: toCaption(file.name)
 				});
 			}
-		} catch (err) {
-			console.warn('Trade photos failed to list Field Updates files', {
-				dealId: currentDealId,
-				projectName,
-				projectFolderId,
-				error: err instanceof Error ? err.message : String(err)
-			});
-		}
+		} catch {}
 	}
 
 	photos.sort((a, b) => {
@@ -406,10 +331,6 @@ async function fetchTradePhotosForSession(
 }
 
 export const GET: RequestHandler = async ({ cookies, url }) => {
-	console.log('[TRADE PHOTOS PROXY] request', {
-		timestamp: new Date().toISOString(),
-		fileId: url.searchParams.get('fileId')
-	});
 	const sessionToken = cookies.get('trade_session');
 	if (!sessionToken) {
 		return json({ message: 'Not authenticated' }, { status: 401 });
@@ -448,11 +369,6 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 					Authorization: `Zoho-oauthtoken ${accessToken}`
 				}
 			});
-			console.log('[TRADE PHOTOS PROXY] Attempt', {
-				downloadUrl,
-				responseStatus: response.status,
-				contentType: response.headers.get('content-type')
-			});
 
 			if (!response.ok) {
 				lastStatus = response.status;
@@ -473,9 +389,6 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			});
 		}
 
-		console.log('[TRADE PHOTOS PROXY] FAILED', {
-			errorBody: lastErrorBody
-		});
 		return json({ message: lastMessage || 'Failed to download WorkDrive file' }, { status: lastStatus });
 	}
 
