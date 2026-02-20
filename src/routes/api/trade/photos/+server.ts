@@ -406,8 +406,30 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			attributes?.resourceId ||
 			metaJson?.data?.id ||
 			metaJson?.data?.[0]?.id;
-		let downloadUrl: string | undefined =
+		const downloadUrlFromMeta: string | undefined =
 			attributes?.download_url || attributes?.downloadUrl || undefined;
+		console.warn('[TRADE PHOTOS] meta summary', {
+			fileId,
+			resourceId,
+			mimeType: attributes?.mime_type || attributes?.mimeType || null,
+			size:
+				attributes?.size ??
+				attributes?.file_size ??
+				attributes?.size_in_bytes ??
+				attributes?.fileSize ??
+				null,
+			downloadUrl: downloadUrlFromMeta || null,
+			previewUrl: attributes?.preview_url || attributes?.previewUrl || null,
+			permalink: attributes?.permalink || null
+		});
+
+		const isFullDownloadUrl = (value?: string | null) =>
+			typeof value === 'string' &&
+			/\/v1\/workdrive\/download\/|\/api\/v1\/download\//i.test(value);
+
+		let downloadUrl: string | undefined = isFullDownloadUrl(downloadUrlFromMeta)
+			? downloadUrlFromMeta
+			: undefined;
 		let fromField = downloadUrl ? 'attributes.download_url' : '';
 
 		if (!downloadUrl && resourceId) {
@@ -446,6 +468,12 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		}
 
 		const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+		console.warn('[TRADE PHOTOS] download response', {
+			fileId,
+			status: imageResponse.status,
+			contentType,
+			contentLength: imageResponse.headers.get('content-length') || null
+		});
 		return new Response(imageResponse.body, {
 			status: 200,
 			headers: {
