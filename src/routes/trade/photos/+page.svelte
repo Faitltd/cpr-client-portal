@@ -106,7 +106,7 @@
 								<div class="photo-frame">
 									<img
 										src={photo.url}
-										alt={photo.caption || photo.projectName}
+										alt={photo.caption ?? photo.id}
 										loading="lazy"
 									/>
 								</div>

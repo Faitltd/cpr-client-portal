@@ -73,6 +73,42 @@ function isHttpUrl(value: string) {
 	}
 }
 
+function extractWorkDrivePermalink(item: any): string | null {
+	if (!item) return null;
+	const raw = item.raw || item;
+	const attributes = raw?.attributes || raw;
+	const candidates = [
+		attributes?.permalink,
+		attributes?.public_link,
+		attributes?.publicLink,
+		attributes?.public_url,
+		attributes?.publicUrl,
+		attributes?.url,
+		attributes?.href,
+		attributes?.link,
+		attributes?.share_url,
+		attributes?.shareUrl,
+		attributes?.short_url,
+		attributes?.shortUrl,
+		raw?.permalink,
+		raw?.public_link,
+		raw?.publicLink,
+		raw?.public_url,
+		raw?.publicUrl,
+		raw?.url,
+		raw?.href,
+		raw?.link,
+		raw?.share_url,
+		raw?.shareUrl,
+		raw?.short_url,
+		raw?.shortUrl
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate === 'string' && isHttpUrl(candidate)) return candidate;
+	}
+	return null;
+}
+
 function extractWorkDrivePublicUrl(item: any): string | null {
 	if (!item) return null;
 	const raw = item.raw || item;
@@ -289,8 +325,8 @@ async function fetchTradePhotosForSession(
 						toIsoOrNull(file.modifiedTime) ||
 						new Date().toISOString();
 
-					
-					const url = buildTradePhotoProxyUrl(file.id);
+					const permalink = extractWorkDrivePermalink(file);
+					const url = permalink || buildTradePhotoProxyUrl(file.id);
 
 					photos.push({
 						id: file.id,
@@ -322,8 +358,9 @@ async function fetchTradePhotosForSession(
 					toIsoOrNull(file.createdTime) ||
 					toIsoOrNull(file.modifiedTime) ||
 					new Date().toISOString();
-				
-					const url = buildTradePhotoProxyUrl(file.id);
+
+				const permalink = extractWorkDrivePermalink(file);
+				const url = permalink || buildTradePhotoProxyUrl(file.id);
 				photos.push({
 					id: file.id,
 					projectName,
