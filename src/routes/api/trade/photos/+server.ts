@@ -26,6 +26,8 @@ const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
 const FIELD_UPDATES_FOLDER_NAMES = ['Field Updates', 'Field Update', 'FieldUpdates'];
 const DEFAULT_WORK_TYPE = 'Field Update';
 const MAX_FIELD_UPDATES_SCAN = 20;
+const buildTradePhotoProxyUrl = (fileId: string) =>
+	`/api/trade/photos?fileId=${encodeURIComponent(fileId)}`;
 
 function getRootFolderId() {
 	const parsed = extractWorkDriveFolderId(WORKDRIVE_ROOT_FOLDER_VALUE);
@@ -335,7 +337,7 @@ async function fetchTradePhotosForSession(
 						new Date().toISOString();
 
 					
-					const url = `/api/trade/photos?fileId=${encodeURIComponent(file.id)}`;
+					const url = buildTradePhotoProxyUrl(file.id);
 
 					photos.push({
 						id: file.id,
@@ -374,7 +376,7 @@ async function fetchTradePhotosForSession(
 					toIsoOrNull(file.modifiedTime) ||
 					new Date().toISOString();
 				
-					const url = `/api/trade/photos?fileId=${encodeURIComponent(file.id)}`;
+					const url = buildTradePhotoProxyUrl(file.id);
 				photos.push({
 					id: file.id,
 					projectName,
