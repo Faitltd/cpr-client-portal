@@ -370,47 +370,62 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 
 	const fileId = url.searchParams.get('fileId');
 	if (fileId) {
-		const downloadUrls = [
-			`https://download.zoho.com/v1/workdrive/download/${encodeURIComponent(fileId)}`,
-			`https://workdrive.zoho.com/api/v1/download/${encodeURIComponent(fileId)}`
-		];
-		let lastStatus = 500;
-		let lastMessage = '';
-		let lastErrorBody = '';
-
-		for (const downloadUrl of downloadUrls) {
-			const response = await fetch(downloadUrl, {
-				method: 'GET',
+		const metaResponse = await fetch(
+			`https://www.zohoapis.com/workdrive/api/v1/files/${encodeURIComponent(fileId)}`,
+			{
 				headers: {
 					Authorization: `Zoho-oauthtoken ${accessToken}`
 				}
-			});
-
-			if (!response.ok) {
-				lastStatus = response.status;
-				lastErrorBody = await response.text().catch(() => '');
-				lastMessage = lastErrorBody;
-				continue;
 			}
-
-			const headers = new Headers();
-			const contentType = response.headers.get('content-type') || 'application/octet-stream';
-			headers.set('Content-Type', contentType);
-			const disposition = response.headers.get('content-disposition');
-			if (disposition) headers.set('Content-Disposition', disposition);
-
-			return new Response(response.body, {
-				status: response.status,
-				headers
-			});
+		);
+		if (!metaResponse.ok) {
+			console.warn('[TRADE PHOTOS] could not resolve download URL', { fileId });
+			return json({ message: 'File not found' }, { status: 404 });
 		}
 
-		console.warn('[TRADE PHOTOS] download failed', {
-			fileId,
-			status: lastStatus,
-			errorBody: lastErrorBody
+		let meta: any = null;
+		try {
+			meta = await metaResponse.json();
+		} catch {
+			console.warn('[TRADE PHOTOS] could not resolve download URL', { fileId });
+			return json({ message: 'File not found' }, { status: 404 });
+		}
+
+		const downloadUrl = meta?.data?.attributes?.download_url;
+		if (!downloadUrl || typeof downloadUrl !== 'string') {
+			console.warn('[TRADE PHOTOS] could not resolve download URL', { fileId });
+			return json({ message: 'File not found' }, { status: 404 });
+		}
+
+		const imageResponse = await fetch(downloadUrl, {
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`
+			}
 		});
-		return json({ message: lastMessage || 'Failed to download WorkDrive file' }, { status: lastStatus });
+
+		if (!imageResponse.ok) {
+			const errorBody = await imageResponse.text().catch(() => '');
+			console.warn('[TRADE PHOTOS] download failed', {
+				fileId,
+				status: imageResponse.status,
+				errorBody
+			});
+			return json(
+				{ message: errorBody || 'Failed to download WorkDrive file' },
+				{ status: imageResponse.status }
+			);
+		}
+
+		const headers = new Headers();
+		const contentType = imageResponse.headers.get('content-type') || 'application/octet-stream';
+		headers.set('Content-Type', contentType);
+		const disposition = imageResponse.headers.get('content-disposition');
+		if (disposition) headers.set('Content-Disposition', disposition);
+
+		return new Response(imageResponse.body, {
+			status: imageResponse.status,
+			headers
+		});
 	}
 
 	const dealId = url.searchParams.get('dealId');
