@@ -418,21 +418,22 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			console.warn('[TRADE PHOTOS] download failed', {
 				fileId,
 				status: imageResponse.status,
-				errorBody
+				errorBody: errorBody.slice(0, 200)
 			});
 			return json(
-				{ message: errorBody || 'Failed to download WorkDrive file' },
+				{ message: 'Failed to download WorkDrive file' },
 				{ status: imageResponse.status }
 			);
 		}
 
+		const cloned = imageResponse.clone();
 		const headers = new Headers();
-		const contentType = imageResponse.headers.get('content-type') || 'image/png';
+		const contentType = cloned.headers.get('content-type') || 'image/jpeg';
 		headers.set('Content-Type', contentType);
 		headers.set('Content-Disposition', 'inline');
 
-		return new Response(imageResponse.body, {
-			status: imageResponse.status,
+		return new Response(cloned.body, {
+			status: 200,
 			headers
 		});
 	}
