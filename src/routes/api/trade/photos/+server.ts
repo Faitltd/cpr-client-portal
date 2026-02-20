@@ -418,13 +418,6 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			}
 		}
 
-		if (downloadUrl && !downloadUrl.includes('directDownload=')) {
-			const joiner = downloadUrl.includes('?') ? '&' : '?';
-			downloadUrl = `${downloadUrl}${joiner}directDownload=true`;
-			if (fromField === 'attributes.download_url') {
-				fromField = 'attributes.download_url+directDownload';
-			}
-		}
 		if (!downloadUrl || typeof downloadUrl !== 'string') {
 			console.warn('[TRADE PHOTOS] no download_url in metadata', { fileId, meta: metaJson });
 			return json({ message: 'No download URL' }, { status: 502 });
@@ -452,25 +445,13 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			return json({ message: 'Download failed' }, { status: imageResponse.status });
 		}
 
-		const headers = new Headers();
-		const buffer = await imageResponse.arrayBuffer();
-		const bytes = new Uint8Array(buffer);
-		const hex = Array.from(bytes.slice(0, 20))
-			.map((b) => b.toString(16).padStart(2, '0'))
-			.join(' ');
-		console.warn('[TRADE PHOTOS] response body', {
-			fileId,
-			size: buffer.byteLength,
-			first20hex: hex,
-			first100text: new TextDecoder().decode(bytes.slice(0, 100))
-		});
 		const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-		headers.set('Content-Type', contentType);
-		headers.set('Content-Disposition', 'inline');
-
-		return new Response(buffer, {
+		return new Response(imageResponse.body, {
 			status: 200,
-			headers
+			headers: {
+				'Content-Type': contentType,
+				'Content-Disposition': 'inline'
+			}
 		});
 	}
 
