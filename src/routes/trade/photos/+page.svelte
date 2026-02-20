@@ -220,6 +220,8 @@
 	}
 
 	.photo-frame {
+		width: 100%;
+		height: 180px;
 		border-radius: 10px;
 		overflow: hidden;
 		border: 1px solid #e5e7eb;
@@ -229,7 +231,7 @@
 	.photo-frame img {
 		display: block;
 		width: 100%;
-		height: 180px;
+		height: 100%;
 		object-fit: cover;
 	}
 
