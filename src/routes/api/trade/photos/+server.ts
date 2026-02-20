@@ -434,6 +434,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			fromField,
 			downloadUrl
 		});
+		console.warn('[TRADE PHOTOS] fetching', { fileId, downloadUrl });
 
 		const imageResponse = await fetch(downloadUrl, {
 			headers: {
@@ -452,16 +453,22 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		}
 
 		const headers = new Headers();
+		const buffer = await imageResponse.arrayBuffer();
+		const bytes = new Uint8Array(buffer);
+		const hex = Array.from(bytes.slice(0, 20))
+			.map((b) => b.toString(16).padStart(2, '0'))
+			.join(' ');
+		console.warn('[TRADE PHOTOS] response body', {
+			fileId,
+			size: buffer.byteLength,
+			first20hex: hex,
+			first100text: new TextDecoder().decode(bytes.slice(0, 100))
+		});
 		const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
 		headers.set('Content-Type', contentType);
 		headers.set('Content-Disposition', 'inline');
-		console.warn('[TRADE PHOTOS] streaming image', {
-			fileId,
-			status: imageResponse.status,
-			contentType
-		});
 
-		return new Response(imageResponse.body, {
+		return new Response(buffer, {
 			status: 200,
 			headers
 		});
