@@ -220,6 +220,8 @@ async function fetchTradePhotosForSession(
 		if (requestedDealId && currentDealId !== requestedDealId) continue;
 		const projectName =
 			getDealLabel(deal) || (currentDealId ? `Deal ${currentDealId.slice(-6)}` : 'Project');
+		const dealPhotoStart = photos.length;
+		let warnedNoImages = false;
 		const folderFromField =
 			extractWorkDriveFolderId(deal?.External_Link) ||
 			extractWorkDriveFolderId(deal?.Client_Portal_Folder);
@@ -229,6 +231,17 @@ async function fetchTradePhotosForSession(
 		let resolvedFieldUpdates:
 			| { folder: { id: string; name: string }; label: string }
 			| null = null;
+		const warnNoImages = () => {
+			if (warnedNoImages) return;
+			if (projectFolderId && photos.length === dealPhotoStart) {
+				console.warn('[TRADE PHOTOS] no images found', {
+					dealId: currentDealId,
+					projectName,
+					projectFolderId
+				});
+				warnedNoImages = true;
+			}
+		};
 
 		const loadFieldUpdates = async (folderId: string) => {
 			const resolved = await resolveFieldUpdatesFolder(accessToken, folderId, apiDomain);
@@ -289,6 +302,7 @@ async function fetchTradePhotosForSession(
 				}
 			} catch {}
 
+			warnNoImages();
 			continue;
 		}
 
@@ -319,6 +333,8 @@ async function fetchTradePhotosForSession(
 				});
 			}
 		} catch {}
+
+		warnNoImages();
 	}
 
 	photos.sort((a, b) => {
@@ -389,6 +405,11 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			});
 		}
 
+		console.warn('[TRADE PHOTOS] download failed', {
+			fileId,
+			status: lastStatus,
+			errorBody: lastErrorBody
+		});
 		return json({ message: lastMessage || 'Failed to download WorkDrive file' }, { status: lastStatus });
 	}
 
