@@ -378,6 +378,16 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 				}
 			}
 		);
+		console.warn('[TRADE PHOTOS] meta sample', {
+			fileId,
+			ok: metaResponse.ok,
+			status: metaResponse.status,
+			metaSample: await metaResponse
+				.clone()
+				.text()
+				.then((text) => text.slice(0, 400))
+				.catch(() => '')
+		});
 		if (!metaResponse.ok) {
 			console.warn('[TRADE PHOTOS] could not resolve download URL', { fileId });
 			return json({ message: 'File not found' }, { status: 404 });
