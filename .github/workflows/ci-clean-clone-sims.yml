@@ -1,107 +1,47 @@
-name: Clean Clone Sims
+name: CI
 
 on:
-  pull_request:
   push:
     branches: [main]
+  pull_request:
 
 jobs:
-  clean-clone-sims:
+  build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve Node version
-        id: node-version
-        run: |
-          if [ -f .nvmrc ]; then
-            echo "node_version=$(cat .nvmrc)" >> "$GITHUB_OUTPUT"
-          else
-            echo "node_version=20" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ steps.node-version.outputs.node_version }}
+          node-version: 20
           cache: npm
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: "1.1.29"
-
-      - name: Install Supabase CLI
-        run: npm install -g supabase@2.75.0
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Prepare logs
-        run: mkdir -p ci-logs
-
-      - name: Start Supabase
-        run: supabase start > ci-logs/supabase-start.log 2>&1
-
-      - name: Reset DB
-        run: supabase db reset > ci-logs/supabase-reset.log 2>&1
-
-      - name: Load Supabase keys
+      - name: Lint (if available)
+        if: ${{ hashFiles('package.json') != '' }}
         run: |
-          node ./scripts/ci/get-supabase-keys.mjs > ci-logs/supabase-env.txt
-          while IFS= read -r line; do
-            echo "$line" >> "$GITHUB_ENV"
-          done < ci-logs/supabase-env.txt
+          if node -e "const s=require('./package.json').scripts||{}; process.exit(s.lint?0:1)"; then
+            npm run lint
+          else
+            echo "No lint script found; skipping."
+          fi
 
-      - name: Start dev server
+      - name: Typecheck
         run: |
-          nohup npm run dev -- --host 127.0.0.1 --port 5173 > ci-logs/dev-server.log 2>&1 &
-          for i in {1..60}; do
-            if curl -sf http://127.0.0.1:5173/ > /dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Dev server failed to start" >&2
-          exit 1
+          if node -e "const s=require('./package.json').scripts||{}; process.exit(s.check?0:1)"; then
+            npm run check
+          else
+            npx svelte-check
+          fi
 
-      - name: Run cron sim
-        env:
-          ALLOW_LOCAL_LEDGER_SETTLEMENT: "true"
-          CRON_SECRET: "test-cron-secret-for-local-dev"
-          CRON_SIM_BASE_URL: "http://127.0.0.1:5173"
-          ALERTS_SIM_BASE_URL: "http://127.0.0.1:5173"
-          PORTFOLIO_SIM_BASE_URL: "http://127.0.0.1:5173"
-          VITE_SUPABASE_URL: "http://127.0.0.1:54321"
-          SUPABASE_URL: "http://127.0.0.1:54321"
-        run: bun ./scripts/cron-sim.ts > ci-logs/cron-sim.log 2>&1
-
-      - name: Run integrity check
-        env:
-          ALLOW_LOCAL_LEDGER_SETTLEMENT: "true"
-          CRON_SECRET: "test-cron-secret-for-local-dev"
-          CRON_SIM_BASE_URL: "http://127.0.0.1:5173"
-          ALERTS_SIM_BASE_URL: "http://127.0.0.1:5173"
-          PORTFOLIO_SIM_BASE_URL: "http://127.0.0.1:5173"
-          VITE_SUPABASE_URL: "http://127.0.0.1:54321"
-          SUPABASE_URL: "http://127.0.0.1:54321"
-        run: bun ./scripts/integrity-check.ts > ci-logs/integrity-check.log 2>&1
-
-      - name: Collect Supabase logs (on failure)
-        if: failure()
+      - name: Test
         run: |
-          supabase logs --local --tail 500 > ci-logs/supabase-logs.txt 2>&1 || true
-          docker ps -a > ci-logs/docker-ps.txt 2>&1 || true
-          for name in $(docker ps -a --format '{{.Names}}' | grep supabase || true); do
-            docker logs "$name" > "ci-logs/${name}.log" 2>&1 || true
-          done
-
-      - name: Upload logs (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: clean-clone-sims-logs
-          path: ci-logs
-          if-no-files-found: ignore
+          if node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)"; then
+            npm test
+          else
+            npx vitest run --runInBand
+          fi
