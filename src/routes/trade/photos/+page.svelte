@@ -104,11 +104,11 @@
 									<span class="date">{formatDate(photo.submittedAt)}</span>
 								</div>
 								<div class="photo-frame">
-									<img
-										src={photo.url}
-										alt={photo.caption ?? photo.id}
-										loading="lazy"
-									/>
+									{#if photo.url}
+										<a href={photo.url} target="_blank" rel="noreferrer">View Photo</a>
+									{:else}
+										<span>No photo URL</span>
+									{/if}
 								</div>
 								{#if photo.caption}
 									<p class="caption">{photo.caption}</p>
