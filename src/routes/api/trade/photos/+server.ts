@@ -325,7 +325,7 @@ async function fetchTradePhotosForSession(
 						toIsoOrNull(file.modifiedTime) ||
 						new Date().toISOString();
 
-					const url = extractWorkDrivePermalink(file) || '';
+					const url = buildTradePhotoProxyUrl(file.id);
 
 					photos.push({
 						id: file.id,
@@ -358,7 +358,7 @@ async function fetchTradePhotosForSession(
 					toIsoOrNull(file.modifiedTime) ||
 					new Date().toISOString();
 
-				const url = extractWorkDrivePermalink(file) || '';
+				const url = buildTradePhotoProxyUrl(file.id);
 				photos.push({
 					id: file.id,
 					projectName,
