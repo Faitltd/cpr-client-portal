@@ -401,7 +401,8 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			return json({ message: 'File not found' }, { status: 404 });
 		}
 
-		const downloadUrl = meta?.data?.attributes?.download_url;
+		const downloadUrl =
+			meta?.data?.attributes?.download_url || meta?.data?.[0]?.attributes?.download_url;
 		if (!downloadUrl || typeof downloadUrl !== 'string') {
 			console.warn('[TRADE PHOTOS] could not resolve download URL', { fileId });
 			return json({ message: 'File not found' }, { status: 404 });
@@ -426,13 +427,17 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 			);
 		}
 
-		const cloned = imageResponse.clone();
 		const headers = new Headers();
-		const contentType = cloned.headers.get('content-type') || 'image/jpeg';
+		const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
 		headers.set('Content-Type', contentType);
 		headers.set('Content-Disposition', 'inline');
+		console.warn('[TRADE PHOTOS] streaming image', {
+			fileId,
+			status: imageResponse.status,
+			contentType
+		});
 
-		return new Response(cloned.body, {
+		return new Response(imageResponse.body, {
 			status: 200,
 			headers
 		});
