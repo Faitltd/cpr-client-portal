@@ -9,6 +9,7 @@ import {
 	findBestFolderByName,
 	findPhotosFolder,
 	getWorkDriveDownloadCandidates,
+	getWorkDriveApiBase,
 	isImageFile,
 	listWorkDriveFolder
 } from '$lib/server/workdrive';
@@ -29,6 +30,53 @@ const DEFAULT_WORK_TYPE = 'Field Update';
 const MAX_FIELD_UPDATES_SCAN = 20;
 const buildTradePhotoProxyUrl = (fileId: string) =>
 	`/api/trade/photos?fileId=${encodeURIComponent(fileId)}`;
+
+async function createWorkDriveDownloadLink(
+	accessToken: string,
+	resourceId: string,
+	apiDomain?: string
+) {
+	const base = getWorkDriveApiBase(apiDomain);
+	const url = `${base}/links`;
+	const payload = {
+		data: {
+			attributes: {
+				resource_id: resourceId,
+				link_name: `trade_photo_${resourceId}`,
+				link_type: 'download',
+				request_user_data: false,
+				allow_download: true
+			},
+			type: 'links'
+		}
+	};
+	const response = await fetch(url, {
+		method: 'POST',
+		headers: {
+			Authorization: `Zoho-oauthtoken ${accessToken}`,
+			Accept: 'application/vnd.api+json',
+			'Content-Type': 'application/vnd.api+json'
+		},
+		body: JSON.stringify(payload)
+	});
+	if (!response.ok) {
+		const body = await response.text().catch(() => '');
+		console.warn('[TRADE PHOTOS] download link create failed', {
+			resourceId,
+			status: response.status,
+			body: body.slice(0, 200)
+		});
+		return null;
+	}
+	const data = await response.json().catch(() => null);
+	const downloadUrl = data?.data?.attributes?.download_url;
+	if (!downloadUrl || typeof downloadUrl !== 'string') {
+		console.warn('[TRADE PHOTOS] download link missing url', { resourceId });
+		return null;
+	}
+	const joiner = downloadUrl.includes('?') ? '&' : '?';
+	return `${downloadUrl}${joiner}directDownload=true`;
+}
 
 function getRootFolderId() {
 	const parsed = extractWorkDriveFolderId(WORKDRIVE_ROOT_FOLDER_VALUE);
@@ -325,7 +373,18 @@ async function fetchTradePhotosForSession(
 						toIsoOrNull(file.modifiedTime) ||
 						new Date().toISOString();
 
-					const url = buildTradePhotoProxyUrl(file.id);
+					let url = '';
+					try {
+						url =
+							(await createWorkDriveDownloadLink(accessToken, file.id, apiDomain)) ||
+							buildTradePhotoProxyUrl(file.id);
+					} catch (err) {
+						console.warn('[TRADE PHOTOS] download link create failed', {
+							resourceId: file.id,
+							error: err instanceof Error ? err.message : String(err)
+						});
+						url = buildTradePhotoProxyUrl(file.id);
+					}
 
 					photos.push({
 						id: file.id,
@@ -358,7 +417,18 @@ async function fetchTradePhotosForSession(
 					toIsoOrNull(file.modifiedTime) ||
 					new Date().toISOString();
 
-				const url = buildTradePhotoProxyUrl(file.id);
+				let url = '';
+				try {
+					url =
+						(await createWorkDriveDownloadLink(accessToken, file.id, apiDomain)) ||
+						buildTradePhotoProxyUrl(file.id);
+				} catch (err) {
+					console.warn('[TRADE PHOTOS] download link create failed', {
+						resourceId: file.id,
+						error: err instanceof Error ? err.message : String(err)
+					});
+					url = buildTradePhotoProxyUrl(file.id);
+				}
 				photos.push({
 					id: file.id,
 					projectName,

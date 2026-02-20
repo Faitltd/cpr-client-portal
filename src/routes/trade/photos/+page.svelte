@@ -44,8 +44,6 @@
 		}));
 	};
 
-	const getPhotoHref = (photo: TradePhoto) => `/api/trade/photos?fileId=${encodeURIComponent(photo.id)}`;
-
 	$: groupedPhotos = groupPhotos(photos);
 
 	onMount(async () => {
@@ -107,9 +105,7 @@
 								</div>
 								<div class="photo-frame">
 									{#if photo.url}
-										<a href={getPhotoHref(photo)} target="_blank" rel="noreferrer">
-											View Photo
-										</a>
+										<a href={photo.url} target="_blank" rel="noreferrer">View Photo</a>
 									{:else}
 										<span>No photo URL</span>
 									{/if}
