@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { decodeHtmlEntities } from '$lib/html';
 
 	type ZProject = any;
 
@@ -203,7 +204,7 @@
 								<ul class="task-preview">
 									{#each getTaskPreview(project) as task}
 										<li class:done={isTaskPreviewCompleted(task)}>
-											<span class="task-name">{getTaskPreviewName(task)}</span>
+											<span class="task-name">{decodeHtmlEntities(getTaskPreviewName(task))}</span>
 											<span class="task-state">{getTaskPreviewStatus(task)}</span>
 										</li>
 									{/each}

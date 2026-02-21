@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
+	import { decodeHtmlEntities } from '$lib/html';
 
 	type ZProject = any;
 	type ZTask = any;
@@ -201,7 +202,7 @@
 						{#each group.items as task}
 							<div class="card-row">
 								<div>
-									<p class="card-title">{getTaskName(task)}</p>
+									<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
 									<p class="card-meta">
 										Status: {getTaskStatus(task)} • Assignee: {getTaskAssignee(task)} • Priority:
 										{getTaskPriority(task)}
@@ -229,7 +230,7 @@
 				<div class="activity">
 					{#each activities as activity}
 						<div class="activity-item">
-							<p class="activity-text">{getActivityText(activity)}</p>
+							<p class="activity-text">{decodeHtmlEntities(getActivityText(activity))}</p>
 							<p class="activity-when">{formatDateTime(getActivityWhen(activity))}</p>
 						</div>
 					{/each}
