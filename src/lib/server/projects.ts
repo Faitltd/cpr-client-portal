@@ -2,6 +2,9 @@ import { env } from '$env/dynamic/private';
 import { findContactByEmail, getContactDeals, isPortalActiveStage } from './auth';
 import { getZohoTokens, upsertZohoTokens } from './db';
 import { refreshAccessToken, zohoApiCall } from './zoho';
+import { createLogger } from '$lib/server/logger';
+
+const log = createLogger('projects');
 
 const DEFAULT_PROJECTS_API_BASE = 'https://projectsapi.zoho.com';
 const DEFAULT_PROJECTS_FETCH_TIMEOUT_MS = 10_000;
@@ -164,10 +167,12 @@ async function fetchPortalsPayload(accessToken: string, base: string) {
 
 	if (response.status === 429) {
 		const text = await response.text().catch(() => '');
-		console.warn(
-			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
-			{ endpoint: '/api/v3/portals', base, response: text }
-		);
+		log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
+			status: 429,
+			endpoint: '/api/v3/portals',
+			base,
+			response: text
+		});
 		throw new Error(`Zoho Projects API error 429: ${text}`);
 	}
 
@@ -362,7 +367,7 @@ async function getPortalIdCandidatesForBase(accessToken: string, base: string, p
 		for (const id of fetchedIds) addId(id);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		console.warn('Failed to list portal ids for base candidate', { base, error: message });
+		log.warn('Failed to list portal ids for base candidate', { base, error: message });
 	}
 
 	return ids;
@@ -408,9 +413,9 @@ async function resolvePortalId(accessToken: string) {
 			base: discoveredBase,
 			fetchedAt: Date.now()
 		};
-		console.warn(
+		log.warn(
 			'Using auto-discovered Zoho Projects portal ID. Set ZOHO_PROJECTS_PORTAL_ID in env for stable production behavior.',
-			{ portalId: discovered }
+			{ portalId: discovered, base: discoveredBase }
 		);
 		return discovered;
 	}
@@ -724,7 +729,8 @@ async function getDealProjectFieldApiNames(accessToken: string) {
 			if (apiName) discovered.push(apiName);
 		}
 	} catch (err) {
-		console.warn('Failed to discover Deals project field API names', err);
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Failed to discover Deals project field API names', { error: message });
 	}
 
 	const uniqueApiNames: string[] = [];
@@ -774,7 +780,8 @@ async function getDealProjectRelatedListApiNames(accessToken: string) {
 			if (apiName) discovered.push(apiName);
 		}
 	} catch (err) {
-		console.warn('Failed to discover Deals related lists for project mapping', err);
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Failed to discover Deals related lists for project mapping', { error: message });
 	}
 
 	const uniqueApiNames: string[] = [];
@@ -985,9 +992,10 @@ async function fetchContactEmailsByIds(accessToken: string, contactIds: string[]
 				if (id && email) emailByContactId.set(id, email.toLowerCase());
 			}
 		} catch (err) {
-			console.warn('Failed to fetch contacts chunk for deal-email fallback', {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Failed to fetch contacts chunk for deal-email fallback', {
 				chunkSize: chunk.length,
-				error: err
+				error: message
 			});
 		}
 	}
@@ -1059,9 +1067,10 @@ async function fetchDealsByIds(accessToken: string, dealIds: string[], fields: s
 			const deals = Array.isArray(response?.data) ? response.data : [];
 			results.push(...deals);
 		} catch (err) {
-			console.warn('Failed to rehydrate Deals by IDs for project mapping', {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Failed to rehydrate Deals by IDs for project mapping', {
 				chunkSize: chunk.length,
-				error: err
+				error: message
 			});
 		}
 	}
@@ -1535,10 +1544,13 @@ async function fetchProjectsPageForBasePortal(
 
 	if (response.status === 429) {
 		const text = await response.text().catch(() => '');
-		console.warn(
-			'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
-			{ endpoint: '/projects', base, portalId, response: text }
-		);
+		log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
+			status: 429,
+			endpoint: '/projects',
+			base,
+			portalId,
+			response: text
+		});
 		throw new Error(`Zoho Projects API error 429: ${text}`);
 	}
 
@@ -1696,10 +1708,13 @@ export async function projectsApiCall(endpoint: string, options: RequestInit = {
 
 			if (response.status === 429) {
 				const text = await response.text().catch(() => '');
-				console.warn(
-					'Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.',
-					{ endpoint, base, portalId, response: text }
-				);
+				log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
+					status: 429,
+					endpoint,
+					base,
+					portalId,
+					response: text
+				});
 				throw new Error(`Zoho Projects API error 429: ${text}`);
 			}
 
@@ -2282,7 +2297,7 @@ export async function getDealTaskSummaries(
 			return { dealId, summary };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			console.warn('Failed to fetch CRM task summary for deal', { dealId, error: message });
+			log.warn('Failed to fetch CRM task summary for deal', { dealId, error: message });
 			return { dealId, summary: null as DealTaskSummary | null };
 		}
 	});
@@ -2317,7 +2332,7 @@ export async function getDealTaskCounts(
 			return { dealId, taskCount };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			console.warn('Failed to fetch CRM task count for deal', { dealId, error: message });
+			log.warn('Failed to fetch CRM task count for deal', { dealId, error: message });
 			return { dealId, taskCount: null as number | null };
 		}
 	});
@@ -2367,7 +2382,8 @@ export async function getDealsForClient(
 					collectedDeals.push(...primaryDeals);
 				}
 			} catch (err) {
-				console.warn('Failed to fetch deals by session contact id', { contactId: trimmedContactId, err });
+				const message = err instanceof Error ? err.message : String(err);
+				log.warn('Failed to fetch deals by session contact id', { contactId: trimmedContactId, error: message });
 			}
 		}
 
@@ -2382,7 +2398,11 @@ export async function getDealsForClient(
 					}
 				}
 			} catch (err) {
-				console.warn('Failed to resolve contact by email for deals fallback', { email: trimmedEmail, err });
+				const message = err instanceof Error ? err.message : String(err);
+				log.warn('Failed to resolve contact by email for deals fallback', {
+					email: trimmedEmail,
+					error: message
+				});
 			}
 
 			if (collectedDeals.length === 0) {
@@ -2392,7 +2412,11 @@ export async function getDealsForClient(
 						collectedDeals.push(...emailMatchedDeals);
 					}
 				} catch (err) {
-					console.warn('Failed to fetch deals by email fallback scan', { email: trimmedEmail, err });
+					const message = err instanceof Error ? err.message : String(err);
+					log.warn('Failed to fetch deals by email fallback scan', {
+						email: trimmedEmail,
+						error: message
+					});
 				}
 			}
 		}
@@ -2403,7 +2427,8 @@ export async function getDealsForClient(
 			clientDealsCache.set(cacheKey, { fetchedAt: Date.now(), deals: rehydratedDeals });
 			return rehydratedDeals;
 		} catch (err) {
-			console.warn('Failed to rehydrate deals for Zoho Projects mapping', err);
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Failed to rehydrate deals for Zoho Projects mapping', { error: message });
 			clientDealsCache.set(cacheKey, { fetchedAt: Date.now(), deals: dedupedDeals });
 			return dedupedDeals;
 		}
@@ -2508,7 +2533,8 @@ export async function getProjectLinksForClient(
 				}
 			}
 		} catch (err) {
-			console.warn('Failed to discover Zoho Projects links from Deal related lists', err);
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Failed to discover Zoho Projects links from Deal related lists', { error: message });
 		}
 	}
 
@@ -2674,7 +2700,8 @@ export async function getProjectLinksForClient(
 				}
 			}
 		} catch (err) {
-			console.warn('Failed to discover Zoho Projects links by deal-name matching', err);
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Failed to discover Zoho Projects links by deal-name matching', { error: message });
 		}
 	}
 

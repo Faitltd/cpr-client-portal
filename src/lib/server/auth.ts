@@ -2,6 +2,9 @@ import { zohoApiCall } from './zoho';
 import type { Client } from './db';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
+import { createLogger } from '$lib/server/logger';
+
+const log = createLogger('auth');
 
 const PORTAL_DEV_SHOW_ALL = env.PORTAL_DEV_SHOW_ALL;
 const ZOHO_TRADE_PARTNERS_MODULE = env.ZOHO_TRADE_PARTNERS_MODULE;
@@ -429,7 +432,8 @@ export async function getAuthenticatedContact(accessToken: string, apiDomain?: s
 			zoho_user_id: user.id
 		};
 	} catch (error) {
-		console.error('Failed to get authenticated contact:', error);
+		const message = error instanceof Error ? error.message : String(error);
+		log.error('Failed to get authenticated contact', { error: message });
 		throw error;
 	}
 }
@@ -464,7 +468,12 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 
 		if (searchResults.length > 0) return searchResults;
 	} catch (error) {
-		console.warn('Deals search failed, falling back to COQL');
+		const message = error instanceof Error ? error.message : String(error);
+		log.warn('Deals search failed, falling back to COQL', {
+			contactId,
+			apiDomain: apiDomain || 'default',
+			error: message
+		});
 	}
 
 	// 2) Try COQL if enabled
@@ -496,7 +505,12 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 
 		if (coqlResults.length > 0) return coqlResults;
 	} catch (error) {
-		console.warn('COQL query failed, falling back to standard API');
+		const message = error instanceof Error ? error.message : String(error);
+		log.warn('COQL query failed, falling back to standard API', {
+			contactId,
+			apiDomain: apiDomain || 'default',
+			error: message
+		});
 	}
 
 	// 3) Fallback to standard list + client-side filter
@@ -537,7 +551,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	let coqlCount = 0;
 	let fallbackCount = 0;
 	const logSummary = (label: string, extra: Record<string, unknown> = {}) => {
-		console.error('TP_DEBUG: trade partner deals lookup', {
+		log.debug('trade partner deals lookup', {
 			label,
 			tradePartnerId,
 			relatedDealIdsCount,
@@ -593,7 +607,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			if (message.includes('INVALID_QUERY') && message.includes('invalid operator')) {
 				continue;
 			}
-			console.error('Trade partner deals search failed', {
+			log.error('Trade partner deals search failed', {
 				tradePartnerId,
 				criteria,
 				operator,
@@ -629,10 +643,10 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			if (message.includes('OAUTH_SCOPE_MISMATCH')) {
-				console.error('Trade partner COQL failed', { tradePartnerId, error: message });
+				log.error('Trade partner COQL failed', { tradePartnerId, error: message });
 				break;
 			}
-			console.error('Trade partner COQL failed', { tradePartnerId, error: message, query: select_query });
+			log.error('Trade partner COQL failed', { tradePartnerId, error: message, query: select_query });
 		}
 	}
 
@@ -647,7 +661,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	const normalizedRelated = relatedDeals.map(normalizeDealRecord);
 	const sample = normalizedRelated[0];
 	if (sample) {
-		console.error('TP_DEBUG: related list raw sample', {
+		log.debug('related list raw sample', {
 			keys: Object.keys(sample),
 			dealName: sample?.Deal_Name,
 			rawDealName: summarizeValue(sample?.Deal_Name)
@@ -706,7 +720,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	logSummary('fallback', { dealsCount: fallbackCount });
 
 	if (filtered.length === 0) {
-		console.warn('Trade partner deals empty', {
+		log.warn('Trade partner deals empty', {
 			tradePartnerId,
 			relatedDealIdsCount,
 			relatedListCount,
@@ -799,7 +813,7 @@ async function listEmailFieldNames(
 		return emailFields;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		console.warn('Trade partner field metadata fetch failed', { moduleName, error: message });
+		log.warn('Trade partner field metadata fetch failed', { moduleName, error: message });
 		return [];
 	}
 }
@@ -833,7 +847,8 @@ async function fetchTradePartnersByIds(
 			const record = response.data?.[0];
 			if (record) results.push(record);
 		} catch (err) {
-			console.warn('Failed to fetch trade partner', { moduleName, id, error: err });
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Failed to fetch trade partner', { moduleName, id, error: message });
 		}
 	}
 
@@ -994,7 +1009,7 @@ export async function listTradePartnersWithStats(
 				}
 				missingEmail = Math.max(0, missingEmailIds.length - recovered);
 				if (recovered > 0) {
-					console.warn('Trade partner email recovery', {
+					log.warn('Trade partner email recovery', {
 						moduleName,
 						recovered,
 						remainingMissing: missingEmail
@@ -1003,7 +1018,7 @@ export async function listTradePartnersWithStats(
 			}
 
 			if (missingEmail > 0) {
-				console.warn('Trade partner records missing email', {
+				log.warn('Trade partner records missing email', {
 					moduleName,
 					missingEmail,
 					sample: missingEmailSamples
@@ -1114,7 +1129,8 @@ async function fetchContactsByIds(accessToken: string, ids: string[], apiDomain?
 					const contact = response.data?.[0];
 					if (contact) results.push(contact);
 				} catch (err) {
-					console.warn('Failed to fetch contact', id, err);
+					const message = err instanceof Error ? err.message : String(err);
+					log.warn('Failed to fetch contact', { id, error: message });
 				}
 			}
 		}
@@ -1135,7 +1151,7 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 			apiDomain
 		);
 		const deals = response.data || [];
-		console.error('TP_DEBUG: fetch deals by ids', {
+		log.debug('fetch deals by ids', {
 			chunkSize: chunk.length,
 			dealsCount: deals.length,
 			apiDomain: apiDomain || 'default'
@@ -1155,14 +1171,14 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 					const deal = fallback.data?.[0];
 					if (deal) fallbackDeals.push(deal);
 				} catch (error) {
-					console.error('TP_DEBUG: deal id fetch failed', {
+					log.debug('deal id fetch failed', {
 						dealId: id,
 						apiDomain: apiDomain || 'default',
 						error: error instanceof Error ? error.message : String(error)
 					});
 				}
 			}
-			console.error('TP_DEBUG: fetch deals by id fallback', {
+			log.debug('fetch deals by id fallback', {
 				chunkSize: chunk.length,
 				dealsCount: fallbackDeals.length,
 				apiDomain: apiDomain || 'default'
@@ -1179,14 +1195,14 @@ async function fetchDealsByIds(accessToken: string, ids: string[], apiDomain?: s
 						apiDomain
 					);
 					const searchDeals = search.data || [];
-					console.error('TP_DEBUG: fetch deals by id search', {
+					log.debug('fetch deals by id search', {
 						chunkSize: chunk.length,
 						dealsCount: searchDeals.length,
 						apiDomain: apiDomain || 'default'
 					});
 					results.push(...searchDeals);
 				} catch (error) {
-					console.error('TP_DEBUG: deal id search failed', {
+					log.debug('deal id search failed', {
 						chunkSize: chunk.length,
 						apiDomain: apiDomain || 'default',
 						error: error instanceof Error ? error.message : String(error)
@@ -1264,7 +1280,7 @@ async function getTradePartnerDealIds(
 			const record = response.data?.[0];
 			const fieldValue = record?.[TRADE_PARTNER_DEALS_FIELD];
 			if (!fieldValue) {
-				console.error('TP_DEBUG: trade partner deals field empty', {
+				log.debug('trade partner deals field empty', {
 					moduleName,
 					tradePartnerId,
 					field: TRADE_PARTNER_DEALS_FIELD,
@@ -1274,7 +1290,7 @@ async function getTradePartnerDealIds(
 			}
 			if (Array.isArray(fieldValue)) {
 				const refs = fieldValue.map(extractDealRefFromPortalItem).filter(Boolean) as TradePartnerDealRef[];
-				console.error('TP_DEBUG: trade partner deals field array', {
+				log.debug('trade partner deals field array', {
 					moduleName,
 					tradePartnerId,
 					field: TRADE_PARTNER_DEALS_FIELD,
@@ -1283,7 +1299,7 @@ async function getTradePartnerDealIds(
 				});
 				if (refs.length > 0) {
 					const sample = fieldValue[0];
-					console.error('TP_DEBUG: trade partner deals field sample', {
+					log.debug('trade partner deals field sample', {
 						keys: sample ? Object.keys(sample) : [],
 						id: sample?.id,
 						name: sample?.name,
@@ -1296,7 +1312,7 @@ async function getTradePartnerDealIds(
 				return refs;
 			}
 			if (fieldValue?.id) {
-				console.error('TP_DEBUG: trade partner deals field lookup', {
+				log.debug('trade partner deals field lookup', {
 					moduleName,
 					tradePartnerId,
 					field: TRADE_PARTNER_DEALS_FIELD,
@@ -1304,7 +1320,7 @@ async function getTradePartnerDealIds(
 				});
 				return [{ id: fieldValue.id, name: fieldValue.name || null }];
 			}
-			console.warn('Trade partner deals field unexpected shape', {
+			log.warn('Trade partner deals field unexpected shape', {
 				moduleName,
 				tradePartnerId,
 				field: TRADE_PARTNER_DEALS_FIELD,
@@ -1314,14 +1330,14 @@ async function getTradePartnerDealIds(
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			if (message.toLowerCase().includes('module name given seems to be invalid')) {
-				console.error('TP_DEBUG: trade partner module invalid', {
+				log.debug('trade partner module invalid', {
 					moduleName,
 					tradePartnerId,
 					apiDomain: apiDomain || 'default'
 				});
 				continue;
 			}
-			console.error('Trade partner deal ids lookup failed', {
+			log.error('Trade partner deal ids lookup failed', {
 				moduleName,
 				tradePartnerId,
 				error: message
@@ -1362,7 +1378,7 @@ async function fetchDealsFromTradePartnerRelatedList(
 					page += 1;
 				}
 
-				console.error('TP_DEBUG: trade partner related list', {
+				log.debug('trade partner related list', {
 					moduleName,
 					tradePartnerId,
 					relatedList,
@@ -1375,14 +1391,14 @@ async function fetchDealsFromTradePartnerRelatedList(
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			if (message.toLowerCase().includes('module name given seems to be invalid')) {
-				console.error('TP_DEBUG: trade partner module invalid for related list', {
+				log.debug('trade partner module invalid for related list', {
 					moduleName,
 					tradePartnerId,
 					apiDomain: apiDomain || 'default'
 				});
 				continue;
 			}
-			console.error('Trade partner related list fetch failed', {
+			log.error('Trade partner related list fetch failed', {
 				moduleName,
 				tradePartnerId,
 				relatedLists,
