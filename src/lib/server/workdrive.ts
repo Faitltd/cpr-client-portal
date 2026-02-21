@@ -1,7 +1,9 @@
 import { env } from '$env/dynamic/private';
+import { createLogger } from '$lib/server/logger';
 
 const WORKDRIVE_API_BASE = env.ZOHO_WORKDRIVE_API_BASE || '';
 const WORKDRIVE_DOWNLOAD_BASE = env.ZOHO_WORKDRIVE_DOWNLOAD_BASE || '';
+const log = createLogger('workdrive');
 
 export type WorkDriveItem = {
 	id: string;
@@ -153,10 +155,12 @@ export async function listWorkDriveFolder(
 		'page[offset]': '0'
 	});
 	const previewUrl = `${base}/files/${encodeURIComponent(folderId)}/files?${previewParams.toString()}`;
-	console.log('WORKDRIVE listFolder request', {
+	log.debug('WORKDRIVE listFolder request', {
 		folderId,
 		apiDomain: apiDomain || null,
-		url: previewUrl
+		previewUrl,
+		perPage,
+		maxPages
 	});
 
 	for (let page = 1; page <= maxPages; page += 1) {
@@ -175,7 +179,7 @@ export async function listWorkDriveFolder(
 
 		if (!response.ok) {
 			const responseText = await response.text().catch(() => '');
-			console.log('WORKDRIVE listFolder response', {
+			log.error('WORKDRIVE listFolder response', {
 				status: response.status,
 				contentType: response.headers.get('content-type'),
 				bodyPreview: responseText.slice(0, 200)
@@ -212,8 +216,13 @@ export function extractWorkDriveFolderId(value: unknown) {
 	const seen = new WeakSet<object>();
 
 	const extractFromString = (input: string) => {
-		console.log('WORKDRIVE raw input', input);
 		const trimmed = input.trim();
+		log.debug('WORKDRIVE raw input', {
+			length: trimmed.length,
+			hasProtocol: /^[a-z]+:\/\//i.test(trimmed),
+			looksLikeId: /^[a-z0-9]{12,}$/i.test(trimmed),
+			hasFolderPath: /\/folders?\//i.test(trimmed)
+		});
 		if (!trimmed) return '';
 
 		try {
@@ -225,7 +234,7 @@ export function extractWorkDriveFolderId(value: unknown) {
 			});
 			const folderId = idx >= 0 ? pathTokens[idx + 1] || '' : '';
 			if (folderId.trim()) {
-				console.log('WORKDRIVE extract id', { raw: input, folderId: folderId.trim() });
+				log.debug('WORKDRIVE extract id', { folderId: folderId.trim(), source: 'path' });
 				return folderId.trim();
 			}
 		} catch {
@@ -312,12 +321,11 @@ export function extractWorkDriveFolderId(value: unknown) {
 }
 
 if (process.env.NODE_ENV !== 'production') {
-	console.log(
-		'WORKDRIVE manual test',
-		extractWorkDriveFolderId(
+	log.debug('WORKDRIVE manual test', {
+		folderId: extractWorkDriveFolderId(
 			'https://workdrive.zoho.com/folder/2zgyn6a8d7dfb94b64f9a8393b736056c7e62'
 		)
-	);
+	});
 }
 
 export function buildDealFolderCandidates(dealName: string | null | undefined) {
