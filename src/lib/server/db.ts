@@ -1,10 +1,10 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 
-let supabase: SupabaseClient<any, any, any> | null = null;
+let supabaseClient: SupabaseClient<any, any, any> | null = null;
 
 function getSupabase() {
-	if (supabase) return supabase;
+	if (supabaseClient) return supabaseClient;
 
 	const SUPABASE_URL = env.SUPABASE_URL;
 	const SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
@@ -12,11 +12,22 @@ function getSupabase() {
 		throw new Error('Missing Supabase environment variables');
 	}
 
-	supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+	supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 		auth: { persistSession: false }
 	});
-	return supabase;
+	return supabaseClient;
 }
+
+export const supabase = new Proxy({} as SupabaseClient<any, any, any>, {
+	get(_target, prop) {
+		const client = getSupabase() as any;
+		const value = client[prop];
+		if (typeof value === 'function') {
+			return value.bind(client);
+		}
+		return value;
+	}
+});
 
 export interface Client {
 	id: string;

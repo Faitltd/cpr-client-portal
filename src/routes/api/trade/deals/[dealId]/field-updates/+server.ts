@@ -369,13 +369,13 @@ function normalizePhotos(value: any, updateId: string) {
 			obj.fileName ||
 			(url ? decodeNameFromUrl(url) : 'Photo');
 
-		if (url) {
-			add(String(name || 'Photo'), String(url));
+		if (attachmentId) {
+			add(String(name || 'Photo'), toProxyUrl(String(attachmentId), String(name || 'Photo')));
 			return;
 		}
 
-		if (attachmentId) {
-			add(String(name || 'Photo'), toProxyUrl(String(attachmentId), String(name || 'Photo')));
+		if (url) {
+			add(String(name || 'Photo'), String(url));
 		}
 	};
 

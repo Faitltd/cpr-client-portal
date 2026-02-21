@@ -14,6 +14,18 @@ import {
 } from '$lib/server/workdrive';
 
 const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
+const IMAGE_EXTENSIONS: Record<string, string> = {
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	bmp: 'image/bmp',
+	tif: 'image/tiff',
+	tiff: 'image/tiff',
+	heic: 'image/heic',
+	heif: 'image/heif'
+};
 
 function getRootFolderId() {
 	const parsed = extractWorkDriveFolderId(WORKDRIVE_ROOT_FOLDER_VALUE);
@@ -29,6 +41,13 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
 	}
 	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
+}
+
+function inferImageMime(name: string | null) {
+	const trimmed = String(name || '').trim();
+	if (!trimmed) return '';
+	const ext = trimmed.split('.').pop()?.toLowerCase() || '';
+	return IMAGE_EXTENSIONS[ext] || '';
 }
 
 async function getAccessToken() {
@@ -123,14 +142,21 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		rootFolderId,
 		projectFolder: { id: projectFolder.id, name: projectFolder.name },
 		photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
-		files: imageFiles.map((file) => ({
-			id: file.id,
-			name: file.name,
-			size: file.size,
-			mime: file.mime,
-			createdTime: file.createdTime,
-			url: `/api/project/${encodeURIComponent(dealId)}/photos/${encodeURIComponent(file.id)}`
-		})),
+		files: imageFiles.map((file) => {
+			const params = new URLSearchParams();
+			if (file.name) params.set('fileName', file.name);
+			const inferred = file.mime || inferImageMime(file.name);
+			if (inferred) params.set('mime', inferred);
+			const suffix = params.toString() ? `?${params.toString()}` : '';
+			return {
+				id: file.id,
+				name: file.name,
+				size: file.size,
+				mime: file.mime,
+				createdTime: file.createdTime,
+				url: `/api/project/${encodeURIComponent(dealId)}/photos/${encodeURIComponent(file.id)}${suffix}`
+			};
+		}),
 		debug: debug
 			? {
 				rootItems: rootItems.slice(0, 50),

@@ -5,6 +5,45 @@ import { getDealsForClient } from '$lib/server/projects';
 import { getWorkDriveDownloadCandidates } from '$lib/server/workdrive';
 import { refreshAccessToken } from '$lib/server/zoho';
 
+function safeFileName(value: string) {
+	return value.replace(/[/\\]/g, '_').replace(/"/g, "'");
+}
+
+function isImageContentType(value: string | null) {
+	if (!value) return false;
+	return value.toLowerCase().startsWith('image/');
+}
+
+function normalizeImageContentType(value: string | null) {
+	if (!value) return '';
+	const trimmed = value.trim().toLowerCase();
+	if (!trimmed) return '';
+	return trimmed;
+}
+
+function extractFileNameFromDisposition(disposition: string | null) {
+	if (!disposition) return '';
+	const filenameStarMatch = disposition.match(/filename\*\s*=\s*([^;]+)/i);
+	if (filenameStarMatch?.[1]) {
+		const raw = filenameStarMatch[1].trim().replace(/^["']|["']$/g, '');
+		const parts = raw.split("''");
+		if (parts.length === 2) {
+			try {
+				return decodeURIComponent(parts[1]);
+			} catch {
+				return parts[1];
+			}
+		}
+		return raw;
+	}
+
+	const filenameMatch = disposition.match(/filename\s*=\s*([^;]+)/i);
+	if (filenameMatch?.[1]) {
+		return filenameMatch[1].trim().replace(/^["']|["']$/g, '');
+	}
+	return '';
+}
+
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) return date.toISOString();
@@ -45,7 +84,7 @@ async function canClientAccessDeal(session: Awaited<ReturnType<typeof getSession
 	return deals.some((deal) => String(deal?.id || '') === dealId);
 }
 
-export const GET: RequestHandler = async ({ cookies, params }) => {
+export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	const sessionToken = cookies.get('portal_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
 
@@ -81,10 +120,19 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		}
 
 		const headers = new Headers();
-		const contentType = response.headers.get('content-type') || 'application/octet-stream';
+		const headerContentType = normalizeImageContentType(response.headers.get('content-type'));
+		const requestedMime = normalizeImageContentType(url.searchParams.get('mime'));
+		const contentType =
+			isImageContentType(headerContentType) ? headerContentType
+			: isImageContentType(requestedMime) ? requestedMime
+			: headerContentType || 'application/octet-stream';
 		headers.set('Content-Type', contentType);
-		const disposition = response.headers.get('content-disposition');
-		if (disposition) headers.set('Content-Disposition', disposition);
+		const nameFromQuery = url.searchParams.get('fileName') || '';
+		const nameFromHeader = extractFileNameFromDisposition(
+			response.headers.get('content-disposition')
+		);
+		const finalName = safeFileName(nameFromQuery || nameFromHeader || fileId || 'photo');
+		headers.set('Content-Disposition', `inline; filename="${finalName}"`);
 
 		return new Response(response.body, {
 			status: response.status,
