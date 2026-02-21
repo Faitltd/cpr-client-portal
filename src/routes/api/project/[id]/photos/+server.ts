@@ -2,6 +2,8 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getCachedFolder, setCachedFolder } from '$lib/server/folder-cache';
+import { createLogger } from '$lib/server/logger';
 import { getDealsForClient } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import {
@@ -12,6 +14,8 @@ import {
 	isImageFile,
 	listWorkDriveFolder
 } from '$lib/server/workdrive';
+
+const log = createLogger('project-photos');
 
 const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
 const IMAGE_EXTENSIONS: Record<string, string> = {
@@ -112,24 +116,86 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		typeof deal?.Deal_Name === 'string'
 			? deal.Deal_Name
 			: deal?.Deal_Name?.name || deal?.Deal_Name?.display_value || null;
-
-	const rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain);
+	let rootItems: Awaited<ReturnType<typeof listWorkDriveFolder>> = [];
 	const candidateNames = buildDealFolderCandidates(dealName);
-	const projectFolder = findBestFolderByName(rootItems, candidateNames);
-	if (!projectFolder) {
-		return json({
-			dealId,
-			dealName,
-			source: 'workdrive',
-			status: 'missing_project_folder',
-			message: 'No matching project folder found under WorkDrive root folder.',
-			candidates: candidateNames,
-			rootFolderId
-		});
+	let projectFolderId = '';
+	let projectFolderName: string | null = null;
+	try {
+		const cached = await getCachedFolder(dealId, 'root');
+		if (cached) {
+			projectFolderId = cached.folderId;
+			projectFolderName = cached.folderName ?? null;
+			log.info('WorkDrive folder cache hit', {
+				dealId,
+				folderType: 'root',
+				folderId: projectFolderId
+			});
+		}
+	} catch {}
+
+	let projectFolder: { id: string; name: string | null } | null = null;
+	if (!projectFolderId) {
+		rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain);
+		projectFolder = findBestFolderByName(rootItems, candidateNames);
+		if (!projectFolder) {
+			return json({
+				dealId,
+				dealName,
+				source: 'workdrive',
+				status: 'missing_project_folder',
+				message: 'No matching project folder found under WorkDrive root folder.',
+				candidates: candidateNames,
+				rootFolderId
+			});
+		}
+		projectFolderId = projectFolder.id;
+		projectFolderName = projectFolder.name || null;
+		try {
+			await setCachedFolder(dealId, 'root', projectFolderId, projectFolderName ?? undefined);
+			log.debug('WorkDrive folder cache set', {
+				dealId,
+				folderType: 'root',
+				folderId: projectFolderId
+			});
+		} catch {}
+	} else {
+		projectFolder = { id: projectFolderId, name: projectFolderName };
 	}
 
-	const projectItems = await listWorkDriveFolder(accessToken, projectFolder.id, apiDomain);
-	const photosFolder = findPhotosFolder(projectItems);
+	let projectItems: Awaited<ReturnType<typeof listWorkDriveFolder>> = [];
+	let photosFolder: { id: string; name: string | null } | null = null;
+	let photosFolderCacheHit = false;
+	try {
+		const cachedPhotos = await getCachedFolder(dealId, 'photos');
+		if (cachedPhotos) {
+			photosFolder = { id: cachedPhotos.folderId, name: cachedPhotos.folderName ?? null };
+			photosFolderCacheHit = true;
+			log.info('WorkDrive folder cache hit', {
+				dealId,
+				folderType: 'photos',
+				folderId: cachedPhotos.folderId
+			});
+		}
+	} catch {}
+
+	if (!photosFolderCacheHit) {
+		projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
+		const resolvedPhotos = findPhotosFolder(projectItems);
+		photosFolder = resolvedPhotos
+			? { id: resolvedPhotos.id, name: resolvedPhotos.name || null }
+			: null;
+		if (photosFolder) {
+			try {
+				await setCachedFolder(dealId, 'photos', photosFolder.id, photosFolder.name ?? undefined);
+				log.debug('WorkDrive folder cache set', {
+					dealId,
+					folderType: 'photos',
+					folderId: photosFolder.id
+				});
+			} catch {}
+		}
+	}
+
 	const folderToUse = photosFolder || projectFolder;
 	const photosItems = await listWorkDriveFolder(accessToken, folderToUse.id, apiDomain);
 	const imageFiles = photosItems.filter((item) => item.type === 'file' && isImageFile(item));

@@ -2,6 +2,8 @@ import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getCachedFolder, setCachedFolder } from '$lib/server/folder-cache';
+import { createLogger } from '$lib/server/logger';
 import { refreshAccessToken } from '$lib/server/zoho';
 import {
 	buildDealFolderCandidates,
@@ -23,6 +25,8 @@ type TradePhoto = {
 	url: string;
 	caption?: string;
 };
+
+const log = createLogger('trade-photos');
 
 const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
 const FIELD_UPDATES_FOLDER_NAMES = ['Field Updates', 'Field Update', 'FieldUpdates'];
@@ -307,15 +311,38 @@ async function fetchTradePhotosForSession(
 			getDealLabel(deal) || (currentDealId ? `Deal ${currentDealId.slice(-6)}` : 'Project');
 		const dealPhotoStart = photos.length;
 		let warnedNoImages = false;
-		const folderFromField =
-			extractWorkDriveFolderId(deal?.External_Link) ||
-			extractWorkDriveFolderId(deal?.Client_Portal_Folder);
 		const candidates = buildDealFolderCandidates(projectName);
 
-		let projectFolderId = folderFromField;
+		let projectFolderId = '';
+		let projectFolderName: string | null = null;
+		let projectFolderCacheHit = false;
+		let projectFolderCached = false;
+		try {
+			const cachedRoot = await getCachedFolder(currentDealId, 'root');
+			if (cachedRoot) {
+				projectFolderId = cachedRoot.folderId;
+				projectFolderName = cachedRoot.folderName ?? null;
+				projectFolderCacheHit = true;
+				log.info('WorkDrive folder cache hit', {
+					dealId: currentDealId,
+					folderType: 'root',
+					folderId: projectFolderId
+				});
+			}
+		} catch {}
+
+		if (!projectFolderId) {
+			const folderFromField =
+				extractWorkDriveFolderId(deal?.External_Link) ||
+				extractWorkDriveFolderId(deal?.Client_Portal_Folder);
+			if (folderFromField) projectFolderId = folderFromField;
+		}
+
 		let resolvedFieldUpdates:
 			| { folder: { id: string; name: string }; label: string }
 			| null = null;
+		let fieldUpdatesCacheHit = false;
+		let fieldUpdatesCached = false;
 		const warnNoImages = () => {
 			if (warnedNoImages) return;
 			if (projectFolderId && photos.length === dealPhotoStart) {
@@ -333,25 +360,93 @@ async function fetchTradePhotosForSession(
 			return resolved || null;
 		};
 
+		const cacheProjectFolder = async () => {
+			if (projectFolderCacheHit || projectFolderCached || !projectFolderId) return;
+			try {
+				await setCachedFolder(
+					currentDealId,
+					'root',
+					projectFolderId,
+					projectFolderName ?? undefined
+				);
+				log.debug('WorkDrive folder cache set', {
+					dealId: currentDealId,
+					folderType: 'root',
+					folderId: projectFolderId
+				});
+				projectFolderCached = true;
+			} catch {}
+		};
+
+		const loadCachedFieldUpdates = async () => {
+			if (!projectFolderId || resolvedFieldUpdates) return;
+			try {
+				const cachedFU = await getCachedFolder(currentDealId, 'field-updates');
+				if (cachedFU) {
+					resolvedFieldUpdates = {
+						folder: { id: cachedFU.folderId, name: cachedFU.folderName || '' },
+						label: cachedFU.folderName || DEFAULT_WORK_TYPE
+					};
+					fieldUpdatesCacheHit = true;
+					log.info('WorkDrive folder cache hit', {
+						dealId: currentDealId,
+						folderType: 'field-updates',
+						folderId: cachedFU.folderId
+					});
+				}
+			} catch {}
+		};
+
+		const cacheFieldUpdates = async () => {
+			if (fieldUpdatesCacheHit || fieldUpdatesCached || !resolvedFieldUpdates?.folder?.id) return;
+			try {
+				await setCachedFolder(
+					currentDealId,
+					'field-updates',
+					resolvedFieldUpdates.folder.id,
+					resolvedFieldUpdates.folder.name
+				);
+				log.debug('WorkDrive folder cache set', {
+					dealId: currentDealId,
+					folderType: 'field-updates',
+					folderId: resolvedFieldUpdates.folder.id
+				});
+				fieldUpdatesCached = true;
+			} catch {}
+		};
+
 		if (projectFolderId) {
 			try {
-				resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
+				await cacheProjectFolder();
+				await loadCachedFieldUpdates();
+				if (!resolvedFieldUpdates) {
+					resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
+				}
 			} catch {
 				resolvedFieldUpdates = null;
 			}
+			await cacheFieldUpdates();
 		}
 
-		if (!resolvedFieldUpdates) {
+		if (!resolvedFieldUpdates && !projectFolderCacheHit) {
 			const projectFolder = findBestFolderByName(rootItems, candidates);
-			if (projectFolder?.id) projectFolderId = projectFolder.id;
+			if (projectFolder?.id) {
+				projectFolderId = projectFolder.id;
+				projectFolderName = projectFolder.name || null;
+			}
 			if (projectFolderId) {
 				try {
-					resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
+					await cacheProjectFolder();
+					await loadCachedFieldUpdates();
+					if (!resolvedFieldUpdates) {
+						resolvedFieldUpdates = await loadFieldUpdates(projectFolderId);
+					}
 				} catch {}
 			}
+			await cacheFieldUpdates();
 		}
 
-				if (!projectFolderId) {
+		if (!projectFolderId) {
 			console.warn('TRADE_PHOTOS: no project folder found', {
 				dealId: currentDealId,
 				projectName,
