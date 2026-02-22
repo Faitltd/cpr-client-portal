@@ -23,6 +23,8 @@
 			</button>
 			<nav class:open={menuOpen} class="admin-nav">
 				<a class="admin-link" href="/admin/clients">Dashboard</a>
+				<a class="admin-link" href="/admin/folder-cache">Folder Cache</a>
+				<a class="admin-link" href="/admin/api-cache">API Cache</a>
 				<a class="admin-link" href="/admin/zprojects">Projects</a>
 				<a class="admin-link" href="/admin/logout">Log out</a>
 			</nav>
