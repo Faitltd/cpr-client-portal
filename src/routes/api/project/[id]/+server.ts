@@ -3,9 +3,12 @@ import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { zohoApiCall, refreshAccessToken } from '$lib/server/zoho';
 import { getContactDocuments, getDealNotes } from '$lib/server/auth';
 import { getDealsForClient } from '$lib/server/projects';
+import { buildCacheKey, getCache, setCache } from '$lib/server/api-cache';
+import { createLogger } from '$lib/server/logger';
 import type { RequestHandler } from './$types';
 
 const sanitizeText = (value: unknown) => String(value ?? '').trim();
+const log = createLogger('project-api');
 
 async function canClientAccessDeal(session: Awaited<ReturnType<typeof getSession>>, dealId: string) {
 	if (!session?.client) return false;
@@ -36,6 +39,36 @@ async function getAccessToken() {
 		return { accessToken, apiDomain: tokens.api_domain || undefined };
 	}
 
+async function refreshProjectCache(
+	dealId: string,
+	accessToken: string,
+	apiDomain: string | undefined,
+	cacheKey: string
+) {
+	// Fetch deal details
+	const dealResponse = await zohoApiCall(accessToken, `/Deals/${dealId}`, {}, apiDomain);
+	const deal = dealResponse.data?.[0];
+
+	if (!deal) {
+		throw error(404, 'Deal not found');
+	}
+
+	// Fetch related data
+	const [documents, notes] = await Promise.all([
+		getContactDocuments(accessToken, dealId, apiDomain).catch(() => ({ data: [] })),
+		getDealNotes(accessToken, dealId, apiDomain).catch(() => ({ data: [] }))
+	]);
+
+	const payload = {
+		deal,
+		documents: documents.data || [],
+		notes: notes.data || []
+	};
+
+	await setCache(cacheKey, payload);
+	return payload;
+}
+
 export const GET: RequestHandler = async ({ params, cookies }) => {
 	const sessionToken = cookies.get('portal_session');
 	const dealId = params.id;
@@ -55,33 +88,31 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 			throw error(401, 'Invalid session');
 		}
 
-		const { accessToken, apiDomain } = await getAccessToken();
-
-		// Fetch deal details
-		const dealResponse = await zohoApiCall(accessToken, `/Deals/${dealId}`, {}, apiDomain);
-		const deal = dealResponse.data?.[0];
-
-		if (!deal) {
-			throw error(404, 'Deal not found');
+		// Security: verify deal belongs to the authenticated client.
+		// Fallback accepts an email-resolved contact id if the stored contact id is stale.
+		if (!(await canClientAccessDeal(session, dealId))) {
+			throw error(403, 'Access denied to this project');
 		}
 
-			// Security: verify deal belongs to the authenticated client.
-			// Fallback accepts an email-resolved contact id if the stored contact id is stale.
-			if (!(await canClientAccessDeal(session, dealId))) {
-				throw error(403, 'Access denied to this project');
+		const cacheKey = buildCacheKey('project', dealId);
+		const cached = await getCache(cacheKey);
+		if (cached) {
+			log.info('API response cache hit', {
+				cacheKey,
+				stale: cached.isStale
+			});
+			if (cached.isStale) {
+				try {
+					const { accessToken, apiDomain } = await getAccessToken();
+					refreshProjectCache(dealId, accessToken, apiDomain, cacheKey).catch(() => {});
+				} catch {}
 			}
+			return json(cached.data);
+		}
 
-		// Fetch related data
-		const [documents, notes] = await Promise.all([
-			getContactDocuments(accessToken, dealId, apiDomain).catch(() => ({ data: [] })),
-			getDealNotes(accessToken, dealId, apiDomain).catch(() => ({ data: [] }))
-		]);
-
-		return json({
-			deal,
-			documents: documents.data || [],
-			notes: notes.data || []
-		});
+		const { accessToken, apiDomain } = await getAccessToken();
+		const fresh = await refreshProjectCache(dealId, accessToken, apiDomain, cacheKey);
+		return json(fresh);
 	} catch (err) {
 		console.error('Failed to fetch project details:', err);
 		if (err instanceof Error && 'status' in err) {
