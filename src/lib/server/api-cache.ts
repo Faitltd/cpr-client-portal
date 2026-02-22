@@ -18,12 +18,10 @@ export function buildCacheKey(...parts: string[]): string {
 export async function getCache(cacheKey: string): Promise<CacheResult | null> {
 	if (!cacheKey) return null;
 	try {
-		const now = new Date().toISOString();
 		const { data, error } = await supabase
 			.from(CACHE_TABLE)
 			.select('response_json, stale_at, expires_at')
 			.eq('cache_key', cacheKey)
-			.gt('expires_at', now)
 			.maybeSingle();
 
 		if (error) {
@@ -51,7 +49,7 @@ export async function setCache(
 ): Promise<void> {
 	if (!cacheKey) return;
 	const staleSec = options.staleSec ?? 120;
-	const expireSec = options.expireSec ?? 300;
+	const expireSec = Math.max(options.expireSec ?? 0, 60 * 60 * 24 * 365);
 	const now = new Date();
 	const staleAt = new Date(now.getTime() + staleSec * 1000).toISOString();
 	const expiresAt = new Date(now.getTime() + expireSec * 1000).toISOString();
@@ -83,11 +81,11 @@ export async function setCache(
 
 export async function clearCache(pattern?: string): Promise<void> {
 	try {
-		const now = new Date().toISOString();
+		const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 		const query = supabase.from(CACHE_TABLE).delete();
 		const { error } = pattern
 			? await query.like('cache_key', pattern)
-			: await query.lt('expires_at', now);
+			: await query.lt('updated_at', cutoff);
 		if (error) {
 			log.warn('API cache clear failed', {
 				pattern: pattern ?? null,
