@@ -234,12 +234,16 @@
 			<a class="field-update-button" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
 				Open Field Update Form
 			</a>
-			<a
-				class="field-update-secondary"
-				href={`/trade/photos?dealId=${encodeURIComponent(selectedDealId)}`}
-			>
-				Progress Photos
-			</a>
+			{#if getProgressPhotosLink(selectedDeal)}
+				<a
+					class="field-update-secondary"
+					href={getProgressPhotosLink(selectedDeal)}
+					target="_blank"
+					rel="noreferrer"
+				>
+					Progress Photos
+				</a>
+			{/if}
 		</div>
 		<p class="field-update-hint">
 			Opens in a new tab so camera/microphone permissions work reliably.
@@ -298,21 +302,6 @@
 						<p>{selectedDeal.Refined_SOW || 'Not available'}</p>
 					</div>
 					<div class="notes">
-						<h4>Progress Photos</h4>
-						{#if getProgressPhotosLink(selectedDeal)}
-							<p>
-								<a
-									class="file-link"
-									href={getProgressPhotosLink(selectedDeal)}
-									target="_blank"
-									rel="noreferrer"
-								>
-									Open Progress Photos
-								</a>
-							</p>
-						{:else}
-							<p>Not available</p>
-						{/if}
 					</div>
 					<div class="notes">
 						<h4>Designs</h4>
