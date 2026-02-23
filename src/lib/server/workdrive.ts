@@ -377,7 +377,7 @@ export function findBestFolderByName(items: WorkDriveItem[], candidates: string[
 export function findPhotosFolder(items: WorkDriveItem[]) {
 	const folders = items.filter((item) => item.type === 'folder');
 	if (folders.length === 0) return null;
-	const normalizedTargets = ['photos', 'photo', 'progress photos', 'progress photo'];
+	const normalizedTargets = ['client portal', 'photos', 'photo', 'progress photos', 'progress photo'];
 
 	let best: WorkDriveItem | null = null;
 	let bestScore = 0;
