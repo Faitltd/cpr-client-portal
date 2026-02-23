@@ -84,7 +84,7 @@
 		<div class="photo-grid">
 			{#each photos as photo}
 				<figure class="photo-card">
-					<img src={photo.url} alt={photo.name} loading="lazy" />
+					<img src={photo.url} alt={photo.name} />
 					<figcaption>
 						<div class="photo-name">{photo.name}</div>
 						<div class="photo-meta">
