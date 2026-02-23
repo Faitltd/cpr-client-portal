@@ -14,6 +14,22 @@ function isImageContentType(value: string | null) {
 	return value.toLowerCase().startsWith('image/');
 }
 
+const IMAGE_EXTENSIONS: Record<string, string> = {
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	svg: 'image/svg+xml',
+	bmp: 'image/bmp',
+	tiff: 'image/tiff',
+	tif: 'image/tiff',
+	ico: 'image/x-icon',
+	heic: 'image/heic',
+	heif: 'image/heif',
+	avif: 'image/avif'
+};
+
 function inferImageMime(name: string) {
 	const ext = String(name || '').split('.').pop()?.toLowerCase() || '';
 	return IMAGE_EXTENSIONS[ext] || '';
