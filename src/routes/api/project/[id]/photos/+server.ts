@@ -107,7 +107,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 
 	const dealPayload = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=${encodeURIComponent('Deal_Name')}`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=${encodeURIComponent('Deal_Name,Client_Portal_Folder')}`,
 		{},
 		apiDomain
 	);
@@ -132,6 +132,21 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			});
 		}
 	} catch {}
+
+	if (!projectFolderId) {
+		const folderFromField = extractWorkDriveFolderId(deal?.Client_Portal_Folder);
+		if (folderFromField) {
+			projectFolderId = folderFromField;
+			projectFolderName = dealName || null;
+			try {
+				await setCachedFolder(dealId, 'root', projectFolderId, projectFolderName ?? undefined);
+				log.debug('WorkDrive folder set from Client_Portal_Folder CRM field', {
+					dealId,
+					folderId: projectFolderId
+				});
+			} catch {}
+		}
+	}
 
 	let projectFolder: { id: string; name: string | null } | null = null;
 	if (!projectFolderId) {
