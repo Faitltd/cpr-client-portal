@@ -6,7 +6,7 @@ import { getWorkDriveDownloadCandidates } from '$lib/server/workdrive';
 import { refreshAccessToken } from '$lib/server/zoho';
 
 function safeFileName(value: string) {
-	return value.replace(/[/\\]/g, '_').replace(/"/g, "'");
+	return value.replace(/[^\x20-\x7E]/g, '_').replace(/[/\\]/g, '_').replace(/"/g, "'");
 }
 
 function isImageContentType(value: string | null) {
