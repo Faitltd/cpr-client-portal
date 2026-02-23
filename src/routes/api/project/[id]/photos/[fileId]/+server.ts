@@ -14,6 +14,11 @@ function isImageContentType(value: string | null) {
 	return value.toLowerCase().startsWith('image/');
 }
 
+function inferImageMime(name: string) {
+	const ext = String(name || '').split('.').pop()?.toLowerCase() || '';
+	return IMAGE_EXTENSIONS[ext] || '';
+}
+
 function normalizeImageContentType(value: string | null) {
 	if (!value) return '';
 	const trimmed = value.trim().toLowerCase();
@@ -122,9 +127,11 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		const headers = new Headers();
 		const headerContentType = normalizeImageContentType(response.headers.get('content-type'));
 		const requestedMime = normalizeImageContentType(url.searchParams.get('mime'));
+		const inferredMime = inferImageMime(nameFromQuery || nameFromHeader || '');
 		const contentType =
 			isImageContentType(headerContentType) ? headerContentType
 			: isImageContentType(requestedMime) ? requestedMime
+			: isImageContentType(inferredMime) ? inferredMime
 			: headerContentType || 'application/octet-stream';
 		headers.set('Content-Type', contentType);
 		const nameFromQuery = url.searchParams.get('fileName') || '';

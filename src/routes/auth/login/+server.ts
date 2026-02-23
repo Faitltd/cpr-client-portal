@@ -20,7 +20,13 @@ const REQUIRED_ZOHO_SCOPES = [
 	'ZohoProjects.tasks.READ',
 	'ZohoProjects.tasklists.READ',
 	'ZohoProjects.milestones.READ',
-	'ZohoProjects.users.READ'
+	'ZohoProjects.users.READ',
+	'WorkDrive.team.ALL',
+	'WorkDrive.workspace.ALL',
+	'WorkDrive.files.ALL',
+	'WorkDrive.organization.READ',
+	'WorkDrive.teamfolders.ALL',
+	'ZohoFiles.files.READ'
 ] as const;
 
 const OPTIONAL_ZOHO_SCOPES = ['ZohoBooks.fullaccess.ALL', 'ZohoSign.documents.ALL'] as const;
