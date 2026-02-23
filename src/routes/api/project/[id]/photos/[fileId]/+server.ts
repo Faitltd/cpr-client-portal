@@ -127,6 +127,10 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		const headers = new Headers();
 		const headerContentType = normalizeImageContentType(response.headers.get('content-type'));
 		const requestedMime = normalizeImageContentType(url.searchParams.get('mime'));
+		const nameFromQuery = url.searchParams.get('fileName') || '';
+		const nameFromHeader = extractFileNameFromDisposition(
+			response.headers.get('content-disposition')
+		);
 		const inferredMime = inferImageMime(nameFromQuery || nameFromHeader || '');
 		const contentType =
 			isImageContentType(headerContentType) ? headerContentType
@@ -134,10 +138,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			: isImageContentType(inferredMime) ? inferredMime
 			: headerContentType || 'application/octet-stream';
 		headers.set('Content-Type', contentType);
-		const nameFromQuery = url.searchParams.get('fileName') || '';
-		const nameFromHeader = extractFileNameFromDisposition(
-			response.headers.get('content-disposition')
-		);
 		const finalName = safeFileName(nameFromQuery || nameFromHeader || fileId || 'photo');
 		headers.set('Content-Disposition', `inline; filename="${finalName}"`);
 
