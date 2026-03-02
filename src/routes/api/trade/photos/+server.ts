@@ -227,6 +227,23 @@ async function resolveFieldUpdatesFolder(
 		if (photosMatch) {
 			return { folder: photosMatch, label: photosMatch.name || DEFAULT_WORK_TYPE };
 		}
+		// No "Field Updates" found inside — check if this folder itself has images directly
+		const directImages = photosItems.filter((i) => i.type === 'file' && isImageFile(i));
+		if (directImages.length > 0) {
+			return { folder: { id: photosFolder.id, name: photosFolder.name }, label: 'Progress Photos' };
+		}
+		// Try one level deeper (e.g. Client Portal → Photos subfolder)
+		const deeperFolder = findPhotosFolder(photosItems);
+		if (deeperFolder) {
+			const deepItems = await listWorkDriveFolder(accessToken, deeperFolder.id, apiDomain);
+			const deepImages = deepItems.filter((i) => i.type === 'file' && isImageFile(i));
+			if (deepImages.length > 0) {
+				return {
+					folder: { id: deeperFolder.id, name: deeperFolder.name },
+					label: 'Progress Photos'
+				};
+			}
+		}
 	}
 
 	const childFolders = projectItems.filter((item) => item.type === 'folder').slice(0, MAX_FIELD_UPDATES_SCAN);
