@@ -226,6 +226,16 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	}
 
 	const folderToUse = photosFolder || projectFolder;
+	log.info('photos folder resolved', {
+		dealId,
+		projectFolderId: projectFolder.id,
+		projectFolderName: projectFolder.name,
+		photosFolderCacheHit,
+		photosFolderId: photosFolder?.id ?? null,
+		photosFolderName: photosFolder?.name ?? null,
+		folderUsedId: folderToUse.id,
+		folderUsedName: folderToUse.name
+	});
 	const photosItems = await listWorkDriveFolder(accessToken, folderToUse.id, apiDomain);
 	const imageFiles = photosItems.filter((item) => item.type === 'file' && isImageFile(item));
 
@@ -237,6 +247,10 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		rootFolderId,
 		projectFolder: { id: projectFolder.id, name: projectFolder.name },
 		photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
+		_resolution: {
+			photosFolderCacheHit,
+			folderUsed: { id: folderToUse.id, name: folderToUse.name }
+		},
 		files: imageFiles.map((file) => {
 			const params = new URLSearchParams();
 			if (file.name) params.set('fileName', file.name);
