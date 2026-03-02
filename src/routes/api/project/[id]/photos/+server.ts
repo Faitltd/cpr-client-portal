@@ -160,7 +160,8 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 				status: 'missing_project_folder',
 				message: 'No matching project folder found under WorkDrive root folder.',
 				candidates: candidateNames,
-				rootFolderId
+				rootFolderId,
+				rootItemNames: rootItems.map((i) => `[${i.type}] ${i.name}`)
 			});
 		}
 		projectFolderId = projectFolder.id;
