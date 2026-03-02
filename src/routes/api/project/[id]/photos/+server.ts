@@ -273,7 +273,11 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
 		_resolution: {
 			photosFolderCacheHit,
-			folderUsed: { id: effectiveFolderUsed.id, name: effectiveFolderUsed.name }
+			projectFolder: { id: projectFolder.id, name: projectFolder.name },
+			photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
+			folderUsed: { id: effectiveFolderUsed.id, name: effectiveFolderUsed.name },
+			projectItemNames: projectItems.map((i) => `[${i.type}] ${i.name}`).slice(0, 30),
+			photosItemNames: photosItems.map((i) => `[${i.type}] ${i.name}`).slice(0, 30)
 		},
 		files: imageFiles.map((file) => {
 			const params = new URLSearchParams();
