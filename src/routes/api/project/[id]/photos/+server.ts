@@ -236,8 +236,32 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		folderUsedId: folderToUse.id,
 		folderUsedName: folderToUse.name
 	});
-	const photosItems = await listWorkDriveFolder(accessToken, folderToUse.id, apiDomain);
-	const imageFiles = photosItems.filter((item) => item.type === 'file' && isImageFile(item));
+	let photosItems = await listWorkDriveFolder(accessToken, folderToUse.id, apiDomain);
+	let imageFiles = photosItems.filter((item) => item.type === 'file' && isImageFile(item));
+	let effectiveFolderUsed = folderToUse;
+
+	// If no images directly in folderToUse, go one level deeper (e.g. Client Portal → Photos subfolder)
+	if (imageFiles.length === 0) {
+		const deeperFolder = findPhotosFolder(photosItems);
+		if (deeperFolder) {
+			log.info('photos: going one level deeper', {
+				dealId,
+				from: { id: folderToUse.id, name: folderToUse.name },
+				into: { id: deeperFolder.id, name: deeperFolder.name }
+			});
+			const deepItems = await listWorkDriveFolder(accessToken, deeperFolder.id, apiDomain);
+			const deepImages = deepItems.filter((item) => item.type === 'file' && isImageFile(item));
+			if (deepImages.length > 0) {
+				photosItems = deepItems;
+				imageFiles = deepImages;
+				effectiveFolderUsed = { id: deeperFolder.id, name: deeperFolder.name || null };
+				// Cache the actual resolved subfolder so future requests skip traversal
+				try {
+					await setCachedFolder(dealId, 'photos', deeperFolder.id, deeperFolder.name ?? undefined);
+				} catch {}
+			}
+		}
+	}
 
 	const debug = url.searchParams.get('debug') === '1';
 	return json({
@@ -249,7 +273,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
 		_resolution: {
 			photosFolderCacheHit,
-			folderUsed: { id: folderToUse.id, name: folderToUse.name }
+			folderUsed: { id: effectiveFolderUsed.id, name: effectiveFolderUsed.name }
 		},
 		files: imageFiles.map((file) => {
 			const params = new URLSearchParams();
