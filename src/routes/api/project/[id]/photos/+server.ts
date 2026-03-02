@@ -196,26 +196,33 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	if (!photosFolderCacheHit) {
 		projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 
-		// Prefer "Client Portal" folder directly — photos live there.
-		// Fall back to findPhotosFolder for "Photos", "Progress Photos", etc.
-		const clientPortalFolder = projectItems
-			.filter((i) => i.type === 'folder')
-			.find((f) => /client.?portal/i.test(f.name || ''));
-		const resolvedPhotos = clientPortalFolder ?? findPhotosFolder(projectItems);
-		photosFolder = resolvedPhotos
-			? { id: resolvedPhotos.id, name: resolvedPhotos.name || null }
-			: null;
+		// If the project folder already contains image files directly, use it as-is.
+		// This handles the case where Client_Portal_Folder CRM field points straight to
+		// the photos folder (e.g. "Client Portal") rather than a parent container.
+		const directImages = projectItems.filter((i) => i.type === 'file' && isImageFile(i));
+		if (directImages.length === 0) {
+			// No images directly here — look for a photos subfolder.
+			// Prefer "Client Portal" folder; fall back to findPhotosFolder for "Photos" etc.
+			const clientPortalFolder = projectItems
+				.filter((i) => i.type === 'folder')
+				.find((f) => /client.?portal/i.test(f.name || ''));
+			const resolvedPhotos = clientPortalFolder ?? findPhotosFolder(projectItems);
+			photosFolder = resolvedPhotos
+				? { id: resolvedPhotos.id, name: resolvedPhotos.name || null }
+				: null;
 
-		if (photosFolder) {
-			try {
-				await setCachedFolder(dealId, 'photos', photosFolder.id, photosFolder.name ?? undefined);
-				log.debug('WorkDrive folder cache set', {
-					dealId,
-					folderType: 'photos',
-					folderId: photosFolder.id
-				});
-			} catch {}
+			if (photosFolder) {
+				try {
+					await setCachedFolder(dealId, 'photos', photosFolder.id, photosFolder.name ?? undefined);
+					log.debug('WorkDrive folder cache set', {
+						dealId,
+						folderType: 'photos',
+						folderId: photosFolder.id
+					});
+				} catch {}
+			}
 		}
+		// else: images are directly in projectFolder — folderToUse = projectFolder below
 	}
 
 	const folderToUse = photosFolder || projectFolder;
