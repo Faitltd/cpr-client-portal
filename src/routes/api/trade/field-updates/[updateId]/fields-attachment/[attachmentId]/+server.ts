@@ -33,7 +33,33 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 }
 
 function safeFileName(value: string) {
-	return value.replace(/[/\\]/g, '_').replace(/"/g, "'");
+	return value.replace(/[^\x20-\x7E]/g, '_').replace(/[/\\]/g, '_').replace(/"/g, "'");
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	svg: 'image/svg+xml',
+	bmp: 'image/bmp',
+	tiff: 'image/tiff',
+	tif: 'image/tiff',
+	ico: 'image/x-icon',
+	heic: 'image/heic',
+	heif: 'image/heif',
+	avif: 'image/avif'
+};
+
+function inferImageMime(name: string) {
+	const ext = String(name || '').split('.').pop()?.toLowerCase() || '';
+	return IMAGE_EXTENSIONS[ext] || '';
+}
+
+function isImageContentType(value: string | null) {
+	if (!value) return false;
+	return value.toLowerCase().startsWith('image/');
 }
 
 function getId(value: any): string | null {
@@ -279,9 +305,15 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	}
 
 	const headers = new Headers();
-	const contentType = response.headers.get('content-type') || 'application/octet-stream';
+	const headerContentType = response.headers.get('content-type') || '';
+	const nameFromQuery = url.searchParams.get('fileName') || '';
+	const inferredMime = inferImageMime(nameFromQuery);
+	const contentType =
+		isImageContentType(headerContentType) ? headerContentType
+		: isImageContentType(inferredMime) ? inferredMime
+		: headerContentType || 'application/octet-stream';
 	headers.set('Content-Type', contentType);
-	const fileName = safeFileName(url.searchParams.get('fileName') || 'photo');
+	const fileName = safeFileName(nameFromQuery || 'photo');
 	const download = url.searchParams.get('download') === '1';
 	headers.set('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`);
 

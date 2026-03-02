@@ -196,9 +196,23 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	if (!photosFolderCacheHit) {
 		projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 		const resolvedPhotos = findPhotosFolder(projectItems);
-		photosFolder = resolvedPhotos
+		let resolvedFolder = resolvedPhotos
 			? { id: resolvedPhotos.id, name: resolvedPhotos.name || null }
 			: null;
+
+		// If findPhotosFolder landed on "Client Portal" (a container, not a photos folder),
+		// look inside it for the actual Photos subfolder.
+		if (resolvedFolder && /client.?portal/i.test(resolvedFolder.name || '')) {
+			const innerItems = await listWorkDriveFolder(accessToken, resolvedFolder.id, apiDomain);
+			const innerPhotos = findPhotosFolder(
+				innerItems.filter((i) => !/client.?portal/i.test(i.name || ''))
+			);
+			if (innerPhotos) {
+				resolvedFolder = { id: innerPhotos.id, name: innerPhotos.name || null };
+			}
+		}
+
+		photosFolder = resolvedFolder;
 		if (photosFolder) {
 			try {
 				await setCachedFolder(dealId, 'photos', photosFolder.id, photosFolder.name ?? undefined);
