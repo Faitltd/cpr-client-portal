@@ -122,11 +122,17 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	const candidateNames = buildDealFolderCandidates(dealName);
 	let projectFolderId = '';
 	let projectFolderName: string | null = null;
+	// Track how the folder was resolved for diagnostics
+	let folderSource: string = 'unknown';
+	let externalLinkAttempted = false;
+	let externalLinkResolved = false;
+
 	try {
 		const cached = await getCachedFolder(dealId, 'root');
 		if (cached) {
 			projectFolderId = cached.folderId;
 			projectFolderName = cached.folderName ?? null;
+			folderSource = 'cache';
 			log.info('WorkDrive folder cache hit', {
 				dealId,
 				folderType: 'root',
@@ -136,32 +142,48 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	} catch {}
 
 	if (!projectFolderId) {
-		const folderFromField = extractWorkDriveFolderId(deal?.Client_Portal_Folder);
+		const crmFieldValue = deal?.Client_Portal_Folder;
+		const folderFromField = extractWorkDriveFolderId(crmFieldValue);
 		if (folderFromField) {
 			projectFolderId = folderFromField;
 			projectFolderName = dealName || null;
+			folderSource = 'crm-internal-url';
 		} else {
 			// Client_Portal_Folder may be an external share URL (zohoexternal.com/external/HASH).
 			// Resolve the hash to an internal resource_id via the WorkDrive links API.
-			const externalHash = extractExternalLinkHash(deal?.Client_Portal_Folder);
+			const externalHash = extractExternalLinkHash(crmFieldValue);
 			if (externalHash) {
+				externalLinkAttempted = true;
 				const resolved = await resolveExternalLink(accessToken, externalHash, apiDomain);
 				if (resolved) {
 					projectFolderId = resolved;
 					projectFolderName = dealName || null;
+					folderSource = 'crm-external-link';
+					externalLinkResolved = true;
 					log.info('WorkDrive folder resolved from external share link', {
 						dealId,
-						externalHash,
+						hashPrefix: externalHash.slice(0, 12),
 						folderId: projectFolderId
 					});
+				} else {
+					log.info('WorkDrive external link resolution failed — falling back to root name search', {
+						dealId,
+						hashPrefix: externalHash.slice(0, 12)
+					});
 				}
+			} else {
+				log.info('WorkDrive Client_Portal_Folder not parseable — falling back to root name search', {
+					dealId,
+					fieldPresent: !!crmFieldValue
+				});
 			}
 		}
 		if (projectFolderId) {
 			try {
 				await setCachedFolder(dealId, 'root', projectFolderId, projectFolderName ?? undefined);
-				log.debug('WorkDrive folder set from Client_Portal_Folder CRM field', {
+				log.info('WorkDrive root folder cached from CRM field', {
 					dealId,
+					folderSource,
 					folderId: projectFolderId
 				});
 			} catch {}
@@ -308,6 +330,9 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		projectFolder: { id: projectFolder.id, name: projectFolder.name },
 		photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
 		_resolution: {
+			folderSource,
+			externalLinkAttempted,
+			externalLinkResolved,
 			photosFolderCacheHit,
 			projectFolder: { id: projectFolder.id, name: projectFolder.name },
 			photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
