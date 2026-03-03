@@ -57,6 +57,28 @@ function inferImageMime(name: string | null) {
 	return IMAGE_EXTENSIONS[ext] || '';
 }
 
+/** Recursively scan any object for a zohoexternal.com URL string. */
+function findExternalUrl(node: unknown, depth = 0): string | null {
+	if (depth > 5 || node === null || node === undefined) return null;
+	if (typeof node === 'string') {
+		return /zohoexternal\.com/i.test(node) ? node : null;
+	}
+	if (Array.isArray(node)) {
+		for (const item of node) {
+			const found = findExternalUrl(item, depth + 1);
+			if (found) return found;
+		}
+		return null;
+	}
+	if (typeof node === 'object') {
+		for (const val of Object.values(node as Record<string, unknown>)) {
+			const found = findExternalUrl(val, depth + 1);
+			if (found) return found;
+		}
+	}
+	return null;
+}
+
 async function getFolderPermalink(
 	accessToken: string,
 	folderId: string,
@@ -65,6 +87,7 @@ async function getFolderPermalink(
 	const base = getWorkDriveApiBase(apiDomain);
 	const debug: Record<string, unknown> = { folderId, base };
 	try {
+		// Step A: Check folder metadata for any existing external URL (share_data, url_link, etc.)
 		const response = await fetch(`${base}/files/${encodeURIComponent(folderId)}`, {
 			headers: {
 				Authorization: `Zoho-oauthtoken ${accessToken}`,
@@ -72,31 +95,62 @@ async function getFolderPermalink(
 			}
 		});
 		const rawBody = await response.text().catch(() => '');
-		debug.status = response.status;
-		debug.body = rawBody.slice(0, 500);
-		if (!response.ok) return { url: null, debug };
-		let data: any = null;
-		try { data = JSON.parse(rawBody); } catch { /* ignore */ }
-		const attrs = data?.data?.attributes || {};
-		debug.attrKeys = Object.keys(attrs);
-		const candidates = [
-			attrs.permalink,
-			attrs.public_url,
-			attrs.publicUrl,
-			attrs.share_url,
-			attrs.shareUrl,
-			attrs.url
-		];
-		// Only accept public external URLs (zohoexternal.com) — internal zoho.com URLs require login.
-		for (const candidate of candidates) {
-			if (typeof candidate === 'string' && /zohoexternal\.com/i.test(candidate)) {
-				log.info('getFolderPermalink: found external permalink', { folderId, url: candidate });
-				return { url: candidate, debug };
+		debug.metaStatus = response.status;
+		debug.metaBody = rawBody.slice(0, 2000);
+		if (response.ok) {
+			let data: any = null;
+			try { data = JSON.parse(rawBody); } catch { /* ignore */ }
+			const attrs = data?.data?.attributes || {};
+			debug.attrKeys = Object.keys(attrs);
+			// Deep-scan ALL attribute values (includes share_data, url_link, shortcut_link, etc.)
+			const deepUrl = findExternalUrl(attrs);
+			if (deepUrl) {
+				log.info('getFolderPermalink: found external URL in metadata', { folderId, url: deepUrl });
+				return { url: deepUrl, debug };
 			}
+			debug.internalUrls = [attrs.permalink, attrs.url_link, attrs.shortcut_link]
+				.filter((c) => typeof c === 'string' && /^https?:\/\//i.test(c));
 		}
-		// Log any internal URLs found so we can see what's available
-		debug.internalUrls = candidates.filter((c) => typeof c === 'string' && /^https?:\/\//i.test(c));
-		log.debug('getFolderPermalink: no external permalink in attributes', { folderId, attrKeys: debug.attrKeys });
+
+		// Step B: Fetch existing share links for this folder via GET /links
+		try {
+			const linksResp = await fetch(
+				`${base}/links?filter[resource_id]=${encodeURIComponent(folderId)}`,
+				{
+					headers: {
+						Authorization: `Zoho-oauthtoken ${accessToken}`,
+						'Content-Type': 'application/json'
+					}
+				}
+			);
+			debug.linksStatus = linksResp.status;
+			if (linksResp.ok) {
+				const linksData = await linksResp.json().catch(() => null);
+				debug.linksData = linksData;
+				const links = Array.isArray(linksData?.data) ? linksData.data : [];
+				for (const link of links) {
+					const linkUrl =
+						link?.attributes?.link_url ||
+						link?.attributes?.permalink ||
+						link?.attributes?.public_url;
+					if (typeof linkUrl === 'string' && /zohoexternal\.com/i.test(linkUrl)) {
+						log.info('getFolderPermalink: found external link via GET /links', { folderId, url: linkUrl });
+						return { url: linkUrl, debug };
+					}
+					// Construct from link ID — same hash used in zohoexternal.com/external/{hash}
+					const linkId = link?.id || link?.attributes?.link_id;
+					if (linkId) {
+						const constructed = `https://workdrive.zohoexternal.com/external/${linkId}`;
+						log.info('getFolderPermalink: constructed URL from existing link', { folderId, linkId });
+						return { url: constructed, debug };
+					}
+				}
+			}
+		} catch (linksErr) {
+			debug.linksError = String(linksErr);
+		}
+
+		log.debug('getFolderPermalink: no external URL found', { folderId });
 		return { url: null, debug };
 	} catch (err) {
 		debug.error = String(err);
@@ -112,16 +166,23 @@ async function createFolderViewLink(
 	const base = getWorkDriveApiBase(apiDomain);
 	const debug: Record<string, unknown> = { folderId, base };
 
-	// Try multiple link_type values in order of most likely to work for folder sharing.
-	// 'download' is last because it returns a URL ending in /download which we strip.
-	for (const linkType of ['viewer', 'external', 'view', 'download']) {
+	// Try multiple link_type + allow_download combos.
+	// 'download' with allow_download:true mirrors how file download links are created successfully.
+	const attempts = [
+		{ linkType: 'viewer', allowDownload: false },
+		{ linkType: 'external', allowDownload: false },
+		{ linkType: 'view', allowDownload: false },
+		{ linkType: 'download', allowDownload: true },
+		{ linkType: 'download', allowDownload: false }
+	];
+	for (const { linkType, allowDownload } of attempts) {
 		const payload = {
 			data: {
 				attributes: {
 					resource_id: folderId,
 					link_type: linkType,
 					request_user_data: false,
-					allow_download: false
+					allow_download: allowDownload
 				},
 				type: 'links'
 			}
@@ -137,16 +198,17 @@ async function createFolderViewLink(
 				body: JSON.stringify(payload)
 			});
 			const rawBody = await response.text().catch(() => '');
-			debug[`${linkType}_status`] = response.status;
-			debug[`${linkType}_body`] = rawBody.slice(0, 400);
+			const attemptKey = `${linkType}_dl${allowDownload ? '1' : '0'}`;
+			debug[`${attemptKey}_status`] = response.status;
+			debug[`${attemptKey}_body`] = rawBody.slice(0, 400);
 
 			if (!response.ok) {
-				log.warn('createFolderViewLink: request failed', { folderId, linkType, status: response.status, body: rawBody.slice(0, 300) });
+				log.warn('createFolderViewLink: request failed', { folderId, linkType, allowDownload, status: response.status, body: rawBody.slice(0, 300) });
 				continue;
 			}
 			let data: any = null;
 			try { data = JSON.parse(rawBody); } catch { /* ignore */ }
-			debug[`${linkType}_parsed`] = data;
+			debug[`${attemptKey}_parsed`] = data;
 
 			const attrs = data?.data?.attributes || {};
 			// Only accept public external URLs — internal zoho.com URLs require login.
