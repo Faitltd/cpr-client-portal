@@ -138,7 +138,7 @@
 				<div>
 					<h3>Progress Photos</h3>
 					{#if getProgressPhotosLink(project)}
-						<a href={getProgressPhotosLink(project)} target="_blank" rel="noreferrer">View Photos</a>
+						<a href={getProgressPhotosLink(project)}>View Photos</a>
 					{:else}
 						<p>Not available</p>
 					{/if}

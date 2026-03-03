@@ -61,58 +61,74 @@ async function createFolderViewLink(
 	accessToken: string,
 	folderId: string,
 	apiDomain?: string
-): Promise<string | null> {
+): Promise<{ url: string | null; debug: Record<string, unknown> }> {
 	const base = getWorkDriveApiBase(apiDomain);
-	const payload = {
-		data: {
-			attributes: {
-				resource_id: folderId,
-				link_type: 'external',
-				request_user_data: false,
-				allow_download: false
-			},
-			type: 'links'
+	const debug: Record<string, unknown> = { folderId, base };
+
+	// Try multiple link_type values in order of most likely to work for folder sharing.
+	// 'download' is last because it returns a URL ending in /download which we strip.
+	for (const linkType of ['viewer', 'external', 'view', 'download']) {
+		const payload = {
+			data: {
+				attributes: {
+					resource_id: folderId,
+					link_type: linkType,
+					request_user_data: false,
+					allow_download: false
+				},
+				type: 'links'
+			}
+		};
+		try {
+			const response = await fetch(`${base}/links`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Zoho-oauthtoken ${accessToken}`,
+					Accept: 'application/vnd.api+json',
+					'Content-Type': 'application/vnd.api+json'
+				},
+				body: JSON.stringify(payload)
+			});
+			const rawBody = await response.text().catch(() => '');
+			debug[`${linkType}_status`] = response.status;
+			debug[`${linkType}_body`] = rawBody.slice(0, 400);
+
+			if (!response.ok) {
+				log.warn('createFolderViewLink: request failed', { folderId, linkType, status: response.status, body: rawBody.slice(0, 300) });
+				continue;
+			}
+			let data: any = null;
+			try { data = JSON.parse(rawBody); } catch { /* ignore */ }
+			debug[`${linkType}_parsed`] = data;
+
+			const attrs = data?.data?.attributes || {};
+			// Check direct URL fields
+			const viewUrl = attrs.link_url || attrs.permalink || attrs.public_url || attrs.url || null;
+			if (viewUrl && /^https?:\/\//i.test(String(viewUrl))) {
+				log.info('createFolderViewLink: got URL from attrs', { folderId, linkType, viewUrl });
+				return { url: String(viewUrl).trim(), debug };
+			}
+			// download_url ends in /download — strip it to get the folder view URL
+			const downloadUrl: string | undefined = attrs.download_url;
+			if (downloadUrl && /^https?:\/\//i.test(downloadUrl)) {
+				const folderUrl = downloadUrl.replace(/\/download(\?.*)?$/, '');
+				log.info('createFolderViewLink: derived folder view URL from download_url', { folderId, linkType, folderUrl });
+				return { url: folderUrl, debug };
+			}
+			// The link ID (data.data.id) is the same hash used in zohoexternal.com/external/{hash}
+			const linkId = data?.data?.id || attrs?.link_id || attrs?.linkId || null;
+			if (linkId) {
+				const externalUrl = `https://workdrive.zohoexternal.com/external/${linkId}`;
+				log.info('createFolderViewLink: constructed URL from link ID', { folderId, linkType, linkId });
+				return { url: externalUrl, debug };
+			}
+			log.warn('createFolderViewLink: no URL in response', { folderId, linkType, attrKeys: Object.keys(attrs), dataId: data?.data?.id });
+		} catch (err) {
+			debug[`${linkType}_error`] = String(err);
+			log.warn('createFolderViewLink: error', { folderId, linkType, error: String(err) });
 		}
-	};
-	try {
-		const response = await fetch(`${base}/links`, {
-			method: 'POST',
-			headers: {
-				Authorization: `Zoho-oauthtoken ${accessToken}`,
-				Accept: 'application/vnd.api+json',
-				'Content-Type': 'application/vnd.api+json'
-			},
-			body: JSON.stringify(payload)
-		});
-		if (!response.ok) {
-			const body = await response.text().catch(() => '');
-			log.warn('createFolderViewLink: request failed', { folderId, status: response.status, body: body.slice(0, 400) });
-			return null;
-		}
-		const data = await response.json().catch(() => null);
-		// Log the full response so we can identify which field holds the external URL
-		log.warn('createFolderViewLink: raw API response', { folderId, response: JSON.stringify(data).slice(0, 600) });
-		const attrs = data?.data?.attributes || {};
-		// Try direct URL fields first
-		const viewUrl = attrs.link_url || attrs.permalink || attrs.public_url || attrs.url || null;
-		if (viewUrl && /^https?:\/\//i.test(String(viewUrl))) {
-			log.info('createFolderViewLink: got URL from attrs', { folderId, viewUrl });
-			return String(viewUrl).trim();
-		}
-		// The link hash (= data.data.id) is the same token used in zohoexternal.com/external/{hash}
-		// resolveExternalLink() does the reverse: hash -> folder ID via GET /links/{hash}
-		const linkId = data?.data?.id || attrs?.link_id || attrs?.linkId || null;
-		if (linkId) {
-			const externalUrl = `https://workdrive.zohoexternal.com/external/${linkId}`;
-			log.info('createFolderViewLink: constructed URL from link ID', { folderId, linkId, externalUrl });
-			return externalUrl;
-		}
-		log.warn('createFolderViewLink: no URL or link ID in response', { folderId, attrKeys: Object.keys(attrs) });
-		return null;
-	} catch (err) {
-		log.warn('createFolderViewLink: error', { folderId, error: String(err) });
-		return null;
 	}
+	return { url: null, debug };
 }
 
 async function createWorkDriveDownloadLink(
@@ -357,26 +373,27 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	if (!photosFolderCacheHit) {
 		projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 
-		const directImages = projectItems.filter((i) => i.type === 'file' && isImageFile(i));
-		if (directImages.length === 0) {
-			const clientPortalFolder = projectItems
-				.filter((i) => i.type === 'folder')
-				.find((f) => /client.?portal/i.test(f.name || ''));
-			const resolvedPhotos = clientPortalFolder ?? findPhotosFolder(projectItems);
-			photosFolder = resolvedPhotos
-				? { id: resolvedPhotos.id, name: resolvedPhotos.name || null }
-				: null;
+		// Always prefer "Client Portal" subfolder for client-facing photos.
+		// Do NOT skip this lookup just because images exist at the project root —
+		// those root-level files belong to other folders (Permits, Scope of Work, etc.)
+		// and should not be served to clients.
+		const clientPortalFolder = projectItems
+			.filter((i) => i.type === 'folder')
+			.find((f) => /client.?portal/i.test(f.name || ''));
+		const resolvedPhotos = clientPortalFolder ?? findPhotosFolder(projectItems);
+		photosFolder = resolvedPhotos
+			? { id: resolvedPhotos.id, name: resolvedPhotos.name || null }
+			: null;
 
-			if (photosFolder) {
-				try {
-					await setCachedFolder(dealId, 'photos', photosFolder.id, photosFolder.name ?? undefined);
-					log.debug('WorkDrive folder cache set', {
-						dealId,
-						folderType: 'photos',
-						folderId: photosFolder.id
-					});
-				} catch {}
-			}
+		if (photosFolder) {
+			try {
+				await setCachedFolder(dealId, 'photos', photosFolder.id, photosFolder.name ?? undefined);
+				log.debug('WorkDrive folder cache set', {
+					dealId,
+					folderType: 'photos',
+					folderId: photosFolder.id
+				});
+			} catch {}
 		}
 	}
 
@@ -420,18 +437,22 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	// (Client Portal subfolder), NOT the top-level project folder from the CRM field.
 	// Priority: (1) cached view URL for this folder, (2) create via WorkDrive API and cache.
 	let folderViewUrl: string | null = null;
-	// Key the view-url cache on the resolved folder ID so a wrong cached URL is never reused
-	const viewUrlCacheKey = `${dealId}:${effectiveFolderUsed.id}`;
+	let folderViewLinkDebug: Record<string, unknown> | null = null;
+	// Create a public view link for the "Client Portal" folder itself (not the deeper Photos
+	// subfolder) — this is the folder the client should see when they click "View Photos".
+	const viewLinkTargetFolder = photosFolder || projectFolder;
+	const viewUrlCacheKey = `${dealId}:${viewLinkTargetFolder.id}`;
 	try {
 		const cachedView = await getCachedFolder(viewUrlCacheKey, 'view-url');
-		if (cachedView) folderViewUrl = cachedView.folderId;
+		if (cachedView?.folderId) folderViewUrl = cachedView.folderId;
 	} catch {}
 	if (!folderViewUrl) {
 		try {
-			const created = await createFolderViewLink(accessToken, effectiveFolderUsed.id, apiDomain);
-			if (created) {
-				folderViewUrl = created;
-				await setCachedFolder(viewUrlCacheKey, 'view-url', created);
+			const result = await createFolderViewLink(accessToken, viewLinkTargetFolder.id, apiDomain);
+			folderViewLinkDebug = result.debug;
+			if (result.url) {
+				folderViewUrl = result.url;
+				await setCachedFolder(viewUrlCacheKey, 'view-url', result.url);
 			}
 		} catch {}
 	}
@@ -489,6 +510,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			projectFolder: { id: projectFolder.id, name: projectFolder.name },
 			photosFolder: photosFolder ? { id: photosFolder.id, name: photosFolder.name } : null,
 			folderUsed: { id: effectiveFolderUsed.id, name: effectiveFolderUsed.name },
+			folderViewLinkDebug,
 			projectItemNames: projectItems.map((i) => `[${i.type}] ${i.name}`).slice(0, 30),
 			photosItemNames: photosItems.map((i) => `[${i.type}] ${i.name}`).slice(0, 30)
 		},
