@@ -12,6 +12,7 @@ import {
 	extractWorkDriveFolderId,
 	findBestFolderByName,
 	findPhotosFolder,
+	getWorkDriveApiBase,
 	isImageFile,
 	listWorkDriveFolder,
 	resolveExternalLink
@@ -54,6 +55,52 @@ function inferImageMime(name: string | null) {
 	if (!trimmed) return '';
 	const ext = trimmed.split('.').pop()?.toLowerCase() || '';
 	return IMAGE_EXTENSIONS[ext] || '';
+}
+
+async function createWorkDriveDownloadLink(
+	accessToken: string,
+	resourceId: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const base = getWorkDriveApiBase(apiDomain);
+	const url = `${base}/links`;
+	const payload = {
+		data: {
+			attributes: {
+				resource_id: resourceId,
+				link_name: `client_photo_${resourceId}`,
+				link_type: 'download',
+				request_user_data: false,
+				allow_download: true
+			},
+			type: 'links'
+		}
+	};
+	try {
+		const response = await fetch(url, {
+			method: 'POST',
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				Accept: 'application/vnd.api+json',
+				'Content-Type': 'application/vnd.api+json'
+			},
+			body: JSON.stringify(payload)
+		});
+		if (!response.ok) {
+			log.debug('createWorkDriveDownloadLink: failed', { resourceId, status: response.status });
+			return null;
+		}
+		const data = await response.json().catch(() => null);
+		const downloadUrl = data?.data?.attributes?.download_url;
+		if (!downloadUrl || typeof downloadUrl !== 'string') {
+			log.debug('createWorkDriveDownloadLink: missing url', { resourceId });
+			return null;
+		}
+		const joiner = downloadUrl.includes('?') ? '&' : '?';
+		return `${downloadUrl}${joiner}directDownload=true`;
+	} catch {
+		return null;
+	}
 }
 
 async function getAccessToken() {
@@ -122,7 +169,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	const candidateNames = buildDealFolderCandidates(dealName);
 	let projectFolderId = '';
 	let projectFolderName: string | null = null;
-	// Track how the folder was resolved for diagnostics
 	let folderSource: string = 'unknown';
 	let externalLinkAttempted = false;
 	let externalLinkResolved = false;
@@ -142,9 +188,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	} catch {}
 
 	if (!projectFolderId) {
-		// Try External_Link first, then Client_Portal_Folder — same priority as trade photos.
-		// Both fields should point to the deal-level folder; from there we drill into
-		// Client Portal > Photos.
 		const folderFromField =
 			extractWorkDriveFolderId(deal?.External_Link) ||
 			extractWorkDriveFolderId(deal?.Client_Portal_Folder);
@@ -153,8 +196,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			projectFolderName = dealName || null;
 			folderSource = 'crm-internal-url';
 		} else {
-			// Fields may be external share URLs (zohoexternal.com/external/HASH).
-			// Resolve the hash to an internal resource_id via the WorkDrive links API.
 			const externalHash =
 				extractExternalLinkHash(deal?.External_Link) ||
 				extractExternalLinkHash(deal?.Client_Portal_Folder);
@@ -202,8 +243,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain);
 		projectFolder = findBestFolderByName(rootItems, candidateNames);
 		if (!projectFolder) {
-			// Fallback: if the root folder itself contains a "Client Portal" subfolder,
-			// ZOHO_WORKDRIVE_ROOT_FOLDER_ID is pointing directly at the deal folder.
 			const rootHasClientPortal = rootItems.some(
 				(i) => i.type === 'folder' && /client.?portal/i.test(i.name || '')
 			);
@@ -261,13 +300,8 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	if (!photosFolderCacheHit) {
 		projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 
-		// If the project folder already contains image files directly, use it as-is.
-		// This handles the case where Client_Portal_Folder CRM field points straight to
-		// the photos folder (e.g. "Client Portal") rather than a parent container.
 		const directImages = projectItems.filter((i) => i.type === 'file' && isImageFile(i));
 		if (directImages.length === 0) {
-			// No images directly here — look for a photos subfolder.
-			// Prefer "Client Portal" folder; fall back to findPhotosFolder for "Photos" etc.
 			const clientPortalFolder = projectItems
 				.filter((i) => i.type === 'folder')
 				.find((f) => /client.?portal/i.test(f.name || ''));
@@ -287,7 +321,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 				} catch {}
 			}
 		}
-		// else: images are directly in projectFolder — folderToUse = projectFolder below
 	}
 
 	const folderToUse = photosFolder || projectFolder;
@@ -305,7 +338,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	let imageFiles = photosItems.filter((item) => item.type === 'file' && isImageFile(item));
 	let effectiveFolderUsed = folderToUse;
 
-	// If no images directly in folderToUse, go one level deeper (e.g. Client Portal → Photos subfolder)
 	if (imageFiles.length === 0) {
 		const deeperFolder = findPhotosFolder(photosItems);
 		if (deeperFolder) {
@@ -320,13 +352,48 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 				photosItems = deepItems;
 				imageFiles = deepImages;
 				effectiveFolderUsed = { id: deeperFolder.id, name: deeperFolder.name || null };
-				// Cache the actual resolved subfolder so future requests skip traversal
 				try {
 					await setCachedFolder(dealId, 'photos', deeperFolder.id, deeperFolder.name ?? undefined);
 				} catch {}
 			}
 		}
 	}
+
+	// Build file list with WorkDrive shareable download links (same approach as trade partner photos)
+	const files = await Promise.all(
+		imageFiles.map(async (file) => {
+			let fileUrl: string;
+			try {
+				const downloadLink = await createWorkDriveDownloadLink(accessToken, file.id, apiDomain);
+				if (downloadLink) {
+					fileUrl = downloadLink;
+				} else {
+					// Fallback to proxy if download link creation fails
+					const qp = new URLSearchParams();
+					if (file.name) qp.set('fileName', file.name);
+					const inferred = file.mime || inferImageMime(file.name);
+					if (inferred) qp.set('mime', inferred);
+					const suffix = qp.toString() ? `?${qp.toString()}` : '';
+					fileUrl = `/api/project/${encodeURIComponent(dealId)}/photos/${encodeURIComponent(file.id)}${suffix}`;
+				}
+			} catch {
+				const qp = new URLSearchParams();
+				if (file.name) qp.set('fileName', file.name);
+				const inferred = file.mime || inferImageMime(file.name);
+				if (inferred) qp.set('mime', inferred);
+				const suffix = qp.toString() ? `?${qp.toString()}` : '';
+				fileUrl = `/api/project/${encodeURIComponent(dealId)}/photos/${encodeURIComponent(file.id)}${suffix}`;
+			}
+			return {
+				id: file.id,
+				name: file.name,
+				size: file.size,
+				mime: file.mime,
+				createdTime: file.createdTime,
+				url: fileUrl
+			};
+		})
+	);
 
 	const debug = url.searchParams.get('debug') === '1';
 	return json({
@@ -347,27 +414,13 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			projectItemNames: projectItems.map((i) => `[${i.type}] ${i.name}`).slice(0, 30),
 			photosItemNames: photosItems.map((i) => `[${i.type}] ${i.name}`).slice(0, 30)
 		},
-		files: imageFiles.map((file) => {
-			const params = new URLSearchParams();
-			if (file.name) params.set('fileName', file.name);
-			const inferred = file.mime || inferImageMime(file.name);
-			if (inferred) params.set('mime', inferred);
-			const suffix = params.toString() ? `?${params.toString()}` : '';
-			return {
-				id: file.id,
-				name: file.name,
-				size: file.size,
-				mime: file.mime,
-				createdTime: file.createdTime,
-				url: `/api/project/${encodeURIComponent(dealId)}/photos/${encodeURIComponent(file.id)}${suffix}`
-			};
-		}),
+		files,
 		debug: debug
 			? {
-				rootItems: rootItems.slice(0, 50),
-				projectItems: projectItems.slice(0, 50),
-				photosItems: photosItems.slice(0, 50)
-			}
+					rootItems: rootItems.slice(0, 50),
+					projectItems: projectItems.slice(0, 50),
+					photosItems: photosItems.slice(0, 50)
+				}
 			: undefined
 	});
 };
