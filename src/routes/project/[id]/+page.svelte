@@ -138,7 +138,12 @@
 				<div>
 					<h3>Progress Photos</h3>
 					{#if getProgressPhotosLink(project)}
-						<a href={getProgressPhotosLink(project)}>View Photos</a>
+						{@const photosLink = getProgressPhotosLink(project)}
+						<a
+							href={photosLink}
+							target={photosLink.startsWith('http') ? '_blank' : undefined}
+							rel={photosLink.startsWith('http') ? 'noreferrer' : undefined}
+						>View Photos</a>
 					{:else}
 						<p>Not available</p>
 					{/if}
