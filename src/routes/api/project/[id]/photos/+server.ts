@@ -67,7 +67,7 @@ async function createFolderViewLink(
 		data: {
 			attributes: {
 				resource_id: folderId,
-				link_type: 'view',
+				link_type: 'external',
 				request_user_data: false,
 				allow_download: false
 			},
@@ -85,16 +85,32 @@ async function createFolderViewLink(
 			body: JSON.stringify(payload)
 		});
 		if (!response.ok) {
-			log.debug('createFolderViewLink: failed', { folderId, status: response.status });
+			const body = await response.text().catch(() => '');
+			log.warn('createFolderViewLink: request failed', { folderId, status: response.status, body: body.slice(0, 400) });
 			return null;
 		}
 		const data = await response.json().catch(() => null);
+		// Log the full response so we can identify which field holds the external URL
+		log.warn('createFolderViewLink: raw API response', { folderId, response: JSON.stringify(data).slice(0, 600) });
 		const attrs = data?.data?.attributes || {};
+		// Try direct URL fields first
 		const viewUrl = attrs.link_url || attrs.permalink || attrs.public_url || attrs.url || null;
-		if (viewUrl && /^https?:\/\//i.test(String(viewUrl))) return String(viewUrl).trim();
-		log.debug('createFolderViewLink: no URL in response', { folderId, attrs });
+		if (viewUrl && /^https?:\/\//i.test(String(viewUrl))) {
+			log.info('createFolderViewLink: got URL from attrs', { folderId, viewUrl });
+			return String(viewUrl).trim();
+		}
+		// The link hash (= data.data.id) is the same token used in zohoexternal.com/external/{hash}
+		// resolveExternalLink() does the reverse: hash -> folder ID via GET /links/{hash}
+		const linkId = data?.data?.id || attrs?.link_id || attrs?.linkId || null;
+		if (linkId) {
+			const externalUrl = `https://workdrive.zohoexternal.com/external/${linkId}`;
+			log.info('createFolderViewLink: constructed URL from link ID', { folderId, linkId, externalUrl });
+			return externalUrl;
+		}
+		log.warn('createFolderViewLink: no URL or link ID in response', { folderId, attrKeys: Object.keys(attrs) });
 		return null;
-	} catch {
+	} catch (err) {
+		log.warn('createFolderViewLink: error', { folderId, error: String(err) });
 		return null;
 	}
 }
