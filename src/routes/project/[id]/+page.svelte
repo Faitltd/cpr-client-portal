@@ -15,6 +15,13 @@
 	let updateError = '';
 	let updating = false;
 	const getProgressPhotosLink = (deal: any) => {
+		// Prefer the direct WorkDrive external share link stored in the CRM field.
+		// This opens the WorkDrive folder view directly, same as trade partner links.
+		const crmLink = deal?.Client_Portal_Folder || deal?.External_Link;
+		if (typeof crmLink === 'string' && /^https?:\/\//i.test(crmLink.trim())) {
+			return crmLink.trim();
+		}
+		// Fall back to the custom proxy photos page if no direct link is set.
 		const dealId = String(deal?.id || $page.params.id || '').trim();
 		if (!dealId) return '';
 		return `/project/${encodeURIComponent(dealId)}/photos`;
