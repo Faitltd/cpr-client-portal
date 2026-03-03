@@ -153,16 +153,30 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain);
 		projectFolder = findBestFolderByName(rootItems, candidateNames);
 		if (!projectFolder) {
-			return json({
-				dealId,
-				dealName,
-				source: 'workdrive',
-				status: 'missing_project_folder',
-				message: 'No matching project folder found under WorkDrive root folder.',
-				candidates: candidateNames,
-				rootFolderId,
-				rootItemNames: rootItems.map((i) => `[${i.type}] ${i.name}`)
-			});
+			// Fallback: if the root folder itself contains a "Client Portal" subfolder,
+			// ZOHO_WORKDRIVE_ROOT_FOLDER_ID is pointing directly at the deal folder.
+			const rootHasClientPortal = rootItems.some(
+				(i) => i.type === 'folder' && /client.?portal/i.test(i.name || '')
+			);
+			if (rootHasClientPortal) {
+				log.info('photos: rootFolderId appears to be the project folder itself', {
+					dealId,
+					rootFolderId
+				});
+				projectFolderId = rootFolderId;
+				projectFolderName = dealName;
+			} else {
+				return json({
+					dealId,
+					dealName,
+					source: 'workdrive',
+					status: 'missing_project_folder',
+					message: 'No matching project folder found under WorkDrive root folder.',
+					candidates: candidateNames,
+					rootFolderId,
+					rootItemNames: rootItems.map((i) => `[${i.type}] ${i.name}`)
+				});
+			}
 		}
 		projectFolderId = projectFolder.id;
 		projectFolderName = projectFolder.name || null;
