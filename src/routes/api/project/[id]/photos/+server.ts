@@ -79,165 +79,42 @@ function findExternalUrl(node: unknown, depth = 0): string | null {
 	return null;
 }
 
+/**
+ * Checks folder metadata for an existing external (zohoexternal.com) share URL.
+ * Returns null if the folder doesn't have external sharing enabled — in that case
+ * the admin must manually share the folder in WorkDrive and store the URL in the
+ * Client_Portal_Folder CRM field.
+ */
 async function getFolderPermalink(
 	accessToken: string,
 	folderId: string,
 	apiDomain?: string
-): Promise<{ url: string | null; debug: Record<string, unknown> }> {
+): Promise<{ url: string | null; internalUrl: string | null }> {
 	const base = getWorkDriveApiBase(apiDomain);
-	const debug: Record<string, unknown> = { folderId, base };
 	try {
-		// Step A: Check folder metadata for any existing external URL (share_data, url_link, etc.)
 		const response = await fetch(`${base}/files/${encodeURIComponent(folderId)}`, {
 			headers: {
 				Authorization: `Zoho-oauthtoken ${accessToken}`,
 				'Content-Type': 'application/json'
 			}
 		});
-		const rawBody = await response.text().catch(() => '');
-		debug.metaStatus = response.status;
-		debug.metaBody = rawBody.slice(0, 2000);
-		if (response.ok) {
-			let data: any = null;
-			try { data = JSON.parse(rawBody); } catch { /* ignore */ }
-			const attrs = data?.data?.attributes || {};
-			debug.attrKeys = Object.keys(attrs);
-			// Deep-scan ALL attribute values (includes share_data, url_link, shortcut_link, etc.)
-			const deepUrl = findExternalUrl(attrs);
-			if (deepUrl) {
-				log.info('getFolderPermalink: found external URL in metadata', { folderId, url: deepUrl });
-				return { url: deepUrl, debug };
-			}
-			debug.internalUrls = [attrs.permalink, attrs.url_link, attrs.shortcut_link]
-				.filter((c) => typeof c === 'string' && /^https?:\/\//i.test(c));
+		if (!response.ok) return { url: null, internalUrl: null };
+		let data: any = null;
+		try { data = await response.json(); } catch { /* ignore */ }
+		const attrs = data?.data?.attributes || {};
+		// Deep-scan all attribute values (share_data, url_link, etc.) for a zohoexternal.com URL
+		const externalUrl = findExternalUrl(attrs);
+		if (externalUrl) {
+			log.info('getFolderPermalink: found external URL', { folderId, url: externalUrl });
+			return { url: externalUrl, internalUrl: null };
 		}
-
-		// Step B: Fetch existing share links for this folder via GET /links
-		try {
-			const linksResp = await fetch(
-				`${base}/links?filter[resource_id]=${encodeURIComponent(folderId)}`,
-				{
-					headers: {
-						Authorization: `Zoho-oauthtoken ${accessToken}`,
-						'Content-Type': 'application/json'
-					}
-				}
-			);
-			debug.linksStatus = linksResp.status;
-			if (linksResp.ok) {
-				const linksData = await linksResp.json().catch(() => null);
-				debug.linksData = linksData;
-				const links = Array.isArray(linksData?.data) ? linksData.data : [];
-				for (const link of links) {
-					const linkUrl =
-						link?.attributes?.link_url ||
-						link?.attributes?.permalink ||
-						link?.attributes?.public_url;
-					if (typeof linkUrl === 'string' && /zohoexternal\.com/i.test(linkUrl)) {
-						log.info('getFolderPermalink: found external link via GET /links', { folderId, url: linkUrl });
-						return { url: linkUrl, debug };
-					}
-					// Construct from link ID — same hash used in zohoexternal.com/external/{hash}
-					const linkId = link?.id || link?.attributes?.link_id;
-					if (linkId) {
-						const constructed = `https://workdrive.zohoexternal.com/external/${linkId}`;
-						log.info('getFolderPermalink: constructed URL from existing link', { folderId, linkId });
-						return { url: constructed, debug };
-					}
-				}
-			}
-		} catch (linksErr) {
-			debug.linksError = String(linksErr);
-		}
-
-		log.debug('getFolderPermalink: no external URL found', { folderId });
-		return { url: null, debug };
+		// Return the internal permalink so the admin knows what folder to share manually
+		const internalUrl = typeof attrs.permalink === 'string' ? attrs.permalink : null;
+		return { url: null, internalUrl };
 	} catch (err) {
-		debug.error = String(err);
-		return { url: null, debug };
+		log.debug('getFolderPermalink: error', { folderId, error: String(err) });
+		return { url: null, internalUrl: null };
 	}
-}
-
-async function createFolderViewLink(
-	accessToken: string,
-	folderId: string,
-	apiDomain?: string
-): Promise<{ url: string | null; debug: Record<string, unknown> }> {
-	const base = getWorkDriveApiBase(apiDomain);
-	const debug: Record<string, unknown> = { folderId, base };
-
-	// Try multiple link_type + allow_download combos.
-	// 'download' with allow_download:true mirrors how file download links are created successfully.
-	const attempts = [
-		{ linkType: 'viewer', allowDownload: false },
-		{ linkType: 'external', allowDownload: false },
-		{ linkType: 'view', allowDownload: false },
-		{ linkType: 'download', allowDownload: true },
-		{ linkType: 'download', allowDownload: false }
-	];
-	for (const { linkType, allowDownload } of attempts) {
-		const payload = {
-			data: {
-				attributes: {
-					resource_id: folderId,
-					link_type: linkType,
-					request_user_data: false,
-					allow_download: allowDownload
-				},
-				type: 'links'
-			}
-		};
-		try {
-			const response = await fetch(`${base}/links`, {
-				method: 'POST',
-				headers: {
-					Authorization: `Zoho-oauthtoken ${accessToken}`,
-					Accept: 'application/vnd.api+json',
-					'Content-Type': 'application/vnd.api+json'
-				},
-				body: JSON.stringify(payload)
-			});
-			const rawBody = await response.text().catch(() => '');
-			const attemptKey = `${linkType}_dl${allowDownload ? '1' : '0'}`;
-			debug[`${attemptKey}_status`] = response.status;
-			debug[`${attemptKey}_body`] = rawBody.slice(0, 400);
-
-			if (!response.ok) {
-				log.warn('createFolderViewLink: request failed', { folderId, linkType, allowDownload, status: response.status, body: rawBody.slice(0, 300) });
-				continue;
-			}
-			let data: any = null;
-			try { data = JSON.parse(rawBody); } catch { /* ignore */ }
-			debug[`${attemptKey}_parsed`] = data;
-
-			const attrs = data?.data?.attributes || {};
-			// Only accept public external URLs — internal zoho.com URLs require login.
-			const viewUrl = attrs.link_url || attrs.permalink || attrs.public_url || attrs.url || null;
-			if (viewUrl && /zohoexternal\.com/i.test(String(viewUrl))) {
-				log.info('createFolderViewLink: got external URL from attrs', { folderId, linkType, viewUrl });
-				return { url: String(viewUrl).trim(), debug };
-			}
-			// download_url from an external link ends in /download — strip it to get folder view URL
-			const downloadUrl: string | undefined = attrs.download_url;
-			if (downloadUrl && /zohoexternal\.com/i.test(downloadUrl)) {
-				const folderUrl = downloadUrl.replace(/\/download(\?.*)?$/, '');
-				log.info('createFolderViewLink: derived external folder URL from download_url', { folderId, linkType, folderUrl });
-				return { url: folderUrl, debug };
-			}
-			// The link ID (data.data.id) is the same hash used in zohoexternal.com/external/{hash}
-			const linkId = data?.data?.id || attrs?.link_id || attrs?.linkId || null;
-			if (linkId) {
-				const externalUrl = `https://workdrive.zohoexternal.com/external/${linkId}`;
-				log.info('createFolderViewLink: constructed URL from link ID', { folderId, linkType, linkId });
-				return { url: externalUrl, debug };
-			}
-			log.warn('createFolderViewLink: no URL in response', { folderId, linkType, attrKeys: Object.keys(attrs), dataId: data?.data?.id });
-		} catch (err) {
-			debug[`${linkType}_error`] = String(err);
-			log.warn('createFolderViewLink: error', { folderId, linkType, error: String(err) });
-		}
-	}
-	return { url: null, debug };
 }
 
 async function createWorkDriveDownloadLink(
@@ -561,26 +438,14 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		if (cachedView?.folderId) folderViewUrl = cachedView.folderId;
 	} catch {}
 
-	// Step 2: fetch existing permalink from folder metadata (read-only, no link creation needed)
+	// Step 2: check folder metadata for an existing external share URL
 	if (!folderViewUrl) {
 		const permalinkResult = await getFolderPermalink(accessToken, viewLinkTargetFolder.id, apiDomain);
-		folderViewLinkDebug = { permalink: permalinkResult.debug };
+		folderViewLinkDebug = { internalUrl: permalinkResult.internalUrl };
 		if (permalinkResult.url) {
 			folderViewUrl = permalinkResult.url;
 			await setCachedFolder(viewUrlCacheKey, 'view-url', permalinkResult.url);
 		}
-	}
-
-	// Step 3: create a new share link as fallback
-	if (!folderViewUrl) {
-		try {
-			const result = await createFolderViewLink(accessToken, viewLinkTargetFolder.id, apiDomain);
-			folderViewLinkDebug = { ...(folderViewLinkDebug || {}), createLink: result.debug };
-			if (result.url) {
-				folderViewUrl = result.url;
-				await setCachedFolder(viewUrlCacheKey, 'view-url', result.url);
-			}
-		} catch {}
 	}
 
 	// Build file list with WorkDrive shareable download links (same approach as trade partner photos)
