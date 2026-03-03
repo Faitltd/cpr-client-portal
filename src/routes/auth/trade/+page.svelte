@@ -46,7 +46,7 @@
 		<p>Sign in with your password.</p>
 	</header>
 
-	<form class="card" on:submit|preventDefault={submitPassword}>
+	<form class="card" method="post" on:submit|preventDefault={submitPassword}>
 		<label for="email">Email</label>
 		<input
 			id="email"
