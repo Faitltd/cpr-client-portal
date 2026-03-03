@@ -8,11 +8,13 @@ import { getDealsForClient } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import {
 	buildDealFolderCandidates,
+	extractExternalLinkHash,
 	extractWorkDriveFolderId,
 	findBestFolderByName,
 	findPhotosFolder,
 	isImageFile,
-	listWorkDriveFolder
+	listWorkDriveFolder,
+	resolveExternalLink
 } from '$lib/server/workdrive';
 
 const log = createLogger('project-photos');
@@ -138,6 +140,24 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		if (folderFromField) {
 			projectFolderId = folderFromField;
 			projectFolderName = dealName || null;
+		} else {
+			// Client_Portal_Folder may be an external share URL (zohoexternal.com/external/HASH).
+			// Resolve the hash to an internal resource_id via the WorkDrive links API.
+			const externalHash = extractExternalLinkHash(deal?.Client_Portal_Folder);
+			if (externalHash) {
+				const resolved = await resolveExternalLink(accessToken, externalHash, apiDomain);
+				if (resolved) {
+					projectFolderId = resolved;
+					projectFolderName = dealName || null;
+					log.info('WorkDrive folder resolved from external share link', {
+						dealId,
+						externalHash,
+						folderId: projectFolderId
+					});
+				}
+			}
+		}
+		if (projectFolderId) {
 			try {
 				await setCachedFolder(dealId, 'root', projectFolderId, projectFolderName ?? undefined);
 				log.debug('WorkDrive folder set from Client_Portal_Folder CRM field', {

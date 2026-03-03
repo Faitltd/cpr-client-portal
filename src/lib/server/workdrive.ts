@@ -328,6 +328,71 @@ if (process.env.NODE_ENV !== 'production') {
 	});
 }
 
+/**
+ * If `value` is a Zoho WorkDrive external share URL
+ * (https://workdrive.zohoexternal.com/external/{hash}),
+ * returns the hash string. Otherwise returns null.
+ */
+export function extractExternalLinkHash(value: unknown): string | null {
+	const str = typeof value === 'string' ? value.trim() : '';
+	if (!str) return null;
+	try {
+		const url = new URL(str);
+		if (/zohoexternal\.com/i.test(url.hostname)) {
+			const pathTokens = url.pathname.split('/').filter(Boolean);
+			const externalIdx = pathTokens.findIndex((t) => t.toLowerCase() === 'external');
+			if (externalIdx >= 0 && pathTokens[externalIdx + 1]) {
+				return pathTokens[externalIdx + 1];
+			}
+		}
+	} catch {
+		// ignore malformed URLs
+	}
+	return null;
+}
+
+/**
+ * Calls the WorkDrive links API to resolve an external share link hash into
+ * an internal resource_id (folder/file ID).
+ *
+ * The hash in `https://workdrive.zohoexternal.com/external/{hash}` is the
+ * same value as the `link_id` used in `GET /workdrive/api/v1/links/{link_id}`.
+ */
+export async function resolveExternalLink(
+	accessToken: string,
+	linkHash: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const base = getWorkDriveApiBase(apiDomain);
+	try {
+		const response = await fetch(`${base}/links/${encodeURIComponent(linkHash)}`, {
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				'Content-Type': 'application/json'
+			}
+		});
+		if (!response.ok) {
+			log.debug('resolveExternalLink: API call failed', { linkHash, status: response.status });
+			return null;
+		}
+		const data = await response.json().catch(() => null);
+		const resourceId =
+			data?.data?.attributes?.resource_id ||
+			data?.data?.attributes?.resourceId ||
+			data?.data?.id ||
+			'';
+		if (resourceId) {
+			log.info('resolveExternalLink: resolved', { linkHash, resourceId });
+			return String(resourceId).trim();
+		}
+		log.debug('resolveExternalLink: no resource_id in response', { linkHash });
+		return null;
+	} catch (err) {
+		log.debug('resolveExternalLink: error', { linkHash, error: String(err) });
+		return null;
+	}
+}
+
 export function buildDealFolderCandidates(dealName: string | null | undefined) {
 	const candidates = new Set<string>();
 	if (!dealName) return [];

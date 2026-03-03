@@ -7,13 +7,15 @@ import { createLogger } from '$lib/server/logger';
 import { refreshAccessToken } from '$lib/server/zoho';
 import {
 	buildDealFolderCandidates,
+	extractExternalLinkHash,
 	extractWorkDriveFolderId,
 	findBestFolderByName,
 	findPhotosFolder,
 	getWorkDriveDownloadCandidates,
 	getWorkDriveApiBase,
 	isImageFile,
-	listWorkDriveFolder
+	listWorkDriveFolder,
+	resolveExternalLink
 } from '$lib/server/workdrive';
 import type { RequestHandler } from './$types';
 
@@ -352,7 +354,26 @@ async function fetchTradePhotosForSession(
 			const folderFromField =
 				extractWorkDriveFolderId(deal?.External_Link) ||
 				extractWorkDriveFolderId(deal?.Client_Portal_Folder);
-			if (folderFromField) projectFolderId = folderFromField;
+			if (folderFromField) {
+				projectFolderId = folderFromField;
+			} else {
+				// CRM fields may contain external share URLs (zohoexternal.com/external/HASH).
+				// Resolve the hash to an internal resource_id via the WorkDrive links API.
+				const externalHash =
+					extractExternalLinkHash(deal?.External_Link) ||
+					extractExternalLinkHash(deal?.Client_Portal_Folder);
+				if (externalHash) {
+					const resolved = await resolveExternalLink(accessToken, externalHash, apiDomain);
+					if (resolved) {
+						projectFolderId = resolved;
+						log.info('WorkDrive folder resolved from external share link', {
+							dealId: currentDealId,
+							externalHash,
+							folderId: projectFolderId
+						});
+					}
+				}
+			}
 		}
 
 		let resolvedFieldUpdates:
