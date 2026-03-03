@@ -57,6 +57,50 @@ function inferImageMime(name: string | null) {
 	return IMAGE_EXTENSIONS[ext] || '';
 }
 
+async function getFolderPermalink(
+	accessToken: string,
+	folderId: string,
+	apiDomain?: string
+): Promise<{ url: string | null; debug: Record<string, unknown> }> {
+	const base = getWorkDriveApiBase(apiDomain);
+	const debug: Record<string, unknown> = { folderId, base };
+	try {
+		const response = await fetch(`${base}/files/${encodeURIComponent(folderId)}`, {
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				'Content-Type': 'application/json'
+			}
+		});
+		const rawBody = await response.text().catch(() => '');
+		debug.status = response.status;
+		debug.body = rawBody.slice(0, 500);
+		if (!response.ok) return { url: null, debug };
+		let data: any = null;
+		try { data = JSON.parse(rawBody); } catch { /* ignore */ }
+		const attrs = data?.data?.attributes || {};
+		debug.attrKeys = Object.keys(attrs);
+		const candidates = [
+			attrs.permalink,
+			attrs.public_url,
+			attrs.publicUrl,
+			attrs.share_url,
+			attrs.shareUrl,
+			attrs.url
+		];
+		for (const candidate of candidates) {
+			if (typeof candidate === 'string' && /^https?:\/\//i.test(candidate)) {
+				log.info('getFolderPermalink: found permalink', { folderId, url: candidate });
+				return { url: candidate, debug };
+			}
+		}
+		log.debug('getFolderPermalink: no permalink in attributes', { folderId, attrKeys: debug.attrKeys });
+		return { url: null, debug };
+	} catch (err) {
+		debug.error = String(err);
+		return { url: null, debug };
+	}
+}
+
 async function createFolderViewLink(
 	accessToken: string,
 	folderId: string,
@@ -413,43 +457,60 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	let effectiveFolderUsed = folderToUse;
 
 	if (imageFiles.length === 0) {
-		const deeperFolder = findPhotosFolder(photosItems);
-		if (deeperFolder) {
-			log.info('photos: going one level deeper', {
-				dealId,
-				from: { id: folderToUse.id, name: folderToUse.name },
-				into: { id: deeperFolder.id, name: deeperFolder.name }
-			});
-			const deepItems = await listWorkDriveFolder(accessToken, deeperFolder.id, apiDomain);
-			const deepImages = deepItems.filter((item) => item.type === 'file' && isImageFile(item));
-			if (deepImages.length > 0) {
-				photosItems = deepItems;
-				imageFiles = deepImages;
-				effectiveFolderUsed = { id: deeperFolder.id, name: deeperFolder.name || null };
-				try {
-					await setCachedFolder(dealId, 'photos', deeperFolder.id, deeperFolder.name ?? undefined);
-				} catch {}
-			}
+		const subfolders = photosItems.filter((i) => i.type === 'folder');
+		// Prioritize Photos-named folders, then scan remaining subfolders
+		const orderedSubfolders = [
+			...subfolders.filter((f) => /^(photos?|progress\s*photos?)$/i.test((f.name || '').trim())),
+			...subfolders.filter((f) => !/^(photos?|progress\s*photos?)$/i.test((f.name || '').trim()))
+		];
+		for (const subfolder of orderedSubfolders) {
+			try {
+				const subItems = await listWorkDriveFolder(accessToken, subfolder.id, apiDomain);
+				const subImages = subItems.filter((i) => i.type === 'file' && isImageFile(i));
+				if (subImages.length > 0) {
+					log.info('photos: found images in subfolder', {
+						dealId,
+						subfolder: { id: subfolder.id, name: subfolder.name },
+						imageCount: subImages.length
+					});
+					photosItems = subItems;
+					imageFiles = subImages;
+					effectiveFolderUsed = { id: subfolder.id, name: subfolder.name || null };
+					try { await setCachedFolder(dealId, 'photos', subfolder.id, subfolder.name ?? undefined); } catch {}
+					break;
+				}
+			} catch { /* skip inaccessible subfolders */ }
 		}
 	}
 
-	// Determine folder view URL — a public external WorkDrive URL for the resolved photos folder
-	// (Client Portal subfolder), NOT the top-level project folder from the CRM field.
-	// Priority: (1) cached view URL for this folder, (2) create via WorkDrive API and cache.
+	// Determine folder view URL — a public external WorkDrive URL for the "Client Portal" folder.
+	// Priority: (1) cached URL, (2) permalink from folder metadata, (3) create new share link.
 	let folderViewUrl: string | null = null;
 	let folderViewLinkDebug: Record<string, unknown> | null = null;
-	// Create a public view link for the "Client Portal" folder itself (not the deeper Photos
-	// subfolder) — this is the folder the client should see when they click "View Photos".
 	const viewLinkTargetFolder = photosFolder || projectFolder;
 	const viewUrlCacheKey = `${dealId}:${viewLinkTargetFolder.id}`;
+
+	// Step 1: cached URL
 	try {
 		const cachedView = await getCachedFolder(viewUrlCacheKey, 'view-url');
 		if (cachedView?.folderId) folderViewUrl = cachedView.folderId;
 	} catch {}
+
+	// Step 2: fetch existing permalink from folder metadata (read-only, no link creation needed)
+	if (!folderViewUrl) {
+		const permalinkResult = await getFolderPermalink(accessToken, viewLinkTargetFolder.id, apiDomain);
+		folderViewLinkDebug = { permalink: permalinkResult.debug };
+		if (permalinkResult.url) {
+			folderViewUrl = permalinkResult.url;
+			await setCachedFolder(viewUrlCacheKey, 'view-url', permalinkResult.url);
+		}
+	}
+
+	// Step 3: create a new share link as fallback
 	if (!folderViewUrl) {
 		try {
 			const result = await createFolderViewLink(accessToken, viewLinkTargetFolder.id, apiDomain);
-			folderViewLinkDebug = result.debug;
+			folderViewLinkDebug = { ...(folderViewLinkDebug || {}), createLink: result.debug };
 			if (result.url) {
 				folderViewUrl = result.url;
 				await setCachedFolder(viewUrlCacheKey, 'view-url', result.url);
