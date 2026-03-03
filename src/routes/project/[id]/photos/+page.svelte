@@ -16,6 +16,7 @@
 	let photos: PhotoFile[] = [];
 	let dealName = '';
 	let statusMessage = '';
+	let resolution: Record<string, unknown> | null = null;
 
 	const projectId = $page.params.id;
 
@@ -52,6 +53,7 @@
 			dealName = payload?.dealName || '';
 			statusMessage = payload?.message || '';
 			photos = Array.isArray(payload?.files) ? payload.files : [];
+			resolution = payload?._resolution ?? null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -100,6 +102,13 @@
 				</figure>
 			{/each}
 		</div>
+	{/if}
+
+	{#if resolution}
+		<details class="debug-panel">
+			<summary>Debug: folder resolution</summary>
+			<pre>{JSON.stringify(resolution, null, 2)}</pre>
+		</details>
 	{/if}
 </div>
 
@@ -206,5 +215,27 @@
 
 	.photo-link:hover {
 		text-decoration: underline;
+	}
+
+	.debug-panel {
+		margin-top: 2rem;
+		padding: 0.75rem 1rem;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		font-size: 0.8rem;
+	}
+
+	.debug-panel summary {
+		cursor: pointer;
+		color: #6b7280;
+		font-weight: 600;
+	}
+
+	.debug-panel pre {
+		margin: 0.75rem 0 0;
+		white-space: pre-wrap;
+		word-break: break-all;
+		color: #374151;
 	}
 </style>
