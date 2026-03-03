@@ -109,7 +109,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 
 	const dealPayload = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=${encodeURIComponent('Deal_Name,Client_Portal_Folder')}`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=${encodeURIComponent('Deal_Name,External_Link,Client_Portal_Folder')}`,
 		{},
 		apiDomain
 	);
@@ -142,16 +142,22 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	} catch {}
 
 	if (!projectFolderId) {
-		const crmFieldValue = deal?.Client_Portal_Folder;
-		const folderFromField = extractWorkDriveFolderId(crmFieldValue);
+		// Try External_Link first, then Client_Portal_Folder — same priority as trade photos.
+		// Both fields should point to the deal-level folder; from there we drill into
+		// Client Portal > Photos.
+		const folderFromField =
+			extractWorkDriveFolderId(deal?.External_Link) ||
+			extractWorkDriveFolderId(deal?.Client_Portal_Folder);
 		if (folderFromField) {
 			projectFolderId = folderFromField;
 			projectFolderName = dealName || null;
 			folderSource = 'crm-internal-url';
 		} else {
-			// Client_Portal_Folder may be an external share URL (zohoexternal.com/external/HASH).
+			// Fields may be external share URLs (zohoexternal.com/external/HASH).
 			// Resolve the hash to an internal resource_id via the WorkDrive links API.
-			const externalHash = extractExternalLinkHash(crmFieldValue);
+			const externalHash =
+				extractExternalLinkHash(deal?.External_Link) ||
+				extractExternalLinkHash(deal?.Client_Portal_Folder);
 			if (externalHash) {
 				externalLinkAttempted = true;
 				const resolved = await resolveExternalLink(accessToken, externalHash, apiDomain);
@@ -172,9 +178,10 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 					});
 				}
 			} else {
-				log.info('WorkDrive Client_Portal_Folder not parseable — falling back to root name search', {
+				log.info('WorkDrive CRM fields not parseable — falling back to root name search', {
 					dealId,
-					fieldPresent: !!crmFieldValue
+					externalLinkPresent: !!deal?.External_Link,
+					clientPortalFolderPresent: !!deal?.Client_Portal_Folder
 				});
 			}
 		}
