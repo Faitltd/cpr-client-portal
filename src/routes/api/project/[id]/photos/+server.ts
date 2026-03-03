@@ -87,13 +87,16 @@ async function getFolderPermalink(
 			attrs.shareUrl,
 			attrs.url
 		];
+		// Only accept public external URLs (zohoexternal.com) — internal zoho.com URLs require login.
 		for (const candidate of candidates) {
-			if (typeof candidate === 'string' && /^https?:\/\//i.test(candidate)) {
-				log.info('getFolderPermalink: found permalink', { folderId, url: candidate });
+			if (typeof candidate === 'string' && /zohoexternal\.com/i.test(candidate)) {
+				log.info('getFolderPermalink: found external permalink', { folderId, url: candidate });
 				return { url: candidate, debug };
 			}
 		}
-		log.debug('getFolderPermalink: no permalink in attributes', { folderId, attrKeys: debug.attrKeys });
+		// Log any internal URLs found so we can see what's available
+		debug.internalUrls = candidates.filter((c) => typeof c === 'string' && /^https?:\/\//i.test(c));
+		log.debug('getFolderPermalink: no external permalink in attributes', { folderId, attrKeys: debug.attrKeys });
 		return { url: null, debug };
 	} catch (err) {
 		debug.error = String(err);
@@ -146,17 +149,17 @@ async function createFolderViewLink(
 			debug[`${linkType}_parsed`] = data;
 
 			const attrs = data?.data?.attributes || {};
-			// Check direct URL fields
+			// Only accept public external URLs — internal zoho.com URLs require login.
 			const viewUrl = attrs.link_url || attrs.permalink || attrs.public_url || attrs.url || null;
-			if (viewUrl && /^https?:\/\//i.test(String(viewUrl))) {
-				log.info('createFolderViewLink: got URL from attrs', { folderId, linkType, viewUrl });
+			if (viewUrl && /zohoexternal\.com/i.test(String(viewUrl))) {
+				log.info('createFolderViewLink: got external URL from attrs', { folderId, linkType, viewUrl });
 				return { url: String(viewUrl).trim(), debug };
 			}
-			// download_url ends in /download — strip it to get the folder view URL
+			// download_url from an external link ends in /download — strip it to get folder view URL
 			const downloadUrl: string | undefined = attrs.download_url;
-			if (downloadUrl && /^https?:\/\//i.test(downloadUrl)) {
+			if (downloadUrl && /zohoexternal\.com/i.test(downloadUrl)) {
 				const folderUrl = downloadUrl.replace(/\/download(\?.*)?$/, '');
-				log.info('createFolderViewLink: derived folder view URL from download_url', { folderId, linkType, folderUrl });
+				log.info('createFolderViewLink: derived external folder URL from download_url', { folderId, linkType, folderUrl });
 				return { url: folderUrl, debug };
 			}
 			// The link ID (data.data.id) is the same hash used in zohoexternal.com/external/{hash}
