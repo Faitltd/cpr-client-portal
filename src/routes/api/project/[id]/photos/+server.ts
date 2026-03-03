@@ -96,8 +96,7 @@ async function createWorkDriveDownloadLink(
 			log.debug('createWorkDriveDownloadLink: missing url', { resourceId });
 			return null;
 		}
-		const joiner = downloadUrl.includes('?') ? '&' : '?';
-		return `${downloadUrl}${joiner}directDownload=true`;
+		return downloadUrl;
 	} catch {
 		return null;
 	}

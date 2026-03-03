@@ -45,8 +45,14 @@ async function refreshProjectCache(
 	apiDomain: string | undefined,
 	cacheKey: string
 ) {
-	// Fetch deal details
-	const dealResponse = await zohoApiCall(accessToken, `/Deals/${dealId}`, {}, apiDomain);
+	// Fetch deal details — explicitly include photo-link fields so they are always cached
+	const dealFields = 'Deal_Name,Stage,Closing_Date,Owner,Refined_SOW,WiFi,Garage_Code,Description,Client_Portal_Folder,External_Link';
+	const dealResponse = await zohoApiCall(
+		accessToken,
+		`/Deals/${dealId}?fields=${encodeURIComponent(dealFields)}`,
+		{},
+		apiDomain
+	);
 	const deal = dealResponse.data?.[0];
 
 	if (!deal) {
@@ -100,8 +106,8 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 			// If the cached deal is missing CRM photo-link fields, treat as stale so we
 			// refresh in the background and the next request returns updated data.
 			const missingPhotoLink =
-				cached.data?.deal?.Client_Portal_Folder === undefined &&
-				cached.data?.deal?.External_Link === undefined;
+				!cached.data?.deal?.Client_Portal_Folder &&
+				!cached.data?.deal?.External_Link;
 			const shouldRefresh = cached.isStale || missingPhotoLink;
 			log.info('API response cache hit', {
 				cacheKey,

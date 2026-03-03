@@ -85,13 +85,15 @@
 							<span class="date">{formatDate(photo.createdTime)}</span>
 						{/if}
 					</div>
-					<div class="photo-frame">
-						{#if photo.url}
-							<a href={photo.url} target="_blank" rel="noreferrer">View Photo</a>
-						{:else}
-							<span>No photo URL</span>
-						{/if}
-					</div>
+					{#if photo.url}
+						<a class="photo-frame" href={photo.url} target="_blank" rel="noreferrer">
+							<img src={photo.url} alt={photo.name || 'Progress photo'} loading="lazy" />
+						</a>
+					{:else}
+						<div class="photo-frame empty-frame">
+							<span>No photo available</span>
+						</div>
+					{/if}
 				</article>
 			{/each}
 		</div>
@@ -155,7 +157,7 @@
 
 	.photo-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 		gap: 1rem;
 	}
 
@@ -188,28 +190,29 @@
 	}
 
 	.photo-frame {
+		display: block;
 		width: 100%;
 		height: 180px;
 		border-radius: 10px;
 		overflow: hidden;
 		border: 1px solid #e5e7eb;
 		background: #f9fafb;
+	}
+
+	.photo-frame img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.empty-frame {
 		display: flex;
 		align-items: center;
 		justify-content: center;
 	}
 
-	.photo-frame a {
-		color: #2563eb;
-		text-decoration: none;
-		font-weight: 600;
-	}
-
-	.photo-frame a:hover {
-		text-decoration: underline;
-	}
-
-	.photo-frame span {
+	.empty-frame span {
 		color: #9ca3af;
 		font-size: 0.9rem;
 	}
