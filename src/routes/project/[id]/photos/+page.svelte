@@ -42,6 +42,12 @@
 				throw new Error(detail || 'Failed to load photos');
 			}
 			const payload = await res.json();
+			// If the API resolved a public WorkDrive folder URL, redirect there directly —
+			// same experience as the trade partner "Progress Photos" link.
+			if (payload?.folderViewUrl && /^https?:\/\//i.test(String(payload.folderViewUrl))) {
+				window.location.replace(payload.folderViewUrl);
+				return;
+			}
 			dealName = payload?.dealName || '';
 			statusMessage = payload?.message || '';
 			photos = Array.isArray(payload?.files) ? payload.files : [];

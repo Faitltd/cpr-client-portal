@@ -57,6 +57,48 @@ function inferImageMime(name: string | null) {
 	return IMAGE_EXTENSIONS[ext] || '';
 }
 
+async function createFolderViewLink(
+	accessToken: string,
+	folderId: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const base = getWorkDriveApiBase(apiDomain);
+	const payload = {
+		data: {
+			attributes: {
+				resource_id: folderId,
+				link_type: 'view',
+				request_user_data: false,
+				allow_download: false
+			},
+			type: 'links'
+		}
+	};
+	try {
+		const response = await fetch(`${base}/links`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				Accept: 'application/vnd.api+json',
+				'Content-Type': 'application/vnd.api+json'
+			},
+			body: JSON.stringify(payload)
+		});
+		if (!response.ok) {
+			log.debug('createFolderViewLink: failed', { folderId, status: response.status });
+			return null;
+		}
+		const data = await response.json().catch(() => null);
+		const attrs = data?.data?.attributes || {};
+		const viewUrl = attrs.link_url || attrs.permalink || attrs.public_url || attrs.url || null;
+		if (viewUrl && /^https?:\/\//i.test(String(viewUrl))) return String(viewUrl).trim();
+		log.debug('createFolderViewLink: no URL in response', { folderId, attrs });
+		return null;
+	} catch {
+		return null;
+	}
+}
+
 async function createWorkDriveDownloadLink(
 	accessToken: string,
 	resourceId: string,
@@ -358,6 +400,33 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		}
 	}
 
+	// Determine folder view URL — an external WorkDrive share URL anyone can open without auth.
+	// Priority: (1) CRM field if it's already a valid URL, (2) cached view URL,
+	// (3) create a new view link via WorkDrive API and cache it.
+	let folderViewUrl: string | null = null;
+	const rawCrmLink =
+		(typeof deal?.External_Link === 'string' && deal.External_Link.trim()) ||
+		(typeof deal?.Client_Portal_Folder === 'string' && deal.Client_Portal_Folder.trim()) ||
+		'';
+	if (rawCrmLink && /^https?:\/\//i.test(rawCrmLink)) {
+		folderViewUrl = rawCrmLink;
+	}
+	if (!folderViewUrl) {
+		try {
+			const cachedView = await getCachedFolder(dealId, 'view-url');
+			if (cachedView) folderViewUrl = cachedView.folderId;
+		} catch {}
+	}
+	if (!folderViewUrl) {
+		try {
+			const created = await createFolderViewLink(accessToken, effectiveFolderUsed.id, apiDomain);
+			if (created) {
+				folderViewUrl = created;
+				await setCachedFolder(dealId, 'view-url', created);
+			}
+		} catch {}
+	}
+
 	// Build file list with WorkDrive shareable download links (same approach as trade partner photos)
 	const files = await Promise.all(
 		imageFiles.map(async (file) => {
@@ -398,6 +467,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	return json({
 		dealId,
 		dealName,
+		folderViewUrl,
 		source: 'workdrive',
 		rootFolderId,
 		projectFolder: { id: projectFolder.id, name: projectFolder.name },
