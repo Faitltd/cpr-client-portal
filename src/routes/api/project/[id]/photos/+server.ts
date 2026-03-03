@@ -165,6 +165,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 				});
 				projectFolderId = rootFolderId;
 				projectFolderName = dealName;
+				projectFolder = { id: rootFolderId, name: dealName };
 			} else {
 				return json({
 					dealId,
