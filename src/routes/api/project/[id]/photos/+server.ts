@@ -426,17 +426,33 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	}
 
 	// Determine folder view URL — a public external WorkDrive URL for the "Client Portal" folder.
-	// Priority: (1) cached URL, (2) permalink from folder metadata, (3) create new share link.
+	// Priority: (0) CRM field, (1) cached URL, (2) permalink from folder metadata.
 	let folderViewUrl: string | null = null;
 	let folderViewLinkDebug: Record<string, unknown> | null = null;
 	const viewLinkTargetFolder = photosFolder || projectFolder;
 	const viewUrlCacheKey = `${dealId}:${viewLinkTargetFolder.id}`;
 
+	// Step 0: CRM field — FAIT stores the zohoexternal.com URL in Client_Portal_Folder.
+	// Use it directly as the redirect target without any additional API calls.
+	const crmExternalUrl =
+		(typeof deal?.Client_Portal_Folder === 'string' && /zohoexternal\.com/i.test(deal.Client_Portal_Folder)
+			? deal.Client_Portal_Folder
+			: null) ||
+		(typeof deal?.External_Link === 'string' && /zohoexternal\.com/i.test(deal.External_Link)
+			? deal.External_Link
+			: null);
+	if (crmExternalUrl) {
+		folderViewUrl = crmExternalUrl;
+		log.info('photos: using zohoexternal.com URL from CRM field', { dealId, folderViewUrl });
+	}
+
 	// Step 1: cached URL
-	try {
-		const cachedView = await getCachedFolder(viewUrlCacheKey, 'view-url');
-		if (cachedView?.folderId) folderViewUrl = cachedView.folderId;
-	} catch {}
+	if (!folderViewUrl) {
+		try {
+			const cachedView = await getCachedFolder(viewUrlCacheKey, 'view-url');
+			if (cachedView?.folderId) folderViewUrl = cachedView.folderId;
+		} catch {}
+	}
 
 	// Step 2: check folder metadata for an existing external share URL
 	if (!folderViewUrl) {
