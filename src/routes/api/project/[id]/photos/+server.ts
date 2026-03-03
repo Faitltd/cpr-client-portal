@@ -400,29 +400,22 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		}
 	}
 
-	// Determine folder view URL — an external WorkDrive share URL anyone can open without auth.
-	// Priority: (1) CRM field if it's already a valid URL, (2) cached view URL,
-	// (3) create a new view link via WorkDrive API and cache it.
+	// Determine folder view URL — a public external WorkDrive URL for the resolved photos folder
+	// (Client Portal subfolder), NOT the top-level project folder from the CRM field.
+	// Priority: (1) cached view URL for this folder, (2) create via WorkDrive API and cache.
 	let folderViewUrl: string | null = null;
-	const rawCrmLink =
-		(typeof deal?.External_Link === 'string' && deal.External_Link.trim()) ||
-		(typeof deal?.Client_Portal_Folder === 'string' && deal.Client_Portal_Folder.trim()) ||
-		'';
-	if (rawCrmLink && /^https?:\/\//i.test(rawCrmLink)) {
-		folderViewUrl = rawCrmLink;
-	}
-	if (!folderViewUrl) {
-		try {
-			const cachedView = await getCachedFolder(dealId, 'view-url');
-			if (cachedView) folderViewUrl = cachedView.folderId;
-		} catch {}
-	}
+	// Key the view-url cache on the resolved folder ID so a wrong cached URL is never reused
+	const viewUrlCacheKey = `${dealId}:${effectiveFolderUsed.id}`;
+	try {
+		const cachedView = await getCachedFolder(viewUrlCacheKey, 'view-url');
+		if (cachedView) folderViewUrl = cachedView.folderId;
+	} catch {}
 	if (!folderViewUrl) {
 		try {
 			const created = await createFolderViewLink(accessToken, effectiveFolderUsed.id, apiDomain);
 			if (created) {
 				folderViewUrl = created;
-				await setCachedFolder(dealId, 'view-url', created);
+				await setCachedFolder(viewUrlCacheKey, 'view-url', created);
 			}
 		} catch {}
 	}
