@@ -114,6 +114,7 @@
 
 <div class="trade-projects">
 	<header>
+		<a class="back" href="/trade/dashboard">← Dashboard</a>
 		<div>
 			<h1>Projects</h1>
 			<p>View your active deals and project assignments.</p>
@@ -168,6 +169,18 @@
 
 	header {
 		margin-bottom: 2rem;
+	}
+
+	.back {
+		display: inline-block;
+		margin-bottom: 1rem;
+		color: #6b7280;
+		text-decoration: none;
+		font-size: 0.95rem;
+	}
+
+	.back:hover {
+		color: #111827;
 	}
 
 	h1 {
