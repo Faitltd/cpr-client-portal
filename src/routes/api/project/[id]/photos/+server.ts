@@ -425,6 +425,43 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		}
 	}
 
+	// If still no images and we were looking in a named subfolder (e.g. Client Portal),
+	// fall back to sibling folders at the project level — photos may be in a "Photos"
+	// folder alongside Client Portal rather than inside it.
+	if (imageFiles.length === 0 && photosFolder !== null) {
+		if (projectItems.length === 0) {
+			// projectItems wasn't loaded (cache hit path) — load it now
+			try {
+				projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
+			} catch { /* ignore */ }
+		}
+		const siblingPhotosFolders = projectItems
+			.filter(
+				(i) =>
+					i.type === 'folder' &&
+					i.id !== photosFolder!.id &&
+					/^(photos?|progress\s*photos?)$/i.test((i.name || '').trim())
+			);
+		for (const sibling of siblingPhotosFolders) {
+			try {
+				const sibItems = await listWorkDriveFolder(accessToken, sibling.id, apiDomain);
+				const sibImages = sibItems.filter((i) => i.type === 'file' && isImageFile(i));
+				if (sibImages.length > 0) {
+					log.info('photos: found images in sibling Photos folder', {
+						dealId,
+						sibling: { id: sibling.id, name: sibling.name },
+						imageCount: sibImages.length
+					});
+					photosItems = sibItems;
+					imageFiles = sibImages;
+					effectiveFolderUsed = { id: sibling.id, name: sibling.name || null };
+					try { await setCachedFolder(dealId, 'photos', sibling.id, sibling.name ?? undefined); } catch {}
+					break;
+				}
+			} catch { /* skip inaccessible */ }
+		}
+	}
+
 	// Determine folder view URL — a public external WorkDrive URL for the "Client Portal" folder.
 	// Priority: (0) CRM field, (1) cached URL, (2) permalink from folder metadata.
 	let folderViewUrl: string | null = null;
