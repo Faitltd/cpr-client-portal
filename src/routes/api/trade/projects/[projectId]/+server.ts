@@ -84,8 +84,9 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		});
 	}
 
-	// Build authorized project ID set from trade partner's deals
+	// Build authorized project ID set and CRM deal map from trade partner's deals
 	let authorizedProjectIds: Set<string>;
+	let authorizedDealMap: Map<string, any>;
 	let fallbackLink: { dealName: string | null; stage: string | null } | null = null;
 	try {
 		const deals = await getTradePartnerDeals(
@@ -94,7 +95,11 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		);
 		const dealList = Array.isArray(deals) ? deals : [];
 		authorizedProjectIds = new Set<string>();
+		authorizedDealMap = new Map<string, any>();
 		for (const deal of dealList) {
+			// Authorize by CRM deal ID (for fallback cards)
+			if (deal?.id) authorizedDealMap.set(String(deal.id), deal);
+			// Authorize by linked Zoho project IDs
 			const ids = parseZohoProjectIds(deal?.Zoho_Projects_ID);
 			for (const id of ids) {
 				authorizedProjectIds.add(id);
@@ -111,8 +116,22 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		throw error(500, 'Failed to verify authorization');
 	}
 
+	// If this is a CRM deal ID (not a Zoho project ID), return deal info directly
 	if (!authorizedProjectIds.has(projectId)) {
-		throw error(403, 'Not authorized for this project');
+		const deal = authorizedDealMap!.get(projectId);
+		if (!deal) throw error(403, 'Not authorized for this project');
+		return json({
+			project: {
+				id: projectId,
+				name: getDealLabel(deal) || `Deal ${projectId.slice(-6)}`,
+				status: typeof deal.Stage === 'string' ? deal.Stage : 'Unknown',
+				start_date: deal.Created_Time || null,
+				end_date: deal.Closing_Date || null,
+				source: 'crm_deal'
+			},
+			tasks: [],
+			activities: []
+		});
 	}
 
 	let projectPayload: any = null;

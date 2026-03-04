@@ -26,7 +26,6 @@
 	const getHref = (project: any) => {
 		const id = project?.id;
 		if (!id) return '/trade/projects';
-		if (project?.source === 'crm_deal') return `/trade/dashboard?deal=${encodeURIComponent(id)}`;
 		return `/trade/projects/${encodeURIComponent(id)}`;
 	};
 
@@ -151,7 +150,7 @@
 							</p>
 						</div>
 						<div class="project-actions">
-							<span class="btn-view">{project?.source === 'crm_deal' ? 'View Deal' : 'View Details'}</span>
+							<span class="btn-view">View Details</span>
 						</div>
 					</a>
 				{/each}

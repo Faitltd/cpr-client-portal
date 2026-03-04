@@ -182,7 +182,7 @@
 		<section class="section">
 			<h2>Tasks</h2>
 			{#if tasks.length === 0}
-				<p class="section-empty">No tasks found.</p>
+				<p class="section-empty">{project?.source === 'crm_deal' ? 'No Zoho project linked to this deal yet.' : 'No tasks found.'}</p>
 			{:else}
 				{#each taskGroups as group}
 					<h3 class="group-title">{group.name}</h3>
