@@ -241,6 +241,9 @@
 			<a class="field-update-button" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
 				Open Field Update Form
 			</a>
+			<a class="field-update-secondary" href="/trade/projects">
+				Projects
+			</a>
 			{#if getProgressPhotosLink(selectedDeal)}
 				<a
 					class="field-update-secondary"

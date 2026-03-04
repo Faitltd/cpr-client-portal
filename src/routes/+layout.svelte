@@ -10,6 +10,7 @@
 		!pathname.startsWith('/auth');
 	$: isTradePortal = pathname.startsWith('/trade');
 	$: hasPortalSession = Boolean($page.data?.hasPortalSession);
+	$: hasTradeSession = Boolean($page.data?.hasTradeSession);
 	$: accountHref = isTradePortal ? '/trade/account' : '/account';
 	$: if (pathname) menuOpen = false;
 
@@ -77,7 +78,7 @@
 								<a class="portal-link" href="/dashboard">Finances</a>
 								<a class="portal-link" href="/zprojects">Project</a>
 							{/if}
-						{#if isTradePortal}
+						{#if isTradePortal && hasTradeSession}
 							<a class="portal-link" href="/trade/projects">Projects</a>
 						{/if}
 					<a class="portal-link" href={accountHref}>Account</a>
