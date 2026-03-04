@@ -59,7 +59,7 @@
 	});
 </script>
 
-<div class="container">
+<div class="container" style:visibility={loading ? 'hidden' : 'visible'}>
 	<a class="back" href={`/project/${projectId}`}>← Back to Project</a>
 
 	<header>
