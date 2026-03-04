@@ -3,6 +3,10 @@ import type { RequestHandler } from './$types';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
+import { parseZohoProjectIds, getProject, getDealTaskSummaries } from '$lib/server/projects';
+
+const MAX_CONCURRENCY = 3;
+const PROJECT_TASK_PREVIEW_LIMIT = 4;
 
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
@@ -14,35 +18,79 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
 }
 
-const getDealLabel = (deal: any) =>
-	deal?.Deal_Name ||
-	deal?.Potential_Name ||
-	deal?.Name ||
-	deal?.name ||
-	deal?.Subject ||
-	deal?.Full_Name ||
-	deal?.Display_Name ||
-	deal?.display_name ||
-	null;
+function normalizeProjectResponse(payload: any) {
+	if (!payload) return null;
+	if (payload.project && typeof payload.project === 'object') return payload.project;
+	if (Array.isArray(payload.projects) && payload.projects[0]) return payload.projects[0];
+	return payload;
+}
 
-const isPlaceholderName = (name: string | null) => {
-	if (!name) return false;
-	return /^deal\s+\d+$/i.test(name.trim());
-};
+function toText(value: unknown): string | null {
+	if (typeof value === 'string') return value.trim() || null;
+	if (!value || typeof value !== 'object') return null;
+	const r = value as Record<string, unknown>;
+	for (const k of ['name', 'display_value', 'displayValue', 'value']) {
+		if (typeof r[k] === 'string' && (r[k] as string).trim()) return (r[k] as string).trim();
+	}
+	return null;
+}
+
+function toCount(value: unknown): number | null {
+	if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.round(value);
+	if (typeof value === 'string') {
+		const n = Number(value.trim());
+		return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+	}
+	return null;
+}
+
+function getTaskCountHint(project: any): number | null {
+	const direct = toCount(project?.task_count ?? project?.tasks_count ?? project?.taskCount);
+	if (direct !== null) return direct;
+	const t = project?.tasks;
+	if (!t || typeof t !== 'object') return null;
+	const total = toCount(t.total_count ?? t.count ?? t.total);
+	if (total !== null) return total;
+	const open = toCount(t.open_count ?? t.open);
+	const closed = toCount(t.closed_count ?? t.closed);
+	return open === null && closed === null ? null : (open ?? 0) + (closed ?? 0);
+}
+
+function getCompletedCountHint(project: any): number | null {
+	const direct = toCount(project?.task_completed_count ?? project?.completed_task_count);
+	if (direct !== null) return direct;
+	const t = project?.tasks;
+	return t ? toCount(t.closed_count ?? t.closed) : null;
+}
+
+function normalizeForList(project: any, source: string) {
+	return {
+		...project,
+		status: toText(project?.status ?? project?.Status) ?? 'Unknown',
+		start_date: toText(project?.start_date ?? project?.start_date_string) ?? null,
+		end_date: toText(project?.end_date ?? project?.end_date_string) ?? null,
+		task_count: getTaskCountHint(project) ?? 0,
+		task_completed_count: getCompletedCountHint(project) ?? null,
+		source
+	};
+}
+
+const getDealLabel = (deal: any) =>
+	deal?.Deal_Name || deal?.Potential_Name || deal?.Name || deal?.name || null;
+
+const isPlaceholderName = (name: string | null) =>
+	Boolean(name && /^deal\s+\d+$/i.test(name.trim()));
 
 const hasUsefulData = (deal: any) =>
 	Boolean(
 		deal?.Address ||
 			deal?.Street ||
 			deal?.City ||
-			deal?.State ||
-			deal?.Zip_Code ||
+			deal?.Stage ||
 			deal?.Garage_Code ||
 			deal?.WiFi ||
 			deal?.Refined_SOW ||
-			deal?.File_Upload ||
-			deal?.Progress_Photos ||
-			deal?.Stage
+			deal?.File_Upload
 	);
 
 const isDisplayableDeal = (deal: any) => {
@@ -51,8 +99,22 @@ const isDisplayableDeal = (deal: any) => {
 	return hasUsefulData(deal);
 };
 
+async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+	if (!items.length) return [];
+	const results: R[] = new Array(items.length);
+	let next = 0;
+	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (next < items.length) {
+			const i = next++;
+			results[i] = await fn(items[i]);
+		}
+	});
+	await Promise.all(workers);
+	return results;
+}
+
 // GET /api/trade/projects
-// Returns trade partner's deals as projects for the projects list page.
+// Returns trade partner's Zoho Projects with CRM deal fallback.
 export const GET: RequestHandler = async ({ cookies }) => {
 	const sessionToken = cookies.get('trade_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
@@ -80,31 +142,114 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		});
 	}
 
+	let deals: any[] = [];
 	try {
 		const fetched = await getTradePartnerDeals(
 			accessToken,
 			session.trade_partner.zoho_trade_partner_id
 		);
-		const allDeals = Array.isArray(fetched) ? fetched : [];
-		const displayable = allDeals.filter(isDisplayableDeal);
+		deals = Array.isArray(fetched) ? fetched : [];
+	} catch (err) {
+		console.error('Failed to fetch trade partner deals for projects:', err);
+		throw error(500, 'Failed to fetch projects');
+	}
 
-		const projects = displayable.map((deal) => ({
-			id: deal.id,
-			name:
-				getDealLabel(deal) ||
-				(deal.id ? `Deal ${String(deal.id).slice(-6)}` : 'Untitled Deal'),
+	// Build project links from deals' Zoho_Projects_ID field
+	const byProjectId = new Map<string, { projectId: string; dealId: string | null; dealName: string | null; stage: string | null }>();
+	const linkedDealIds = new Set<string>();
+
+	for (const deal of deals) {
+		const ids = parseZohoProjectIds(deal?.Zoho_Projects_ID);
+		if (ids.length === 0) continue;
+		const dealId = deal?.id ? String(deal.id) : null;
+		const dealName = getDealLabel(deal);
+		const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
+		for (const projectId of ids) {
+			if (byProjectId.has(projectId)) continue;
+			byProjectId.set(projectId, { projectId, dealId, dealName, stage });
+			if (dealId) linkedDealIds.add(dealId);
+		}
+	}
+
+	const projectIds = Array.from(byProjectId.keys());
+
+	// Build CRM fallback cards for deals without linked Zoho Projects
+	const unmappedDeals = deals.filter((deal) => {
+		const dealId = deal?.id ? String(deal.id) : '';
+		return dealId && !linkedDealIds.has(dealId) && isDisplayableDeal(deal);
+	});
+
+	// Fetch task summaries for unmapped deals
+	const unmappedDealIds = unmappedDeals.map((d) => String(d.id)).filter(Boolean);
+	const taskCountsByDealId = new Map<string, number | null>();
+	const taskCompletedByDealId = new Map<string, number | null>();
+	const taskPreviewByDealId = new Map<string, any[]>();
+
+	if (unmappedDealIds.length > 0) {
+		try {
+			const summaries = await getDealTaskSummaries(unmappedDealIds.slice(0, 20), {
+				concurrency: 2,
+				previewLimit: PROJECT_TASK_PREVIEW_LIMIT
+			});
+			for (const [dealId, summary] of summaries.entries()) {
+				if (summary && typeof summary.taskCount === 'number') taskCountsByDealId.set(dealId, summary.taskCount);
+				if (summary && typeof summary.completedCount === 'number') taskCompletedByDealId.set(dealId, summary.completedCount);
+				taskPreviewByDealId.set(dealId, summary?.preview || []);
+			}
+		} catch {
+			// non-fatal
+		}
+	}
+
+	const crmProjects = unmappedDeals.map((deal) => {
+		const dealId = String(deal.id);
+		return {
+			id: dealId,
+			deal_id: dealId,
+			name: getDealLabel(deal) || `Deal ${dealId.slice(-6)}`,
 			status: typeof deal.Stage === 'string' ? deal.Stage : 'Unknown',
 			start_date: deal.Created_Time || null,
 			end_date: deal.Closing_Date || null,
-			source: 'crm_deal',
-			address: deal.Address || deal.Street || null,
-			city: deal.City || null,
-			state: deal.State || null
-		}));
+			task_count: taskCountsByDealId.get(dealId) ?? 0,
+			task_completed_count: taskCompletedByDealId.get(dealId) ?? null,
+			task_preview: taskPreviewByDealId.get(dealId) ?? [],
+			source: 'crm_deal'
+		};
+	});
 
-		return json({ projects });
-	} catch (err) {
-		console.error('Failed to fetch trade partner projects:', err);
-		throw error(500, 'Failed to fetch projects');
+	// If no Zoho project IDs, return CRM deals only
+	if (projectIds.length === 0) {
+		return json({ projects: crmProjects });
 	}
+
+	// Fetch actual Zoho Projects
+	const fetched = await mapConcurrent(projectIds, MAX_CONCURRENCY, async (projectId) => {
+		try {
+			const response = await getProject(projectId);
+			const project = normalizeProjectResponse(response);
+			return project ? normalizeForList(project, 'zprojects') : null;
+		} catch {
+			// Fallback to mapped CRM data if Zoho project fetch fails
+			const link = byProjectId.get(projectId)!;
+			return {
+				id: projectId,
+				name: link.dealName || `Project ${projectId}`,
+				status: link.stage || 'Unknown',
+				start_date: null,
+				end_date: null,
+				task_count: 0,
+				task_completed_count: null,
+				task_preview: [],
+				source: 'crm'
+			};
+		}
+	});
+
+	const zohoProjects = fetched.filter(Boolean);
+
+	// Combine: Zoho Projects first, then any unlinked CRM deals
+	const seen = new Set(zohoProjects.map((p: any) => String(p.id)));
+	const remainingCrm = crmProjects.filter((p) => !seen.has(p.id));
+
+	return json({ projects: [...zohoProjects, ...remainingCrm] });
 };
