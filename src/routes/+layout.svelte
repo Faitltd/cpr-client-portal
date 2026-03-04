@@ -77,6 +77,9 @@
 								<a class="portal-link" href="/dashboard">Finances</a>
 								<a class="portal-link" href="/zprojects">Project</a>
 							{/if}
+						{#if isTradePortal}
+							<a class="portal-link" href="/trade/projects">Projects</a>
+						{/if}
 					<a class="portal-link" href={accountHref}>Account</a>
 					<a class="portal-link" href="/api/logout?next=/">Log out</a>
 				</div>

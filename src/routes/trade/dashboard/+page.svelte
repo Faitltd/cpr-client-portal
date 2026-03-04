@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 
 	export let data: {
@@ -11,6 +11,13 @@
 	const tradePartner = data?.tradePartner || { email: '' };
 	const deals = Array.isArray(data?.deals) ? data.deals : [];
 	let selectedDealId = deals[0]?.id || '';
+
+	onMount(() => {
+		const paramId = new URLSearchParams(window.location.search).get('deal');
+		if (paramId && deals.find((d) => d.id === paramId)) {
+			selectedDealId = paramId;
+		}
+	});
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
 	$: selectedDeal && console.log('Selected Deal:', selectedDeal);
 

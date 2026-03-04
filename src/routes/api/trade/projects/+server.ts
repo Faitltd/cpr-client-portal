@@ -1,0 +1,110 @@
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getTradePartnerDeals } from '$lib/server/auth';
+import { refreshAccessToken } from '$lib/server/zoho';
+
+function toSafeIso(value: unknown, fallback?: unknown) {
+	const date = new Date(value as any);
+	if (!Number.isNaN(date.getTime())) return date.toISOString();
+	if (fallback) {
+		const fallbackDate = new Date(fallback as any);
+		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
+	}
+	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
+}
+
+const getDealLabel = (deal: any) =>
+	deal?.Deal_Name ||
+	deal?.Potential_Name ||
+	deal?.Name ||
+	deal?.name ||
+	deal?.Subject ||
+	deal?.Full_Name ||
+	deal?.Display_Name ||
+	deal?.display_name ||
+	null;
+
+const isPlaceholderName = (name: string | null) => {
+	if (!name) return false;
+	return /^deal\s+\d+$/i.test(name.trim());
+};
+
+const hasUsefulData = (deal: any) =>
+	Boolean(
+		deal?.Address ||
+			deal?.Street ||
+			deal?.City ||
+			deal?.State ||
+			deal?.Zip_Code ||
+			deal?.Garage_Code ||
+			deal?.WiFi ||
+			deal?.Refined_SOW ||
+			deal?.File_Upload ||
+			deal?.Progress_Photos ||
+			deal?.Stage
+	);
+
+const isDisplayableDeal = (deal: any) => {
+	const label = getDealLabel(deal);
+	if (label && !isPlaceholderName(label)) return true;
+	return hasUsefulData(deal);
+};
+
+// GET /api/trade/projects
+// Returns trade partner's deals as projects for the projects list page.
+export const GET: RequestHandler = async ({ cookies }) => {
+	const sessionToken = cookies.get('trade_session');
+	if (!sessionToken) throw error(401, 'Not authenticated');
+
+	const session = await getTradeSession(sessionToken);
+	if (!session) throw error(401, 'Invalid session');
+
+	if (!session.trade_partner.zoho_trade_partner_id) {
+		return json({ projects: [] });
+	}
+
+	const tokens = await getZohoTokens();
+	if (!tokens) throw error(500, 'Zoho not configured');
+
+	let accessToken = tokens.access_token;
+	if (new Date(tokens.expires_at) < new Date()) {
+		const refreshed = await refreshAccessToken(tokens.refresh_token);
+		accessToken = refreshed.access_token;
+		await upsertZohoTokens({
+			user_id: tokens.user_id,
+			access_token: refreshed.access_token,
+			refresh_token: refreshed.refresh_token,
+			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+			scope: tokens.scope
+		});
+	}
+
+	try {
+		const fetched = await getTradePartnerDeals(
+			accessToken,
+			session.trade_partner.zoho_trade_partner_id
+		);
+		const allDeals = Array.isArray(fetched) ? fetched : [];
+		const displayable = allDeals.filter(isDisplayableDeal);
+
+		const projects = displayable.map((deal) => ({
+			id: deal.id,
+			name:
+				getDealLabel(deal) ||
+				(deal.id ? `Deal ${String(deal.id).slice(-6)}` : 'Untitled Deal'),
+			status: typeof deal.Stage === 'string' ? deal.Stage : 'Unknown',
+			start_date: deal.Created_Time || null,
+			end_date: deal.Closing_Date || null,
+			source: 'crm_deal',
+			address: deal.Address || deal.Street || null,
+			city: deal.City || null,
+			state: deal.State || null
+		}));
+
+		return json({ projects });
+	} catch (err) {
+		console.error('Failed to fetch trade partner projects:', err);
+		throw error(500, 'Failed to fetch projects');
+	}
+};
