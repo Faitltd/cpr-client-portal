@@ -110,6 +110,7 @@
 	let previewData: PreviewData | null = null;
 	let previewLoading = false;
 	let previewError = '';
+	let generating = false;
 
 	// Generation log state
 	let latestGenLog: any = null;
@@ -339,6 +340,33 @@
 			saveError = err instanceof Error ? err.message : 'Status update failed';
 		} finally {
 			statusChanging = false;
+		}
+	}
+
+	async function handleGenerate() {
+		if (generating) return;
+		generating = true;
+
+		try {
+			const res = await fetch('/api/admin/scope/' + encodeURIComponent(dealId) + '/generate', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({})
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.message || 'Generation failed');
+			if (json.data?.success === false) {
+				throw new Error(json.data.error || 'Generation failed');
+			}
+			if (json.data?.success) {
+				currentStatus = 'generated';
+			}
+			// Refresh generation logs to show the result
+			await loadGenLogs();
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Generation failed');
+		} finally {
+			generating = false;
 		}
 	}
 
@@ -738,8 +766,8 @@
 								{/each}
 							</div>
 						{/if}
-					{/each}
-				{/if}
+				{/each}
+			{/if}
 
 			<!-- Generation Status -->
 			<div class="card gen-status-card">
@@ -819,15 +847,27 @@
 					{/if}
 				{/if}
 
-				{#if currentStatus === 'approved'}
-					<button
-						class="btn btn-generate"
-						disabled
-						title="Project generator coming in Phase 5"
-					>
-						Generate Project
+				{#if currentStatus === 'approved' || (currentStatus === 'generated' && latestGenLog?.status === 'failed')}
+					<p class="gen-warning">This will create a real Zoho Projects project.</p>
+					<button class="btn btn-generate" type="button" on:click={handleGenerate} disabled={generating}>
+						{#if generating}
+							Generating…
+						{:else if latestGenLog?.status === 'failed'}
+							Retry Generation
+						{:else}
+							Generate Zoho Project
+						{/if}
 					</button>
 				{/if}
+
+				<a
+					class="btn btn-sow-link"
+					href="/admin/scope/{dealId}/sow"
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					View Scope of Work
+				</a>
 			</div>
 			</div>
 		</div>
@@ -1504,15 +1544,47 @@
 		width: 100%;
 		min-height: 44px;
 		border-radius: 999px;
-		background: #9ca3af;
+		background: #0066cc;
 		color: #fff;
 		border: none;
-		cursor: not-allowed;
+		cursor: pointer;
 		font-size: 0.93rem;
+		font-weight: 700;
 		margin-top: 0.5rem;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	.btn-generate:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
+	}
+
+	.gen-warning {
+		font-size: 0.82rem;
+		color: #b45309;
+		margin: 0.5rem 0 0.25rem;
+	}
+
+	.btn-sow-link {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		min-height: 44px;
+		border-radius: 999px;
+		background: #f5f5f5;
+		color: #1a1a1a;
+		border: 1px solid #d0d0d0;
+		font-size: 0.93rem;
+		font-weight: 700;
+		text-decoration: none;
+		margin-top: 0.5rem;
+	}
+
+	.btn-sow-link:hover {
+		background: #e8e8e8;
 	}
 
 	@media (max-width: 720px) {

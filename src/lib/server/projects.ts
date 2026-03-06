@@ -2705,7 +2705,136 @@ export async function getProjectLinksForClient(
 		}
 	}
 
-	const links = Array.from(byProjectId.values());
-	clientProjectLinksCache.set(cacheKey, { fetchedAt: Date.now(), links });
-	return links;
+const links = Array.from(byProjectId.values());
+clientProjectLinksCache.set(cacheKey, { fetchedAt: Date.now(), links });
+return links;
+}
+
+// Generator write helpers: create projects, milestones, tasklists, and tasks.
+
+/**
+ * Create a Zoho Projects project.
+ */
+export async function createZohoProject(data: {
+	name: string;
+	description?: string;
+	start_date?: string;
+	end_date?: string;
+}): Promise<{ id: string; name: string }> {
+	try {
+		const payload = await projectsApiCall('/projects/', {
+			method: 'POST',
+			body: JSON.stringify({ projects: [data] })
+		});
+		const project = Array.isArray(payload?.projects) ? payload.projects[0] : null;
+		if (!project?.id || !project?.name) {
+			throw new Error('response missing created project');
+		}
+		return {
+			id: String(project.id),
+			name: String(project.name)
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Zoho Projects create project failed: ${message}`);
+	}
+}
+
+/**
+ * Create a Zoho Projects milestone for a project.
+ */
+export async function createZohoPhase(
+	projectId: string,
+	data: {
+		name: string;
+		start_date?: string;
+		end_date?: string;
+	}
+): Promise<{ id: string; name: string }> {
+	try {
+		const payload = await projectsApiCall(`/projects/${projectId}/milestones/`, {
+			method: 'POST',
+			body: JSON.stringify({ milestones: [data] })
+		});
+		const milestone = Array.isArray(payload?.milestones) ? payload.milestones[0] : null;
+		if (!milestone?.id || !milestone?.name) {
+			throw new Error('response missing created milestone');
+		}
+		return {
+			id: String(milestone.id),
+			name: String(milestone.name)
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Zoho Projects create milestone failed: ${message}`);
+	}
+}
+
+/**
+ * Create a Zoho Projects tasklist for a project.
+ */
+export async function createZohoTasklist(
+	projectId: string,
+	data: {
+		name: string;
+		milestone_id?: string;
+	}
+): Promise<{ id: string; name: string }> {
+	try {
+		const payload = await projectsApiCall(`/projects/${projectId}/tasklists/`, {
+			method: 'POST',
+			body: JSON.stringify({ tasklists: [data] })
+		});
+		const tasklist = Array.isArray(payload?.tasklists) ? payload.tasklists[0] : null;
+		if (!tasklist?.id || !tasklist?.name) {
+			throw new Error('response missing created tasklist');
+		}
+		return {
+			id: String(tasklist.id),
+			name: String(tasklist.name)
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Zoho Projects create tasklist failed: ${message}`);
+	}
+}
+
+/**
+ * Create a Zoho Projects task for a project.
+ */
+export async function createZohoTask(
+	projectId: string,
+	data: {
+		name: string;
+		description?: string;
+		tasklist_id: string;
+		start_date?: string;
+		end_date?: string;
+		priority?: string;
+	}
+): Promise<{ id: string; name: string }> {
+	try {
+		const payload = await projectsApiCall(`/projects/${projectId}/tasks/`, {
+			method: 'POST',
+			body: JSON.stringify({ tasks: [data] })
+		});
+		const task = Array.isArray(payload?.tasks) ? payload.tasks[0] : null;
+		if (!task?.id || !task?.name) {
+			throw new Error('response missing created task');
+		}
+		return {
+			id: String(task.id),
+			name: String(task.name)
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Zoho Projects create task failed: ${message}`);
+	}
+}
+
+/**
+ * Pause async execution for a number of milliseconds.
+ */
+export function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
