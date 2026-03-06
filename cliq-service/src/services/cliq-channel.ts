@@ -2,6 +2,7 @@ import axios, { AxiosError } from "axios";
 import { env } from "../config/env";
 import { getToken } from "./zoho-auth";
 import { insertMessage, synthesizeId } from "./db";
+import { detectFileUrl } from "./file-links";
 import type { ChannelResult, Message } from "../types";
 
 const BASE = `${env.ZOHO_API_DOMAIN}/cliq/v2`;
@@ -17,6 +18,30 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 function log(cid: string, msg: string): void {
   console.log(`[${cid}] ${msg}`);
+}
+
+interface CliqMessageItem {
+  id?: string;
+  sender?: { name?: string };
+  message?: string;
+  text?: string;
+  time?: string;
+  attachments?: unknown;
+  files?: unknown;
+  card?: unknown;
+  card_data?: unknown;
+}
+
+interface PostCard {
+  title: string;
+  theme: "modern-inline";
+}
+
+export interface PostedClientMessage {
+  channelName: string;
+  text: string;
+  time: string;
+  fileUrl?: string;
 }
 
 /**
@@ -72,26 +97,34 @@ export async function postClientMessage(
   text: string,
   correlationId: string
 ): Promise<void> {
+  await postClientMessageWithCard(projectSlug, clientName, `[CLIENT] ${text}`, correlationId, {
+    title: `Message from ${clientName}`,
+    theme: "modern-inline",
+  });
+}
+
+export async function postClientMessageWithCard(
+  projectSlug: string,
+  clientName: string,
+  messageText: string,
+  correlationId: string,
+  card: PostCard
+): Promise<PostedClientMessage> {
   const { channelName: name } = await ensureChannel(projectSlug, correlationId);
   const headers = await authHeaders();
 
-  const messageText = `[CLIENT] ${text}`;
   const res = await axios.post(
     `${BASE}/channelsbyname/${name}/message`,
     {
       text: messageText,
-      card: {
-        title: `Message from ${clientName}`,
-        theme: "modern-inline",
-      },
+      card,
     },
     { headers }
   );
   log(correlationId, `Zoho POST /channelsbyname/${name}/message → ${res.status}`);
 
   const now = new Date().toISOString();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = res.data as any;
+  const data = res.data as { id?: string; message?: { id?: string } } | undefined;
   const msgId: string =
     data?.id ?? data?.message?.id ?? synthesizeId(name, now, messageText, clientName);
 
@@ -104,6 +137,13 @@ export async function postClientMessage(
     isTeam: false,
     syncedFromCliq: false,
   });
+
+  return {
+    channelName: name,
+    text: messageText,
+    time: now,
+    fileUrl: detectFileUrl(messageText),
+  };
 }
 
 export async function getChannelHistory(
@@ -115,7 +155,7 @@ export async function getChannelHistory(
   const headers = await authHeaders();
 
   const response = await axios.get<{
-    data: Array<{ id?: string; sender: { name: string }; message: string; time: string }>;
+    data: CliqMessageItem[];
   }>(`${BASE}/channelsbyname/${name}/messages`, {
     headers,
     params: { limit },
@@ -126,9 +166,15 @@ export async function getChannelHistory(
 
   return items.map((item) => {
     const senderName = item.sender?.name ?? "Unknown";
-    const text = item.message ?? "";
+    const text = item.message ?? item.text ?? "";
     const time = item.time ?? "";
     const isTeam = !text.startsWith("[CLIENT] ");
+    const fileUrl = detectFileUrl(text, {
+      attachments: item.attachments,
+      files: item.files,
+      card: item.card,
+      cardData: item.card_data,
+    });
 
     const msgId =
       item.id ?? synthesizeId(name, time, text, senderName);
@@ -143,6 +189,6 @@ export async function getChannelHistory(
       syncedFromCliq: true,
     });
 
-    return { sender: senderName, text, time, isTeam };
+    return { sender: senderName, text, time, isTeam, fileUrl };
   });
 }

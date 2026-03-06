@@ -72,12 +72,13 @@
 		submitting = true;
 		actionError = '';
 		try {
-			const res = await fetch(`/api/client/decisions/${activeId}`, {
+			const res = await fetch('/api/client/decisions', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
+					id: activeId,
 					status: activeStatus,
-					responseNote: responseNote.trim() || undefined
+					response_note: responseNote.trim() || undefined
 				})
 			});
 			if (res.status === 401) {

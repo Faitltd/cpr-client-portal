@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  cliq-bridge:
+    build: ./cliq-service
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - ./cliq-service/.env
+    restart: unless-stopped
+
+  cliq-frontend:
+    build: ./cliq-service-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - cliq-bridge

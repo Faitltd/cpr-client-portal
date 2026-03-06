@@ -3,6 +3,7 @@ export interface Message {
   text: string;
   time: string;
   isTeam: boolean;
+  fileUrl?: string;
 }
 
 export interface JwtPayload {

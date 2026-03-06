@@ -974,3 +974,128 @@ export async function getGenerationLogsByDeal(dealId: string): Promise<Generatio
 	if (error) throw new Error(`Generation logs fetch failed: ${error.message}`);
 	return (data as GenerationLog[]) || [];
 }
+
+// ---------------------------------------------------------------------------
+// Field Issues
+// ---------------------------------------------------------------------------
+
+export interface FieldIssue {
+	id: string;
+	deal_id: string;
+	trade_partner_id: string | null;
+	issue_type:
+		| 'damaged_material'
+		| 'field_conflict'
+		| 'missing_info'
+		| 'access_issue'
+		| 'design_conflict'
+		| 'unexpected_condition'
+		| 'safety';
+	severity: 'low' | 'medium' | 'high' | 'critical';
+	title: string;
+	description: string | null;
+	photo_ids: string[] | null;
+	status: 'open' | 'acknowledged' | 'resolved';
+	resolved_at: string | null;
+	created_at: string;
+}
+
+/**
+ * Create a new field issue for a deal.
+ */
+export async function createFieldIssue(
+	data: Omit<FieldIssue, 'id' | 'resolved_at' | 'created_at'>
+): Promise<FieldIssue> {
+	const { data: created, error } = await getSupabase()
+		.from('field_issues')
+		.insert(data)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Field issue create failed: ${error.message}`);
+	return created as FieldIssue;
+}
+
+/**
+ * Fetch all field issues for a deal, newest first.
+ */
+export async function getFieldIssuesForDeal(dealId: string): Promise<FieldIssue[]> {
+	const { data, error } = await getSupabase()
+		.from('field_issues')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Field issue fetch failed: ${error.message}`);
+	return (data as FieldIssue[]) || [];
+}
+
+/**
+ * Fetch field issues for a deal filtered to one trade partner, newest first.
+ */
+export async function getFieldIssuesByTradePartner(
+	dealId: string,
+	tradePartnerId: string
+): Promise<FieldIssue[]> {
+	const { data, error } = await getSupabase()
+		.from('field_issues')
+		.select('*')
+		.eq('deal_id', dealId)
+		.eq('trade_partner_id', tradePartnerId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Field issue fetch failed: ${error.message}`);
+	return (data as FieldIssue[]) || [];
+}
+
+/**
+ * Update status (and resolution timestamp when resolved) for a field issue.
+ */
+export async function updateFieldIssueStatus(
+	id: string,
+	status: string,
+	resolvedAt?: string
+): Promise<FieldIssue> {
+	const updateData: { status: string; resolved_at?: string } = { status };
+	if (status === 'resolved') {
+		updateData.resolved_at = resolvedAt ?? new Date().toISOString();
+	}
+
+	const { data, error } = await getSupabase()
+		.from('field_issues')
+		.update(updateData)
+		.eq('id', id)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Field issue update failed: ${error.message}`);
+	return data as FieldIssue;
+}
+
+/**
+ * Fetch unresolved field issues for a deal, ordered by severity then newest first.
+ */
+export async function getOpenFieldIssuesForDeal(dealId: string): Promise<FieldIssue[]> {
+	const { data, error } = await getSupabase()
+		.from('field_issues')
+		.select('*')
+		.eq('deal_id', dealId)
+		.neq('status', 'resolved')
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Field issue open fetch failed: ${error.message}`);
+
+	const severityRank: Record<FieldIssue['severity'], number> = {
+		critical: 0,
+		high: 1,
+		medium: 2,
+		low: 3
+	};
+
+	// Supabase does not support custom enum order sorting here, so we sort severity in JS.
+	return ((data as FieldIssue[]) || []).sort((a, b) => {
+		const severityDiff = severityRank[a.severity] - severityRank[b.severity];
+		if (severityDiff !== 0) return severityDiff;
+		return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+	});
+}

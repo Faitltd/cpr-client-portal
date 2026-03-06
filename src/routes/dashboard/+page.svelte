@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
+	interface ActivityItem {
+		type: 'comm' | 'daily_log';
+		date: string;
+		summary: string | null;
+		channel?: string;
+		deal_id: string;
+	}
+
 	let projects: any[] = [];
 	let invoices: any[] = [];
 	let loading = true;
@@ -11,6 +19,9 @@
 	let pendingItems: any[] = [];
 	let pendingLoading = true;
 	let pendingError = '';
+	let activityItems: ActivityItem[] = [];
+	let activityLoading = true;
+	let activityError = '';
 	const getProgressPhotosLink = (deal: any) => {
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '';
@@ -44,6 +55,33 @@
 	});
 	$: regularInvoices = invoices.filter((invoice) => !changeOrders.includes(invoice));
 
+	const formatRelativeTime = (value: string | null) => {
+		if (!value) return 'Recently';
+		const timestamp = new Date(value).getTime();
+		if (Number.isNaN(timestamp)) return value;
+
+		const diffMs = Date.now() - timestamp;
+		const minute = 60 * 1000;
+		const hour = 60 * minute;
+		const day = 24 * hour;
+
+		if (diffMs < minute) return 'Just now';
+		if (diffMs < hour) {
+			const minutes = Math.floor(diffMs / minute);
+			return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+		}
+		if (diffMs < day) {
+			const hours = Math.floor(diffMs / hour);
+			return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+		}
+		if (diffMs < day * 2) return 'Yesterday';
+		if (diffMs < day * 7) {
+			const days = Math.floor(diffMs / day);
+			return `${days} day${days === 1 ? '' : 's'} ago`;
+		}
+		return new Date(value).toLocaleDateString();
+	};
+
 	onMount(async () => {
 		fetch('/api/client/pending')
 			.then(async (res) => {
@@ -58,6 +96,20 @@
 			})
 			.finally(() => {
 				pendingLoading = false;
+			});
+
+		fetch('/api/client/activity')
+			.then(async (res) => {
+				if (res.status === 401) return;
+				if (!res.ok) throw new Error('Failed');
+				const payload = await res.json();
+				activityItems = payload.data || [];
+			})
+			.catch((err) => {
+				activityError = err.message || 'Failed to load recent activity';
+			})
+			.finally(() => {
+				activityLoading = false;
 			});
 
 		try {
@@ -126,6 +178,36 @@
 		{/if}
 	</div>
 
+	<section class="activity-section">
+		<div class="section-toggle section-static">Recent Activity</div>
+		{#if activityLoading}
+			<p class="activity-muted">Loading...</p>
+		{:else if activityError}
+			<p class="activity-muted">{activityError}</p>
+		{:else if activityItems.length === 0}
+			<p class="activity-muted">No recent activity.</p>
+		{:else}
+			<div class="activity-list">
+				{#each activityItems as item, index (item.deal_id + item.date + item.type + index)}
+					<div class="activity-item activity-item-{item.type}">
+						<div class="activity-top">
+							<div class="activity-labels">
+								<span class="activity-type">{item.type === 'comm' ? 'Comm' : 'Update'}</span>
+								{#if item.type === 'comm' && item.channel}
+									<span class="activity-channel">{item.channel}</span>
+								{/if}
+							</div>
+							<span class="activity-time">{formatRelativeTime(item.date)}</span>
+						</div>
+						<p class="activity-summary">
+							{item.summary || (item.type === 'comm' ? 'Communication logged.' : 'Daily update submitted.')}
+						</p>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</section>
+
 	{#if loading}
 		<div class="loading">Loading your projects...</div>
 	{:else if error}
@@ -143,8 +225,9 @@
 				{#each projects as project}
 					<div class="project-card">
 						<div class="project-info">
+							<span class="stage-badge">{project.Stage || 'Unknown'}</span>
 							<h3>{project.Deal_Name || 'Untitled Project'}</h3>
-							<p class="status">Status: {project.Stage || 'Unknown'}</p>
+							<p class="project-meta">Next milestone: {project.Stage || 'Unknown'}</p>
 							<p class="date">Created: {new Date(project.Created_Time).toLocaleDateString()}</p>
 						</div>
 						<div class="project-actions">
@@ -311,6 +394,23 @@
 	.status, .date {
 		margin: 0.5rem 0;
 		color: #666;
+	}
+
+	.project-meta {
+		margin: 0.5rem 0;
+		color: #666;
+	}
+
+	.stage-badge {
+		display: inline-flex;
+		align-items: center;
+		background: #e0f2fe;
+		color: #0369a1;
+		border-radius: 999px;
+		padding: 0.25rem 0.65rem;
+		font-size: 0.8rem;
+		font-weight: 700;
+		margin-bottom: 0.25rem;
 	}
 
 	.project-actions {
@@ -568,6 +668,84 @@
 		text-decoration: underline;
 	}
 
+	.activity-section {
+		margin-bottom: 2rem;
+	}
+
+	.activity-list {
+		display: grid;
+		gap: 0.9rem;
+		margin-top: 1rem;
+	}
+
+	.activity-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+		padding: 0.25rem 0 0.25rem 1rem;
+		border-left: 3px solid transparent;
+	}
+
+	.activity-item-comm {
+		border-left-color: #0066cc;
+	}
+
+	.activity-item-daily_log {
+		border-left-color: #10b981;
+	}
+
+	.activity-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.activity-labels {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.activity-type,
+	.activity-channel {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.2rem 0.55rem;
+		border-radius: 999px;
+		font-size: 0.75rem;
+		font-weight: 700;
+	}
+
+	.activity-type {
+		background: #f3f4f6;
+		color: #111827;
+	}
+
+	.activity-channel {
+		background: #e5e7eb;
+		color: #374151;
+		text-transform: capitalize;
+	}
+
+	.activity-time,
+	.activity-muted {
+		color: #6b7280;
+		font-size: 0.9rem;
+	}
+
+	.activity-muted {
+		margin: 1rem 0 0;
+	}
+
+	.activity-summary {
+		margin: 0;
+		color: #111827;
+		line-height: 1.5;
+	}
+
 	@media (max-width: 720px) {
 		.dashboard {
 			padding: 1.5rem 1.25rem;
@@ -608,6 +786,16 @@
 		.invoice-amounts {
 			justify-content: flex-start;
 			width: 100%;
+		}
+
+		.activity-item {
+			padding-left: 0.75rem;
+		}
+
+		.activity-top {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.4rem;
 		}
 	}
 </style>

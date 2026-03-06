@@ -99,6 +99,34 @@ body {
   border-bottom-right-radius: 4px;
 }
 
+.file-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+
+.message-row.client .file-link {
+  color: #fff;
+}
+
+.file-thumb-link {
+  display: inline-block;
+}
+
+.file-thumb {
+  display: block;
+  max-width: 200px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
 /* ── Error / loading banners ── */
 .chat-status {
   padding: 8px 16px;
@@ -163,4 +191,19 @@ body {
 .chat-input-row button:disabled {
   background: #93c5fd;
   cursor: not-allowed;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
+.attach-button {
+  padding: 9px 12px !important;
+  border-radius: 999px !important;
+  font-size: 1rem !important;
+  line-height: 1 !important;
+}
+
+.send-button {
+  min-width: 84px;
 }

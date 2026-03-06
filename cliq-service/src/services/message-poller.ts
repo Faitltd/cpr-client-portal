@@ -2,6 +2,7 @@ import { env } from "../config/env";
 import { getLatestTimestamp } from "./db";
 import { channelName, getChannelHistory } from "./cliq-channel";
 import { getActiveProjectSlugs, broadcastToProject } from "./websocket";
+import { extractFileUrlFromText } from "./file-links";
 
 const RATE_LIMIT_WARN_THRESHOLD = 15;
 
@@ -46,7 +47,8 @@ async function pollCycle(): Promise<void> {
           `[poller] ${name}: ${newMessages.length} new message${newMessages.length === 1 ? "" : "s"} → broadcast`
         );
         for (const msg of newMessages) {
-          broadcastToProject(slug, msg);
+          const enriched = msg.fileUrl ? msg : { ...msg, fileUrl: extractFileUrlFromText(msg.text) };
+          broadcastToProject(slug, enriched);
         }
       }
     } catch (err) {

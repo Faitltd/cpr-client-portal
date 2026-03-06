@@ -7,6 +7,7 @@ import {
   getChannelHistory,
 } from "../services/cliq-channel";
 import { getMessages } from "../services/db";
+import { extractFileUrlFromText } from "../services/file-links";
 import type { Message } from "../types";
 
 const router = Router();
@@ -65,6 +66,7 @@ router.get("/history/:projectSlug", authenticate, async (req: Request, res: Resp
       text: m.text,
       time: new Date(m.timestamp).toISOString(),
       isTeam: m.isTeam,
+      fileUrl: extractFileUrlFromText(m.text),
     }));
     res.json({ messages });
     return;
@@ -85,6 +87,7 @@ router.get("/history/:projectSlug", authenticate, async (req: Request, res: Resp
         text: m.text,
         time: new Date(m.timestamp).toISOString(),
         isTeam: m.isTeam,
+        fileUrl: extractFileUrlFromText(m.text),
       }));
       res.json({ messages, correlationId: cid, warning: "served_from_cache_only" });
       return;

@@ -8,6 +8,7 @@ import { initWebSocket } from "./services/websocket";
 import { startPoller, stopPoller } from "./services/message-poller";
 import healthRouter from "./routes/health";
 import chatRouter from "./routes/chat";
+import filesRouter from "./routes/files";
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use(requestLogger);
 
 app.use("/api/health", healthRouter);
 app.use("/api/chat", chatRouter);
+app.use("/api/files", filesRouter);
 
 const server = http.createServer(app);
 

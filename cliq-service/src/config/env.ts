@@ -1,18 +1,18 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-function require(name: string): string {
+function requireEnv(name: string): string {
   const val = process.env[name];
   if (!val) throw new Error(`Missing required env var: ${name}`);
   return val;
 }
 
 export const env = {
-  ZOHO_CLIENT_ID: require("ZOHO_CLIENT_ID"),
-  ZOHO_CLIENT_SECRET: require("ZOHO_CLIENT_SECRET"),
-  ZOHO_REFRESH_TOKEN: require("ZOHO_REFRESH_TOKEN"),
-  ZOHO_API_DOMAIN: require("ZOHO_API_DOMAIN"),
-  JWT_SECRET: require("JWT_SECRET"),
+  ZOHO_CLIENT_ID: requireEnv("ZOHO_CLIENT_ID"),
+  ZOHO_CLIENT_SECRET: requireEnv("ZOHO_CLIENT_SECRET"),
+  ZOHO_REFRESH_TOKEN: requireEnv("ZOHO_REFRESH_TOKEN"),
+  ZOHO_API_DOMAIN: requireEnv("ZOHO_API_DOMAIN"),
+  JWT_SECRET: requireEnv("JWT_SECRET"),
   PORT: parseInt(process.env.PORT ?? "3001", 10),
   ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   /** When false (default), ensureChannel will throw rather than create a missing channel. */
@@ -23,4 +23,8 @@ export const env = {
   POLL_INTERVAL_MS: parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10),
   /** Number of recent messages fetched from Cliq per poll cycle. */
   POLL_HISTORY_LIMIT: parseInt(process.env.POLL_HISTORY_LIMIT ?? "20", 10),
+  /** Directory for uploaded client files. */
+  UPLOAD_DIR: process.env.UPLOAD_DIR ?? "./data/uploads",
+  /** Maximum upload size in MB. */
+  MAX_FILE_SIZE_MB: parseInt(process.env.MAX_FILE_SIZE_MB ?? "10", 10),
 };
