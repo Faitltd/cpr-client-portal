@@ -17,4 +17,10 @@ export const env = {
   ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   /** When false (default), ensureChannel will throw rather than create a missing channel. */
   ALLOW_CHANNEL_CREATE: process.env.ALLOW_CHANNEL_CREATE === "true",
+  /** Path to the SQLite DB file used as a message cache/audit log. */
+  SQLITE_DB_PATH: process.env.SQLITE_DB_PATH ?? "./data/messages.db",
+  /** Milliseconds between Cliq poll cycles for WebSocket push. */
+  POLL_INTERVAL_MS: parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10),
+  /** Number of recent messages fetched from Cliq per poll cycle. */
+  POLL_HISTORY_LIMIT: parseInt(process.env.POLL_HISTORY_LIMIT ?? "20", 10),
 };

@@ -29,6 +29,7 @@
 				<a class="admin-link" href="/admin/approvals">Approvals</a>
 				<a class="admin-link" href="/admin/comms">Comms</a>
 				<a class="admin-link" href="/admin/daily-logs">Daily Logs</a>
+				<a class="admin-link" href="/admin/task-library">Task Library</a>
 				<a class="admin-link" href="/admin/logout">Log out</a>
 			</nav>
 		</div>

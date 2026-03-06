@@ -1,8 +1,11 @@
 import "dotenv/config";
+import http from "node:http";
 import express from "express";
 import cors from "cors";
 import { env } from "./config/env";
 import { requestLogger } from "./middleware/logger";
+import { initWebSocket } from "./services/websocket";
+import { startPoller, stopPoller } from "./services/message-poller";
 import healthRouter from "./routes/health";
 import chatRouter from "./routes/chat";
 
@@ -22,7 +25,20 @@ app.use(requestLogger);
 app.use("/api/health", healthRouter);
 app.use("/api/chat", chatRouter);
 
-app.listen(env.PORT, () => {
+const server = http.createServer(app);
+
+initWebSocket(server);
+startPoller();
+
+server.listen(env.PORT, () => {
   console.log(`cliq-service listening on port ${env.PORT}`);
   console.log(`ALLOW_CHANNEL_CREATE=${env.ALLOW_CHANNEL_CREATE}`);
 });
+
+function shutdown() {
+  stopPoller();
+  process.exit(0);
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

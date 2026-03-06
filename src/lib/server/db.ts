@@ -677,3 +677,300 @@ export async function updateApprovalStatus(
 	if (error) throw new Error(`Approval update failed: ${error.message}`);
 	return data as Approval;
 }
+
+// ---------------------------------------------------------------------------
+// Task Templates
+// ---------------------------------------------------------------------------
+
+export interface TaskTemplate {
+	id: string;
+	project_type: string;
+	phase: string;
+	task_name: string;
+	trade: string | null;
+	description: string | null;
+	default_duration_days: number;
+	dependency_key: string | null;
+	requires_inspection: boolean;
+	requires_client_decision: boolean;
+	material_lead_time_days: number;
+	sort_order: number;
+	is_conditional: boolean;
+	condition_key: string | null;
+	condition_value: string | null;
+	active: boolean;
+	created_at: string;
+}
+
+/**
+ * Fetch all active task templates for a project type, ordered by phase then sort_order.
+ */
+export async function getTaskTemplatesByProjectType(projectType: string): Promise<TaskTemplate[]> {
+	const { data, error } = await getSupabase()
+		.from('task_templates')
+		.select('id, project_type, phase, task_name, trade, description, default_duration_days, dependency_key, requires_inspection, requires_client_decision, material_lead_time_days, sort_order, is_conditional, condition_key, condition_value, active, created_at')
+		.eq('project_type', projectType)
+		.eq('active', true)
+		.order('phase')
+		.order('sort_order');
+
+	if (error) throw new Error(`Task templates fetch failed: ${error.message}`);
+	return (data as TaskTemplate[]) || [];
+}
+
+/**
+ * Fetch a single task template by id.
+ */
+export async function getTaskTemplateById(id: string): Promise<TaskTemplate | null> {
+	const { data, error } = await getSupabase()
+		.from('task_templates')
+		.select('id, project_type, phase, task_name, trade, description, default_duration_days, dependency_key, requires_inspection, requires_client_decision, material_lead_time_days, sort_order, is_conditional, condition_key, condition_value, active, created_at')
+		.eq('id', id)
+		.single();
+
+	if (error || !data) return null;
+	return data as TaskTemplate;
+}
+
+/**
+ * Create a new task template.
+ */
+export async function createTaskTemplate(
+	data: Omit<TaskTemplate, 'id' | 'created_at'>
+): Promise<TaskTemplate> {
+	const { data: created, error } = await getSupabase()
+		.from('task_templates')
+		.insert(data)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Task template create failed: ${error.message}`);
+	return created as TaskTemplate;
+}
+
+/**
+ * Update an existing task template by id.
+ */
+export async function updateTaskTemplate(
+	id: string,
+	data: Partial<Omit<TaskTemplate, 'id' | 'created_at'>>
+): Promise<TaskTemplate> {
+	const { data: updated, error } = await getSupabase()
+		.from('task_templates')
+		.update(data)
+		.eq('id', id)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Task template update failed: ${error.message}`);
+	return updated as TaskTemplate;
+}
+
+/**
+ * Soft-delete a task template by setting active = false.
+ */
+export async function deleteTaskTemplate(id: string): Promise<void> {
+	const { error } = await getSupabase()
+		.from('task_templates')
+		.update({ active: false })
+		.eq('id', id);
+
+	if (error) throw new Error(`Task template delete failed: ${error.message}`);
+}
+
+/**
+ * Get sorted unique project types from active task templates.
+ */
+export async function getDistinctProjectTypes(): Promise<string[]> {
+	const { data, error } = await getSupabase()
+		.from('task_templates')
+		.select('project_type')
+		.eq('active', true);
+
+	if (error) throw new Error(`Project types fetch failed: ${error.message}`);
+	const unique = [...new Set((data || []).map((r: { project_type: string }) => r.project_type))];
+	return unique.sort();
+}
+
+// ---------------------------------------------------------------------------
+// Scope Definitions
+// ---------------------------------------------------------------------------
+
+export interface ScopeDefinition {
+	id: string;
+	deal_id: string;
+	project_type: string;
+	areas: Array<{ name: string; sqft?: number }>;
+	included_items: string[];
+	excluded_items: string[];
+	selections_needed: string[];
+	permit_required: boolean;
+	long_lead_items: string[];
+	special_conditions: Record<string, boolean | string>;
+	trade_notes: string | null;
+	status: 'draft' | 'reviewed' | 'approved' | 'generated';
+	created_at: string;
+	updated_at: string;
+}
+
+/**
+ * Fetch the scope definition for a deal.
+ */
+export async function getScopeDefinition(dealId: string): Promise<ScopeDefinition | null> {
+	const { data, error } = await getSupabase()
+		.from('scope_definitions')
+		.select('*')
+		.eq('deal_id', dealId)
+		.maybeSingle();
+
+	if (error) throw new Error(`Scope definition fetch failed: ${error.message}`);
+	return data as ScopeDefinition | null;
+}
+
+/**
+ * Insert or update a scope definition for a deal.
+ */
+export async function upsertScopeDefinition(
+	data: Omit<ScopeDefinition, 'id' | 'created_at' | 'updated_at'>
+): Promise<ScopeDefinition> {
+	const insertData = {
+		...data,
+		updated_at: new Date().toISOString()
+	};
+
+	const { data: upserted, error } = await getSupabase()
+		.from('scope_definitions')
+		.upsert([insertData], { onConflict: 'deal_id' })
+		.select()
+		.single();
+
+	if (error) throw new Error(`Scope definition upsert failed: ${error.message}`);
+	return upserted as ScopeDefinition;
+}
+
+/**
+ * Update the status of a scope definition by deal id.
+ */
+export async function updateScopeStatus(
+	dealId: string,
+	status: ScopeDefinition['status']
+): Promise<ScopeDefinition> {
+	const { data, error } = await getSupabase()
+		.from('scope_definitions')
+		.update({ status, updated_at: new Date().toISOString() })
+		.eq('deal_id', dealId)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Scope status update failed: ${error.message}`);
+	return data as ScopeDefinition;
+}
+
+/**
+ * List all scope definitions, optionally filtered by status, newest first.
+ */
+export async function listScopeDefinitions(status?: string): Promise<ScopeDefinition[]> {
+	let query = getSupabase()
+		.from('scope_definitions')
+		.select('*')
+		.order('updated_at', { ascending: false });
+
+	if (status) query = query.eq('status', status);
+
+	const { data, error } = await query;
+
+	if (error) throw new Error(`Scope definitions list failed: ${error.message}`);
+	return (data as ScopeDefinition[]) || [];
+}
+
+// ---------------------------------------------------------------------------
+// Generation Log
+// ---------------------------------------------------------------------------
+
+export interface GenerationLog {
+	id: string;
+	deal_id: string;
+	scope_definition_id: string | null;
+	status: 'started' | 'creating_project' | 'creating_phases' | 'creating_tasklists' | 'creating_tasks' | 'updating_crm' | 'completed' | 'failed' | 'partial';
+	zoho_project_id: string | null;
+	phases_created: number;
+	tasklists_created: number;
+	tasks_created: number;
+	tasks_total: number;
+	last_completed_step: string | null;
+	error_message: string | null;
+	started_at: string;
+	completed_at: string | null;
+	created_at: string;
+}
+
+/**
+ * Create a new generation log entry with status 'started'.
+ */
+export async function createGenerationLog(data: {
+	deal_id: string;
+	scope_definition_id?: string;
+	tasks_total?: number;
+}): Promise<GenerationLog> {
+	const { data: created, error } = await getSupabase()
+		.from('generation_log')
+		.insert({
+			deal_id: data.deal_id,
+			scope_definition_id: data.scope_definition_id ?? null,
+			tasks_total: data.tasks_total ?? 0,
+			status: 'started'
+		})
+		.select()
+		.single();
+
+	if (error) throw new Error(`Generation log create failed: ${error.message}`);
+	return created as GenerationLog;
+}
+
+/**
+ * Update a generation log entry by id.
+ */
+export async function updateGenerationLog(
+	id: string,
+	data: Partial<Omit<GenerationLog, 'id' | 'created_at' | 'started_at'>>
+): Promise<GenerationLog> {
+	const { data: updated, error } = await getSupabase()
+		.from('generation_log')
+		.update(data)
+		.eq('id', id)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Generation log update failed: ${error.message}`);
+	return updated as GenerationLog;
+}
+
+/**
+ * Fetch the most recent generation log for a deal.
+ */
+export async function getLatestGenerationLog(dealId: string): Promise<GenerationLog | null> {
+	const { data, error } = await getSupabase()
+		.from('generation_log')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+
+	if (error) throw new Error(`Generation log fetch failed: ${error.message}`);
+	return data as GenerationLog | null;
+}
+
+/**
+ * Fetch all generation logs for a deal, newest first.
+ */
+export async function getGenerationLogsByDeal(dealId: string): Promise<GenerationLog[]> {
+	const { data, error } = await getSupabase()
+		.from('generation_log')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Generation logs fetch failed: ${error.message}`);
+	return (data as GenerationLog[]) || [];
+}

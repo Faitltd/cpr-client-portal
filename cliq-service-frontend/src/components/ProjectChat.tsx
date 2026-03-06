@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { io, Socket } from "socket.io-client";
 
 interface Message {
   sender: string;
@@ -32,7 +33,14 @@ export function ProjectChat({ projectSlug, authToken, apiBaseUrl }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [hasConnected, setHasConnected] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Set of "${time}|${text}" keys for every message added to state, used for dedup (b).
+  const seenKeysRef = useRef<Set<string>>(new Set());
+  // Recent optimistic sends { text: "[CLIENT] ...", time: epoch ms }, used for dedup (a).
+  const recentSendsRef = useRef<{ text: string; time: number }[]>([]);
 
   const authHeaders = {
     Authorization: `Bearer ${authToken}`,
@@ -55,7 +63,13 @@ export function ProjectChat({ projectSlug, authToken, apiBaseUrl }: Props) {
           throw new Error(`${res.status} ${body}`);
         }
         const data = (await res.json()) as { messages: Message[] };
-        if (!cancelled) setMessages(data.messages);
+        if (!cancelled) {
+          // Populate seenKeys from the initial load so socket duplicates are filtered.
+          for (const m of data.messages) {
+            seenKeysRef.current.add(`${m.time}|${m.text}`);
+          }
+          setMessages(data.messages);
+        }
       } catch (err) {
         if (!cancelled) setError(`Failed to load history: ${(err as Error).message}`);
       } finally {
@@ -67,6 +81,48 @@ export function ProjectChat({ projectSlug, authToken, apiBaseUrl }: Props) {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectSlug, apiBaseUrl]);
+
+  // Socket.IO connection for real-time updates.
+  useEffect(() => {
+    const socket: Socket = io(apiBaseUrl, {
+      query: { projectSlug },
+      auth: { token: authToken },
+    });
+
+    socket.on("connect", () => {
+      setConnected(true);
+      setHasConnected(true);
+    });
+
+    socket.on("disconnect", () => {
+      setConnected(false);
+    });
+
+    socket.on("new_message", (msg: Message) => {
+      const key = `${msg.time}|${msg.text}`;
+
+      // Dedup (b): message already seen from history load or a previous socket push.
+      if (seenKeysRef.current.has(key)) return;
+
+      // Dedup (a): matches a recently sent optimistic client message (within 30 s).
+      if (!msg.isTeam) {
+        const now = Date.now();
+        recentSendsRef.current = recentSendsRef.current.filter((s) => now - s.time < 30_000);
+        if (recentSendsRef.current.some((s) => s.text === msg.text)) {
+          seenKeysRef.current.add(key);
+          return;
+        }
+      }
+
+      seenKeysRef.current.add(key);
+      setMessages((prev) => [...prev, msg]);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectSlug, authToken, apiBaseUrl]);
 
   // Scroll to bottom whenever messages change.
   useEffect(() => {
@@ -84,6 +140,12 @@ export function ProjectChat({ projectSlug, authToken, apiBaseUrl }: Props) {
       time: new Date().toISOString(),
       isTeam: false,
     };
+
+    // Track for dedup (a): mark this text as recently sent so the poller broadcast is ignored.
+    recentSendsRef.current.push({ text: `[CLIENT] ${text}`, time: Date.now() });
+    // Mark the optimistic key so any exact duplicate from socket is ignored too.
+    seenKeysRef.current.add(`${optimistic.time}|${optimistic.text}`);
+
     setMessages((prev) => [...prev, optimistic]);
     setInput("");
     setSending(true);
@@ -122,6 +184,12 @@ export function ProjectChat({ projectSlug, authToken, apiBaseUrl }: Props) {
         <h2>Project Chat</h2>
         <span>#{projectSlug}</span>
       </div>
+
+      {hasConnected && !connected && (
+        <div style={{ color: "#888", fontSize: "0.8rem", textAlign: "center", padding: "4px 0" }}>
+          Reconnecting…
+        </div>
+      )}
 
       {loading && <div className="chat-status loading">Loading messages...</div>}
       {error && <div className="chat-status error">{error}</div>}

@@ -6,6 +6,8 @@ import {
   postClientMessage,
   getChannelHistory,
 } from "../services/cliq-channel";
+import { getMessages } from "../services/db";
+import type { Message } from "../types";
 
 const router = Router();
 
@@ -52,12 +54,46 @@ router.get("/history/:projectSlug", authenticate, async (req: Request, res: Resp
     return;
   }
 
+  // Compute channel name without a Cliq round-trip for the DB lookup.
+  const name = channelName(projectSlug);
+  const cached = getMessages(name, 50);
+
+  if (cached.length > 0) {
+    // Fast path: serve from DB cache without hitting Cliq.
+    const messages: Message[] = cached.map((m) => ({
+      sender: m.senderName,
+      text: m.text,
+      time: new Date(m.timestamp).toISOString(),
+      isTeam: m.isTeam,
+    }));
+    res.json({ messages });
+    return;
+  }
+
+  // Slow path: DB is empty — fetch from Cliq (this also populates the DB).
   try {
     const messages = await getChannelHistory(projectSlug, cid);
     res.json({ messages });
   } catch (err) {
     console.error(`[${cid}] getChannelHistory failed:`, (err as Error).message);
-    res.status(502).json({ error: "Failed to fetch message history from Cliq" });
+
+    // Final fallback: check if a concurrent request populated the DB while we waited.
+    const fallback = getMessages(name, 50);
+    if (fallback.length > 0) {
+      const messages: Message[] = fallback.map((m) => ({
+        sender: m.senderName,
+        text: m.text,
+        time: new Date(m.timestamp).toISOString(),
+        isTeam: m.isTeam,
+      }));
+      res.json({ messages, correlationId: cid, warning: "served_from_cache_only" });
+      return;
+    }
+
+    res.status(502).json({
+      error: "Failed to fetch message history from Cliq",
+      correlationId: cid,
+    });
   }
 });
 
