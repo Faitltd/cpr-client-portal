@@ -7,6 +7,10 @@
 	let error = '';
 	let invoiceError = '';
 	let invoicesOpen = true;
+	let pendingCount = 0;
+	let pendingItems: any[] = [];
+	let pendingLoading = true;
+	let pendingError = '';
 	const getProgressPhotosLink = (deal: any) => {
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '';
@@ -41,6 +45,21 @@
 	$: regularInvoices = invoices.filter((invoice) => !changeOrders.includes(invoice));
 
 	onMount(async () => {
+		fetch('/api/client/pending')
+			.then(async (res) => {
+				if (res.status === 401) return;
+				if (!res.ok) throw new Error('Failed');
+				const payload = await res.json();
+				pendingCount = payload.count || 0;
+				pendingItems = payload.data || [];
+			})
+			.catch((err) => {
+				pendingError = err.message || 'Failed to load pending items';
+			})
+			.finally(() => {
+				pendingLoading = false;
+			});
+
 		try {
 			const [projectsRes, invoicesRes] = await Promise.all([
 				fetch('/api/projects'),
@@ -77,6 +96,35 @@
 			</div>
 		</div>
 	</header>
+
+	<div class="pending-widget">
+		<div class="pending-header">
+			<span class="pending-title">Pending From You</span>
+			{#if !pendingLoading && pendingCount > 0}
+				<span class="pending-badge">{pendingCount}</span>
+			{/if}
+		</div>
+		{#if pendingLoading}
+			<p class="pending-muted">Loading...</p>
+		{:else if pendingError}
+			<p class="pending-muted">{pendingError}</p>
+		{:else if pendingCount === 0}
+			<p class="pending-muted">All caught up — nothing pending.</p>
+		{:else}
+			<ul class="pending-list">
+				{#each pendingItems.slice(0, 3) as item (item.id)}
+					<li class="pending-row">
+						<span class="pending-item-title">{item.title}</span>
+						<span class="pending-item-deal">{item.deal_name || ''}</span>
+						{#if item.priority}
+							<span class="pending-priority pending-priority-{item.priority}">{item.priority}</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			<a class="pending-view-all" href="/decisions">View All →</a>
+		{/if}
+	</div>
 
 	{#if loading}
 		<div class="loading">Loading your projects...</div>
@@ -406,6 +454,118 @@
 
 	.invoice-error {
 		color: #c00;
+	}
+
+	.pending-widget {
+		border: 1px solid #fcd34d;
+		border-left: 4px solid #f59e0b;
+		background: #fffbeb;
+		border-radius: 8px;
+		padding: 1.25rem 1.5rem;
+		margin-bottom: 2rem;
+	}
+
+	.pending-header {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.pending-title {
+		font-weight: 700;
+		font-size: 1rem;
+		color: #92400e;
+	}
+
+	.pending-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #f59e0b;
+		color: #fff;
+		border-radius: 999px;
+		font-size: 0.78rem;
+		font-weight: 800;
+		padding: 0.1rem 0.5rem;
+		min-width: 1.4rem;
+	}
+
+	.pending-muted {
+		margin: 0;
+		color: #92400e;
+		font-size: 0.9rem;
+		opacity: 0.75;
+	}
+
+	.pending-list {
+		list-style: none;
+		margin: 0 0 0.85rem;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.pending-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.pending-item-title {
+		font-weight: 600;
+		color: #111827;
+		font-size: 0.92rem;
+	}
+
+	.pending-item-deal {
+		color: #6b7280;
+		font-size: 0.85rem;
+	}
+
+	.pending-priority {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.15rem 0.45rem;
+		border-radius: 999px;
+		font-size: 0.75rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.pending-priority-urgent {
+		background: #dc2626;
+		color: #fff;
+	}
+
+	.pending-priority-high {
+		background: #f59e0b;
+		color: #1c1917;
+	}
+
+	.pending-priority-normal {
+		background: #e5e7eb;
+		color: #374151;
+	}
+
+	.pending-priority-low {
+		background: #dbeafe;
+		color: #1d4ed8;
+	}
+
+	.pending-view-all {
+		display: inline-block;
+		color: #b45309;
+		font-weight: 700;
+		font-size: 0.9rem;
+		text-decoration: none;
+	}
+
+	.pending-view-all:hover {
+		text-decoration: underline;
 	}
 
 	@media (max-width: 720px) {

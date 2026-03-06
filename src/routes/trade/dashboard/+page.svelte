@@ -244,6 +244,9 @@
 			<a class="field-update-secondary" href="/trade/projects">
 				Projects
 			</a>
+			<a class="field-update-secondary" href="/trade/daily-log">
+				Daily Log
+			</a>
 			{#if getProgressPhotosLink(selectedDeal)}
 				<a
 					class="field-update-secondary"

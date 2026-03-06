@@ -1,0 +1,166 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f0f2f5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+/* ── Chat container ── */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  height: 640px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.chat-header {
+  padding: 16px 20px;
+  background: #1a56db;
+  color: #fff;
+}
+
+.chat-header h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.chat-header span {
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+/* ── Message list ── */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+
+/* ── Individual bubble row ── */
+.message-row {
+  display: flex;
+  flex-direction: column;
+  max-width: 72%;
+}
+
+.message-row.team {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.message-row.client {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message-meta {
+  font-size: 0.68rem;
+  color: #888;
+  margin-bottom: 3px;
+}
+
+.message-bubble {
+  padding: 9px 14px;
+  border-radius: 16px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.message-row.team .message-bubble {
+  background: #f0f2f5;
+  color: #1a1a1a;
+  border-bottom-left-radius: 4px;
+}
+
+.message-row.client .message-bubble {
+  background: #1a56db;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+/* ── Error / loading banners ── */
+.chat-status {
+  padding: 8px 16px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.chat-status.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.chat-status.loading {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+/* ── Input row ── */
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.chat-input-row input {
+  flex: 1;
+  padding: 9px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 24px;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.chat-input-row input:focus {
+  border-color: #1a56db;
+}
+
+.chat-input-row input:disabled {
+  background: #f9fafb;
+}
+
+.chat-input-row button {
+  padding: 9px 18px;
+  background: #1a56db;
+  color: #fff;
+  border: none;
+  border-radius: 24px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.chat-input-row button:hover:not(:disabled) {
+  background: #1648c0;
+}
+
+.chat-input-row button:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}

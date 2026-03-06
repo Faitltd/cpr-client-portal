@@ -467,3 +467,213 @@ export async function clearClients(): Promise<void> {
 	const { error } = await getSupabase().from('clients').delete().not('id', 'is', null);
 	if (error) throw new Error(`Client clear failed: ${error.message}`);
 }
+
+// ---------------------------------------------------------------------------
+// Daily Logs
+// ---------------------------------------------------------------------------
+
+export interface DailyLog {
+	id: string;
+	deal_id: string;
+	trade_partner_id: string | null;
+	log_date: string;
+	hours_worked: number | null;
+	work_completed: string | null;
+	work_planned: string | null;
+	issues_encountered: string | null;
+	photo_ids: string[] | null;
+	weather_delay: boolean;
+	created_at: string;
+	updated_at: string;
+}
+
+/**
+ * Insert or update a trade partner's daily log for a given deal + date.
+ * Unique constraint: (deal_id, trade_partner_id, log_date)
+ */
+export async function upsertDailyLog(
+	log: Omit<DailyLog, 'id' | 'created_at' | 'updated_at'>
+): Promise<DailyLog> {
+	const { data, error } = await getSupabase()
+		.from('daily_logs')
+		.upsert([log], { onConflict: 'deal_id,trade_partner_id,log_date' })
+		.select()
+		.single();
+
+	if (error) throw new Error(`Daily log upsert failed: ${error.message}`);
+	return data as DailyLog;
+}
+
+/**
+ * Fetch all daily logs for a deal, newest first. Admin use.
+ */
+export async function getDailyLogsForDeal(dealId: string): Promise<DailyLog[]> {
+	const { data, error } = await getSupabase()
+		.from('daily_logs')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('log_date', { ascending: false });
+
+	if (error) throw new Error(`Daily log fetch failed: ${error.message}`);
+	return (data as DailyLog[]) || [];
+}
+
+/**
+ * Fetch a trade partner's own daily logs for a deal, newest first.
+ */
+export async function getMyDailyLogsForDeal(
+	dealId: string,
+	tradePartnerId: string
+): Promise<DailyLog[]> {
+	const { data, error } = await getSupabase()
+		.from('daily_logs')
+		.select('*')
+		.eq('deal_id', dealId)
+		.eq('trade_partner_id', tradePartnerId)
+		.order('log_date', { ascending: false });
+
+	if (error) throw new Error(`Daily log fetch failed: ${error.message}`);
+	return (data as DailyLog[]) || [];
+}
+
+// ---------------------------------------------------------------------------
+// Comms Log
+// ---------------------------------------------------------------------------
+
+export interface CommsLogEntry {
+	id: string;
+	deal_id: string;
+	direction: 'outbound' | 'inbound';
+	channel: 'email' | 'phone' | 'text' | 'portal' | 'in_person';
+	subject: string | null;
+	summary: string | null;
+	contacted_by: string | null;
+	sla_target_hours: number;
+	created_at: string;
+}
+
+/**
+ * Record a client communication event.
+ */
+export async function logComm(
+	entry: Omit<CommsLogEntry, 'id' | 'created_at'>
+): Promise<CommsLogEntry> {
+	const { data, error } = await getSupabase()
+		.from('comms_log')
+		.insert(entry)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Comm log insert failed: ${error.message}`);
+	return data as CommsLogEntry;
+}
+
+/**
+ * Fetch all comms for a deal, newest first.
+ */
+export async function getCommsForDeal(dealId: string): Promise<CommsLogEntry[]> {
+	const { data, error } = await getSupabase()
+		.from('comms_log')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Comms log fetch failed: ${error.message}`);
+	return (data as CommsLogEntry[]) || [];
+}
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+export interface Approval {
+	id: string;
+	deal_id: string;
+	title: string;
+	description: string | null;
+	category: 'selection' | 'change_order' | 'design' | 'schedule' | 'budget' | 'general';
+	assigned_to: 'client' | 'admin';
+	status: 'pending' | 'approved' | 'rejected' | 'deferred';
+	priority: 'low' | 'normal' | 'high' | 'urgent';
+	due_date: string | null;
+	responded_at: string | null;
+	response_note: string | null;
+	created_by: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+/**
+ * Create a new approval item for a deal.
+ */
+export async function createApproval(
+	approval: Omit<Approval, 'id' | 'responded_at' | 'response_note' | 'created_at' | 'updated_at'>
+): Promise<Approval> {
+	const { data, error } = await getSupabase()
+		.from('approvals')
+		.insert(approval)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Approval create failed: ${error.message}`);
+	return data as Approval;
+}
+
+/**
+ * Fetch all approvals for a deal.
+ */
+export async function getApprovalsForDeal(dealId: string): Promise<Approval[]> {
+	const { data, error } = await getSupabase()
+		.from('approvals')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Approvals fetch failed: ${error.message}`);
+	return (data as Approval[]) || [];
+}
+
+/**
+ * Fetch only pending approvals for a deal, optionally filtered by assignee.
+ */
+export async function getPendingApprovalsForDeal(
+	dealId: string,
+	assignedTo?: 'client' | 'admin'
+): Promise<Approval[]> {
+	let query = getSupabase()
+		.from('approvals')
+		.select('*')
+		.eq('deal_id', dealId)
+		.eq('status', 'pending');
+
+	if (assignedTo) query = query.eq('assigned_to', assignedTo);
+
+	const { data, error } = await query.order('priority').order('due_date', { nullsFirst: false });
+
+	if (error) throw new Error(`Pending approvals fetch failed: ${error.message}`);
+	return (data as Approval[]) || [];
+}
+
+/**
+ * Record a response to an approval item.
+ */
+export async function updateApprovalStatus(
+	approvalId: string,
+	status: Approval['status'],
+	responseNote?: string
+): Promise<Approval> {
+	const { data, error } = await getSupabase()
+		.from('approvals')
+		.update({
+			status,
+			responded_at: new Date().toISOString(),
+			response_note: responseNote ?? null,
+			updated_at: new Date().toISOString()
+		})
+		.eq('id', approvalId)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Approval update failed: ${error.message}`);
+	return data as Approval;
+}

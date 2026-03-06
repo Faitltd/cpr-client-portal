@@ -26,6 +26,9 @@
 				<a class="admin-link" href="/admin/folder-cache">Folder Cache</a>
 				<a class="admin-link" href="/admin/api-cache">API Cache</a>
 				<a class="admin-link" href="/admin/zprojects">Projects</a>
+				<a class="admin-link" href="/admin/approvals">Approvals</a>
+				<a class="admin-link" href="/admin/comms">Comms</a>
+				<a class="admin-link" href="/admin/daily-logs">Daily Logs</a>
 				<a class="admin-link" href="/admin/logout">Log out</a>
 			</nav>
 		</div>
