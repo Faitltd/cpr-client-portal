@@ -1099,3 +1099,148 @@ export async function getOpenFieldIssuesForDeal(dealId: string): Promise<FieldIs
 		return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 	});
 }
+
+// ---------------------------------------------------------------------------
+// Procurement
+// ---------------------------------------------------------------------------
+
+export interface ProcurementItem {
+	id: string;
+	deal_id: string;
+	item_name: string;
+	category: string | null;
+	status: string;
+	vendor: string | null;
+	cost: number | null;
+	lead_time_days: number | null;
+	expected_date: string | null;
+	actual_date: string | null;
+	notes: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+/**
+ * Create a new procurement item for a deal.
+ */
+export async function createProcurementItem(
+	data: Omit<ProcurementItem, 'id' | 'created_at' | 'updated_at'>
+): Promise<ProcurementItem> {
+	const { data: created, error } = await getSupabase()
+		.from('procurement_items')
+		.insert(data)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Procurement item create failed: ${error.message}`);
+	return created as ProcurementItem;
+}
+
+/**
+ * Fetch all procurement items for a deal, newest first.
+ */
+export async function getProcurementForDeal(dealId: string): Promise<ProcurementItem[]> {
+	const { data, error } = await getSupabase()
+		.from('procurement_items')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Procurement item fetch failed: ${error.message}`);
+	return (data as ProcurementItem[]) || [];
+}
+
+/**
+ * Update selected fields for a procurement item.
+ */
+export async function updateProcurementItem(
+	id: string,
+	updates: Partial<
+		Pick<
+			ProcurementItem,
+			'status' | 'vendor' | 'cost' | 'lead_time_days' | 'expected_date' | 'actual_date' | 'notes'
+		>
+	>
+): Promise<ProcurementItem> {
+	const { data, error } = await getSupabase()
+		.from('procurement_items')
+		.update({ ...updates, updated_at: new Date().toISOString() })
+		.eq('id', id)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Procurement item update failed: ${error.message}`);
+	return data as ProcurementItem;
+}
+
+// ---------------------------------------------------------------------------
+// Change Orders
+// ---------------------------------------------------------------------------
+
+export interface ChangeOrder {
+	id: string;
+	deal_id: string;
+	title: string;
+	description: string | null;
+	estimated_amount: number | null;
+	approved_amount: number | null;
+	status: string;
+	identified_by: string | null;
+	identified_at: string;
+	approved_at: string | null;
+	billed_at: string | null;
+	created_at: string;
+}
+
+/**
+ * Create a new change order for a deal.
+ */
+export async function createChangeOrder(
+	data: Omit<ChangeOrder, 'id' | 'identified_at' | 'approved_at' | 'billed_at' | 'created_at'>
+): Promise<ChangeOrder> {
+	const { data: created, error } = await getSupabase()
+		.from('change_orders')
+		.insert(data)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Change order create failed: ${error.message}`);
+	return created as ChangeOrder;
+}
+
+/**
+ * Fetch all change orders for a deal, newest first.
+ */
+export async function getChangeOrdersForDeal(dealId: string): Promise<ChangeOrder[]> {
+	const { data, error } = await getSupabase()
+		.from('change_orders')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Change order fetch failed: ${error.message}`);
+	return (data as ChangeOrder[]) || [];
+}
+
+/**
+ * Update selected fields for a change order.
+ */
+export async function updateChangeOrder(
+	id: string,
+	updates: Partial<
+		Pick<
+			ChangeOrder,
+			'title' | 'description' | 'estimated_amount' | 'approved_amount' | 'status' | 'approved_at' | 'billed_at'
+		>
+	>
+): Promise<ChangeOrder> {
+	const { data, error } = await getSupabase()
+		.from('change_orders')
+		.update(updates)
+		.eq('id', id)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Change order update failed: ${error.message}`);
+	return data as ChangeOrder;
+}
