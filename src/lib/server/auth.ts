@@ -390,9 +390,13 @@ export async function getZohoCurrentUser(accessToken: string, apiDomain?: string
 }
 
 /**
- * Find Zoho contact by email (admin token)
+ * Find all Zoho contacts by email (admin token)
  */
-export async function findContactByEmail(accessToken: string, email: string, apiDomain?: string): Promise<ClientProfile | null> {
+export async function findContactsByEmail(
+	accessToken: string,
+	email: string,
+	apiDomain?: string
+): Promise<ClientProfile[]> {
 	const search = await zohoApiCall(
 		accessToken,
 		`/Contacts/search?email=${encodeURIComponent(email)}&fields=${encodeURIComponent(CONTACT_FIELDS)}`,
@@ -400,9 +404,22 @@ export async function findContactByEmail(accessToken: string, email: string, api
 		apiDomain
 	);
 
-	const contact = search.data?.[0];
-	if (!contact) return null;
-	return mapContact(contact);
+	const contacts = Array.isArray(search.data) ? search.data : [];
+	if (contacts.length > 0) {
+		return contacts.map(mapContact).filter((contact: ClientProfile) => Boolean(contact.email));
+	}
+
+	const allContacts = await listAllContacts(accessToken, apiDomain);
+	const targetEmail = email.trim().toLowerCase();
+	return allContacts.filter((contact) => contact.email?.trim().toLowerCase() === targetEmail);
+}
+
+/**
+ * Find Zoho contact by email (admin token)
+ */
+export async function findContactByEmail(accessToken: string, email: string, apiDomain?: string): Promise<ClientProfile | null> {
+	const contacts = await findContactsByEmail(accessToken, email, apiDomain);
+	return contacts[0] || null;
 }
 
 /**

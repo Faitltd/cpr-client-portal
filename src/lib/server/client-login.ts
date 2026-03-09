@@ -1,4 +1,4 @@
-import { findContactByEmail } from './auth';
+import { findContactsByEmail } from './auth';
 import { normalizeClientPhonePassword } from './client-password';
 import {
 	getZohoTokens,
@@ -38,11 +38,12 @@ export async function reconcileClientPhoneLogin(email: string, password: string)
 		const accessToken = await getValidZohoAccessToken();
 		if (!accessToken) return null;
 
-		const contact = await findContactByEmail(accessToken, email);
-		if (!contact?.email) return null;
-
-		const normalizedZohoPhone = normalizeClientPhonePassword(contact.phone);
-		if (!normalizedZohoPhone || normalizedZohoPhone !== normalizedAttempt) {
+		const contacts = await findContactsByEmail(accessToken, email);
+		const contact = contacts.find((candidate) => {
+			const normalizedZohoPhone = normalizeClientPhonePassword(candidate.phone);
+			return normalizedZohoPhone && normalizedZohoPhone === normalizedAttempt;
+		});
+		if (!contact?.email) {
 			return null;
 		}
 
@@ -51,7 +52,7 @@ export async function reconcileClientPhoneLogin(email: string, password: string)
 			portal_active: true
 		});
 
-		await setClientPassword(saved.id, hashPassword(normalizedZohoPhone));
+		await setClientPassword(saved.id, hashPassword(normalizedAttempt));
 		return saved;
 	} catch (err) {
 		console.error('Failed to reconcile client phone login', { email, error: err });
