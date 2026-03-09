@@ -78,7 +78,10 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	const client = await getClientAuthByEmail(email);
 	if (client && verifyClientPasswordInput(password, client.password_hash)) {
 		if (!client.portal_active) {
-			return json({ message: 'Your portal access is not active yet.' }, { status: 403 });
+			if (expectsJson) {
+				return json({ message: 'Your portal access is not active yet.' }, { status: 403 });
+			}
+			throw redirect(303, '/auth/portal?error=inactive');
 		}
 
 		const sessionId = createHash('sha256')
