@@ -53,8 +53,10 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		throw error(403, 'Access denied to this project');
 	}
 
-	const candidates = getProgressPhotosLinkCandidates(deal);
-	const url = (await resolveProgressPhotosLink(deal)) || pickBestProgressPhotosFallback(candidates);
+	const directPhotosDeal = { Progress_Photos: deal?.Progress_Photos };
+	const candidates = getProgressPhotosLinkCandidates(directPhotosDeal);
+	const url =
+		(await resolveProgressPhotosLink(directPhotosDeal)) || pickBestProgressPhotosFallback(candidates);
 	if (url) {
 		throw redirect(302, url);
 	}
