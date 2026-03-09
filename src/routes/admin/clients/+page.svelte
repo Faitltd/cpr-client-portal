@@ -52,7 +52,7 @@
 	<header>
 		<div>
 			<h1>Client Passwords</h1>
-			<p>Set or reset a client password without email.</p>
+			<p>New client logins default to email as username and phone number as password.</p>
 		</div>
 		<a class="logout" href="/admin/logout">Logout</a>
 	</header>

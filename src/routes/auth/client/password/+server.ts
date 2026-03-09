@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { createHash } from 'crypto';
 import { dev } from '$app/environment';
 import { createSession, getClientAuthByEmail } from '$lib/server/db';
-import { verifyPassword } from '$lib/server/password';
+import { verifyClientPasswordInput } from '$lib/server/client-password';
 import type { RequestHandler } from './$types';
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
@@ -17,7 +17,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	const client = await getClientAuthByEmail(email);
-	if (!client || !verifyPassword(password, client.password_hash)) {
+	if (!client || !verifyClientPasswordInput(password, client.password_hash)) {
 		return json({ message: 'Invalid email or password.' }, { status: 401 });
 	}
 	if (!client.portal_active) {

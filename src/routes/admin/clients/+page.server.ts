@@ -20,6 +20,7 @@ import {
 	upsertTradePartner,
 	upsertZohoTokens
 } from '$lib/server/db';
+import { normalizeClientPhonePassword } from '$lib/server/client-password';
 import { hashPassword } from '$lib/server/password';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -63,19 +64,6 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 	}
 	// Short expiry to force a refresh soon if Zoho returned an invalid date.
 	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
-function toTenDigitPhone(value: string | null | undefined) {
-	if (!value) return null;
-	const digits = value.replace(/\D/g, '');
-	if (!digits) return null;
-	if (digits.length === 11 && digits.startsWith('1')) {
-		return digits.slice(1);
-	}
-	if (digits.length === 10) {
-		return digits;
-	}
-	return null;
 }
 
 function getLookupName(value: unknown) {
@@ -162,57 +150,55 @@ export const actions: Actions = {
 				});
 			}
 
-			let synced = 0;
-			let errors = 0;
-			let passwordSet = 0;
-			let missingPhone = 0;
-			const activeContacts = await listContactsForActiveDeals(accessToken);
-			const seedContacts = await listContactsForPasswordSeedDeals(accessToken);
+				let synced = 0;
+				let errors = 0;
+				let passwordSet = 0;
+				let missingPhone = 0;
+				const activeContacts = await listContactsForActiveDeals(accessToken);
+				const seedContacts = await listContactsForPasswordSeedDeals(accessToken);
 
-			const activeEmails = new Set(
-				activeContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
-			);
-			const seedEmails = new Set(
-				seedContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
-			);
+				const activeEmails = new Set(
+					activeContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
+				);
 
-			const contactMap = new Map<string, typeof activeContacts[number]>();
-			for (const contact of [...activeContacts, ...seedContacts]) {
-				const email = contact.email?.toLowerCase();
-				if (!email) continue;
-				if (!contactMap.has(email)) {
-					contactMap.set(email, contact);
-				}
-			}
-
-			for (const [email, contact] of contactMap.entries()) {
-				const portalActive = activeEmails.has(email);
-				try {
-					const saved = await upsertClient({ ...contact, portal_active: portalActive });
-					synced += 1;
-					const phoneDigits = toTenDigitPhone(contact.phone);
-					if (phoneDigits) {
-						await setClientPassword(saved.id, hashPassword(phoneDigits));
-						passwordSet += 1;
-					} else {
-						missingPhone += 1;
+				const contactMap = new Map<string, typeof activeContacts[number]>();
+				for (const contact of [...activeContacts, ...seedContacts]) {
+					const email = contact.email?.toLowerCase();
+					if (!email) continue;
+					if (!contactMap.has(email)) {
+						contactMap.set(email, contact);
 					}
-				} catch (err) {
-					errors += 1;
-					console.error('Failed to sync contact', contact.email, err);
 				}
+
+				for (const [email, contact] of contactMap.entries()) {
+					const portalActive = activeEmails.has(email);
+					try {
+						const saved = await upsertClient({ ...contact, portal_active: portalActive });
+						synced += 1;
+						const phonePassword = normalizeClientPhonePassword(contact.phone);
+						if (phonePassword) {
+							await setClientPassword(saved.id, hashPassword(phonePassword));
+							passwordSet += 1;
+						} else {
+							missingPhone += 1;
+						}
+					} catch (err) {
+						errors += 1;
+						console.error('Failed to sync contact', contact.email, err);
+					}
+				}
+
+				const summary =
+					`Synced ${synced} contacts. Passwords set: ${passwordSet}. Missing phone: ${missingPhone}. ` +
+					`Default client login is email + phone number.`;
+				const message = errors ? `${summary} ${errors} failed.` : summary;
+
+				return { message };
+			} catch (err) {
+				const message = err instanceof Error ? err.message : 'Unknown error';
+				console.error('Client sync failed', err);
+				return fail(500, { message: `Client sync failed: ${message}` });
 			}
-
-			const message = errors
-				? `Synced ${synced} contacts. ${errors} failed. Passwords set: ${passwordSet}. Missing phone: ${missingPhone}.`
-				: `Synced ${synced} contacts. Passwords set: ${passwordSet}. Missing phone: ${missingPhone}.`;
-
-			return { message };
-		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Unknown error';
-			console.error('Client sync failed', err);
-			return fail(500, { message: `Client sync failed: ${message}` });
-		}
 	},
 	debugDealStages: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));

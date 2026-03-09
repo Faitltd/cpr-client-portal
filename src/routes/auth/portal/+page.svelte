@@ -43,7 +43,7 @@
 <div class="container">
 	<header>
 		<h1>Portal Login</h1>
-		<p>Sign in with your password.</p>
+		<p>Use your email as the username. New client passwords default to the client phone number.</p>
 	</header>
 
 	<form class="card" method="post" on:submit|preventDefault={submitPassword}>

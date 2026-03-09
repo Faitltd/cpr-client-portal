@@ -43,7 +43,7 @@
 <div class="container">
 	<header>
 		<h1>Client Login</h1>
-		<p>Sign in with your password.</p>
+		<p>Use your email as the username. New clients start with their phone number as the password.</p>
 	</header>
 
 	<form class="card" method="post" on:submit|preventDefault={submitPassword}>

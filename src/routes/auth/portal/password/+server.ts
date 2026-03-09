@@ -8,6 +8,7 @@ import {
 	getClientAuthByEmail,
 	getTradePartnerAuthByEmail
 } from '$lib/server/db';
+import { verifyClientPasswordInput } from '$lib/server/client-password';
 import {
 	createAdminSession,
 	getAdminSessionMaxAge,
@@ -46,7 +47,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	const client = await getClientAuthByEmail(email);
-	if (client && verifyPassword(password, client.password_hash)) {
+	if (client && verifyClientPasswordInput(password, client.password_hash)) {
 		if (!client.portal_active) {
 			return json({ message: 'Your portal access is not active yet.' }, { status: 403 });
 		}
