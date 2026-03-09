@@ -31,7 +31,7 @@
 
 	const getProgressPhotosHref = (project: any) => {
 		const dealId = String(project?.deal_id || '').trim();
-		if (dealId) return `/trade/photos?dealId=${encodeURIComponent(dealId)}`;
+		if (dealId) return `/api/trade/deals/${encodeURIComponent(dealId)}/progress-photos`;
 		return '/trade/photos';
 	};
 

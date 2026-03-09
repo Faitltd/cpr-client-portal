@@ -51,7 +51,7 @@
 		p?.percent_complete ?? p?.percent_completed ?? p?.completed_percent ?? null;
 	const getProgressPhotosHref = (p: any) => {
 		const dealId = String(p?.deal_id || '').trim();
-		if (dealId) return `/trade/photos?dealId=${encodeURIComponent(dealId)}`;
+		if (dealId) return `/api/trade/deals/${encodeURIComponent(dealId)}/progress-photos`;
 		return '/trade/photos';
 	};
 

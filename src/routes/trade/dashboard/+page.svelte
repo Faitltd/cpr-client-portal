@@ -143,7 +143,7 @@
 	const getProgressPhotosHref = (deal: any) => {
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '/trade/photos';
-		return `/trade/photos?dealId=${encodeURIComponent(dealId)}`;
+		return `/api/trade/deals/${encodeURIComponent(dealId)}/progress-photos`;
 	};
 
 	const formatUpdateTimestamp = (value: string | null) => {
