@@ -225,14 +225,21 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	// Fetch actual Zoho Projects
 	const fetched = await mapConcurrent(projectIds, MAX_CONCURRENCY, async (projectId) => {
 		try {
+			const link = byProjectId.get(projectId)!;
 			const response = await getProject(projectId);
 			const project = normalizeProjectResponse(response);
-			return project ? normalizeForList(project, 'zprojects') : null;
+			return project
+				? {
+						...normalizeForList(project, 'zprojects'),
+						deal_id: link.dealId
+					}
+				: null;
 		} catch {
 			// Fallback to mapped CRM data if Zoho project fetch fails
 			const link = byProjectId.get(projectId)!;
 			return {
 				id: projectId,
+				deal_id: link.dealId,
 				name: link.dealName || `Project ${projectId}`,
 				status: link.stage || 'Unknown',
 				start_date: null,

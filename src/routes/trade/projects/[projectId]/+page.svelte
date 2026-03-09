@@ -49,6 +49,11 @@
 	const getProjectEnd = (p: any) => p?.end_date ?? p?.end_date_string ?? null;
 	const getProjectPercent = (p: any) =>
 		p?.percent_complete ?? p?.percent_completed ?? p?.completed_percent ?? null;
+	const getProgressPhotosHref = (p: any) => {
+		const dealId = String(p?.deal_id || '').trim();
+		if (dealId) return `/trade/photos?dealId=${encodeURIComponent(dealId)}`;
+		return '/trade/photos';
+	};
 
 	const taskGroups = $derived.by(() => {
 		const groups = new Map<string, ZTask[]>();
@@ -177,6 +182,9 @@
 			{#if getProjectPercent(project) !== null && getProjectPercent(project) !== undefined}
 				<p class="sub">Complete: {Number(getProjectPercent(project)).toFixed(0)}%</p>
 			{/if}
+			<div class="header-actions">
+				<a class="btn-secondary" href={getProgressPhotosHref(project)}>Progress Photos</a>
+			</div>
 		</header>
 
 		<section class="section">
@@ -307,6 +315,32 @@
 		color: #111827;
 		font-weight: 600;
 		min-height: 36px;
+	}
+
+	.header-actions {
+		margin-top: 1rem;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.btn-secondary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 42px;
+		padding: 0.7rem 1rem;
+		border-radius: 10px;
+		font-weight: 700;
+		text-decoration: none;
+		background: #f9fafb;
+		color: #111827;
+		border: 1px solid #d1d5db;
+	}
+
+	.btn-secondary:hover {
+		background: #f3f4f6;
+		border-color: #cbd5e1;
 	}
 
 	.section {

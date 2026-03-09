@@ -87,7 +87,8 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	// Build authorized project ID set and CRM deal map from trade partner's deals
 	let authorizedProjectIds: Set<string>;
 	let authorizedDealMap: Map<string, any>;
-	let fallbackLink: { dealName: string | null; stage: string | null } | null = null;
+	let fallbackLink: { dealId: string | null; dealName: string | null; stage: string | null } | null =
+		null;
 	try {
 		const deals = await getTradePartnerDeals(
 			accessToken,
@@ -105,6 +106,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 				authorizedProjectIds.add(id);
 				if (id === projectId) {
 					fallbackLink = {
+						dealId: deal?.id ? String(deal.id) : null,
 						dealName: getDealLabel(deal),
 						stage: typeof deal?.Stage === 'string' ? deal.Stage : null
 					};
@@ -123,6 +125,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		return json({
 			project: {
 				id: projectId,
+				deal_id: projectId,
 				name: getDealLabel(deal) || `Deal ${projectId.slice(-6)}`,
 				status: typeof deal.Stage === 'string' ? deal.Stage : 'Unknown',
 				start_date: deal.Created_Time || null,
@@ -142,6 +145,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		return json({
 			project: {
 				id: projectId,
+				deal_id: fallbackLink?.dealId || null,
 				name: fallbackLink?.dealName || `Project ${projectId}`,
 				status: fallbackLink?.stage || 'Unknown'
 			},
@@ -155,6 +159,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		return json({
 			project: {
 				id: projectId,
+				deal_id: fallbackLink?.dealId || null,
 				name: fallbackLink?.dealName || `Project ${projectId}`,
 				status: fallbackLink?.stage || 'Unknown'
 			},
@@ -193,5 +198,12 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 			? activitiesResult.value
 			: [];
 
-	return json({ project, tasks, activities });
+	return json({
+		project: {
+			...project,
+			deal_id: fallbackLink?.dealId || project?.deal_id || null
+		},
+		tasks,
+		activities
+	});
 };

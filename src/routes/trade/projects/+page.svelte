@@ -29,6 +29,12 @@
 		return `/trade/projects/${encodeURIComponent(id)}`;
 	};
 
+	const getProgressPhotosHref = (project: any) => {
+		const dealId = String(project?.deal_id || '').trim();
+		if (dealId) return `/trade/photos?dealId=${encodeURIComponent(dealId)}`;
+		return '/trade/photos';
+	};
+
 	const getName = (project: any) =>
 		project?.name ?? project?.Deal_Name ?? project?.Project_Name ?? 'Untitled Project';
 
@@ -139,21 +145,22 @@
 		<section class="projects-section">
 			<div class="projects-grid">
 				{#each projects as project}
-					<a class="project-card" href={getHref(project)}>
+					<article class="project-card">
 						<div class="project-info">
 							<h3>{getName(project)}</h3>
 							<p class="status">Status: {getStatus(project)}</p>
 							{#if getSubtitle(project)}
 								<p class="subtitle">{getSubtitle(project)}</p>
 							{/if}
-							<p class="date">
-								Closing: {formatDate(project?.end_date ?? project?.Closing_Date)}
-							</p>
+							<p class="date">Closing: {formatDate(project?.end_date ?? project?.Closing_Date)}</p>
 						</div>
 						<div class="project-actions">
-							<span class="btn-view">View Details</span>
+							<a class="btn-secondary" href={getProgressPhotosHref(project)}>
+								Progress Photos
+							</a>
+							<a class="btn-view" href={getHref(project)}>View Details</a>
 						</div>
-					</a>
+					</article>
 				{/each}
 			</div>
 		</section>
@@ -239,8 +246,6 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		background: #fff;
-		text-decoration: none;
-		color: inherit;
 		min-height: 160px;
 	}
 
@@ -255,28 +260,49 @@
 		margin: 0 0 0.5rem;
 	}
 
+	.project-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.btn-view,
+	.btn-secondary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 42px;
+		padding: 0.7rem 1rem;
+		border-radius: 10px;
+		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.btn-view {
+		background: #0066cc;
+		color: #fff;
+	}
+
+	.btn-view:hover {
+		background: #0052a3;
+	}
+
+	.btn-secondary {
+		background: #f9fafb;
+		color: #111827;
+		border: 1px solid #d1d5db;
+	}
+
+	.btn-secondary:hover {
+		background: #f3f4f6;
+		border-color: #cbd5e1;
+	}
+
 	.status,
 	.subtitle,
 	.date {
 		margin: 0.25rem 0;
 		color: #4b5563;
-	}
-
-	.project-actions {
-		display: flex;
-		justify-content: flex-end;
-	}
-
-	.btn-view {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.5rem 0.9rem;
-		border: 1px solid #d0d0d0;
-		border-radius: 999px;
-		background: #fff;
-		min-height: 44px;
-		color: #1a1a1a;
 	}
 
 	@media (max-width: 720px) {
