@@ -1,6 +1,7 @@
 import { findContactsByEmail } from './auth';
 import { normalizeClientPhonePassword } from './client-password';
 import {
+	getClientByEmail,
 	getZohoTokens,
 	setClientPassword,
 	upsertClient,
@@ -35,6 +36,13 @@ export async function reconcileClientPhoneLogin(email: string, password: string)
 	if (!normalizedAttempt) return null;
 
 	try {
+		const existing = await getClientByEmail(email);
+		const normalizedExistingPhone = normalizeClientPhonePassword(existing?.phone);
+		if (existing && normalizedExistingPhone && normalizedExistingPhone === normalizedAttempt) {
+			await setClientPassword(existing.id, hashPassword(normalizedAttempt));
+			return existing;
+		}
+
 		const accessToken = await getValidZohoAccessToken();
 		if (!accessToken) return null;
 
