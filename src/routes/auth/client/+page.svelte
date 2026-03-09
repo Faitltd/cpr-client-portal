@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { page } from '$app/stores';
+
 	let email = '';
 	let password = '';
 	let message = '';
@@ -38,6 +40,13 @@
 			loading = false;
 		}
 	};
+
+	$: serverMessage =
+		$page.url.searchParams.get('error') === 'inactive'
+			? 'Your portal access is not active yet.'
+			: $page.url.searchParams.get('error') === 'invalid'
+				? 'Invalid email or password.'
+				: '';
 </script>
 
 <div class="container">
@@ -46,7 +55,12 @@
 		<p>Use your email as the username. New clients start with their phone number as the password.</p>
 	</header>
 
-	<form class="card" method="post" on:submit|preventDefault={submitPassword}>
+	<form
+		class="card"
+		method="post"
+		action="/auth/client/password"
+		on:submit|preventDefault={submitPassword}
+	>
 		<label for="email">Email</label>
 		<input
 			id="email"
@@ -72,8 +86,8 @@
 		/>
 
 		<button type="submit" disabled={loading}>Sign In</button>
-		{#if message}
-			<p class="message">{message}</p>
+		{#if message || serverMessage}
+			<p class="message">{message || serverMessage}</p>
 		{/if}
 	</form>
 </div>

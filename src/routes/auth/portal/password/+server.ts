@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { json, redirect } from '@sveltejs/kit';
 import { createHash } from 'crypto';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
@@ -20,14 +20,37 @@ import type { RequestHandler } from './$types';
 const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const isJsonRequest = (request: Request) =>
+	request.headers.get('content-type')?.includes('application/json') ?? false;
+
+const getFormValue = (formData: FormData, key: string) => {
+	const value = formData.get(key);
+	return typeof value === 'string' ? value : '';
+};
 
 export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
-	const body = await request.json().catch(() => ({}));
-	const email = typeof body.email === 'string' ? normalizeEmail(body.email) : '';
-	const password = typeof body.password === 'string' ? body.password : '';
+	const expectsJson = isJsonRequest(request);
+	const credentials = expectsJson
+		? await request.json().catch(() => ({}))
+		: await request.formData();
+	const email = normalizeEmail(
+		expectsJson
+			? typeof credentials.email === 'string'
+				? credentials.email
+				: ''
+			: getFormValue(credentials, 'email')
+	);
+	const password = expectsJson
+		? typeof credentials.password === 'string'
+			? credentials.password
+			: ''
+		: getFormValue(credentials, 'password');
 
 	if (!password) {
-		return json({ message: 'Invalid email or password.' }, { status: 401 });
+		if (expectsJson) {
+			return json({ message: 'Invalid email or password.' }, { status: 401 });
+		}
+		throw redirect(303, '/auth/portal?error=invalid');
 	}
 
 	if (!email) {
@@ -41,9 +64,15 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 				sameSite: 'strict',
 				maxAge: getAdminSessionMaxAge()
 			});
-			return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
+			if (expectsJson) {
+				return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
+			}
+			throw redirect(303, '/admin/clients');
 		}
-		return json({ message: 'Invalid email or password.' }, { status: 401 });
+		if (expectsJson) {
+			return json({ message: 'Invalid email or password.' }, { status: 401 });
+		}
+		throw redirect(303, '/auth/portal?error=invalid');
 	}
 
 	const client = await getClientAuthByEmail(email);
@@ -74,7 +103,10 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			maxAge: 60 * 60 * 24 * 7
 		});
 
-		return json({ message: 'Login successful.', redirect: '/dashboard', role: 'client' });
+		if (expectsJson) {
+			return json({ message: 'Login successful.', redirect: '/dashboard', role: 'client' });
+		}
+		throw redirect(303, '/dashboard');
 	}
 
 	const tradePartner = await getTradePartnerAuthByEmail(email);
@@ -101,7 +133,10 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			maxAge: 60 * 60 * 24 * 7
 		});
 
-		return json({ message: 'Login successful.', redirect: '/trade/dashboard', role: 'trade' });
+		if (expectsJson) {
+			return json({ message: 'Login successful.', redirect: '/trade/dashboard', role: 'trade' });
+		}
+		throw redirect(303, '/trade/dashboard');
 	}
 
 	const adminConfigured = isAdminConfigured();
@@ -114,8 +149,15 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			sameSite: 'strict',
 			maxAge: getAdminSessionMaxAge()
 		});
-		return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
+		if (expectsJson) {
+			return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
+		}
+		throw redirect(303, '/admin/clients');
 	}
 
-	return json({ message: 'Invalid email or password.' }, { status: 401 });
+	if (expectsJson) {
+		return json({ message: 'Invalid email or password.' }, { status: 401 });
+	}
+
+	throw redirect(303, '/auth/portal?error=invalid');
 };
