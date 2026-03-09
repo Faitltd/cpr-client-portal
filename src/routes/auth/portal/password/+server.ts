@@ -8,6 +8,7 @@ import {
 	getClientAuthByEmail,
 	getTradePartnerAuthByEmail
 } from '$lib/server/db';
+import { reconcileClientPhoneLogin } from '$lib/server/client-login';
 import { verifyClientPasswordInput } from '$lib/server/client-password';
 import {
 	createAdminSession,
@@ -76,8 +77,16 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	const client = await getClientAuthByEmail(email);
-	if (client && verifyClientPasswordInput(password, client.password_hash)) {
-		if (!client.portal_active) {
+	const clientPasswordValid = client ? verifyClientPasswordInput(password, client.password_hash) : false;
+	const repairedClient =
+		!client || !clientPasswordValid || !client.portal_active
+			? await reconcileClientPhoneLogin(email, password)
+			: null;
+	const effectiveClientId = repairedClient?.id || client?.id || '';
+	const clientPortalActive = repairedClient?.portal_active ?? client?.portal_active ?? false;
+
+	if (effectiveClientId && (clientPasswordValid || repairedClient)) {
+		if (!clientPortalActive) {
 			if (expectsJson) {
 				return json({ message: 'Your portal access is not active yet.' }, { status: 403 });
 			}
@@ -85,14 +94,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		}
 
 		const sessionId = createHash('sha256')
-			.update(`${client.id}:${Date.now()}:${Math.random()}`)
+			.update(`${effectiveClientId}:${Date.now()}:${Math.random()}`)
 			.digest('hex');
 		const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 		const ipAddress = getClientAddress ? getClientAddress() : null;
 
 		await createSession({
 			session_token: sessionId,
-			client_id: client.id,
+			client_id: effectiveClientId,
 			expires_at: sessionExpiresAt,
 			ip_address: ipAddress,
 			user_agent: request.headers.get('user-agent')

@@ -57,6 +57,8 @@ const CONTACT_FIELDS = [
 	'Full_Name',
 	'Email',
 	'Phone',
+	'Mobile',
+	'Home_Phone',
 	'Account_Name'
 ].join(',');
 
@@ -132,6 +134,7 @@ function mapContact(contact: any): ClientProfile {
 	const firstName = contact.First_Name || null;
 	const lastName = contact.Last_Name || null;
 	const fullName = contact.Full_Name || [firstName, lastName].filter(Boolean).join(' ') || null;
+	const phone = pickFirst(contact, ['Phone', 'Mobile', 'Home_Phone', 'Phone_Number']) || null;
 
 	return {
 		zoho_contact_id: contact.id,
@@ -140,7 +143,7 @@ function mapContact(contact: any): ClientProfile {
 		last_name: lastName,
 		full_name: fullName,
 		company: contact.Account_Name?.name || null,
-		phone: contact.Phone || null
+		phone
 	};
 }
 
