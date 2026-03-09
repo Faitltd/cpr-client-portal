@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
+	import { formatCrmRichText } from '$lib/html';
 
 	let project: any = null;
 	let documents: any[] = [];
@@ -133,7 +134,7 @@
 				</div>
 				<div>
 					<h3>Scope</h3>
-					<p>{project.Refined_SOW || 'Not available'}</p>
+					<p class="scope-text">{formatCrmRichText(project.Refined_SOW) || 'Not available'}</p>
 				</div>
 				<div>
 					<h3>Progress Photos</h3>
@@ -301,6 +302,12 @@
 		color: #666;
 		font-size: 0.9rem;
 		text-transform: uppercase;
+	}
+
+	.scope-text {
+		line-height: 1.6;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.description {

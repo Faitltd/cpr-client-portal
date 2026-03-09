@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import { formatCrmRichText } from '$lib/html';
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -294,7 +295,7 @@
 					</div>
 					<div class="notes">
 						<h4>Scope</h4>
-						<p>{selectedDeal.Refined_SOW || 'Not available'}</p>
+						<p class="scope-text">{formatCrmRichText(selectedDeal.Refined_SOW) || 'Not available'}</p>
 					</div>
 					<div class="notes">
 					</div>
@@ -602,6 +603,12 @@
 	.details-grid p {
 		margin: 0;
 		color: #374151;
+	}
+
+	.scope-text {
+		line-height: 1.6;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.address-link {
