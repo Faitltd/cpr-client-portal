@@ -140,21 +140,10 @@
 	const fieldUpdateUrl =
 		'https://creatorapp.zohopublic.com/customprofessionalrenovation/field-updates/form-embed/Active_Deals/mpPsAZEnCtDY0M6J5FR8n86Enzj2dDBkemTjDBSwJRWqpDHy8r39rP8M6euMFdez0OFMTO0eZhEhaKYEmTnC0ZY7vyYfx4T4EM4a';
 
-	const getProgressPhotosLink = (deal: any) => {
-		const value = deal?.Progress_Photos;
-		if (!value) return '';
-		if (typeof value === 'string') return value;
-		if (typeof value === 'object') {
-			return (
-				value.link_url ||
-				value.link ||
-				value.download_url ||
-				value.url ||
-				value.href ||
-				''
-			);
-		}
-		return '';
+	const getProgressPhotosHref = (deal: any) => {
+		const dealId = String(deal?.id || '').trim();
+		if (!dealId) return '/trade/photos';
+		return `/trade/photos?dealId=${encodeURIComponent(dealId)}`;
 	};
 
 	const formatUpdateTimestamp = (value: string | null) => {
@@ -247,19 +236,12 @@
 			<a class="field-update-secondary" href="/trade/daily-log">
 				Daily Log
 			</a>
-			{#if getProgressPhotosLink(selectedDeal)}
-				<a
-					class="field-update-secondary"
-					href={getProgressPhotosLink(selectedDeal)}
-					target="_blank"
-					rel="noreferrer"
-				>
-					Progress Photos
-				</a>
-			{/if}
+			<a class="field-update-secondary" href={getProgressPhotosHref(selectedDeal)}>
+				Progress Photos
+			</a>
 		</div>
 		<p class="field-update-hint">
-			Opens in a new tab so camera/microphone permissions work reliably.
+			The field update form opens in a new tab so camera and microphone permissions work reliably.
 		</p>
 	</div>
 
