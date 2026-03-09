@@ -11,6 +11,10 @@ describe('normalizeClientPhonePassword', () => {
 		expect(normalizeClientPhonePassword('+1 (555) 123-4567')).toBe('5551234567');
 	});
 
+	it('drops extension digits after a valid US phone number', () => {
+		expect(normalizeClientPhonePassword('781-223-4153 ext 99')).toBe('7812234153');
+	});
+
 	it('returns null when no digits are present', () => {
 		expect(normalizeClientPhonePassword('ext. office')).toBeNull();
 	});

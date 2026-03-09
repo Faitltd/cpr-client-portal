@@ -7,9 +7,8 @@ export function normalizeClientPhonePassword(value: string | null | undefined): 
 
 	const digits = trimmed.replace(/\D/g, '');
 	if (!digits) return null;
-	if (digits.length === 11 && digits.startsWith('1')) {
-		return digits.slice(1);
-	}
+	const normalized = digits.match(/^1?(\d{10})/);
+	if (normalized?.[1]) return normalized[1];
 	return digits;
 }
 

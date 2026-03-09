@@ -160,6 +160,9 @@ export const actions: Actions = {
 				const activeEmails = new Set(
 					activeContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
 				);
+				const seedEmails = new Set(
+					seedContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
+				);
 
 				const contactMap = new Map<string, typeof activeContacts[number]>();
 				for (const contact of [...activeContacts, ...seedContacts]) {
@@ -171,7 +174,7 @@ export const actions: Actions = {
 				}
 
 				for (const [email, contact] of contactMap.entries()) {
-					const portalActive = activeEmails.has(email);
+					const portalActive = activeEmails.has(email) || seedEmails.has(email);
 					try {
 						const saved = await upsertClient({ ...contact, portal_active: portalActive });
 						synced += 1;
