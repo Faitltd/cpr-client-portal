@@ -2,12 +2,9 @@ import { json } from '@sveltejs/kit';
 import {
 	getCommsForDeal,
 	getOpenFieldIssuesForDeal,
-	getPendingApprovalsForDeal,
-	getSession,
-	getZohoTokens,
-	upsertZohoTokens
+	getPendingApprovalsForDeal
 } from '$lib/server/db';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { getClientDashboardContext } from '$lib/server/client-dashboard';
 import type { RequestHandler } from './$types';
 
 type ZohoDeal = {
@@ -29,56 +26,13 @@ type DealSnapshot = {
 
 export const GET: RequestHandler = async ({ cookies }) => {
 	const sessionToken = cookies.get('portal_session');
-	if (!sessionToken) {
-		return json({ error: 'Unauthorized' }, { status: 401 });
-	}
 
 	try {
-		const session = await getSession(sessionToken);
-		if (
-			!session ||
-			new Date(session.expires_at) < new Date() ||
-			!session.client?.zoho_contact_id
-		) {
+		const context = await getClientDashboardContext(sessionToken);
+		if (!context) {
 			return json({ error: 'Unauthorized' }, { status: 401 });
 		}
-
-		const tokens = await getZohoTokens();
-		if (!tokens) {
-			throw new Error('Zoho tokens not configured');
-		}
-
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: new Date(refreshed.expires_at).toISOString(),
-				scope: tokens.scope
-			});
-		}
-
-		const zohoContactId = session.client.zoho_contact_id;
-		const dealsResponse = await fetch(
-			`https://www.zohoapis.com/crm/v2/Deals/search?criteria=(Contact_Name:equals:${zohoContactId})`,
-			{
-				method: 'GET',
-				headers: {
-					Authorization: `Zoho-oauthtoken ${accessToken}`
-				}
-			}
-		);
-
-		if (!dealsResponse.ok) {
-			const responseText = await dealsResponse.text().catch(() => '');
-			throw new Error(`Zoho deals fetch failed (${dealsResponse.status}): ${responseText}`);
-		}
-
-		const payload = await dealsResponse.json().catch(() => ({}));
-		const deals = Array.isArray(payload?.data) ? (payload.data as ZohoDeal[]) : [];
+		const deals = context.deals as ZohoDeal[];
 
 		const dealSummaries = await Promise.all(
 			deals.map(async (deal) => {

@@ -22,6 +22,9 @@
 	let activityItems: ActivityItem[] = [];
 	let activityLoading = true;
 	let activityError = '';
+	const getErrorMessage = (payload: any, fallback: string) =>
+		payload?.error || payload?.message || fallback;
+	const readJson = async (res: Response) => res.json().catch(() => ({}));
 	const getProgressPhotosLink = (deal: any) => {
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '';
@@ -86,8 +89,8 @@
 		fetch('/api/client/pending')
 			.then(async (res) => {
 				if (res.status === 401) return;
-				if (!res.ok) throw new Error('Failed');
-				const payload = await res.json();
+				const payload = await readJson(res);
+				if (!res.ok) throw new Error(getErrorMessage(payload, 'Failed to load pending items'));
 				pendingCount = payload.count || 0;
 				pendingItems = payload.data || [];
 			})
@@ -101,8 +104,8 @@
 		fetch('/api/client/activity')
 			.then(async (res) => {
 				if (res.status === 401) return;
-				if (!res.ok) throw new Error('Failed');
-				const payload = await res.json();
+				const payload = await readJson(res);
+				if (!res.ok) throw new Error(getErrorMessage(payload, 'Failed to load recent activity'));
 				activityItems = payload.data || [];
 			})
 			.catch((err) => {
