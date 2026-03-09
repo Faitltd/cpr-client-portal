@@ -78,21 +78,10 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
 	const client = await getClientAuthByEmail(email);
 	const clientPasswordValid = client ? verifyClientPasswordInput(password, client.password_hash) : false;
-	const repairedClient =
-		!client || !clientPasswordValid || !client.portal_active
-			? await reconcileClientPhoneLogin(email, password)
-			: null;
+	const repairedClient = !client || !clientPasswordValid ? await reconcileClientPhoneLogin(email, password) : null;
 	const effectiveClientId = repairedClient?.id || client?.id || '';
-	const clientPortalActive = repairedClient?.portal_active ?? client?.portal_active ?? false;
 
 	if (effectiveClientId && (clientPasswordValid || repairedClient)) {
-		if (!clientPortalActive) {
-			if (expectsJson) {
-				return json({ message: 'Your portal access is not active yet.' }, { status: 403 });
-			}
-			throw redirect(303, '/auth/portal?error=inactive');
-		}
-
 		const sessionId = createHash('sha256')
 			.update(`${effectiveClientId}:${Date.now()}:${Math.random()}`)
 			.digest('hex');

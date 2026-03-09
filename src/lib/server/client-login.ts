@@ -1,7 +1,6 @@
 import { findContactByEmail } from './auth';
 import { normalizeClientPhonePassword } from './client-password';
 import {
-	getClientByEmail,
 	getZohoTokens,
 	setClientPassword,
 	upsertClient,
@@ -9,7 +8,6 @@ import {
 	type Client
 } from './db';
 import { hashPassword } from './password';
-import { getDealsForClient } from './projects';
 import { refreshAccessToken } from './zoho';
 
 async function getValidZohoAccessToken() {
@@ -48,11 +46,9 @@ export async function reconcileClientPhoneLogin(email: string, password: string)
 			return null;
 		}
 
-		const existing = await getClientByEmail(email);
-		const deals = await getDealsForClient(contact.zoho_contact_id, contact.email);
 		const saved = await upsertClient({
 			...contact,
-			portal_active: Boolean(existing?.portal_active) || deals.length > 0
+			portal_active: true
 		});
 
 		await setClientPassword(saved.id, hashPassword(normalizedZohoPhone));

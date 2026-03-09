@@ -42,24 +42,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
 	const client = await getClientAuthByEmail(email);
 	const passwordValid = client ? verifyClientPasswordInput(password, client.password_hash) : false;
-	const repairedClient =
-		!client || !passwordValid || !client.portal_active
-			? await reconcileClientPhoneLogin(email, password)
-			: null;
+	const repairedClient = !client || !passwordValid ? await reconcileClientPhoneLogin(email, password) : null;
 	const effectiveClientId = repairedClient?.id || client?.id || '';
-	const portalActive = repairedClient?.portal_active ?? client?.portal_active ?? false;
 
 	if (!effectiveClientId || (!passwordValid && !repairedClient)) {
 		if (expectsJson) {
 			return json({ message: 'Invalid email or password.' }, { status: 401 });
 		}
 		throw redirect(303, '/auth/client?error=invalid');
-	}
-	if (!portalActive) {
-		if (expectsJson) {
-			return json({ message: 'Your portal access is not active yet.' }, { status: 403 });
-		}
-		throw redirect(303, '/auth/client?error=inactive');
 	}
 
 	const sessionId = createHash('sha256')
