@@ -226,17 +226,10 @@
 		overflow: hidden;
 		border: 1px solid #e5e7eb;
 		background: #f9fafb;
-		position: relative;
-	}
-
-	.photo-frame img {
-		display: block;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		position: absolute;
-		top: 0;
-		left: 0;
+		display: grid;
+		place-items: center;
+		padding: 1rem;
+		text-align: center;
 	}
 
 	.caption {
@@ -248,10 +241,6 @@
 	@media (max-width: 720px) {
 		.container {
 			padding: 1.5rem 1.25rem;
-		}
-
-		.photo-frame img {
-			height: 160px;
 		}
 	}
 </style>

@@ -488,17 +488,17 @@
 	{/if}
 
 	<!-- Section 5 — Add New Template -->
-	<div class="card add-card">
-		<h2>Add New Template</h2>
-		<form on:submit|preventDefault={submitCreate}>
-			<div class="field-row">
-				<div class="field">
-					<label class="field-label">Project Type</label>
-					<input class="input" type="text" value={selectedType} disabled />
-				</div>
-				<div class="field">
-					<label class="field-label" for="create-phase">
-						Phase <span class="required">*</span>
+		<div class="card add-card">
+			<h2>Add New Template</h2>
+			<form on:submit|preventDefault={submitCreate}>
+				<div class="field-row">
+					<div class="field">
+						<label class="field-label" for="create-project-type">Project Type</label>
+						<input id="create-project-type" class="input" type="text" value={selectedType} disabled />
+					</div>
+					<div class="field">
+						<label class="field-label" for="create-phase">
+							Phase <span class="required">*</span>
 					</label>
 					<select id="create-phase" class="select" bind:value={createPhase}>
 						{#each ALL_PHASES as p}
