@@ -232,7 +232,7 @@
 				<ul>
 					{#each documents as doc}
 						<li>
-							<a href={doc.File_Name} download>{doc.File_Name}</a>
+							<a href={`/api/project/${projectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank">{doc.File_Name}</a>
 							<span class="date">{new Date(doc.Created_Time).toLocaleDateString()}</span>
 						</li>
 					{/each}
