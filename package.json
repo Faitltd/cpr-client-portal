@@ -15,7 +15,6 @@
     "@sveltejs/adapter-node": "^5.5.2",
     "@sveltejs/kit": "^2.50.2",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
-    "@types/adm-zip": "^0.5.7",
     "svelte": "^5.50.0",
     "svelte-check": "^4.3.6",
     "typescript": "^5.9.3",
@@ -23,8 +22,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
-    "adm-zip": "^0.5.16"
+    "@supabase/supabase-js": "^2.39.0"
   },
   "type": "module"
 }
