@@ -113,6 +113,10 @@ const DEAL_TRADE_PARTNER_FIELD_CANDIDATES = [
 	'Subcontractor'
 ];
 
+// Alternative Zoho modules where the trade partner record might actually live.
+// The sync pulls from Trade_Partners, but the ID may belong to Vendors/Contacts/Accounts.
+const ALTERNATIVE_TP_MODULES = ['Vendors', 'Contacts', 'Accounts'];
+
 // Cache: resolved deal-side field name(s) pointing to trade partners.
 let _resolvedDealTradePartnerFields: string[] | null = null;
 
@@ -127,6 +131,8 @@ async function resolveDealTradePartnerFields(
 	if (_resolvedDealTradePartnerFields) return _resolvedDealTradePartnerFields;
 
 	const moduleNameSet = new Set(TRADE_PARTNERS_MODULES.map((m) => m.toLowerCase()));
+	// Also consider alternative modules where the trade partner record might live
+	const altModuleSet = new Set(ALTERNATIVE_TP_MODULES.map((m) => m.toLowerCase()));
 	try {
 		const response = await zohoApiCall(
 			accessToken,
@@ -148,7 +154,7 @@ async function resolveDealTradePartnerFields(
 			)
 				.trim()
 				.toLowerCase();
-			if (lookupModule && moduleNameSet.has(lookupModule)) {
+			if (lookupModule && (moduleNameSet.has(lookupModule) || altModuleSet.has(lookupModule))) {
 				discovered.push(apiName);
 				continue;
 			}
@@ -160,14 +166,17 @@ async function resolveDealTradePartnerFields(
 			)
 				.trim()
 				.toLowerCase();
-			if (multiModule && moduleNameSet.has(multiModule)) {
+			if (multiModule && (moduleNameSet.has(multiModule) || altModuleSet.has(multiModule))) {
 				discovered.push(apiName);
 				continue;
 			}
-			// Check by name pattern if it explicitly references trade partners
+			// Check by name pattern if it explicitly references trade partners, vendors, or subcontractors
 			const lowerName = apiName.toLowerCase();
 			if (
-				(lowerName.includes('trade_partner') || lowerName.includes('trade_partners')) &&
+				(lowerName.includes('trade_partner') ||
+					lowerName.includes('trade_partners') ||
+					lowerName.includes('vendor') ||
+					lowerName.includes('subcontractor')) &&
 				(field?.data_type === 'lookup' ||
 					field?.data_type === 'multiselectlookup' ||
 					field?.json_type === 'jsonobject' ||
@@ -829,12 +838,42 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		}
 	}
 
+	// 1b) DIAGNOSTIC: Discover raw deal fields (no fields param) and trade partner module
+	let discoveredModule: string | null = null;
+	let discoveredModulesToTry: string[] | undefined;
+
+	try {
+		await diagFetchRawDealFields(accessToken, diagLog, apiDomain);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG RAW DEAL: unexpected error', { error: message });
+	}
+
+	try {
+		const tpDiscovery = await diagFetchFullTradePartnerRecord(accessToken, tradePartnerId, diagLog, apiDomain);
+		if (tpDiscovery) {
+			discoveredModule = tpDiscovery.moduleName;
+			diagLog('MODULE DISCOVERY: trade partner found', { moduleName: discoveredModule, tradePartnerId });
+			// Prioritize the discovered module so strategies 2 & 3 try it first
+			const otherModules = [...TRADE_PARTNERS_MODULES, ...ALTERNATIVE_TP_MODULES].filter(
+				(m) => m !== discoveredModule
+			);
+			discoveredModulesToTry = [discoveredModule, ...otherModules];
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG TP RECORD: unexpected error', { error: message });
+	}
+
 	// 2) Try trade partner's related deals field if present
 	let relatedDealRefs: TradePartnerDealRef[] = [];
 	let relatedDealIds: string[] = [];
 	try {
-		diagLog('Strategy 2: Fetching TP deal IDs from record fields', { tradePartnerId });
-		relatedDealRefs = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
+		diagLog('Strategy 2: Fetching TP deal IDs from record fields', {
+			tradePartnerId,
+			modulesToTry: discoveredModulesToTry || 'default'
+		});
+		relatedDealRefs = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain, discoveredModulesToTry);
 		relatedDealIdsCount = relatedDealRefs.length;
 		relatedDealIds = relatedDealRefs.map((ref) => ref.id);
 		diagLog('Strategy 2: TP deal IDs result', { found: relatedDealRefs.length, ids: relatedDealIds.slice(0, 10) });
@@ -844,19 +883,17 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		log.error('Trade partner deal IDs lookup failed', { tradePartnerId, error: message });
 	}
 
-	// 2b) DIAGNOSTIC: Fetch ALL fields from the trade partner record to see complete picture
-	try {
-		await diagFetchFullTradePartnerRecord(accessToken, tradePartnerId, diagLog, apiDomain);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		diagLog('DIAG TP RECORD: unexpected error', { error: message });
-	}
-
 	// 3) Try related list on trade partner record (may be a junction)
 	let normalizedRelated: any[] = [];
 	try {
-		diagLog('Strategy 3: Fetching related list deals', { tradePartnerId, relatedLists: TRADE_PARTNER_RELATED_LISTS });
-		const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain, diagLog);
+		diagLog('Strategy 3: Fetching related list deals', {
+			tradePartnerId,
+			relatedLists: TRADE_PARTNER_RELATED_LISTS,
+			modulesToTry: discoveredModulesToTry || 'default'
+		});
+		const relatedDeals = await fetchDealsFromTradePartnerRelatedList(
+			accessToken, tradePartnerId, apiDomain, diagLog, discoveredModulesToTry
+		);
 		relatedListCount = relatedDeals.length;
 		normalizedRelated = relatedDeals.map(normalizeDealRecord);
 		diagLog('Strategy 3: Related list result', { found: relatedDeals.length });
@@ -1214,7 +1251,11 @@ export async function debugTradePartnerRecord(
 	tradePartnerId: string,
 	apiDomain?: string
 ): Promise<TradePartnerDebugInfo | null> {
-	const moduleNames = TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['CustomModule1'];
+	// Try configured modules first, then alternative modules (Vendors, Contacts, Accounts)
+	const moduleNames = [
+		...(TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['CustomModule1']),
+		...ALTERNATIVE_TP_MODULES
+	];
 	let lastError: Error | null = null;
 
 	for (const moduleName of moduleNames) {
@@ -1229,7 +1270,7 @@ export async function debugTradePartnerRecord(
 				apiDomain
 			);
 			const record = response.data?.[0];
-			if (!record) return null;
+			if (!record) continue;
 			const keys = Object.keys(record || {});
 			const emailFields = keys.filter((key) => key.toLowerCase().includes('email'));
 			const email = findEmailInRecord(record);
@@ -1246,7 +1287,7 @@ export async function debugTradePartnerRecord(
 				lastError = err as Error;
 				continue;
 			}
-			if (message.toLowerCase().includes('record not found')) {
+			if (message.toLowerCase().includes('record not found') || message.includes('4100')) {
 				continue;
 			}
 			throw err;
@@ -1595,11 +1636,14 @@ function extractDealRefFromPortalItem(item: any): TradePartnerDealRef | null {
 async function getTradePartnerDealIds(
 	accessToken: string,
 	tradePartnerId: string,
-	apiDomain?: string
+	apiDomain?: string,
+	modulesToTry?: string[]
 ): Promise<TradePartnerDealRef[]> {
 	const fieldCandidates = TRADE_PARTNER_DEALS_FIELD_CANDIDATES;
 	const fieldsParam = fieldCandidates.join(',');
-	for (const moduleName of TRADE_PARTNERS_MODULES) {
+	// Use provided modules or fall back to configured + alternative modules
+	const modules = modulesToTry || [...TRADE_PARTNERS_MODULES, ...ALTERNATIVE_TP_MODULES];
+	for (const moduleName of modules) {
 		try {
 			const response = await zohoApiCall(
 				accessToken,
@@ -1614,7 +1658,7 @@ async function getTradePartnerDealIds(
 					tradePartnerId,
 					apiDomain: apiDomain || 'default'
 				});
-				return [];
+				continue;
 			}
 
 			// Try each candidate field until one has data
@@ -1674,6 +1718,14 @@ async function getTradePartnerDealIds(
 				});
 				continue;
 			}
+			if (message.toLowerCase().includes('record not found') || message.includes('4100')) {
+				log.debug('trade partner record not found in module', {
+					moduleName,
+					tradePartnerId,
+					apiDomain: apiDomain || 'default'
+				});
+				continue;
+			}
 			log.error('Trade partner deal ids lookup failed', {
 				moduleName,
 				tradePartnerId,
@@ -1687,18 +1739,18 @@ async function getTradePartnerDealIds(
 }
 
 /**
- * TEMPORARY DIAGNOSTIC: Fetch ALL fields from the trade partner record and log them.
- * This helps identify how deals are linked when standard fields are empty.
+ * Try to find which Zoho module a record ID belongs to.
+ * Returns the module name and record if found, null otherwise.
  */
-async function diagFetchFullTradePartnerRecord(
+async function discoverTradePartnerModule(
 	accessToken: string,
 	tradePartnerId: string,
 	diagLog: (msg: string, data?: Record<string, unknown>) => void,
 	apiDomain?: string
-): Promise<void> {
+): Promise<{ moduleName: string; record: any } | null> {
+	// First try configured modules
 	for (const moduleName of TRADE_PARTNERS_MODULES) {
 		try {
-			// Fetch without fields param to get ALL fields
 			const response = await zohoApiCall(
 				accessToken,
 				`/${moduleName}/${tradePartnerId}`,
@@ -1706,69 +1758,160 @@ async function diagFetchFullTradePartnerRecord(
 				apiDomain
 			);
 			const record = response.data?.[0];
-			if (!record) {
-				diagLog('DIAG TP RECORD: not found', { moduleName, tradePartnerId });
-				continue;
+			if (record) {
+				diagLog('DIAG MODULE DISCOVERY: found in configured module', { moduleName, tradePartnerId });
+				return { moduleName, record };
 			}
-
-			const allKeys = Object.keys(record);
-			diagLog('DIAG TP RECORD: all field names', {
-				moduleName,
-				tradePartnerId,
-				totalFields: allKeys.length,
-				allKeys
-			});
-
-			// Log fields that look deal-related
-			const dealRelatedKeys = allKeys.filter((k) =>
-				/deal|potential|project|portal|related|lookup|subform/i.test(k)
-			);
-			diagLog('DIAG TP RECORD: deal/portal/related field names', {
-				matchingKeys: dealRelatedKeys
-			});
-
-			// Log the values of deal-related fields
-			for (const key of dealRelatedKeys) {
-				const val = record[key];
-				diagLog(`DIAG TP RECORD field "${key}"`, {
-					type: val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val,
-					value: summarizeValue(val, 1000),
-					isArray: Array.isArray(val),
-					arrayLength: Array.isArray(val) ? val.length : undefined,
-					objectKeys: val && typeof val === 'object' && !Array.isArray(val) ? Object.keys(val) : undefined
-				});
-				// If array, log first element structure
-				if (Array.isArray(val) && val.length > 0) {
-					diagLog(`DIAG TP RECORD field "${key}" array[0]`, {
-						elementType: typeof val[0],
-						elementKeys: val[0] && typeof val[0] === 'object' ? Object.keys(val[0]) : [],
-						elementRaw: summarizeValue(val[0], 1000)
-					});
-				}
-			}
-
-			// Also log ALL non-null field values (truncated) for complete picture
-			const nonNullFields: Record<string, unknown> = {};
-			for (const key of allKeys) {
-				const val = record[key];
-				if (val !== null && val !== undefined && val !== '' && val !== false) {
-					nonNullFields[key] = summarizeValue(val, 200);
-				}
-			}
-			diagLog('DIAG TP RECORD: all non-null field values', nonNullFields);
-
+			diagLog('DIAG MODULE DISCOVERY: not found in configured module', { moduleName, tradePartnerId });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			diagLog('DIAG TP RECORD: fetch ERROR', { moduleName, tradePartnerId, error: message });
+			diagLog('DIAG MODULE DISCOVERY: configured module error', { moduleName, tradePartnerId, error: message });
 		}
 	}
+
+	// Try alternative modules (Vendors, Contacts, Accounts)
+	for (const moduleName of ALTERNATIVE_TP_MODULES) {
+		try {
+			const response = await zohoApiCall(
+				accessToken,
+				`/${moduleName}/${tradePartnerId}`,
+				{},
+				apiDomain
+			);
+			const record = response.data?.[0];
+			if (record) {
+				diagLog('DIAG MODULE DISCOVERY: FOUND in alternative module', { moduleName, tradePartnerId });
+				return { moduleName, record };
+			}
+			diagLog('DIAG MODULE DISCOVERY: not found in alternative module', { moduleName, tradePartnerId });
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			diagLog('DIAG MODULE DISCOVERY: alternative module error', { moduleName, tradePartnerId, error: message });
+		}
+	}
+
+	diagLog('DIAG MODULE DISCOVERY: record not found in ANY module', { tradePartnerId });
+	return null;
+}
+
+/**
+ * Fetch a single deal without a fields parameter to discover ALL available field names.
+ */
+async function diagFetchRawDealFields(
+	accessToken: string,
+	diagLog: (msg: string, data?: Record<string, unknown>) => void,
+	apiDomain?: string
+): Promise<string[]> {
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			'/Deals?per_page=1&page=1',
+			{},
+			apiDomain
+		);
+		const deal = response.data?.[0];
+		if (!deal) {
+			diagLog('DIAG RAW DEAL: no deals found');
+			return [];
+		}
+		const allKeys = Object.keys(deal);
+		const tradeRelated = allKeys.filter((k) =>
+			/trade|partner|vendor|subcontract/i.test(k)
+		);
+		diagLog('DIAG RAW DEAL: all field names (no fields param)', {
+			totalFields: allKeys.length,
+			allKeys,
+			tradePartnerRelated: tradeRelated
+		});
+		// Log values of trade-partner-related fields
+		for (const key of tradeRelated) {
+			const val = deal[key];
+			diagLog(`DIAG RAW DEAL field "${key}"`, {
+				type: val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val,
+				value: summarizeValue(val, 1000)
+			});
+		}
+		return allKeys;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG RAW DEAL: fetch ERROR', { error: message });
+		return [];
+	}
+}
+
+/**
+ * DIAGNOSTIC + MODULE DISCOVERY: Fetch ALL fields from the trade partner record.
+ * Tries configured modules first, then alternative modules (Vendors, Contacts, Accounts).
+ * Returns the discovered module name so callers can use the correct module.
+ */
+async function diagFetchFullTradePartnerRecord(
+	accessToken: string,
+	tradePartnerId: string,
+	diagLog: (msg: string, data?: Record<string, unknown>) => void,
+	apiDomain?: string
+): Promise<{ moduleName: string; record: any } | null> {
+	const discovery = await discoverTradePartnerModule(accessToken, tradePartnerId, diagLog, apiDomain);
+	if (!discovery) {
+		diagLog('DIAG TP RECORD: not found in any module', { tradePartnerId });
+		return null;
+	}
+
+	const { moduleName, record } = discovery;
+	const allKeys = Object.keys(record);
+	diagLog('DIAG TP RECORD: all field names', {
+		moduleName,
+		tradePartnerId,
+		totalFields: allKeys.length,
+		allKeys
+	});
+
+	// Log fields that look deal-related
+	const dealRelatedKeys = allKeys.filter((k) =>
+		/deal|potential|project|portal|related|lookup|subform/i.test(k)
+	);
+	diagLog('DIAG TP RECORD: deal/portal/related field names', {
+		matchingKeys: dealRelatedKeys
+	});
+
+	// Log the values of deal-related fields
+	for (const key of dealRelatedKeys) {
+		const val = record[key];
+		diagLog(`DIAG TP RECORD field "${key}"`, {
+			type: val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val,
+			value: summarizeValue(val, 1000),
+			isArray: Array.isArray(val),
+			arrayLength: Array.isArray(val) ? val.length : undefined,
+			objectKeys: val && typeof val === 'object' && !Array.isArray(val) ? Object.keys(val) : undefined
+		});
+		// If array, log first element structure
+		if (Array.isArray(val) && val.length > 0) {
+			diagLog(`DIAG TP RECORD field "${key}" array[0]`, {
+				elementType: typeof val[0],
+				elementKeys: val[0] && typeof val[0] === 'object' ? Object.keys(val[0]) : [],
+				elementRaw: summarizeValue(val[0], 1000)
+			});
+		}
+	}
+
+	// Also log ALL non-null field values (truncated) for complete picture
+	const nonNullFields: Record<string, unknown> = {};
+	for (const key of allKeys) {
+		const val = record[key];
+		if (val !== null && val !== undefined && val !== '' && val !== false) {
+			nonNullFields[key] = summarizeValue(val, 200);
+		}
+	}
+	diagLog('DIAG TP RECORD: all non-null field values', nonNullFields);
+
+	return { moduleName, record };
 }
 
 async function fetchDealsFromTradePartnerRelatedList(
 	accessToken: string,
 	tradePartnerId: string,
 	apiDomain?: string,
-	diagLog?: (msg: string, data?: Record<string, unknown>) => void
+	diagLog?: (msg: string, data?: Record<string, unknown>) => void,
+	modulesToTry?: string[]
 ): Promise<any[]> {
 	const perPage = 200;
 	const baseRelatedLists = TRADE_PARTNER_RELATED_LISTS.length
@@ -1780,7 +1923,9 @@ async function fetchDealsFromTradePartnerRelatedList(
 		relatedListSet.add(name);
 	}
 	const relatedLists = Array.from(relatedListSet);
-	for (const moduleName of TRADE_PARTNERS_MODULES) {
+	// Use provided modules or fall back to configured + alternative modules
+	const modules = modulesToTry || [...TRADE_PARTNERS_MODULES, ...ALTERNATIVE_TP_MODULES];
+	for (const moduleName of modules) {
 		for (const relatedList of relatedLists) {
 			try {
 				let page = 1;
