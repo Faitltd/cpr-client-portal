@@ -193,28 +193,44 @@ export async function loadTradePageContext(
 	if (!session.trade_partner.zoho_trade_partner_id) {
 		warning = 'Your account is missing a Zoho Trade Partner ID. Contact admin to resync.';
 	} else {
-		const fetched = await getTradePartnerDeals(
-			accessToken,
-			session.trade_partner.zoho_trade_partner_id
-		);
-		const allDeals = Array.isArray(fetched) ? fetched : [];
-		const hydrateIds = Array.from(
-			new Set(
-				allDeals
-					.filter((deal) => shouldHydrateTradeDeal(deal, includeDetailFields))
-					.map((deal) => String(deal.id))
-					.filter(Boolean)
-			)
-		);
+		try {
+			const fetched = await getTradePartnerDeals(
+				accessToken,
+				session.trade_partner.zoho_trade_partner_id
+			);
+			const allDeals = Array.isArray(fetched) ? fetched : [];
+			const hydrateIds = Array.from(
+				new Set(
+					allDeals
+						.filter((deal) => shouldHydrateTradeDeal(deal, includeDetailFields))
+						.map((deal) => String(deal.id))
+						.filter(Boolean)
+				)
+			);
 
-		let hydratedDeals = allDeals;
-		if (hydrateIds.length > 0) {
-			const hydrated = await fetchDealsByIds(accessToken, hydrateIds, includeDetailFields);
-			const hydratedMap = new Map(hydrated.map((deal) => [deal.id, deal]));
-			hydratedDeals = allDeals.map((deal) => hydratedMap.get(deal.id) || deal);
+			let hydratedDeals = allDeals;
+			if (hydrateIds.length > 0) {
+				try {
+					const hydrated = await fetchDealsByIds(accessToken, hydrateIds, includeDetailFields);
+					const hydratedMap = new Map(hydrated.map((deal) => [deal.id, deal]));
+					hydratedDeals = allDeals.map((deal) => hydratedMap.get(deal.id) || deal);
+				} catch {
+					// Hydration failed — continue with un-hydrated deals
+				}
+			}
+
+			deals = finalizeTradePageDeals(hydratedDeals, includeDetailFields);
+
+			if (deals.length === 0) {
+				warning =
+					'No deals could be found for your account. This may be a configuration issue — please contact your admin.';
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error('[trade-page-data] Failed to load deals:', message);
+			warning =
+				'Unable to load deals at this time. Please try again later or contact your admin.';
 		}
-
-		deals = finalizeTradePageDeals(hydratedDeals, includeDetailFields);
 	}
 
 	return {

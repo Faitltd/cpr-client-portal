@@ -683,29 +683,48 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	}
 
 	// 2) Try trade partner's related deals field if present
-	const relatedDealRefs = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
-	relatedDealIdsCount = relatedDealRefs.length;
-	const relatedDealIds = relatedDealRefs.map((ref) => ref.id);
+	let relatedDealRefs: TradePartnerDealRef[] = [];
+	let relatedDealIds: string[] = [];
+	try {
+		relatedDealRefs = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
+		relatedDealIdsCount = relatedDealRefs.length;
+		relatedDealIds = relatedDealRefs.map((ref) => ref.id);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.error('Trade partner deal IDs lookup failed', { tradePartnerId, error: message });
+	}
 
 	// 3) Try related list on trade partner record (may be a junction)
-	const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
-	relatedListCount = relatedDeals.length;
-	const normalizedRelated = relatedDeals.map(normalizeDealRecord);
-	const sample = normalizedRelated[0];
-	if (sample) {
-		log.debug('related list raw sample', {
-			keys: Object.keys(sample),
-			dealName: sample?.Deal_Name,
-			rawDealName: summarizeValue(sample?.Deal_Name)
-		});
+	let normalizedRelated: any[] = [];
+	try {
+		const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
+		relatedListCount = relatedDeals.length;
+		normalizedRelated = relatedDeals.map(normalizeDealRecord);
+		const sample = normalizedRelated[0];
+		if (sample) {
+			log.debug('related list raw sample', {
+				keys: Object.keys(sample),
+				dealName: sample?.Deal_Name,
+				rawDealName: summarizeValue(sample?.Deal_Name)
+			});
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.error('Trade partner related list lookup failed', { tradePartnerId, error: message });
 	}
+
 	const relatedListIds = normalizedRelated.map((deal: any) => deal?.id).filter(Boolean) as string[];
 
 	const combinedIds = Array.from(new Set([...relatedDealIds, ...relatedListIds]));
 	if (combinedIds.length > 0) {
-		const deals = await fetchDealsByIds(accessToken, combinedIds, apiDomain);
-		logSummary('combinedIds', { dealsCount: deals.length, idsCount: combinedIds.length });
-		rememberDeals(deals);
+		try {
+			const deals = await fetchDealsByIds(accessToken, combinedIds, apiDomain);
+			logSummary('combinedIds', { dealsCount: deals.length, idsCount: combinedIds.length });
+			rememberDeals(deals);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.error('Trade partner combined IDs fetch failed', { tradePartnerId, error: message });
+		}
 	}
 
 	if (relatedDealRefs.length > 0) {
@@ -733,47 +752,53 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	}
 
 	// 4) Fallback to standard list + client-side filter
-	const filtered: any[] = [];
-	for (let page = 1; page <= maxPages; page += 1) {
-		const deals = await zohoApiCall(
-			accessToken,
-			`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
-			{},
-			apiDomain
-		);
-		const pageData = Array.isArray(deals.data) ? deals.data : [];
-		if (pageData.length === 0) break;
+	try {
+		const filtered: any[] = [];
+		for (let page = 1; page <= maxPages; page += 1) {
+			const deals = await zohoApiCall(
+				accessToken,
+				`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+				{},
+				apiDomain
+			);
+			const pageData = Array.isArray(deals.data) ? deals.data : [];
+			if (pageData.length === 0) break;
 
-		filtered.push(
-			...pageData.filter((deal: any) => {
-				const field = deal.Portal_Trade_Partners;
-				if (Array.isArray(field)) {
-					return field.some((item) => item?.id === tradePartnerId);
-				}
-				return field?.id === tradePartnerId;
-			})
-		);
+			filtered.push(
+				...pageData.filter((deal: any) => {
+					const field = deal.Portal_Trade_Partners;
+					if (Array.isArray(field)) {
+						return field.some((item) => item?.id === tradePartnerId);
+					}
+					return field?.id === tradePartnerId;
+				})
+			);
 
-		const hasMore = deals.info?.more_records;
-		if (hasMore === false) break;
-		if (hasMore !== true && pageData.length < perPage) break;
+			const hasMore = deals.info?.more_records;
+			if (hasMore === false) break;
+			if (hasMore !== true && pageData.length < perPage) break;
+		}
+
+		fallbackCount = filtered.length;
+		logSummary('fallback', { dealsCount: fallbackCount });
+
+		if (filtered.length === 0) {
+			log.warn('Trade partner deals empty', {
+				tradePartnerId,
+				relatedDealIdsCount,
+				relatedListCount,
+				searchCount,
+				coqlCount,
+				fallbackCount
+			});
+		}
+
+		return filtered.map(normalizeDealRecord).map(ensureDealId);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.error('Trade partner deals fallback scan failed', { tradePartnerId, error: message });
+		return [];
 	}
-
-	fallbackCount = filtered.length;
-	logSummary('fallback', { dealsCount: fallbackCount });
-
-	if (filtered.length === 0) {
-		log.warn('Trade partner deals empty', {
-			tradePartnerId,
-			relatedDealIdsCount,
-			relatedListCount,
-			searchCount,
-			coqlCount,
-			fallbackCount
-		});
-	}
-
-	return filtered.map(normalizeDealRecord).map(ensureDealId);
 }
 
 /**
