@@ -565,6 +565,8 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
  * Filter deals to only show those related to the authenticated trade partner
  */
 export async function getTradePartnerDeals(accessToken: string, tradePartnerId: string, apiDomain?: string) {
+	const perPage = 200;
+	const maxPages = 20;
 	let relatedDealIdsCount = 0;
 	let relatedListCount = 0;
 	let searchCount = 0;
@@ -611,16 +613,26 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	for (const operator of searchOperators) {
 		const criteria = `(Portal_Trade_Partners:${operator}:${tradePartnerId})`;
 		try {
-			const search = await zohoApiCall(
-				accessToken,
-				`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
-				{},
-				apiDomain
-			);
-			searchCount = search.data?.length || 0;
-			if (search.data?.length) {
+			const searchResults: any[] = [];
+			for (let page = 1; page <= maxPages; page += 1) {
+				const search = await zohoApiCall(
+					accessToken,
+					`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+					{},
+					apiDomain
+				);
+				const pageData = Array.isArray(search.data) ? search.data : [];
+				if (pageData.length === 0) break;
+
+				searchResults.push(...pageData);
+				const hasMore = search.info?.more_records;
+				if (hasMore === false) break;
+				if (hasMore !== true && pageData.length < perPage) break;
+			}
+			searchCount = searchResults.length;
+			if (searchResults.length) {
 				logSummary('search', { dealsCount: searchCount, operator });
-				rememberDeals(search.data);
+				rememberDeals(searchResults);
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -721,20 +733,31 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	}
 
 	// 4) Fallback to standard list + client-side filter
-	const deals = await zohoApiCall(
-		accessToken,
-		`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=200`,
-		{},
-		apiDomain
-	);
+	const filtered: any[] = [];
+	for (let page = 1; page <= maxPages; page += 1) {
+		const deals = await zohoApiCall(
+			accessToken,
+			`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+			{},
+			apiDomain
+		);
+		const pageData = Array.isArray(deals.data) ? deals.data : [];
+		if (pageData.length === 0) break;
 
-	const filtered = (deals.data || []).filter((deal: any) => {
-		const field = deal.Portal_Trade_Partners;
-		if (Array.isArray(field)) {
-			return field.some((item) => item?.id === tradePartnerId);
-		}
-		return field?.id === tradePartnerId;
-	});
+		filtered.push(
+			...pageData.filter((deal: any) => {
+				const field = deal.Portal_Trade_Partners;
+				if (Array.isArray(field)) {
+					return field.some((item) => item?.id === tradePartnerId);
+				}
+				return field?.id === tradePartnerId;
+			})
+		);
+
+		const hasMore = deals.info?.more_records;
+		if (hasMore === false) break;
+		if (hasMore !== true && pageData.length < perPage) break;
+	}
 
 	fallbackCount = filtered.length;
 	logSummary('fallback', { dealsCount: fallbackCount });

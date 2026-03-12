@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTokenInfo, refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { env } from '$env/dynamic/private';
+import { debugTradePartnerRecord, getTradePartnerDeals } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
 const ZOHO_TRADE_PARTNERS_MODULE = env.ZOHO_TRADE_PARTNERS_MODULE;
@@ -110,6 +111,37 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		currentUser = { error: err instanceof Error ? err.message : String(err) };
 	}
 
+	let tradePartnerRecord: Record<string, unknown> | null = null;
+	try {
+		const debug = await debugTradePartnerRecord(accessToken, tradePartnerId);
+		tradePartnerRecord = debug
+			? {
+					moduleName: debug.moduleName,
+					recordId: debug.recordId,
+					email: debug.email,
+					emailFields: debug.emailFields,
+					keys: debug.keys.slice(0, 30)
+				}
+			: { found: false };
+	} catch (err) {
+		tradePartnerRecord = { error: err instanceof Error ? err.message : String(err) };
+	}
+
+	let resolvedDeals: Record<string, unknown> | null = null;
+	try {
+		const deals = await getTradePartnerDeals(accessToken, tradePartnerId);
+		resolvedDeals = {
+			count: deals.length,
+			sample: deals.slice(0, 5).map((deal: any) => ({
+				id: deal?.id,
+				Deal_Name: deal?.Deal_Name,
+				Stage: deal?.Stage
+			}))
+		};
+	} catch (err) {
+		resolvedDeals = { error: err instanceof Error ? err.message : String(err) };
+	}
+
 	const relatedListResults: Array<Record<string, unknown>> = [];
 	let firstRelatedRecord: any | null = null;
 	let firstRelatedSource: { moduleName: string; relatedList: string } | null = null;
@@ -178,6 +210,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		relatedLists,
 		tokenInfo,
 		currentUser,
+		tradePartnerRecord,
 		relatedListResults,
 		firstRelatedSource,
 		firstRelatedRecord: firstRelatedRecord
@@ -187,6 +220,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 					keys: Object.keys(firstRelatedRecord)
 				}
 			: null,
-		dealsByIds
+		dealsByIds,
+		resolvedDeals
 	});
 };
