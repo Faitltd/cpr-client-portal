@@ -54,6 +54,22 @@
 			if (contractsRes.ok) {
 				const contractsData = await contractsRes.json();
 				contracts = contractsData.data || [];
+
+				// Add completed/signed Zoho Sign documents to the documents list
+				// so they appear in the Documents section with working PDF download links
+				for (const c of contracts) {
+					if (c.id && /complete|signed/i.test(c.status || '')) {
+						documents = [
+							...documents,
+							{
+								id: c.id,
+								File_Name: `${c.name || 'Signed Document'}.pdf`,
+								Created_Time: c.created_time || new Date().toISOString(),
+								_source: 'sign'
+							}
+						];
+					}
+				}
 			} else if (contractsRes.status !== 401) {
 				contractError = 'Failed to fetch contracts';
 			}
@@ -232,7 +248,11 @@
 				<ul>
 					{#each documents as doc}
 						<li>
+							{#if doc._source === 'sign'}
+							<a href={`/api/sign/requests/${doc.id}/pdf`} target="_blank">{doc.File_Name}</a>
+						{:else}
 							<a href={`/api/project/${projectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank">{doc.File_Name}</a>
+						{/if}
 							<span class="date">{new Date(doc.Created_Time).toLocaleDateString()}</span>
 						</li>
 					{/each}

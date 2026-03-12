@@ -41,6 +41,12 @@
 				error = 'Failed to load contract.';
 			}
 		} finally {
+			// For completed/signed documents, always use the PDF proxy endpoint
+			// because Zoho-hosted view URLs often don't work for completed documents.
+			const isCompleted = status && /complete|signed/i.test(status);
+			if (isCompleted && pdfUrl) {
+				viewUrl = pdfUrl;
+			}
 			if (!viewUrl && presetUrl) {
 				viewUrl = presetUrl;
 			}
