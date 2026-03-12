@@ -3,6 +3,7 @@ import { env } from '$env/dynamic/private';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { listSignRequestsByRecipient, getRequestDetails } from '$lib/server/sign';
+import AdmZip from 'adm-zip';
 import type { RequestHandler } from './$types';
 
 const DEFAULT_SIGN_BASE = 'https://sign.zoho.com/api/v1';
@@ -127,33 +128,76 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 
 		const buffer = await pdfResponse.arrayBuffer();
 		const contentType = pdfResponse.headers.get('content-type') || 'application/pdf';
+		const bytes = new Uint8Array(buffer);
 
 		console.log('[SIGN PDF] Success', {
 			requestId,
 			contentType,
-			bodySize: buffer.byteLength
+			bodySize: buffer.byteLength,
+			header: bytes.length >= 4
+				? String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])
+				: '(too short)'
 		});
 
-		// Verify we actually got PDF bytes (PDF files start with %PDF)
-		if (buffer.byteLength > 4) {
-			const header = new TextDecoder().decode(new Uint8Array(buffer.slice(0, 5)));
-			if (!header.startsWith('%PDF')) {
-				const preview = new TextDecoder().decode(new Uint8Array(buffer.slice(0, 500)));
-				console.error('[SIGN PDF] Response is NOT a PDF', {
+		// Zoho Sign may return a ZIP containing the PDF instead of a raw PDF.
+		// Detect ZIP by magic bytes (PK\x03\x04) or content-type.
+		const isZip =
+			(bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) ||
+			contentType.toLowerCase().includes('zip');
+
+		let pdfBuffer: Uint8Array | ArrayBuffer;
+		let filename: string;
+
+		if (isZip) {
+			console.log('[SIGN PDF] Response is a ZIP, extracting PDF...', { requestId });
+			const zip = new AdmZip(Buffer.from(buffer));
+			const entries = zip.getEntries();
+			console.log('[SIGN PDF] ZIP entries', {
+				requestId,
+				count: entries.length,
+				names: entries.map((e) => e.entryName)
+			});
+
+			const pdfEntry = entries.find((e) => e.entryName.toLowerCase().endsWith('.pdf'));
+			if (!pdfEntry) {
+				console.error('[SIGN PDF] No PDF found inside ZIP', {
 					requestId,
-					header,
-					preview: preview.slice(0, 500)
+					entries: entries.map((e) => e.entryName)
 				});
+				throw new Error('Zoho Sign returned a ZIP file but no PDF was found inside');
+			}
+
+			pdfBuffer = new Uint8Array(pdfEntry.getData());
+			// Use the actual filename from the ZIP entry
+			filename = pdfEntry.entryName.replace(/^.*\//, '') || `contract-${requestId}.pdf`;
+			console.log('[SIGN PDF] Extracted PDF from ZIP', {
+				requestId,
+				entryName: pdfEntry.entryName,
+				pdfSize: pdfBuffer.byteLength
+			});
+		} else {
+			pdfBuffer = buffer;
+			filename = `contract-${requestId}.pdf`;
+
+			// Verify we actually got PDF bytes (PDF files start with %PDF)
+			if (bytes.length > 4) {
+				const header = new TextDecoder().decode(bytes.slice(0, 5));
+				if (!header.startsWith('%PDF')) {
+					console.error('[SIGN PDF] Response is NOT a PDF', {
+						requestId,
+						header: header.slice(0, 10),
+						preview: new TextDecoder().decode(bytes.slice(0, 500)).slice(0, 500)
+					});
+				}
 			}
 		}
 
-		const filename = `contract-${requestId}.pdf`;
-		return new Response(buffer, {
+		return new Response(pdfBuffer as BodyInit, {
 			status: 200,
 			headers: {
-				'Content-Type': contentType.includes('pdf') ? contentType : 'application/pdf',
+				'Content-Type': 'application/pdf',
 				'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
-				'Content-Length': String(buffer.byteLength),
+				'Content-Length': String(pdfBuffer.byteLength),
 				'Cache-Control': 'private, no-store'
 			}
 		});
