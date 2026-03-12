@@ -223,7 +223,16 @@
 										Sign
 									</a>
 								{/if}
-								{#if contract.view_url}
+								{#if /complete|signed/i.test(contract.status || '')}
+									<a
+										class="btn-secondary"
+										href={`/api/sign/requests/${contract.id}/pdf`}
+										target="_blank"
+										rel="noopener"
+									>
+										View PDF
+									</a>
+								{:else if contract.view_url}
 									<a
 										class="btn-secondary"
 										href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`}

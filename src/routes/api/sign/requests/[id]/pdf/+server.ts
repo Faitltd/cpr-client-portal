@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { listSignRequestsByRecipient } from '$lib/server/sign';
+import { listSignRequestsByRecipient, getRequestDetails } from '$lib/server/sign';
 import type { RequestHandler } from './$types';
 
 const DEFAULT_SIGN_BASE = 'https://sign.zoho.com/api/v1';
@@ -21,7 +21,7 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		throw error(400, 'Request ID required');
 	}
 
-	console.log('[SIGN PDF] Request received', { requestId, codePath: 'Zoho Sign PDF' });
+	console.log('[SIGN PDF] Request received', { requestId });
 
 	try {
 		const session = await getSession(sessionToken);
@@ -58,37 +58,107 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		}
 
 		const base = ZOHO_SIGN_API_BASE || DEFAULT_SIGN_BASE;
-		const url = `${base}/requests/${encodeURIComponent(requestId)}/pdf`;
-		const response = await fetch(url, {
-			method: 'GET',
-			headers: {
-				Authorization: `Zoho-oauthtoken ${accessToken}`
-			}
-		});
 
-		console.log('[SIGN PDF] Zoho response', { requestId, status: response.status, contentType: response.headers.get('content-type') });
+		// Try the per-document PDF endpoint first (more reliable for completed docs),
+		// then fall back to the request-level PDF endpoint.
+		let pdfResponse: Response | null = null;
 
-		if (!response.ok) {
-			const details = await response.text();
-			throw new Error(`Zoho Sign PDF fetch failed: ${details}`);
+		// Attempt to get document IDs from request details
+		let details: any = null;
+		try {
+			details = await getRequestDetails(accessToken, requestId);
+		} catch (err) {
+			console.warn('[SIGN PDF] Could not fetch request details, will use request-level PDF endpoint', err);
 		}
 
-		const buffer = await response.arrayBuffer();
-		const contentType = response.headers.get('content-type') || 'application/pdf';
+		const documents = details?.document_ids || details?.documents || [];
+		const firstDocId = documents[0]?.document_id || documents[0]?.documentId;
 
-		const headers = new Headers({
-			'Content-Type': contentType.includes('pdf') ? contentType : 'application/pdf',
-			'Cache-Control': 'private, no-store'
+		if (firstDocId) {
+			const docUrl = `${base}/requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(firstDocId)}/pdf`;
+			console.log('[SIGN PDF] Trying per-document PDF endpoint', { url: docUrl });
+			const docRes = await fetch(docUrl, {
+				method: 'GET',
+				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+				redirect: 'follow'
+			});
+			console.log('[SIGN PDF] Per-document response', {
+				status: docRes.status,
+				contentType: docRes.headers.get('content-type'),
+				contentLength: docRes.headers.get('content-length')
+			});
+			if (docRes.ok) {
+				pdfResponse = docRes;
+			} else {
+				const errBody = await docRes.text();
+				console.warn('[SIGN PDF] Per-document PDF endpoint failed, falling back', {
+					status: docRes.status,
+					body: errBody.slice(0, 500)
+				});
+			}
+		}
+
+		// Fall back to the request-level PDF endpoint
+		if (!pdfResponse) {
+			const reqUrl = `${base}/requests/${encodeURIComponent(requestId)}/pdf`;
+			console.log('[SIGN PDF] Trying request-level PDF endpoint', { url: reqUrl });
+			pdfResponse = await fetch(reqUrl, {
+				method: 'GET',
+				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+				redirect: 'follow'
+			});
+			console.log('[SIGN PDF] Request-level response', {
+				status: pdfResponse.status,
+				contentType: pdfResponse.headers.get('content-type'),
+				contentLength: pdfResponse.headers.get('content-length')
+			});
+		}
+
+		if (!pdfResponse.ok) {
+			const errBody = await pdfResponse.text();
+			console.error('[SIGN PDF] Zoho Sign PDF fetch failed', {
+				requestId,
+				status: pdfResponse.status,
+				contentType: pdfResponse.headers.get('content-type'),
+				body: errBody.slice(0, 500)
+			});
+			throw new Error(`Zoho Sign PDF fetch failed (${pdfResponse.status}): ${errBody.slice(0, 200)}`);
+		}
+
+		const buffer = await pdfResponse.arrayBuffer();
+		const contentType = pdfResponse.headers.get('content-type') || 'application/pdf';
+
+		console.log('[SIGN PDF] Success', {
+			requestId,
+			contentType,
+			bodySize: buffer.byteLength
 		});
-		const filename = `contract-${requestId}.pdf`;
-		headers.set('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${filename}"`);
 
+		// Verify we actually got PDF bytes (PDF files start with %PDF)
+		if (buffer.byteLength > 4) {
+			const header = new TextDecoder().decode(new Uint8Array(buffer.slice(0, 5)));
+			if (!header.startsWith('%PDF')) {
+				const preview = new TextDecoder().decode(new Uint8Array(buffer.slice(0, 500)));
+				console.error('[SIGN PDF] Response is NOT a PDF', {
+					requestId,
+					header,
+					preview: preview.slice(0, 500)
+				});
+			}
+		}
+
+		const filename = `contract-${requestId}.pdf`;
 		return new Response(buffer, {
 			status: 200,
-			headers
+			headers: {
+				'Content-Type': contentType.includes('pdf') ? contentType : 'application/pdf',
+				'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
+				'Content-Length': String(buffer.byteLength),
+				'Cache-Control': 'private, no-store'
+			}
 		});
 	} catch (err) {
-		console.error('Failed to fetch contract PDF:', err);
+		console.error('[SIGN PDF] Failed to fetch contract PDF:', err);
 		if (err instanceof Error && 'status' in err) {
 			throw err;
 		}

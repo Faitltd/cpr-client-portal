@@ -8,6 +8,7 @@
 	let pdfUrl = '';
 	let name = '';
 	let status = '';
+	let isCompleted = false;
 
 	const requestId = $page.params.id;
 
@@ -41,16 +42,18 @@
 				error = 'Failed to load contract.';
 			}
 		} finally {
-			// For completed/signed documents, always use the PDF proxy endpoint
-			// because Zoho-hosted view URLs often don't work for completed documents.
-			const isCompleted = status && /complete|signed/i.test(status);
+			// For completed/signed documents, open the PDF directly in this tab.
+			// No iframes or object embeds — the browser's native PDF viewer handles it.
+			isCompleted = !!(status && /complete|signed/i.test(status));
 			if (isCompleted && pdfUrl) {
-				viewUrl = pdfUrl;
+				window.location.href = pdfUrl;
+				return;
 			}
 			if (!viewUrl && presetUrl) {
 				viewUrl = presetUrl;
 			}
 			if (!viewUrl && pdfUrl) {
+				// Even unsigned docs — try the PDF endpoint as last resort
 				viewUrl = pdfUrl;
 			}
 			const authError = error.toLowerCase().includes('login');
@@ -77,23 +80,20 @@
 		{/if}
 	</header>
 
-	{#if loading}
-		<div class="card">Loading contract...</div>
+	{#if loading || isCompleted}
+		<div class="card">
+			{#if isCompleted}
+				<p>Opening signed PDF...</p>
+				<p><a href={pdfUrl} target="_blank" rel="noreferrer">Click here if the PDF doesn't open automatically</a></p>
+				<p><a href={pdfUrl + '?download=1'}>Download PDF</a></p>
+			{:else}
+				Loading contract...
+			{/if}
+		</div>
 	{:else if error}
 		<div class="card error">
 			<p>{error}</p>
 			<a href="/auth/client">Go to login</a>
-		</div>
-	{:else if viewUrl === pdfUrl}
-		<div class="actions">
-			<a class="btn-secondary" href={pdfUrl} target="_blank" rel="noreferrer">
-				Download PDF
-			</a>
-		</div>
-		<div class="frame">
-			<object data={pdfUrl} type="application/pdf" title="Contract PDF" width="100%" height="100%">
-				<p>Unable to display PDF. <a href={pdfUrl} target="_blank" rel="noreferrer">Download the PDF</a> instead.</p>
-			</object>
 		</div>
 	{:else}
 		<div class="actions">
