@@ -11,69 +11,89 @@ const ZOHO_SIGN_API_BASE = env.ZOHO_SIGN_API_BASE;
 
 /**
  * Extract the first PDF from a ZIP buffer using zero dependencies.
- * Parses ZIP local file headers manually and uses Node.js built-in zlib for deflate.
+ * Parses the Central Directory at the end of the ZIP (which always has correct sizes,
+ * even when local file headers use data descriptors with compressedSize=0).
  */
 function extractFirstPdfFromZip(buffer: Buffer): { data: Buffer; filename: string } | null {
-	// Check ZIP signature PK\x03\x04
-	if (buffer[0] !== 0x50 || buffer[1] !== 0x4b || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
-		return null;
-	}
+	// Check ZIP signature
+	if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) return null;
 
-	let offset = 0;
-	while (offset < buffer.length - 30) {
-		// Check for local file header signature
+	// Find End of Central Directory record (searches backwards for PK\x05\x06)
+	let eocdOffset = -1;
+	for (let i = buffer.length - 22; i >= 0 && i >= buffer.length - 65557; i--) {
+		if (
+			buffer[i] === 0x50 &&
+			buffer[i + 1] === 0x4b &&
+			buffer[i + 2] === 0x05 &&
+			buffer[i + 3] === 0x06
+		) {
+			eocdOffset = i;
+			break;
+		}
+	}
+	if (eocdOffset === -1) return null;
+
+	const cdOffset = buffer.readUInt32LE(eocdOffset + 16); // Central directory offset
+	const cdEntries = buffer.readUInt16LE(eocdOffset + 10); // Total entries
+
+	// Walk central directory entries (signature PK\x01\x02)
+	let offset = cdOffset;
+	for (let i = 0; i < cdEntries && offset < buffer.length - 46; i++) {
 		if (
 			buffer[offset] !== 0x50 ||
 			buffer[offset + 1] !== 0x4b ||
-			buffer[offset + 2] !== 0x03 ||
-			buffer[offset + 3] !== 0x04
+			buffer[offset + 2] !== 0x01 ||
+			buffer[offset + 3] !== 0x02
 		) {
-			break; // No more file entries
+			break;
 		}
 
-		const compressionMethod = buffer.readUInt16LE(offset + 8);
-		const compressedSize = buffer.readUInt32LE(offset + 18);
-		const filenameLength = buffer.readUInt16LE(offset + 26);
-		const extraLength = buffer.readUInt16LE(offset + 28);
-		const filename = buffer.toString('utf8', offset + 30, offset + 30 + filenameLength);
-		const dataStart = offset + 30 + filenameLength + extraLength;
+		const compressionMethod = buffer.readUInt16LE(offset + 10);
+		const compressedSize = buffer.readUInt32LE(offset + 20);
+		const uncompressedSize = buffer.readUInt32LE(offset + 24);
+		const filenameLength = buffer.readUInt16LE(offset + 28);
+		const extraLength = buffer.readUInt16LE(offset + 30);
+		const commentLength = buffer.readUInt16LE(offset + 32);
+		const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+		const filename = buffer.toString('utf8', offset + 46, offset + 46 + filenameLength);
 
-		console.log('[SIGN-PDF] Found ZIP entry:', {
+		console.log('[SIGN-PDF] Central directory entry:', {
 			filename,
 			compressionMethod,
 			compressedSize,
-			filenameLength,
-			extraLength,
-			dataStart
+			uncompressedSize,
+			localHeaderOffset
 		});
 
 		if (filename.toLowerCase().endsWith('.pdf')) {
+			// Read local file header to find where data starts
+			const localFilenameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+			const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+			const dataStart = localHeaderOffset + 30 + localFilenameLength + localExtraLength;
+
+			console.log('[SIGN-PDF] Extracting PDF:', { dataStart, compressedSize, uncompressedSize });
+
 			const compressedData = buffer.subarray(dataStart, dataStart + compressedSize);
 
 			let pdfData: Buffer;
 			if (compressionMethod === 0) {
-				// Stored (no compression)
 				pdfData = Buffer.from(compressedData);
-				console.log('[SIGN-PDF] PDF entry is stored (uncompressed), size:', pdfData.length);
 			} else if (compressionMethod === 8) {
-				// Deflated — use Node.js built-in zlib
 				pdfData = inflateRawSync(compressedData);
-				console.log(
-					'[SIGN-PDF] PDF entry is deflated, compressed:',
-					compressedSize,
-					'inflated:',
-					pdfData.length
-				);
 			} else {
-				console.error('[SIGN-PDF] Unknown compression method:', compressionMethod);
+				console.log('[SIGN-PDF] Unknown compression method:', compressionMethod);
 				return null;
 			}
 
+			console.log('[SIGN-PDF] Extracted PDF successfully:', {
+				size: pdfData.length,
+				startsWithPDF: pdfData.toString('ascii', 0, 4) === '%PDF'
+			});
 			return { data: pdfData, filename };
 		}
 
-		// Skip to next entry
-		offset = dataStart + compressedSize;
+		// Move to next central directory entry
+		offset += 46 + filenameLength + extraLength + commentLength;
 	}
 
 	return null;
