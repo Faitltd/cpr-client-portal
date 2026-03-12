@@ -144,11 +144,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 	let deals: any[] = [];
 	try {
-		const fetched = await getTradePartnerDeals(
-			accessToken,
-			session.trade_partner.zoho_trade_partner_id
-		);
-		deals = Array.isArray(fetched.deals) ? fetched.deals : [];
+		deals = await getTradePartnerDeals(accessToken);
 	} catch (err) {
 		console.error('Failed to fetch trade partner deals for projects:', err);
 		throw error(500, 'Failed to fetch projects');

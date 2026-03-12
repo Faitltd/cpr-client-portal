@@ -315,9 +315,8 @@ async function fetchTradePhotosForSession(
 		}
 	}
 
-	const allDealsResult = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	const deals = await getTradePartnerDeals(accessToken, undefined, apiDomain);
 	const requestedDealId = dealId ? String(dealId).trim() : '';
-	const deals = Array.isArray(allDealsResult.deals) ? allDealsResult.deals : [];
 	const filteredDeals = requestedDealId
 		? deals.filter((deal) => String(deal?.id || '').trim() === requestedDealId)
 		: deals;

@@ -48,8 +48,7 @@ async function getAccessToken() {
 
 async function isDealAuthorizedForTradePartner(dealId: string, zohoTradePartnerId: string) {
 	const accessToken = await getAccessToken();
-	const result = await getTradePartnerDeals(accessToken, zohoTradePartnerId);
-	const dealList = Array.isArray(result.deals) ? result.deals : [];
+	const dealList = await getTradePartnerDeals(accessToken);
 	return dealList.some((deal: any) => String(deal?.id || '') === dealId);
 }
 

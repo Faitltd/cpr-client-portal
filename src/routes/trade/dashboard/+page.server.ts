@@ -14,7 +14,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	return {
 		tradePartner: result.tradePartner,
 		deals: result.deals,
-		warning: result.warning,
-		diagnostics: result.diagnostics || []
+		warning: result.warning
 	};
 };
