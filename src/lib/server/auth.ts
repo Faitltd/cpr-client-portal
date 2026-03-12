@@ -865,6 +865,30 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		diagLog('DIAG TP RECORD: unexpected error', { error: message });
 	}
 
+	// 1b-A) DIAGNOSTIC: Fetch complete Deals field metadata
+	try {
+		await diagFetchDealFieldsMetadata(accessToken, diagLog, apiDomain);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG DEAL FIELDS METADATA: unexpected error', { error: message });
+	}
+
+	// 1b-B) DIAGNOSTIC: Discover all Zoho CRM modules
+	try {
+		await diagFetchZohoModules(accessToken, diagLog, apiDomain);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG ZOHO MODULES: unexpected error', { error: message });
+	}
+
+	// 1b-C) DIAGNOSTIC: Fetch deals with Portal_Trade_Partners field explicitly
+	try {
+		await diagFetchDealsWithPortalTradePartners(accessToken, diagLog, apiDomain);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG PORTAL_TRADE_PARTNERS: unexpected error', { error: message });
+	}
+
 	// 2) Try trade partner's related deals field if present
 	let relatedDealRefs: TradePartnerDealRef[] = [];
 	let relatedDealIds: string[] = [];
@@ -1904,6 +1928,229 @@ async function diagFetchFullTradePartnerRecord(
 	diagLog('DIAG TP RECORD: all non-null field values', nonNullFields);
 
 	return { moduleName, record };
+}
+
+/**
+ * DIAGNOSTIC A: Fetch ALL fields metadata from the Deals module.
+ * Calls GET /settings/fields?module=Deals and logs every field's api_name, data_type,
+ * lookup references, and highlights trade/partner/vendor/portal-related fields.
+ */
+async function diagFetchDealFieldsMetadata(
+	accessToken: string,
+	diagLog: (msg: string, data?: Record<string, unknown>) => void,
+	apiDomain?: string
+): Promise<void> {
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			'/settings/fields?module=Deals',
+			{},
+			apiDomain
+		);
+		const fields = (response.fields || response.data || []) as any[];
+		diagLog('DIAG DEAL FIELDS METADATA: total field count', { count: fields.length });
+
+		const allFieldSummaries: Array<{ api_name: string; data_type: string; lookup_module?: string }> = [];
+		const lookupFields: Array<{ api_name: string; data_type: string; lookup_module: string }> = [];
+		const tradeRelatedFields: Array<{ api_name: string; data_type: string; field_label: string; lookup_module?: string }> = [];
+
+		for (const field of fields) {
+			const apiName = String(field?.api_name || field?.apiName || '').trim();
+			if (!apiName) continue;
+			const dataType = String(field?.data_type || field?.dataType || '').trim();
+			const fieldLabel = String(field?.field_label || field?.fieldLabel || field?.display_label || '').trim();
+
+			// Extract lookup module info
+			let lookupModule = '';
+			if (field?.lookup?.module?.api_name) {
+				lookupModule = String(field.lookup.module.api_name);
+			} else if (field?.lookup?.module && typeof field.lookup.module === 'string') {
+				lookupModule = field.lookup.module;
+			} else if (field?.lookup?.api_name) {
+				lookupModule = String(field.lookup.api_name);
+			}
+			// Check multiselectlookup
+			let multiLookupModule = '';
+			if (field?.multiselectlookup?.linking_module?.api_name) {
+				multiLookupModule = String(field.multiselectlookup.linking_module.api_name);
+			} else if (field?.multiselectlookup?.linking_module && typeof field.multiselectlookup.linking_module === 'string') {
+				multiLookupModule = field.multiselectlookup.linking_module;
+			}
+			let multiConnectedModule = '';
+			if (field?.multiselectlookup?.connected_module?.api_name) {
+				multiConnectedModule = String(field.multiselectlookup.connected_module.api_name);
+			}
+
+			const effectiveLookup = lookupModule || multiLookupModule || multiConnectedModule || '';
+
+			allFieldSummaries.push({ api_name: apiName, data_type: dataType, lookup_module: effectiveLookup || undefined });
+
+			// Track lookup/multiselectlookup fields
+			if (dataType === 'lookup' || dataType === 'multiselectlookup' || effectiveLookup) {
+				lookupFields.push({ api_name: apiName, data_type: dataType, lookup_module: effectiveLookup });
+			}
+
+			// Check for trade/partner/vendor/subcontract/portal in api_name (case-insensitive)
+			if (/trade|partner|vendor|subcontract|portal/i.test(apiName)) {
+				tradeRelatedFields.push({
+					api_name: apiName,
+					data_type: dataType,
+					field_label: fieldLabel,
+					lookup_module: effectiveLookup || undefined
+				});
+			}
+		}
+
+		// Log ALL fields (api_name + data_type)
+		diagLog('DIAG DEAL FIELDS METADATA: all fields', {
+			fields: allFieldSummaries.map((f) => `${f.api_name} (${f.data_type}${f.lookup_module ? ' -> ' + f.lookup_module : ''})`)
+		});
+
+		// Log lookup fields specifically
+		diagLog('DIAG DEAL FIELDS METADATA: lookup/multiselectlookup fields', {
+			count: lookupFields.length,
+			fields: lookupFields
+		});
+
+		// Log trade/partner/vendor/portal-related fields
+		diagLog('DIAG DEAL FIELDS METADATA: trade/partner/vendor/portal-related fields', {
+			count: tradeRelatedFields.length,
+			fields: tradeRelatedFields
+		});
+
+		// Specifically check if Portal_Trade_Partners exists
+		const portalTP = fields.find((f: any) => {
+			const name = String(f?.api_name || f?.apiName || '');
+			return name === 'Portal_Trade_Partners';
+		});
+		if (portalTP) {
+			diagLog('DIAG DEAL FIELDS METADATA: Portal_Trade_Partners FOUND', {
+				api_name: portalTP.api_name || portalTP.apiName,
+				data_type: portalTP.data_type || portalTP.dataType,
+				field_label: portalTP.field_label || portalTP.fieldLabel,
+				lookup: portalTP.lookup ? JSON.stringify(portalTP.lookup) : 'none',
+				multiselectlookup: portalTP.multiselectlookup ? JSON.stringify(portalTP.multiselectlookup) : 'none',
+				json_type: portalTP.json_type,
+				raw: summarizeValue(portalTP, 2000)
+			});
+		} else {
+			diagLog('DIAG DEAL FIELDS METADATA: Portal_Trade_Partners NOT FOUND in metadata');
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG DEAL FIELDS METADATA: ERROR', { error: message });
+	}
+}
+
+/**
+ * DIAGNOSTIC B: Fetch all Zoho CRM modules.
+ * Calls GET /settings/modules and logs all module API names.
+ * Highlights any modules containing "trade", "partner", "vendor", "subcontract".
+ */
+async function diagFetchZohoModules(
+	accessToken: string,
+	diagLog: (msg: string, data?: Record<string, unknown>) => void,
+	apiDomain?: string
+): Promise<void> {
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			'/settings/modules',
+			{},
+			apiDomain
+		);
+		const modules = (response.modules || response.data || []) as any[];
+		const moduleNames = modules.map((m: any) => String(m?.api_name || m?.module_name || m?.plural_label || '')).filter(Boolean);
+
+		diagLog('DIAG ZOHO MODULES: all module API names', {
+			count: moduleNames.length,
+			modules: moduleNames
+		});
+
+		// Highlight trade/partner/vendor/subcontractor modules
+		const tradeRelated = moduleNames.filter((name: string) =>
+			/trade|partner|vendor|subcontract/i.test(name)
+		);
+		diagLog('DIAG ZOHO MODULES: trade/partner/vendor/subcontract-related modules', {
+			count: tradeRelated.length,
+			modules: tradeRelated
+		});
+
+		// Also log modules that are custom (often have numeric suffix or Custom prefix)
+		const customModules = modules
+			.filter((m: any) => m?.generated_type === 'custom' || m?.custom_module === true || /custom/i.test(String(m?.module_name || '')))
+			.map((m: any) => ({
+				api_name: String(m?.api_name || ''),
+				singular_label: String(m?.singular_label || ''),
+				plural_label: String(m?.plural_label || ''),
+				generated_type: String(m?.generated_type || '')
+			}));
+		if (customModules.length > 0) {
+			diagLog('DIAG ZOHO MODULES: custom modules', {
+				count: customModules.length,
+				modules: customModules
+			});
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG ZOHO MODULES: ERROR', { error: message });
+	}
+}
+
+/**
+ * DIAGNOSTIC C: Fetch deals with Portal_Trade_Partners field explicitly requested.
+ * Tests whether the field exists but wasn't in the hardcoded field list.
+ */
+async function diagFetchDealsWithPortalTradePartners(
+	accessToken: string,
+	diagLog: (msg: string, data?: Record<string, unknown>) => void,
+	apiDomain?: string
+): Promise<void> {
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			'/Deals?fields=Portal_Trade_Partners,Deal_Name&page=1&per_page=5',
+			{},
+			apiDomain
+		);
+		const deals = response.data || [];
+		diagLog('DIAG PORTAL_TRADE_PARTNERS FETCH: result', {
+			dealCount: deals.length,
+			deals: deals.map((d: any) => ({
+				id: d.id,
+				Deal_Name: d.Deal_Name,
+				Portal_Trade_Partners: summarizeValue(d.Portal_Trade_Partners, 1000),
+				Portal_Trade_Partners_type: d.Portal_Trade_Partners === null ? 'null' : Array.isArray(d.Portal_Trade_Partners) ? 'array' : typeof d.Portal_Trade_Partners,
+				Portal_Trade_Partners_isArray: Array.isArray(d.Portal_Trade_Partners),
+				Portal_Trade_Partners_length: Array.isArray(d.Portal_Trade_Partners) ? d.Portal_Trade_Partners.length : undefined
+			}))
+		});
+
+		// If any deals have non-null Portal_Trade_Partners, log the full structure
+		for (const deal of deals) {
+			if (deal.Portal_Trade_Partners !== null && deal.Portal_Trade_Partners !== undefined) {
+				diagLog('DIAG PORTAL_TRADE_PARTNERS FETCH: non-null value found', {
+					dealId: deal.id,
+					dealName: deal.Deal_Name,
+					value: summarizeValue(deal.Portal_Trade_Partners, 2000),
+					type: Array.isArray(deal.Portal_Trade_Partners) ? 'array' : typeof deal.Portal_Trade_Partners,
+					keys: deal.Portal_Trade_Partners && typeof deal.Portal_Trade_Partners === 'object' && !Array.isArray(deal.Portal_Trade_Partners) ? Object.keys(deal.Portal_Trade_Partners) : undefined
+				});
+				if (Array.isArray(deal.Portal_Trade_Partners) && deal.Portal_Trade_Partners.length > 0) {
+					const first = deal.Portal_Trade_Partners[0];
+					diagLog('DIAG PORTAL_TRADE_PARTNERS FETCH: array element[0] structure', {
+						dealId: deal.id,
+						elementType: first === null ? 'null' : typeof first,
+						elementKeys: first && typeof first === 'object' ? Object.keys(first) : [],
+						element: summarizeValue(first, 2000)
+					});
+				}
+			}
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG PORTAL_TRADE_PARTNERS FETCH: ERROR', { error: message });
+	}
 }
 
 async function fetchDealsFromTradePartnerRelatedList(
