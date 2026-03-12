@@ -7,6 +7,7 @@
 		tradePartner: { name?: string | null; email: string };
 		deals: any[];
 		warning?: string;
+		diagnostics?: string[];
 	};
 
 	const tradePartner = data?.tradePartner || { email: '' };
@@ -245,6 +246,14 @@
 			The field update form opens in a new tab so camera and microphone permissions work reliably.
 		</p>
 	</div>
+
+	<!-- TEMPORARY DIAGNOSTICS (remove after debugging) -->
+	{#if data?.diagnostics?.length}
+		<details class="diag-panel">
+			<summary>Debug Diagnostics ({data.diagnostics.length} entries)</summary>
+			<pre class="diag-log">{data.diagnostics.join('\n')}</pre>
+		</details>
+	{/if}
 
 	{#if data?.warning}
 		<div class="card warning">{data.warning}</div>
@@ -643,6 +652,34 @@
 
 	.file-link:hover {
 		color: #1e40af;
+	}
+
+	.diag-panel {
+		margin-bottom: 1.5rem;
+		border: 1px dashed #d97706;
+		border-radius: 8px;
+		padding: 1rem;
+		background: #fffbeb;
+		font-size: 0.85rem;
+	}
+
+	.diag-panel summary {
+		cursor: pointer;
+		font-weight: 600;
+		color: #92400e;
+	}
+
+	.diag-log {
+		margin: 0.75rem 0 0;
+		padding: 0.75rem;
+		background: #fef3c7;
+		border-radius: 6px;
+		white-space: pre-wrap;
+		word-break: break-word;
+		font-size: 0.8rem;
+		line-height: 1.5;
+		max-height: 400px;
+		overflow-y: auto;
 	}
 
 	@media (max-width: 720px) {

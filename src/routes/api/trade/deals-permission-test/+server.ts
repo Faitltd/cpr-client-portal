@@ -129,10 +129,10 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 	let resolvedDeals: Record<string, unknown> | null = null;
 	try {
-		const deals = await getTradePartnerDeals(accessToken, tradePartnerId);
+		const dealsResult = await getTradePartnerDeals(accessToken, tradePartnerId);
 		resolvedDeals = {
-			count: deals.length,
-			sample: deals.slice(0, 5).map((deal: any) => ({
+			count: dealsResult.deals.length,
+			sample: dealsResult.deals.slice(0, 5).map((deal: any) => ({
 				id: deal?.id,
 				Deal_Name: deal?.Deal_Name,
 				Stage: deal?.Stage

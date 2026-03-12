@@ -574,9 +574,9 @@ async function tradePartnerCanAccessDeal(
 
 	// Robust final check: use the same deal lookup logic used by the dashboard.
 	// This covers orgs where Portal_Trade_Partners isn't populated on the Deal.
-	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	const dealsResult = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	const requested = String(dealId || '').trim();
-	return (deals || []).some((deal: any) => collectDealIdCandidates(deal).has(requested));
+	return (dealsResult.deals || []).some((deal: any) => collectDealIdCandidates(deal).has(requested));
 }
 
 async function resolveAuthorizedDealId(
@@ -592,8 +592,8 @@ async function resolveAuthorizedDealId(
 		return requested;
 	}
 
-	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
-	for (const deal of deals || []) {
+	const dealsResult = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	for (const deal of dealsResult.deals || []) {
 		const candidates = collectDealIdCandidates(deal);
 		if (!candidates.has(requested)) continue;
 		return pickCanonicalDealIdForQuery(deal, requested);

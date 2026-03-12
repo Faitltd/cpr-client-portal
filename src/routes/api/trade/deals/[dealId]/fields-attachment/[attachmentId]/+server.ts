@@ -173,8 +173,8 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	}
 
 	const apiDomain = tokens.api_domain || undefined;
-	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
-	const resolvedDealId = resolveDealIdForTradePartner(deals, dealId);
+	const dealsResult = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+	const resolvedDealId = resolveDealIdForTradePartner(dealsResult.deals || [], dealId);
 	if (!resolvedDealId) {
 		throw error(403, 'Access denied');
 	}

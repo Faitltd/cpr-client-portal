@@ -196,9 +196,9 @@ async function tradePartnerCanAccessDeal(
 
 	// Final fallback: match the deal id using the same robust lookup logic as the dashboard.
 	try {
-		const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
+		const dealsResult = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 		const requested = String(dealId || '').trim();
-		return (deals || []).some((deal: any) => collectDealIdCandidates(deal).has(requested));
+		return (dealsResult.deals || []).some((deal: any) => collectDealIdCandidates(deal).has(requested));
 	} catch {
 		return false;
 	}

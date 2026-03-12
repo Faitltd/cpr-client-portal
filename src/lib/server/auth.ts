@@ -688,6 +688,14 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	let searchCount = 0;
 	let coqlCount = 0;
 	let fallbackCount = 0;
+	// --- TEMPORARY DIAGNOSTICS (remove after debugging) ---
+	const diag: string[] = [];
+	const diagLog = (msg: string, data?: Record<string, unknown>) => {
+		const line = data ? `${msg} ${JSON.stringify(data)}` : msg;
+		diag.push(line);
+		console.log(`[TRADE-DIAG] ${line}`);
+	};
+	// --- END DIAGNOSTICS ---
 	const logSummary = (label: string, extra: Record<string, unknown> = {}) => {
 		log.debug('trade partner deals lookup', {
 			label,
@@ -705,6 +713,12 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	};
 
 	logSummary('start');
+	diagLog('START getTradePartnerDeals', {
+		tradePartnerId,
+		modules: TRADE_PARTNERS_MODULES,
+		relatedLists: TRADE_PARTNER_RELATED_LISTS,
+		apiDomain: apiDomain || 'default'
+	});
 
 	const collected = new Map<string, any>();
 	const collectedOrder: string[] = [];
@@ -726,6 +740,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 
 	// 0) Try search endpoint for lookup field (direct Deals access)
 	const dealTpFields = await resolveDealTradePartnerFields(accessToken, apiDomain);
+	diagLog('Strategy 0: Deal search fields resolved', { dealTpFields });
 	const searchOperators = ['equals', 'in'];
 	for (const fieldName of dealTpFields) {
 		for (const operator of searchOperators) {
@@ -748,12 +763,14 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 					if (hasMore !== true && pageData.length < perPage) break;
 				}
 				searchCount += searchResults.length;
+				diagLog(`Strategy 0: Deal search result`, { fieldName, operator, criteria, found: searchResults.length });
 				if (searchResults.length) {
 					logSummary('search', { dealsCount: searchCount, operator, fieldName });
 					rememberDeals(searchResults);
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
+				diagLog(`Strategy 0: Deal search ERROR`, { fieldName, operator, criteria, error: message });
 				if (message.includes('INVALID_QUERY') && message.includes('invalid operator')) {
 					continue;
 				}
@@ -784,6 +801,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	}
 	for (const select_query of coqlQueries) {
 		try {
+			diagLog('Strategy 1: COQL attempt', { query: select_query });
 			const response = await zohoApiCall(
 				accessToken,
 				'/coql',
@@ -795,12 +813,14 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			);
 
 			coqlCount += response.data?.length || 0;
+			diagLog('Strategy 1: COQL result', { found: response.data?.length || 0, query: select_query });
 			logSummary('coql', { dealsCount: coqlCount, query: select_query });
 			if (response.data?.length) {
 				rememberDeals(response.data);
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
+			diagLog('Strategy 1: COQL ERROR', { error: message, query: select_query });
 			if (message.includes('OAUTH_SCOPE_MISMATCH')) {
 				log.error('Trade partner COQL failed', { tradePartnerId, error: message });
 				break;
@@ -813,20 +833,25 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	let relatedDealRefs: TradePartnerDealRef[] = [];
 	let relatedDealIds: string[] = [];
 	try {
+		diagLog('Strategy 2: Fetching TP deal IDs from record fields', { tradePartnerId });
 		relatedDealRefs = await getTradePartnerDealIds(accessToken, tradePartnerId, apiDomain);
 		relatedDealIdsCount = relatedDealRefs.length;
 		relatedDealIds = relatedDealRefs.map((ref) => ref.id);
+		diagLog('Strategy 2: TP deal IDs result', { found: relatedDealRefs.length, ids: relatedDealIds.slice(0, 10) });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		diagLog('Strategy 2: TP deal IDs ERROR', { error: message });
 		log.error('Trade partner deal IDs lookup failed', { tradePartnerId, error: message });
 	}
 
 	// 3) Try related list on trade partner record (may be a junction)
 	let normalizedRelated: any[] = [];
 	try {
+		diagLog('Strategy 3: Fetching related list deals', { tradePartnerId, relatedLists: TRADE_PARTNER_RELATED_LISTS });
 		const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
 		relatedListCount = relatedDeals.length;
 		normalizedRelated = relatedDeals.map(normalizeDealRecord);
+		diagLog('Strategy 3: Related list result', { found: relatedDeals.length });
 		const sample = normalizedRelated[0];
 		if (sample) {
 			log.debug('related list raw sample', {
@@ -837,19 +862,23 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		diagLog('Strategy 3: Related list ERROR', { error: message });
 		log.error('Trade partner related list lookup failed', { tradePartnerId, error: message });
 	}
 
 	const relatedListIds = normalizedRelated.map((deal: any) => deal?.id).filter(Boolean) as string[];
 
 	const combinedIds = Array.from(new Set([...relatedDealIds, ...relatedListIds]));
+	diagLog('Strategies 2+3: Combined deal IDs', { count: combinedIds.length, ids: combinedIds.slice(0, 10) });
 	if (combinedIds.length > 0) {
 		try {
 			const deals = await fetchDealsByIds(accessToken, combinedIds, apiDomain);
+			diagLog('Strategies 2+3: Fetched deals by IDs', { requested: combinedIds.length, fetched: deals.length });
 			logSummary('combinedIds', { dealsCount: deals.length, idsCount: combinedIds.length });
 			rememberDeals(deals);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
+			diagLog('Strategies 2+3: Fetch by IDs ERROR', { error: message });
 			log.error('Trade partner combined IDs fetch failed', { tradePartnerId, error: message });
 		}
 	}
@@ -874,13 +903,16 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	}
 
 	if (collectedOrder.length > 0) {
+		diagLog('EARLY RETURN: Strategies 0-3 found deals', { totalCollected: collectedOrder.length });
 		logSummary('final', { dealsCount: collectedOrder.length });
-		return collectedOrder.map((id, index) => ensureDealId(collected.get(id), index));
+		return { deals: collectedOrder.map((id, index) => ensureDealId(collected.get(id), index)), diag };
 	}
 
 	// 4) Fallback to standard list + client-side filter
 	try {
+		diagLog('Strategy 4: Fallback - scanning all deals', { tradePartnerId, dealTpFields });
 		const filtered: any[] = [];
+		let totalScanned = 0;
 		for (let page = 1; page <= maxPages; page += 1) {
 			const deals = await zohoApiCall(
 				accessToken,
@@ -890,6 +922,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			);
 			const pageData = Array.isArray(deals.data) ? deals.data : [];
 			if (pageData.length === 0) break;
+			totalScanned += pageData.length;
 
 			filtered.push(
 				...pageData.filter((deal: any) => {
@@ -908,9 +941,18 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		}
 
 		fallbackCount = filtered.length;
+		diagLog('Strategy 4: Fallback result', { scanned: totalScanned, matched: filtered.length });
 		logSummary('fallback', { dealsCount: fallbackCount });
 
 		if (filtered.length === 0) {
+			diagLog('ALL STRATEGIES EXHAUSTED: Zero deals found', {
+				tradePartnerId,
+				searchCount,
+				coqlCount,
+				relatedDealIdsCount,
+				relatedListCount,
+				fallbackCount
+			});
 			log.warn('Trade partner deals empty', {
 				tradePartnerId,
 				relatedDealIdsCount,
@@ -921,11 +963,12 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			});
 		}
 
-		return filtered.map(normalizeDealRecord).map(ensureDealId);
+		return { deals: filtered.map(normalizeDealRecord).map(ensureDealId), diag };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		diagLog('Strategy 4: Fallback ERROR', { error: message });
 		log.error('Trade partner deals fallback scan failed', { tradePartnerId, error: message });
-		return [];
+		return { deals: [], diag };
 	}
 }
 

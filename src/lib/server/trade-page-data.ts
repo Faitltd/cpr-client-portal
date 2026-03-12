@@ -29,6 +29,7 @@ export type TradePageContext = {
 	tradePartner: TradePartner | null;
 	deals: any[];
 	warning: string;
+	diagnostics?: string[];
 };
 
 function toSafeIso(value: unknown, fallback?: unknown) {
@@ -189,19 +190,29 @@ export async function loadTradePageContext(
 
 	let deals: any[] = [];
 	let warning = '';
+	let diagnostics: string[] = [];
 
 	const apiDomain = tokens.api_domain || undefined;
 
 	if (!session.trade_partner.zoho_trade_partner_id) {
 		warning = 'Your account is missing a Zoho Trade Partner ID. Contact admin to resync.';
+		diagnostics.push('SKIPPED: No zoho_trade_partner_id on session record');
 	} else {
 		try {
-			const fetched = await getTradePartnerDeals(
+			const result = await getTradePartnerDeals(
 				accessToken,
 				session.trade_partner.zoho_trade_partner_id,
 				apiDomain
 			);
-			const allDeals = Array.isArray(fetched) ? fetched : [];
+			const allDeals = Array.isArray(result.deals) ? result.deals : [];
+			diagnostics = result.diag || [];
+			diagnostics.unshift(
+				`Session trade_partner_id (supabase): ${session.trade_partner.id}`,
+				`zoho_trade_partner_id: ${session.trade_partner.zoho_trade_partner_id}`,
+				`email: ${session.trade_partner.email}`,
+				`name: ${session.trade_partner.name || '(none)'}`,
+				`company: ${session.trade_partner.company || '(none)'}`
+			);
 			const hydrateIds = Array.from(
 				new Set(
 					allDeals
@@ -231,6 +242,7 @@ export async function loadTradePageContext(
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			console.error('[trade-page-data] Failed to load deals:', message);
+			diagnostics.push(`EXCEPTION in loadTradePageContext: ${message}`);
 			warning =
 				'Unable to load deals at this time. Please try again later or contact your admin.';
 		}
@@ -240,6 +252,7 @@ export async function loadTradePageContext(
 		redirectTo: null,
 		tradePartner: session.trade_partner,
 		deals,
-		warning
+		warning,
+		diagnostics
 	};
 }
