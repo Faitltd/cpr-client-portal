@@ -844,11 +844,19 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		log.error('Trade partner deal IDs lookup failed', { tradePartnerId, error: message });
 	}
 
+	// 2b) DIAGNOSTIC: Fetch ALL fields from the trade partner record to see complete picture
+	try {
+		await diagFetchFullTradePartnerRecord(accessToken, tradePartnerId, diagLog, apiDomain);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		diagLog('DIAG TP RECORD: unexpected error', { error: message });
+	}
+
 	// 3) Try related list on trade partner record (may be a junction)
 	let normalizedRelated: any[] = [];
 	try {
 		diagLog('Strategy 3: Fetching related list deals', { tradePartnerId, relatedLists: TRADE_PARTNER_RELATED_LISTS });
-		const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain);
+		const relatedDeals = await fetchDealsFromTradePartnerRelatedList(accessToken, tradePartnerId, apiDomain, diagLog);
 		relatedListCount = relatedDeals.length;
 		normalizedRelated = relatedDeals.map(normalizeDealRecord);
 		diagLog('Strategy 3: Related list result', { found: relatedDeals.length });
@@ -913,6 +921,8 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		diagLog('Strategy 4: Fallback - scanning all deals', { tradePartnerId, dealTpFields });
 		const filtered: any[] = [];
 		let totalScanned = 0;
+		let nonNullSamplesLogged = 0;
+		let firstDealFieldsLogged = false;
 		for (let page = 1; page <= maxPages; page += 1) {
 			const deals = await zohoApiCall(
 				accessToken,
@@ -924,24 +934,103 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 			if (pageData.length === 0) break;
 			totalScanned += pageData.length;
 
-			filtered.push(
-				...pageData.filter((deal: any) => {
+			// --- ENHANCED DIAGNOSTICS: log trade/partner/vendor fields on first deal ---
+			if (!firstDealFieldsLogged && pageData.length > 0) {
+				firstDealFieldsLogged = true;
+				const firstDeal = pageData[0];
+				const allKeys = Object.keys(firstDeal);
+				const tradePartnerKeys = allKeys.filter((k) =>
+					/trade|partner|vendor|subcontract/i.test(k)
+				);
+				diagLog('Strategy 4: FIRST DEAL - all field names containing trade/partner/vendor/subcontract', {
+					matchingKeys: tradePartnerKeys,
+					totalFieldCount: allKeys.length,
+					allKeys: allKeys
+				});
+				// Log the values of those matching fields
+				for (const key of tradePartnerKeys) {
+					const val = firstDeal[key];
+					diagLog(`Strategy 4: FIRST DEAL field "${key}"`, {
+						type: val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val,
+						value: summarizeValue(val, 1000)
+					});
+				}
+			}
+
+			for (const deal of pageData) {
+				let matched = false;
+				for (const fieldName of dealTpFields) {
+					if (dealFieldMatchesTradePartner(deal[fieldName], tradePartnerId)) {
+						matched = true;
+						break;
+					}
+				}
+
+				// --- ENHANCED DIAGNOSTICS: log raw field values for first 5 deals with non-null trade partner fields ---
+				if (nonNullSamplesLogged < 5) {
 					for (const fieldName of dealTpFields) {
-						if (dealFieldMatchesTradePartner(deal[fieldName], tradePartnerId)) {
-							return true;
+						const val = deal[fieldName];
+						if (val !== null && val !== undefined && val !== '') {
+							nonNullSamplesLogged++;
+							diagLog(`Strategy 4: SAMPLE DEAL with non-null "${fieldName}"`, {
+								dealId: deal.id,
+								dealName: deal.Deal_Name,
+								fieldName,
+								valueType: val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val,
+								rawValue: summarizeValue(val, 1000),
+								isArray: Array.isArray(val),
+								isObject: typeof val === 'object' && !Array.isArray(val),
+								matchResult: dealFieldMatchesTradePartner(val, tradePartnerId),
+								tradePartnerId
+							});
+							// If it's an array, log the first element's structure
+							if (Array.isArray(val) && val.length > 0) {
+								const first = val[0];
+								diagLog(`Strategy 4: SAMPLE DEAL array[0] structure for "${fieldName}"`, {
+									dealId: deal.id,
+									elementType: first === null ? 'null' : Array.isArray(first) ? 'array' : typeof first,
+									elementKeys: first && typeof first === 'object' ? Object.keys(first) : [],
+									elementRaw: summarizeValue(first, 1000),
+									elementId: first?.id,
+									elementName: first?.name,
+									elementDisplayValue: first?.display_value
+								});
+							}
+							// If it's an object (not array), log its keys and id
+							if (typeof val === 'object' && !Array.isArray(val) && val !== null) {
+								diagLog(`Strategy 4: SAMPLE DEAL object structure for "${fieldName}"`, {
+									dealId: deal.id,
+									keys: Object.keys(val),
+									id: val.id,
+									name: val.name,
+									displayValue: val.display_value,
+									raw: summarizeValue(val, 1000)
+								});
+							}
+							break; // Only log one field per deal
 						}
 					}
-					return false;
-				})
-			);
+				}
+
+				if (matched) {
+					filtered.push(deal);
+				}
+			}
 
 			const hasMore = deals.info?.more_records;
 			if (hasMore === false) break;
 			if (hasMore !== true && pageData.length < perPage) break;
 		}
 
+		if (nonNullSamplesLogged === 0) {
+			diagLog('Strategy 4: WARNING - ALL deals have null/empty trade partner fields across all checked fields', {
+				fieldsChecked: dealTpFields,
+				totalScanned
+			});
+		}
+
 		fallbackCount = filtered.length;
-		diagLog('Strategy 4: Fallback result', { scanned: totalScanned, matched: filtered.length });
+		diagLog('Strategy 4: Fallback result', { scanned: totalScanned, matched: filtered.length, nonNullSamples: nonNullSamplesLogged });
 		logSummary('fallback', { dealsCount: fallbackCount });
 
 		if (filtered.length === 0) {
@@ -1597,10 +1686,89 @@ async function getTradePartnerDealIds(
 	return [];
 }
 
+/**
+ * TEMPORARY DIAGNOSTIC: Fetch ALL fields from the trade partner record and log them.
+ * This helps identify how deals are linked when standard fields are empty.
+ */
+async function diagFetchFullTradePartnerRecord(
+	accessToken: string,
+	tradePartnerId: string,
+	diagLog: (msg: string, data?: Record<string, unknown>) => void,
+	apiDomain?: string
+): Promise<void> {
+	for (const moduleName of TRADE_PARTNERS_MODULES) {
+		try {
+			// Fetch without fields param to get ALL fields
+			const response = await zohoApiCall(
+				accessToken,
+				`/${moduleName}/${tradePartnerId}`,
+				{},
+				apiDomain
+			);
+			const record = response.data?.[0];
+			if (!record) {
+				diagLog('DIAG TP RECORD: not found', { moduleName, tradePartnerId });
+				continue;
+			}
+
+			const allKeys = Object.keys(record);
+			diagLog('DIAG TP RECORD: all field names', {
+				moduleName,
+				tradePartnerId,
+				totalFields: allKeys.length,
+				allKeys
+			});
+
+			// Log fields that look deal-related
+			const dealRelatedKeys = allKeys.filter((k) =>
+				/deal|potential|project|portal|related|lookup|subform/i.test(k)
+			);
+			diagLog('DIAG TP RECORD: deal/portal/related field names', {
+				matchingKeys: dealRelatedKeys
+			});
+
+			// Log the values of deal-related fields
+			for (const key of dealRelatedKeys) {
+				const val = record[key];
+				diagLog(`DIAG TP RECORD field "${key}"`, {
+					type: val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val,
+					value: summarizeValue(val, 1000),
+					isArray: Array.isArray(val),
+					arrayLength: Array.isArray(val) ? val.length : undefined,
+					objectKeys: val && typeof val === 'object' && !Array.isArray(val) ? Object.keys(val) : undefined
+				});
+				// If array, log first element structure
+				if (Array.isArray(val) && val.length > 0) {
+					diagLog(`DIAG TP RECORD field "${key}" array[0]`, {
+						elementType: typeof val[0],
+						elementKeys: val[0] && typeof val[0] === 'object' ? Object.keys(val[0]) : [],
+						elementRaw: summarizeValue(val[0], 1000)
+					});
+				}
+			}
+
+			// Also log ALL non-null field values (truncated) for complete picture
+			const nonNullFields: Record<string, unknown> = {};
+			for (const key of allKeys) {
+				const val = record[key];
+				if (val !== null && val !== undefined && val !== '' && val !== false) {
+					nonNullFields[key] = summarizeValue(val, 200);
+				}
+			}
+			diagLog('DIAG TP RECORD: all non-null field values', nonNullFields);
+
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			diagLog('DIAG TP RECORD: fetch ERROR', { moduleName, tradePartnerId, error: message });
+		}
+	}
+}
+
 async function fetchDealsFromTradePartnerRelatedList(
 	accessToken: string,
 	tradePartnerId: string,
-	apiDomain?: string
+	apiDomain?: string,
+	diagLog?: (msg: string, data?: Record<string, unknown>) => void
 ): Promise<any[]> {
 	const perPage = 200;
 	const baseRelatedLists = TRADE_PARTNER_RELATED_LISTS.length
@@ -1608,13 +1776,13 @@ async function fetchDealsFromTradePartnerRelatedList(
 		: ['Deals', TRADE_PARTNER_DEALS_FIELD];
 	// Add common related list names as fallbacks (deduplicated)
 	const relatedListSet = new Set(baseRelatedLists);
-	for (const name of ['Deals', 'Deals1', 'Deals2', 'Deals3', 'Deals4', 'Portal_Deals']) {
+	for (const name of ['Deals', 'Deals1', 'Deals2', 'Deals3', 'Deals4', 'Portal_Deals', 'Potentials']) {
 		relatedListSet.add(name);
 	}
 	const relatedLists = Array.from(relatedListSet);
 	for (const moduleName of TRADE_PARTNERS_MODULES) {
-		try {
-			for (const relatedList of relatedLists) {
+		for (const relatedList of relatedLists) {
+			try {
 				let page = 1;
 				let more = true;
 				const results: any[] = [];
@@ -1639,26 +1807,32 @@ async function fetchDealsFromTradePartnerRelatedList(
 					dealsCount: results.length,
 					apiDomain: apiDomain || 'default'
 				});
+				diagLog?.(`Strategy 3: Related list "${relatedList}" on ${moduleName}`, {
+					found: results.length,
+					sampleKeys: results[0] ? Object.keys(results[0]) : [],
+					sampleRaw: results[0] ? summarizeValue(results[0], 1000) : null
+				});
 
 				if (results.length > 0) return results;
-			}
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			if (message.toLowerCase().includes('module name given seems to be invalid')) {
-				log.debug('trade partner module invalid for related list', {
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				diagLog?.(`Strategy 3: Related list "${relatedList}" on ${moduleName} ERROR`, { error: message });
+				if (message.toLowerCase().includes('module name given seems to be invalid')) {
+					log.debug('trade partner module invalid for related list', {
+						moduleName,
+						tradePartnerId,
+						apiDomain: apiDomain || 'default'
+					});
+					break; // Skip this module entirely
+				}
+				// Log and try the next related list name
+				log.debug('trade partner related list failed', {
 					moduleName,
 					tradePartnerId,
-					apiDomain: apiDomain || 'default'
+					relatedList,
+					error: message
 				});
-				continue;
 			}
-			log.error('Trade partner related list fetch failed', {
-				moduleName,
-				tradePartnerId,
-				relatedLists,
-				error: message
-			});
-			// If related list isn't supported, fall through.
 		}
 	}
 
