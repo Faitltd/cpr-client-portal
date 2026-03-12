@@ -190,13 +190,16 @@ export async function loadTradePageContext(
 	let deals: any[] = [];
 	let warning = '';
 
+	const apiDomain = tokens.api_domain || undefined;
+
 	if (!session.trade_partner.zoho_trade_partner_id) {
 		warning = 'Your account is missing a Zoho Trade Partner ID. Contact admin to resync.';
 	} else {
 		try {
 			const fetched = await getTradePartnerDeals(
 				accessToken,
-				session.trade_partner.zoho_trade_partner_id
+				session.trade_partner.zoho_trade_partner_id,
+				apiDomain
 			);
 			const allDeals = Array.isArray(fetched) ? fetched : [];
 			const hydrateIds = Array.from(

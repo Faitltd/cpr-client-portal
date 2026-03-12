@@ -89,10 +89,126 @@ const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 	.map((name) => name.trim())
 	.filter(Boolean);
 const TRADE_PARTNER_DEALS_FIELD = 'Portal_Deals';
+const TRADE_PARTNER_DEALS_FIELD_CANDIDATES = [
+	'Portal_Deals',
+	'Deals',
+	'Portal_Deals1',
+	'Portal_Deals2',
+	'Portal_Deals3',
+	'Related_Deals'
+];
 const TRADE_PARTNER_RELATED_LISTS = (ZOHO_TRADE_PARTNER_RELATED_LIST || 'Deals3')
 	.split(',')
 	.map((value) => value.trim())
 	.filter(Boolean);
+// Candidate field names on the Deals module that may link to trade partners.
+// The default is Portal_Trade_Partners, but some CRMs use different names.
+const DEAL_TRADE_PARTNER_FIELD_CANDIDATES = [
+	'Portal_Trade_Partners',
+	'Trade_Partner',
+	'Trade_Partners',
+	'Vendor_Name',
+	'Portal_Trade_Partner',
+	'Trade_Partner_Name',
+	'Subcontractor'
+];
+
+// Cache: resolved deal-side field name(s) pointing to trade partners.
+let _resolvedDealTradePartnerFields: string[] | null = null;
+
+/**
+ * Discover which field(s) on the Deals module are lookups to the trade partners module.
+ * Falls back to the hardcoded candidate list if metadata fetch fails.
+ */
+async function resolveDealTradePartnerFields(
+	accessToken: string,
+	apiDomain?: string
+): Promise<string[]> {
+	if (_resolvedDealTradePartnerFields) return _resolvedDealTradePartnerFields;
+
+	const moduleNameSet = new Set(TRADE_PARTNERS_MODULES.map((m) => m.toLowerCase()));
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			'/settings/fields?module=Deals',
+			{},
+			apiDomain
+		);
+		const fields = (response.fields || response.data || []) as any[];
+		const discovered: string[] = [];
+		for (const field of fields) {
+			const apiName = String(field?.api_name || field?.apiName || '').trim();
+			if (!apiName) continue;
+			// Check if this field is a lookup to one of the trade partner modules
+			const lookupModule = String(
+				field?.lookup?.module?.api_name ||
+					field?.lookup?.module ||
+					field?.lookup?.api_name ||
+					''
+			)
+				.trim()
+				.toLowerCase();
+			if (lookupModule && moduleNameSet.has(lookupModule)) {
+				discovered.push(apiName);
+				continue;
+			}
+			// Also check multi-select lookup
+			const multiModule = String(
+				field?.multiselectlookup?.linking_module?.api_name ||
+					field?.multiselectlookup?.linking_module ||
+					''
+			)
+				.trim()
+				.toLowerCase();
+			if (multiModule && moduleNameSet.has(multiModule)) {
+				discovered.push(apiName);
+				continue;
+			}
+			// Check by name pattern if it explicitly references trade partners
+			const lowerName = apiName.toLowerCase();
+			if (
+				(lowerName.includes('trade_partner') || lowerName.includes('trade_partners')) &&
+				(field?.data_type === 'lookup' ||
+					field?.data_type === 'multiselectlookup' ||
+					field?.json_type === 'jsonobject' ||
+					field?.json_type === 'jsonarray')
+			) {
+				discovered.push(apiName);
+			}
+		}
+		if (discovered.length > 0) {
+			log.debug('Discovered deal trade partner fields from metadata', {
+				fields: discovered,
+				apiDomain: apiDomain || 'default'
+			});
+			_resolvedDealTradePartnerFields = discovered;
+			return discovered;
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.debug('Deal field metadata fetch failed, using candidates', { error: message });
+	}
+
+	// Fallback to hardcoded candidates
+	_resolvedDealTradePartnerFields = DEAL_TRADE_PARTNER_FIELD_CANDIDATES;
+	return DEAL_TRADE_PARTNER_FIELD_CANDIDATES;
+}
+
+/**
+ * Check if a deal's field value matches the given trade partner ID.
+ */
+function dealFieldMatchesTradePartner(fieldValue: any, tradePartnerId: string): boolean {
+	if (!fieldValue) return false;
+	if (Array.isArray(fieldValue)) {
+		return fieldValue.some(
+			(item) => item?.id === tradePartnerId || String(item) === tradePartnerId
+		);
+	}
+	if (typeof fieldValue === 'object') {
+		return fieldValue.id === tradePartnerId;
+	}
+	return String(fieldValue) === tradePartnerId;
+}
 
 const PORTAL_ACTIVE_DEAL_STAGES = new Set([
 	'design needed',
@@ -609,52 +725,63 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 	};
 
 	// 0) Try search endpoint for lookup field (direct Deals access)
+	const dealTpFields = await resolveDealTradePartnerFields(accessToken, apiDomain);
 	const searchOperators = ['equals', 'in'];
-	for (const operator of searchOperators) {
-		const criteria = `(Portal_Trade_Partners:${operator}:${tradePartnerId})`;
-		try {
-			const searchResults: any[] = [];
-			for (let page = 1; page <= maxPages; page += 1) {
-				const search = await zohoApiCall(
-					accessToken,
-					`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
-					{},
-					apiDomain
-				);
-				const pageData = Array.isArray(search.data) ? search.data : [];
-				if (pageData.length === 0) break;
+	for (const fieldName of dealTpFields) {
+		for (const operator of searchOperators) {
+			const criteria = `(${fieldName}:${operator}:${tradePartnerId})`;
+			try {
+				const searchResults: any[] = [];
+				for (let page = 1; page <= maxPages; page += 1) {
+					const search = await zohoApiCall(
+						accessToken,
+						`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+						{},
+						apiDomain
+					);
+					const pageData = Array.isArray(search.data) ? search.data : [];
+					if (pageData.length === 0) break;
 
-				searchResults.push(...pageData);
-				const hasMore = search.info?.more_records;
-				if (hasMore === false) break;
-				if (hasMore !== true && pageData.length < perPage) break;
+					searchResults.push(...pageData);
+					const hasMore = search.info?.more_records;
+					if (hasMore === false) break;
+					if (hasMore !== true && pageData.length < perPage) break;
+				}
+				searchCount += searchResults.length;
+				if (searchResults.length) {
+					logSummary('search', { dealsCount: searchCount, operator, fieldName });
+					rememberDeals(searchResults);
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				if (message.includes('INVALID_QUERY') && message.includes('invalid operator')) {
+					continue;
+				}
+				if (message.includes('INVALID_QUERY') || message.includes('invalid field')) {
+					// This field name doesn't exist on the Deals module — skip it
+					break;
+				}
+				log.error('Trade partner deals search failed', {
+					tradePartnerId,
+					criteria,
+					operator,
+					fieldName,
+					error: message
+				});
+				break;
 			}
-			searchCount = searchResults.length;
-			if (searchResults.length) {
-				logSummary('search', { dealsCount: searchCount, operator });
-				rememberDeals(searchResults);
-			}
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			if (message.includes('INVALID_QUERY') && message.includes('invalid operator')) {
-				continue;
-			}
-			log.error('Trade partner deals search failed', {
-				tradePartnerId,
-				criteria,
-				operator,
-				error: message
-			});
-			break;
 		}
 	}
 
-	// 1) Try COQL if enabled
-	const coqlQueries = [
-		`SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners in ('${tradePartnerId}') ORDER BY Created_Time DESC`,
-		`SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners.id = '${tradePartnerId}' ORDER BY Created_Time DESC`,
-		`SELECT ${DEAL_FIELDS} FROM Deals WHERE Portal_Trade_Partners.id in ('${tradePartnerId}') ORDER BY Created_Time DESC`
-	];
+	// 1) Try COQL if enabled — build queries for each discovered field name
+	const coqlQueries: string[] = [];
+	for (const fieldName of dealTpFields) {
+		coqlQueries.push(
+			`SELECT ${DEAL_FIELDS} FROM Deals WHERE ${fieldName} in ('${tradePartnerId}') ORDER BY Created_Time DESC`,
+			`SELECT ${DEAL_FIELDS} FROM Deals WHERE ${fieldName}.id = '${tradePartnerId}' ORDER BY Created_Time DESC`,
+			`SELECT ${DEAL_FIELDS} FROM Deals WHERE ${fieldName}.id in ('${tradePartnerId}') ORDER BY Created_Time DESC`
+		);
+	}
 	for (const select_query of coqlQueries) {
 		try {
 			const response = await zohoApiCall(
@@ -667,7 +794,7 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 				apiDomain
 			);
 
-			coqlCount = response.data?.length || 0;
+			coqlCount += response.data?.length || 0;
 			logSummary('coql', { dealsCount: coqlCount, query: select_query });
 			if (response.data?.length) {
 				rememberDeals(response.data);
@@ -766,11 +893,12 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 
 			filtered.push(
 				...pageData.filter((deal: any) => {
-					const field = deal.Portal_Trade_Partners;
-					if (Array.isArray(field)) {
-						return field.some((item) => item?.id === tradePartnerId);
+					for (const fieldName of dealTpFields) {
+						if (dealFieldMatchesTradePartner(deal[fieldName], tradePartnerId)) {
+							return true;
+						}
 					}
-					return field?.id === tradePartnerId;
+					return false;
 				})
 			);
 
@@ -1337,62 +1465,71 @@ async function getTradePartnerDealIds(
 	tradePartnerId: string,
 	apiDomain?: string
 ): Promise<TradePartnerDealRef[]> {
+	const fieldCandidates = TRADE_PARTNER_DEALS_FIELD_CANDIDATES;
+	const fieldsParam = fieldCandidates.join(',');
 	for (const moduleName of TRADE_PARTNERS_MODULES) {
 		try {
 			const response = await zohoApiCall(
 				accessToken,
-				`/${moduleName}/${tradePartnerId}?fields=${encodeURIComponent(TRADE_PARTNER_DEALS_FIELD)}`,
+				`/${moduleName}/${tradePartnerId}?fields=${encodeURIComponent(fieldsParam)}`,
 				{},
 				apiDomain
 			);
 			const record = response.data?.[0];
-			const fieldValue = record?.[TRADE_PARTNER_DEALS_FIELD];
-			if (!fieldValue) {
-				log.debug('trade partner deals field empty', {
+			if (!record) {
+				log.debug('trade partner record not found', {
 					moduleName,
 					tradePartnerId,
-					field: TRADE_PARTNER_DEALS_FIELD,
 					apiDomain: apiDomain || 'default'
 				});
 				return [];
 			}
-			if (Array.isArray(fieldValue)) {
-				const refs = fieldValue.map(extractDealRefFromPortalItem).filter(Boolean) as TradePartnerDealRef[];
-				log.debug('trade partner deals field array', {
-					moduleName,
-					tradePartnerId,
-					field: TRADE_PARTNER_DEALS_FIELD,
-					idsCount: refs.length,
-					apiDomain: apiDomain || 'default'
-				});
-				if (refs.length > 0) {
-					const sample = fieldValue[0];
-					log.debug('trade partner deals field sample', {
-						keys: sample ? Object.keys(sample) : [],
-						id: sample?.id,
-						name: sample?.name,
-						display_value: sample?.display_value,
-						nested_id: sample?.[TRADE_PARTNER_DEALS_FIELD]?.id,
-						nested_name: sample?.[TRADE_PARTNER_DEALS_FIELD]?.name,
-						nested_summary: summarizeValue(sample?.[TRADE_PARTNER_DEALS_FIELD])
+
+			// Try each candidate field until one has data
+			for (const candidateField of fieldCandidates) {
+				const fieldValue = record[candidateField];
+				if (!fieldValue) continue;
+
+				if (Array.isArray(fieldValue)) {
+					const refs = fieldValue.map(extractDealRefFromPortalItem).filter(Boolean) as TradePartnerDealRef[];
+					log.debug('trade partner deals field array', {
+						moduleName,
+						tradePartnerId,
+						field: candidateField,
+						idsCount: refs.length,
+						apiDomain: apiDomain || 'default'
 					});
+					if (refs.length > 0) {
+						const sample = fieldValue[0];
+						log.debug('trade partner deals field sample', {
+							keys: sample ? Object.keys(sample) : [],
+							id: sample?.id,
+							name: sample?.name,
+							display_value: sample?.display_value,
+							nested_id: sample?.[candidateField]?.id,
+							nested_name: sample?.[candidateField]?.name,
+							nested_summary: summarizeValue(sample?.[candidateField])
+						});
+						return refs;
+					}
 				}
-				return refs;
+				if (fieldValue?.id) {
+					log.debug('trade partner deals field lookup', {
+						moduleName,
+						tradePartnerId,
+						field: candidateField,
+						apiDomain: apiDomain || 'default'
+					});
+					return [{ id: fieldValue.id, name: fieldValue.name || null }];
+				}
 			}
-			if (fieldValue?.id) {
-				log.debug('trade partner deals field lookup', {
-					moduleName,
-					tradePartnerId,
-					field: TRADE_PARTNER_DEALS_FIELD,
-					apiDomain: apiDomain || 'default'
-				});
-				return [{ id: fieldValue.id, name: fieldValue.name || null }];
-			}
-			log.warn('Trade partner deals field unexpected shape', {
+
+			log.debug('trade partner deals fields all empty', {
 				moduleName,
 				tradePartnerId,
-				field: TRADE_PARTNER_DEALS_FIELD,
-				keys: record ? Object.keys(record) : []
+				candidateFields: fieldCandidates,
+				recordKeys: Object.keys(record),
+				apiDomain: apiDomain || 'default'
 			});
 			return [];
 		} catch (err) {
@@ -1423,9 +1560,15 @@ async function fetchDealsFromTradePartnerRelatedList(
 	apiDomain?: string
 ): Promise<any[]> {
 	const perPage = 200;
-	const relatedLists = TRADE_PARTNER_RELATED_LISTS.length
+	const baseRelatedLists = TRADE_PARTNER_RELATED_LISTS.length
 		? TRADE_PARTNER_RELATED_LISTS
 		: ['Deals', TRADE_PARTNER_DEALS_FIELD];
+	// Add common related list names as fallbacks (deduplicated)
+	const relatedListSet = new Set(baseRelatedLists);
+	for (const name of ['Deals', 'Deals1', 'Deals2', 'Deals3', 'Deals4', 'Portal_Deals']) {
+		relatedListSet.add(name);
+	}
+	const relatedLists = Array.from(relatedListSet);
 	for (const moduleName of TRADE_PARTNERS_MODULES) {
 		try {
 			for (const relatedList of relatedLists) {
