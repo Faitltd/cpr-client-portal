@@ -865,28 +865,19 @@ export async function getTradePartnerDeals(accessToken: string, tradePartnerId: 
 		diagLog('DIAG TP RECORD: unexpected error', { error: message });
 	}
 
-	// 1b-A) DIAGNOSTIC: Fetch complete Deals field metadata
-	try {
-		await diagFetchDealFieldsMetadata(accessToken, diagLog, apiDomain);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		diagLog('DIAG DEAL FIELDS METADATA: unexpected error', { error: message });
-	}
-
-	// 1b-B) DIAGNOSTIC: Discover all Zoho CRM modules
-	try {
-		await diagFetchZohoModules(accessToken, diagLog, apiDomain);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		diagLog('DIAG ZOHO MODULES: unexpected error', { error: message });
-	}
-
-	// 1b-C) DIAGNOSTIC: Fetch deals with Portal_Trade_Partners field explicitly
-	try {
-		await diagFetchDealsWithPortalTradePartners(accessToken, diagLog, apiDomain);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		diagLog('DIAG PORTAL_TRADE_PARTNERS: unexpected error', { error: message });
+	// 1b) DIAGNOSTICS: Run all three in parallel to reduce page load time
+	const diagResults = await Promise.allSettled([
+		diagFetchDealFieldsMetadata(accessToken, diagLog, apiDomain),
+		diagFetchZohoModules(accessToken, diagLog, apiDomain),
+		diagFetchDealsWithPortalTradePartners(accessToken, diagLog, apiDomain)
+	]);
+	const diagLabels = ['DEAL FIELDS METADATA', 'ZOHO MODULES', 'PORTAL_TRADE_PARTNERS'];
+	for (let i = 0; i < diagResults.length; i++) {
+		if (diagResults[i].status === 'rejected') {
+			const reason = (diagResults[i] as PromiseRejectedResult).reason;
+			const message = reason instanceof Error ? reason.message : String(reason);
+			diagLog(`DIAG ${diagLabels[i]}: unexpected error`, { error: message });
+		}
 	}
 
 	// 2) Try trade partner's related deals field if present
