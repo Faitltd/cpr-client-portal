@@ -197,20 +197,8 @@
 					<div class="card-list">
 						{#each group.items as task}
 							<div class="card-row">
-								<div>
-									<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
-									<p class="card-meta">
-										Status: {getTaskStatus(task)} • Assignee: {getTaskAssignee(task)} • Priority:
-										{getTaskPriority(task)}
-									</p>
-								</div>
-								<div class="percent">
-									{#if getTaskPercent(task) !== null && getTaskPercent(task) !== undefined}
-										{Number(getTaskPercent(task)).toFixed(0)}%
-									{:else}
-										—
-									{/if}
-								</div>
+								<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
+								<span class="badge">{getTaskStatus(task)}</span>
 							</div>
 						{/each}
 					</div>
@@ -366,6 +354,7 @@
 
 	.card-row {
 		display: flex;
+		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
 		padding: 1rem;
@@ -375,20 +364,8 @@
 	}
 
 	.card-title {
-		margin: 0 0 0.25rem;
-		font-weight: 600;
-	}
-
-	.card-meta {
 		margin: 0;
-		color: #4b5563;
-	}
-
-	.percent {
-		min-width: 4rem;
-		text-align: right;
-		font-weight: 700;
-		color: #111827;
+		font-weight: 600;
 	}
 
 	.activity {
