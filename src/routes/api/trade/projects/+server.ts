@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { getTradePartnerDeals } from '$lib/server/auth';
+import { getTradePartnerDeals, isTradeActiveStage } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { parseZohoProjectIds, getProject, getDealTaskSummaries } from '$lib/server/projects';
 
@@ -144,7 +144,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 	let deals: any[] = [];
 	try {
-		deals = await getTradePartnerDeals(accessToken);
+		const allDeals = await getTradePartnerDeals(accessToken);
+		deals = allDeals.filter((deal) => isTradeActiveStage(deal?.Stage));
 	} catch (err) {
 		console.error('Failed to fetch trade partner deals for projects:', err);
 		throw error(500, 'Failed to fetch projects');

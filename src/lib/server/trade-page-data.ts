@@ -1,4 +1,4 @@
-import { getTradePartnerDeals } from '$lib/server/auth';
+import { getTradePartnerDeals, isTradeActiveStage } from '$lib/server/auth';
 import {
 	getTradeSession,
 	getZohoTokens,
@@ -214,10 +214,11 @@ export async function loadTradePageContext(
 			}
 		}
 
-		deals = finalizeTradePageDeals(hydratedDeals, includeDetailFields);
+		const activeDeals = hydratedDeals.filter((deal) => isTradeActiveStage(deal?.Stage));
+		deals = finalizeTradePageDeals(activeDeals, includeDetailFields);
 
 		if (deals.length === 0) {
-			warning = 'No deals found. Please try again later or contact your admin.';
+			warning = 'No active deals found. Please try again later or contact your admin.';
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

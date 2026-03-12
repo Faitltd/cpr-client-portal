@@ -106,6 +106,11 @@ const PORTAL_ACTIVE_DEAL_STAGES = new Set([
 	'project created'
 ]);
 
+const TRADE_ACTIVE_DEAL_STAGES = new Set([
+	...PORTAL_ACTIVE_DEAL_STAGES,
+	'project started'
+]);
+
 const PASSWORD_SEED_DEAL_STAGES = new Set(['project started', 'project created']);
 
 function normalizeStage(stage: string | null | undefined) {
@@ -120,6 +125,11 @@ function normalizeStage(stage: string | null | undefined) {
 export function isPortalActiveStage(stage: string | null | undefined) {
 	const normalized = normalizeStage(stage);
 	return normalized ? PORTAL_ACTIVE_DEAL_STAGES.has(normalized) : false;
+}
+
+export function isTradeActiveStage(stage: string | null | undefined) {
+	const normalized = normalizeStage(stage);
+	return normalized ? TRADE_ACTIVE_DEAL_STAGES.has(normalized) : false;
 }
 
 function isPasswordSeedStage(stage: string | null | undefined) {
