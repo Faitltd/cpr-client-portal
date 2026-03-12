@@ -197,7 +197,10 @@
 					<div class="card-list">
 						{#each group.items as task}
 							<div class="card-row">
-								<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
+								<div class="card-info">
+									<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
+									<p class="card-assignee">{getTaskAssignee(task)}</p>
+								</div>
 								<span class="badge">{getTaskStatus(task)}</span>
 							</div>
 						{/each}
@@ -363,9 +366,20 @@
 		background: #fff;
 	}
 
+	.card-info {
+		min-width: 0;
+		flex: 1;
+	}
+
 	.card-title {
 		margin: 0;
 		font-weight: 600;
+	}
+
+	.card-assignee {
+		margin: 0.2rem 0 0;
+		font-size: 0.88rem;
+		color: #6b7280;
 	}
 
 	.activity {
