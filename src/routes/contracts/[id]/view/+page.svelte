@@ -84,10 +84,21 @@
 			<p>{error}</p>
 			<a href="/auth/client">Go to login</a>
 		</div>
+	{:else if viewUrl === pdfUrl}
+		<div class="actions">
+			<a class="btn-secondary" href={pdfUrl} target="_blank" rel="noreferrer">
+				Download PDF
+			</a>
+		</div>
+		<div class="frame">
+			<object data={pdfUrl} type="application/pdf" title="Contract PDF" width="100%" height="100%">
+				<p>Unable to display PDF. <a href={pdfUrl} target="_blank" rel="noreferrer">Download the PDF</a> instead.</p>
+			</object>
+		</div>
 	{:else}
 		<div class="actions">
 			<a class="btn-secondary" href={viewUrl} target="_blank" rel="noreferrer">
-				{viewUrl === pdfUrl ? 'Download PDF' : 'Open in new tab'}
+				Open in new tab
 			</a>
 		</div>
 		<div class="frame">
@@ -164,7 +175,8 @@
 		min-height: 600px;
 	}
 
-	.frame iframe {
+	.frame iframe,
+	.frame object {
 		border: none;
 		width: 100%;
 		height: 80vh;

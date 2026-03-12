@@ -81,6 +81,7 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 
 	const dealId = String(params.id || '').trim();
 	const attachmentId = String(params.attachmentId || '').trim();
+	console.log('[DOC PROXY] Request received', { dealId, attachmentId, codePath: 'CRM attachment' });
 	if (!dealId || !attachmentId) {
 		throw error(400, 'Deal ID and attachment ID are required');
 	}

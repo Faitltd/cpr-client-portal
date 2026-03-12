@@ -21,6 +21,8 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		throw error(400, 'Request ID required');
 	}
 
+	console.log('[SIGN PDF] Request received', { requestId, codePath: 'Zoho Sign PDF' });
+
 	try {
 		const session = await getSession(sessionToken);
 		if (!session) {
@@ -63,6 +65,8 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 				Authorization: `Zoho-oauthtoken ${accessToken}`
 			}
 		});
+
+		console.log('[SIGN PDF] Zoho response', { requestId, status: response.status, contentType: response.headers.get('content-type') });
 
 		if (!response.ok) {
 			const details = await response.text();
