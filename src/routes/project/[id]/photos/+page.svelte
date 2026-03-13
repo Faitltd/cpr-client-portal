@@ -255,7 +255,8 @@
 {#if lightboxOpen && lightboxPhoto}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div class="lightbox-backdrop" on:click={closeLightbox} role="dialog" aria-modal="true" aria-label="Photo viewer">
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<div class="lightbox-content" on:click|stopPropagation role="document">
 			<button class="lightbox-close" on:click={closeLightbox} aria-label="Close">✕</button>
 
@@ -489,6 +490,7 @@
 		word-break: break-all;
 		display: -webkit-box;
 		-webkit-line-clamp: 1;
+		line-clamp: 1;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 	}

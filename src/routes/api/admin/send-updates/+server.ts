@@ -130,7 +130,7 @@ export const POST: RequestHandler = async ({ cookies }) => {
 
 				const hasActivity = comms.length > 0 || logs.length > 0 || approvals.length > 0 || fieldUpdates.length > 0;
 				if (!hasActivity) {
-					await supabase.from('sent_emails').insert({
+					const { error: insertError } = await supabase.from('sent_emails').insert({
 						deal_id: pref.deal_id,
 						client_email: pref.client_email,
 						subject: 'Project Update (skipped - no activity)',
@@ -146,7 +146,7 @@ export const POST: RequestHandler = async ({ cookies }) => {
 				const html = buildEmailHtml(dealName, { comms, logs, approvals, fieldUpdates });
 
 				// Log the email as sent (actual email sending would be via an email service)
-				await supabase.from('sent_emails').insert({
+				const { error: insertError } = await supabase.from('sent_emails').insert({
 					deal_id: pref.deal_id,
 					client_email: pref.client_email,
 					subject,
@@ -162,13 +162,14 @@ export const POST: RequestHandler = async ({ cookies }) => {
 				details.push({ deal_id: pref.deal_id, email: pref.client_email, status: 'sent', subject, html });
 			} catch (err) {
 				const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-				await supabase.from('sent_emails').insert({
+				const { error: insertError } = await supabase.from('sent_emails').insert({
 					deal_id: pref.deal_id,
 					client_email: pref.client_email,
 					subject: 'Project Update (failed)',
 					status: 'failed',
 					error_message: errorMessage
-				}).catch(() => {});
+				});
+				if (insertError) console.error('Failed to log error email:', insertError.message);
 				failed++;
 				details.push({ deal_id: pref.deal_id, email: pref.client_email, status: 'failed', error: errorMessage });
 			}

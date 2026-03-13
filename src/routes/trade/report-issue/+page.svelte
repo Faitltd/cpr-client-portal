@@ -331,6 +331,7 @@
 				</div>
 
 				<div class="form-field">
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>Photos</label>
 					<PhotoUpload
 						bind:this={photoUploadRef}
@@ -384,7 +385,7 @@
 								<div class="issue-photos">
 									{#each issue.photo_urls as url}
 										<a href={url} target="_blank" rel="noopener noreferrer" class="issue-photo-thumb">
-											<img src={url} alt="Issue photo" loading="lazy" />
+											<img src={url} alt="Reported issue attachment" loading="lazy" />
 										</a>
 									{/each}
 								</div>

@@ -307,6 +307,7 @@
 				</div>
 
 				<div class="form-field">
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>Photos</label>
 					<PhotoUpload
 						bind:this={photoUploadRef}
@@ -377,7 +378,7 @@
 										<div class="log-photos">
 											{#each log.photo_urls as url}
 												<a href={url} target="_blank" rel="noopener noreferrer" class="log-photo-thumb">
-													<img src={url} alt="Log photo" loading="lazy" />
+													<img src={url} alt="Daily log attachment" loading="lazy" />
 												</a>
 											{/each}
 										</div>
