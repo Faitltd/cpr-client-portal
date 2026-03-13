@@ -925,20 +925,28 @@ export async function createGenerationLog(data: {
 	deal_id: string;
 	scope_definition_id?: string;
 	tasks_total?: number;
-}): Promise<GenerationLog> {
-	const { data: created, error } = await getSupabase()
-		.from('generation_log')
-		.insert({
-			deal_id: data.deal_id,
-			scope_definition_id: data.scope_definition_id ?? null,
-			tasks_total: data.tasks_total ?? 0,
-			status: 'started'
-		})
-		.select()
-		.single();
+}): Promise<GenerationLog | null> {
+	try {
+		const { data: created, error } = await getSupabase()
+			.from('generation_log')
+			.insert({
+				deal_id: data.deal_id,
+				scope_definition_id: data.scope_definition_id ?? null,
+				tasks_total: data.tasks_total ?? 0,
+				status: 'started'
+			})
+			.select()
+			.single();
 
-	if (error) throw new Error(`Generation log create failed: ${error.message}`);
-	return created as GenerationLog;
+		if (error) {
+			console.warn('Generation log create failed (non-blocking):', error.message);
+			return null;
+		}
+		return created as GenerationLog;
+	} catch (err) {
+		console.warn('Generation log create failed (non-blocking):', err);
+		return null;
+	}
 }
 
 /**
@@ -947,46 +955,70 @@ export async function createGenerationLog(data: {
 export async function updateGenerationLog(
 	id: string,
 	data: Partial<Omit<GenerationLog, 'id' | 'created_at' | 'started_at'>>
-): Promise<GenerationLog> {
-	const { data: updated, error } = await getSupabase()
-		.from('generation_log')
-		.update(data)
-		.eq('id', id)
-		.select()
-		.single();
+): Promise<GenerationLog | null> {
+	try {
+		const { data: updated, error } = await getSupabase()
+			.from('generation_log')
+			.update(data)
+			.eq('id', id)
+			.select()
+			.single();
 
-	if (error) throw new Error(`Generation log update failed: ${error.message}`);
-	return updated as GenerationLog;
+		if (error) {
+			console.warn('Generation log update failed (non-blocking):', error.message);
+			return null;
+		}
+		return updated as GenerationLog;
+	} catch (err) {
+		console.warn('Generation log update failed (non-blocking):', err);
+		return null;
+	}
 }
 
 /**
  * Fetch the most recent generation log for a deal.
  */
 export async function getLatestGenerationLog(dealId: string): Promise<GenerationLog | null> {
-	const { data, error } = await getSupabase()
-		.from('generation_log')
-		.select('*')
-		.eq('deal_id', dealId)
-		.order('created_at', { ascending: false })
-		.limit(1)
-		.maybeSingle();
+	try {
+		const { data, error } = await getSupabase()
+			.from('generation_log')
+			.select('*')
+			.eq('deal_id', dealId)
+			.order('created_at', { ascending: false })
+			.limit(1)
+			.maybeSingle();
 
-	if (error) throw new Error(`Generation log fetch failed: ${error.message}`);
-	return data as GenerationLog | null;
+		if (error) {
+			console.warn('Generation log fetch failed (non-blocking):', error.message);
+			return null;
+		}
+		return data as GenerationLog | null;
+	} catch (err) {
+		console.warn('Generation log fetch failed (non-blocking):', err);
+		return null;
+	}
 }
 
 /**
  * Fetch all generation logs for a deal, newest first.
  */
 export async function getGenerationLogsByDeal(dealId: string): Promise<GenerationLog[]> {
-	const { data, error } = await getSupabase()
-		.from('generation_log')
-		.select('*')
-		.eq('deal_id', dealId)
-		.order('created_at', { ascending: false });
+	try {
+		const { data, error } = await getSupabase()
+			.from('generation_log')
+			.select('*')
+			.eq('deal_id', dealId)
+			.order('created_at', { ascending: false });
 
-	if (error) throw new Error(`Generation logs fetch failed: ${error.message}`);
-	return (data as GenerationLog[]) || [];
+		if (error) {
+			console.warn('Generation logs fetch failed (non-blocking):', error.message);
+			return [];
+		}
+		return (data as GenerationLog[]) || [];
+	} catch (err) {
+		console.warn('Generation logs fetch failed (non-blocking):', err);
+		return [];
+	}
 }
 
 // ---------------------------------------------------------------------------

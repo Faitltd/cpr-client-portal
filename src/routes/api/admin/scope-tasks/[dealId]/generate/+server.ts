@@ -50,6 +50,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			deal_id: dealId,
 			tasks_total: scopeTasks.length
 		});
+		const logId = genLog?.id ?? null;
 
 		let project: { id: string; name: string } | null = null;
 		let phasesCreated = 0;
@@ -99,7 +100,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
 		try {
 			// Check if deal already has a linked Zoho project
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				status: 'creating_project',
 				last_completed_step: 'checking_existing_project'
 			});
@@ -144,7 +145,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
 			if (existingProjectId) {
 				project = { id: existingProjectId, name: dealId + ' - Scope Builder' };
-				await updateGenerationLog(genLog.id, {
+				if (logId) await updateGenerationLog(logId, {
 					zoho_project_id: project.id,
 					last_completed_step: 'project:existing:' + project.id
 				});
@@ -154,7 +155,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 					description: 'Generated from scope builder'
 				});
 
-				await updateGenerationLog(genLog.id, {
+				if (logId) await updateGenerationLog(logId, {
 					zoho_project_id: project.id,
 					last_completed_step: 'project:' + project.name
 				});
@@ -163,7 +164,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			await sleep(200);
 
 			// Create milestones per phase
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				status: 'creating_phases',
 				last_completed_step: 'starting_phase_creation'
 			});
@@ -186,7 +187,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 				phaseMap.set(phaseName, { zohoId: milestone.id, tasklistId: '' });
 				phasesCreated++;
 
-				await updateGenerationLog(genLog.id, {
+				if (logId) await updateGenerationLog(logId, {
 					phases_created: phasesCreated,
 					last_completed_step: 'phase:' + phaseName
 				});
@@ -195,7 +196,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			}
 
 			// Create tasklists per phase
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				status: 'creating_tasklists',
 				last_completed_step: 'starting_tasklist_creation'
 			});
@@ -210,7 +211,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 				if (entry) entry.tasklistId = tasklist.id;
 				tasklistsCreated++;
 
-				await updateGenerationLog(genLog.id, {
+				if (logId) await updateGenerationLog(logId, {
 					tasklists_created: tasklistsCreated,
 					last_completed_step: 'tasklist:' + phaseName
 				});
@@ -219,7 +220,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			}
 
 			// Create tasks
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				status: 'creating_tasks',
 				last_completed_step: 'starting_task_creation'
 			});
@@ -246,7 +247,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
 					tasksCreated++;
 
-					await updateGenerationLog(genLog.id, {
+					if (logId) await updateGenerationLog(logId, {
 						tasks_created: tasksCreated,
 						last_completed_step: 'task:' + task.task_name
 					});
@@ -256,7 +257,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			}
 
 			// Update CRM deal with project ID
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				status: 'updating_crm',
 				last_completed_step: 'crm:update_deal'
 			});
@@ -292,7 +293,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 						apiDomain
 					);
 
-					await updateGenerationLog(genLog.id, {
+					if (logId) await updateGenerationLog(logId, {
 						last_completed_step: 'crm:deal_updated'
 					});
 				}
@@ -317,12 +318,12 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 					created_by: 'scope-builder'
 				});
 
-				await updateGenerationLog(genLog.id, {
+				if (logId) await updateGenerationLog(logId, {
 					last_completed_step: 'approval:' + task.task_name
 				});
 			}
 
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				status: 'completed',
 				completed_at: new Date().toISOString(),
 				tasks_created: tasksCreated
@@ -341,7 +342,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				status: 'failed',
 				error_message: message,
 				completed_at: new Date().toISOString(),

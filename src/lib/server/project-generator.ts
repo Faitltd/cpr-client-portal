@@ -45,6 +45,7 @@ export async function generateProject(
 		scope_definition_id: scope.id,
 		tasks_total: taskSet.summary.total_tasks
 	});
+	const logId = genLog?.id ?? null;
 
 	let project: { id: string; name: string } | null = null;
 	let phasesCreated = 0;
@@ -54,7 +55,7 @@ export async function generateProject(
 	const phaseMap = new Map<string, { zohoId: string; tasklistId: string }>();
 
 	try {
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			status: 'creating_project',
 			last_completed_step: 'starting_project_creation'
 		});
@@ -64,14 +65,14 @@ export async function generateProject(
 			description: 'Auto-generated from scope definition'
 		});
 
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			zoho_project_id: project.id,
 			last_completed_step: 'project:' + project.name
 		});
 
 		await sleep(200);
 
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			status: 'creating_phases',
 			last_completed_step: 'starting_phase_creation'
 		});
@@ -86,7 +87,7 @@ export async function generateProject(
 			phaseMap.set(phase.name, { zohoId: milestone.id, tasklistId: '' });
 			phasesCreated = phaseMap.size;
 
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				phases_created: phasesCreated,
 				last_completed_step: 'phase:' + phase.name
 			});
@@ -94,7 +95,7 @@ export async function generateProject(
 			await sleep(200);
 		}
 
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			status: 'creating_tasklists',
 			last_completed_step: 'starting_tasklist_creation'
 		});
@@ -109,7 +110,7 @@ export async function generateProject(
 			if (entry) entry.tasklistId = tasklist.id;
 			tasklistsCreated++;
 
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				tasklists_created: tasklistsCreated,
 				last_completed_step: 'tasklist:' + phase.name
 			});
@@ -117,7 +118,7 @@ export async function generateProject(
 			await sleep(200);
 		}
 
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			status: 'creating_tasks',
 			last_completed_step: 'starting_task_creation'
 		});
@@ -144,7 +145,7 @@ export async function generateProject(
 
 			tasksCreated++;
 
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				tasks_created: tasksCreated,
 				last_completed_step: 'task:' + task.task_name
 			});
@@ -152,7 +153,7 @@ export async function generateProject(
 			await sleep(200);
 		}
 
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			status: 'updating_crm',
 			last_completed_step: 'crm:update_deal'
 		});
@@ -189,7 +190,7 @@ export async function generateProject(
 					apiDomain
 				);
 
-				await updateGenerationLog(genLog.id, {
+				if (logId) await updateGenerationLog(logId, {
 					last_completed_step: 'crm:deal_updated'
 				});
 			}
@@ -212,14 +213,14 @@ export async function generateProject(
 				created_by: 'generator'
 			});
 
-			await updateGenerationLog(genLog.id, {
+			if (logId) await updateGenerationLog(logId, {
 				last_completed_step: 'approval:' + task.task_name
 			});
 		}
 
 		await updateScopeStatus(dealId, 'generated');
 
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			status: 'completed',
 			completed_at: new Date().toISOString(),
 			tasks_created: tasksCreated
@@ -236,7 +237,7 @@ export async function generateProject(
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 
-		await updateGenerationLog(genLog.id, {
+		if (logId) await updateGenerationLog(logId, {
 			status: 'failed',
 			error_message: message,
 			completed_at: new Date().toISOString(),
