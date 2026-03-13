@@ -348,18 +348,18 @@ async function getPortalIdCandidatesForBase(accessToken: string, base: string, p
 	const configured = (env.ZOHO_PROJECTS_PORTAL_ID || '').trim();
 	addId(configured);
 
-	if (projectId) {
-		for (const derivedId of derivePortalIdCandidatesFromProjectId(projectId)) {
-			addId(derivedId);
-		}
-	}
-
 	if (
 		discoveredPortalIdCache &&
 		discoveredPortalIdCache.base === base &&
 		Date.now() - discoveredPortalIdCache.fetchedAt < PORTAL_ID_CACHE_TTL_MS
 	) {
 		addId(discoveredPortalIdCache.portalId);
+	}
+
+	if (projectId) {
+		for (const derivedId of derivePortalIdCandidatesFromProjectId(projectId)) {
+			addId(derivedId);
+		}
 	}
 
 	try {
@@ -2730,6 +2730,9 @@ export async function createZohoProject(data: {
 		if (!project?.id || !project?.name) {
 			throw new Error('response missing created project');
 		}
+		if (discoveredPortalIdCache) {
+			cacheProjectRoute(String(project.id), discoveredPortalIdCache.base, discoveredPortalIdCache.portalId);
+		}
 		return {
 			id: String(project.id),
 			name: String(project.name)
@@ -2789,6 +2792,9 @@ export async function createZohoTasklist(
 		if (!tasklist?.id || !tasklist?.name) {
 			throw new Error('response missing created tasklist');
 		}
+		if (discoveredPortalIdCache) {
+			cacheProjectRoute(projectId, discoveredPortalIdCache.base, discoveredPortalIdCache.portalId);
+		}
 		return {
 			id: String(tasklist.id),
 			name: String(tasklist.name)
@@ -2821,6 +2827,9 @@ export async function createZohoTask(
 		const task = Array.isArray(payload?.tasks) ? payload.tasks[0] : null;
 		if (!task?.id || !task?.name) {
 			throw new Error('response missing created task');
+		}
+		if (discoveredPortalIdCache) {
+			cacheProjectRoute(projectId, discoveredPortalIdCache.base, discoveredPortalIdCache.portalId);
 		}
 		return {
 			id: String(task.id),
