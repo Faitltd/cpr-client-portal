@@ -2832,6 +2832,46 @@ export async function createZohoTask(
 	}
 }
 
+export async function updateZohoTaskStatus(
+	projectId: string,
+	taskId: string,
+	status: string,
+	percentComplete?: number
+): Promise<{ id: string; name: string; status: string }> {
+	try {
+		const body: Record<string, any> = {};
+		const statusMap: Record<string, { name: string; pct: number }> = {
+			open: { name: 'Open', pct: 0 },
+			in_progress: { name: 'In Progress', pct: 50 },
+			completed: { name: 'Completed', pct: 100 }
+		};
+		const mapped = statusMap[status.toLowerCase().replace(/\s+/g, '_')];
+		if (mapped) {
+			body.custom_status = mapped.name;
+			body.percent_complete = percentComplete ?? mapped.pct;
+		} else {
+			body.custom_status = status;
+			if (percentComplete !== undefined) body.percent_complete = percentComplete;
+		}
+		const payload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}/`, {
+			method: 'POST',
+			body: JSON.stringify(body)
+		});
+		const task = Array.isArray(payload?.tasks) ? payload.tasks[0] : null;
+		if (!task?.id) {
+			throw new Error('response missing updated task');
+		}
+		return {
+			id: String(task.id),
+			name: String(task.name || ''),
+			status: String(task.status?.name || task.custom_status || task.status || status)
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Zoho Projects update task status failed: ${message}`);
+	}
+}
+
 /**
  * Pause async execution for a number of milliseconds.
  */

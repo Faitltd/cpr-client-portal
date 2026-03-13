@@ -80,6 +80,81 @@
 	const getTaskPercent = (task: any) =>
 		task?.percent_complete ?? task?.percent_completed ?? task?.completed_percent ?? null;
 
+	const TASK_STATUSES = [
+		{ value: 'open', label: 'Open' },
+		{ value: 'in_progress', label: 'In Progress' },
+		{ value: 'completed', label: 'Completed' }
+	];
+
+	let updatingTaskIds = $state(new Set<string>());
+	let taskStatusErrors = $state(new Map<string, string>());
+
+	const normalizeStatus = (raw: string): string => {
+		const lower = raw.toLowerCase().replace(/\s+/g, '_');
+		if (lower === 'open' || lower === 'not_started') return 'open';
+		if (lower === 'in_progress' || lower === 'in progress') return 'in_progress';
+		if (lower === 'completed' || lower === 'closed' || lower === 'done') return 'completed';
+		return lower;
+	};
+
+	const getTaskStatusValue = (task: any): string => {
+		const raw = getTaskStatus(task);
+		return normalizeStatus(raw);
+	};
+
+	async function updateTaskStatus(task: any, newStatus: string) {
+		const taskId = String(task?.id || task?.id_string || '');
+		if (!taskId || !project) return;
+
+		const prevStatus = task?.status;
+		const prevTaskStatus = task?.task_status;
+
+		updatingTaskIds = new Set([...updatingTaskIds, taskId]);
+		taskStatusErrors = new Map([...taskStatusErrors]);
+		taskStatusErrors.delete(taskId);
+
+		// Optimistic update
+		const label = TASK_STATUSES.find((s) => s.value === newStatus)?.label || newStatus;
+		if (task.status && typeof task.status === 'object') {
+			task.status = { ...task.status, name: label };
+		} else {
+			task.status = label;
+		}
+		tasks = [...tasks];
+
+		try {
+			const projectId = $page.params.projectId;
+			const res = await fetch(
+				`/api/trade/projects/${projectId}/tasks/${taskId}/status`,
+				{
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ status: newStatus })
+				}
+			);
+
+			if (res.status === 401) {
+				window.location.href = '/auth/trade';
+				return;
+			}
+
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				throw new Error(payload?.error || `Failed to update (${res.status})`);
+			}
+		} catch (err) {
+			// Revert optimistic update
+			task.status = prevStatus;
+			task.task_status = prevTaskStatus;
+			tasks = [...tasks];
+			taskStatusErrors = new Map([...taskStatusErrors]);
+			taskStatusErrors.set(taskId, err instanceof Error ? err.message : 'Update failed');
+		} finally {
+			updatingTaskIds = new Set([...updatingTaskIds]);
+			updatingTaskIds.delete(taskId);
+		}
+	}
+
 	const getActivityText = (a: any) =>
 		a?.description ?? a?.activity ?? a?.activity_name ?? a?.title ?? a?.content ?? 'Activity';
 	const getActivityWhen = (a: any) =>
@@ -196,12 +271,29 @@
 					<h3 class="group-title">{group.name}</h3>
 					<div class="card-list">
 						{#each group.items as task}
+							{@const tid = String(task?.id || task?.id_string || '')}
 							<div class="card-row">
 								<div class="card-info">
 									<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
 									<p class="card-assignee">{getTaskAssignee(task)}</p>
+									{#if taskStatusErrors.has(tid)}
+										<p class="task-error">{taskStatusErrors.get(tid)}</p>
+									{/if}
 								</div>
-								<span class="badge">{getTaskStatus(task)}</span>
+								{#if project?.source === 'crm_deal'}
+									<span class="badge">{getTaskStatus(task)}</span>
+								{:else}
+									<select
+										class="status-select status-{getTaskStatusValue(task)}"
+										value={getTaskStatusValue(task)}
+										disabled={updatingTaskIds.has(tid)}
+										onchange={(e) => updateTaskStatus(task, e.currentTarget.value)}
+									>
+										{#each TASK_STATUSES as opt}
+											<option value={opt.value}>{opt.label}</option>
+										{/each}
+									</select>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -380,6 +472,48 @@
 		margin: 0.2rem 0 0;
 		font-size: 0.88rem;
 		color: #6b7280;
+	}
+
+	.task-error {
+		margin: 0.3rem 0 0;
+		font-size: 0.85rem;
+		color: #b91c1c;
+	}
+
+	.status-select {
+		appearance: auto;
+		padding: 0.35rem 0.5rem;
+		border-radius: 999px;
+		font-weight: 600;
+		font-size: 0.88rem;
+		min-height: 36px;
+		border: 1px solid #d1d5db;
+		background: #fff;
+		color: #111827;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.status-select:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.status-open {
+		border-color: #d1d5db;
+		background: #f9fafb;
+	}
+
+	.status-in_progress {
+		border-color: #93c5fd;
+		background: #eff6ff;
+		color: #1d4ed8;
+	}
+
+	.status-completed {
+		border-color: #86efac;
+		background: #f0fdf4;
+		color: #15803d;
 	}
 
 	.activity {
