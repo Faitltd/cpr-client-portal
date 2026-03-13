@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { formatCrmRichText } from '$lib/html';
+	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -20,7 +21,6 @@
 		}
 	});
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
-	$: selectedDeal && console.log('Selected Deal:', selectedDeal);
 
 	type FieldUpdate = {
 		id: string;
@@ -138,9 +138,6 @@
 		return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 	};
 
-	const fieldUpdateUrl =
-		'https://creatorapp.zohopublic.com/customprofessionalrenovation/field-updates/form-embed/Active_Deals/mpPsAZEnCtDY0M6J5FR8n86Enzj2dDBkemTjDBSwJRWqpDHy8r39rP8M6euMFdez0OFMTO0eZhEhaKYEmTnC0ZY7vyYfx4T4EM4a';
-
 	const getProgressPhotosHref = (deal: any) => {
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '/trade/photos';
@@ -218,6 +215,81 @@
 	}
 
 	onDestroy(() => fieldUpdatesController?.abort());
+
+	// --- Field Update Form ---
+	const UPDATE_TYPES = [
+		{ value: 'progress', label: 'Progress Update' },
+		{ value: 'issue', label: 'Issue' },
+		{ value: 'material_delivery', label: 'Material Delivery' },
+		{ value: 'inspection', label: 'Inspection' },
+		{ value: 'weather_delay', label: 'Weather Delay' },
+		{ value: 'schedule_change', label: 'Schedule Change' },
+		{ value: 'completed_work', label: 'Completed Work' },
+		{ value: 'other', label: 'Other' }
+	];
+
+	let showUpdateForm = false;
+	let formUpdateType = 'progress';
+	let formNote = '';
+	let formPhotos: { id: string; url: string; name: string }[] = [];
+	let formSubmitting = false;
+	let formError = '';
+	let formSuccess = '';
+	let photoUploadRef: PhotoUpload;
+
+	const resetForm = () => {
+		formUpdateType = 'progress';
+		formNote = '';
+		formPhotos = [];
+		formError = '';
+		formSuccess = '';
+		photoUploadRef?.reset();
+	};
+
+	const submitFieldUpdate = async () => {
+		formError = '';
+		formSuccess = '';
+
+		if (!selectedDealId) {
+			formError = 'No deal selected.';
+			return;
+		}
+
+		formSubmitting = true;
+		try {
+			const photoIds = photoUploadRef?.getPhotoIds() || [];
+			const res = await fetch('/api/trade/field-updates', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					deal_id: selectedDealId,
+					update_type: formUpdateType,
+					note: formNote.trim() || null,
+					photo_ids: photoIds.length > 0 ? photoIds : null
+				})
+			});
+
+			if (res.status === 401) {
+				formError = 'Session expired. Please login again.';
+				return;
+			}
+
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				formError = payload?.error || `Failed to submit (${res.status})`;
+				return;
+			}
+
+			formSuccess = 'Field update submitted successfully!';
+			resetForm();
+			showUpdateForm = false;
+			loadFieldUpdates(selectedDealId);
+		} catch (err) {
+			formError = err instanceof Error ? err.message : 'Failed to submit field update';
+		} finally {
+			formSubmitting = false;
+		}
+	};
 </script>
 
 <div class="dashboard">
@@ -228,9 +300,13 @@
 
 	<div class="field-update card">
 		<div class="field-update-actions">
-			<a class="field-update-button" href={fieldUpdateUrl} target="_blank" rel="noreferrer">
-				Open Field Update Form
-			</a>
+			<button
+				class="field-update-button"
+				type="button"
+				on:click={() => { showUpdateForm = !showUpdateForm; formSuccess = ''; }}
+			>
+				{showUpdateForm ? 'Close Form' : 'Submit Field Update'}
+			</button>
 			<a class="field-update-secondary" href="/trade/projects">
 				Projects
 			</a>
@@ -241,9 +317,56 @@
 				Progress Photos
 			</a>
 		</div>
-		<p class="field-update-hint">
-			The field update form opens in a new tab so camera and microphone permissions work reliably.
-		</p>
+
+		{#if formSuccess && !showUpdateForm}
+			<p class="form-success">{formSuccess}</p>
+		{/if}
+
+		{#if showUpdateForm}
+			<form class="update-form" on:submit|preventDefault={submitFieldUpdate}>
+				<div class="form-field">
+					<label for="update-type">Update Type</label>
+					<select id="update-type" bind:value={formUpdateType}>
+						{#each UPDATE_TYPES as opt}
+							<option value={opt.value}>{opt.label}</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="form-field">
+					<label for="update-note">Note</label>
+					<textarea
+						id="update-note"
+						bind:value={formNote}
+						rows="4"
+						placeholder="Describe the update..."
+					></textarea>
+				</div>
+
+				<div class="form-field">
+					<label>Photos</label>
+					<PhotoUpload bind:this={photoUploadRef} maxFiles={5} />
+				</div>
+
+				{#if formError}
+					<p class="form-error">{formError}</p>
+				{/if}
+
+				<div class="form-actions">
+					<button class="form-submit" type="submit" disabled={formSubmitting}>
+						{formSubmitting ? 'Submitting...' : 'Submit Update'}
+					</button>
+					<button
+						class="form-cancel"
+						type="button"
+						on:click={() => { showUpdateForm = false; resetForm(); }}
+						disabled={formSubmitting}
+					>
+						Cancel
+					</button>
+				</div>
+			</form>
+		{/if}
 	</div>
 
 	{#if data?.warning}
@@ -416,6 +539,9 @@
 		width: fit-content;
 		max-width: 100%;
 		box-sizing: border-box;
+		border: none;
+		cursor: pointer;
+		font-size: 1rem;
 	}
 
 	.field-update-button:hover {
@@ -444,11 +570,102 @@
 		border-color: #cbd5e1;
 	}
 
-	.field-update-hint {
-		margin: 0;
-		color: #6b7280;
+	.update-form {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		border-top: 1px solid #e5e7eb;
+		padding-top: 1rem;
+	}
+
+	.form-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.form-field label {
+		font-weight: 600;
 		font-size: 0.95rem;
-		line-height: 1.35;
+		color: #374151;
+	}
+
+	.form-field select,
+	.form-field textarea {
+		padding: 0.6rem 0.75rem;
+		border-radius: 6px;
+		border: 1px solid #d1d5db;
+		font-size: 1rem;
+		width: 100%;
+		min-height: 44px;
+		box-sizing: border-box;
+	}
+
+	.form-field textarea {
+		resize: vertical;
+		min-height: 100px;
+	}
+
+	.form-error {
+		margin: 0;
+		color: #b91c1c;
+		font-size: 0.95rem;
+	}
+
+	.form-success {
+		margin: 0;
+		color: #15803d;
+		font-weight: 600;
+		font-size: 0.95rem;
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.form-submit {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #0066cc;
+		color: #fff;
+		border: none;
+		font-weight: 700;
+		border-radius: 10px;
+		padding: 0.75rem 1.25rem;
+		min-height: 44px;
+		cursor: pointer;
+		font-size: 1rem;
+	}
+
+	.form-submit:hover:not(:disabled) {
+		background: #0052a3;
+	}
+
+	.form-submit:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.form-cancel {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #fff;
+		color: #111827;
+		border: 1px solid #d1d5db;
+		font-weight: 700;
+		border-radius: 10px;
+		padding: 0.75rem 1.25rem;
+		min-height: 44px;
+		cursor: pointer;
+		font-size: 1rem;
+	}
+
+	.form-cancel:hover:not(:disabled) {
+		background: #f3f4f6;
 	}
 
 	.warning {

@@ -1258,3 +1258,41 @@ export async function updateChangeOrder(
 	if (error) throw new Error(`Change order update failed: ${error.message}`);
 	return data as ChangeOrder;
 }
+
+// ---------------------------------------------------------------------------
+// Field Updates (native, stored in Supabase)
+// ---------------------------------------------------------------------------
+
+export interface FieldUpdate {
+	id: string;
+	deal_id: string;
+	trade_partner_id: string | null;
+	update_type: string;
+	note: string | null;
+	photo_ids: string[] | null;
+	created_at: string;
+}
+
+export async function createFieldUpdate(
+	data: Omit<FieldUpdate, 'id' | 'created_at'>
+): Promise<FieldUpdate> {
+	const { data: created, error } = await getSupabase()
+		.from('field_updates')
+		.insert(data)
+		.select()
+		.single();
+
+	if (error) throw new Error(`Field update create failed: ${error.message}`);
+	return created as FieldUpdate;
+}
+
+export async function getFieldUpdatesByDeal(dealId: string): Promise<FieldUpdate[]> {
+	const { data, error } = await getSupabase()
+		.from('field_updates')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('created_at', { ascending: false });
+
+	if (error) throw new Error(`Field update fetch failed: ${error.message}`);
+	return (data as FieldUpdate[]) || [];
+}
