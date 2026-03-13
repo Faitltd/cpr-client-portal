@@ -11,7 +11,7 @@
 <div class="admin-shell">
 	<header class="admin-header">
 		<div class="admin-header-inner">
-			<a class="admin-logo" href="/admin/clients">CPR Admin</a>
+			<a class="admin-logo" href="/admin">CPR Admin</a>
 			<button
 				class="admin-menu-toggle"
 				type="button"
@@ -23,7 +23,7 @@
 			</button>
 			<nav class:open={menuOpen} class="admin-nav">
 				<a class="admin-link" href="/admin/health">Health</a>
-				<a class="admin-link" href="/admin/clients">Dashboard</a>
+				<a class="admin-link" href="/admin">Dashboard</a>
 				<a class="admin-link" href="/admin/folder-cache">Folder Cache</a>
 				<a class="admin-link" href="/admin/api-cache">API Cache</a>
 				<a class="admin-link" href="/admin/zprojects">Projects</a>
