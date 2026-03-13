@@ -1306,7 +1306,7 @@ export interface ScopeTask {
 	deal_id: string;
 	task_name: string;
 	phase: string;
-	phase_order: number;
+	phase_order?: number;
 	trade: string | null;
 	description: string | null;
 	duration_days: number;
@@ -1326,7 +1326,6 @@ export async function getScopeTasksByDeal(dealId: string): Promise<ScopeTask[]> 
 		.from('scope_tasks')
 		.select('*')
 		.eq('deal_id', dealId)
-		.order('phase_order')
 		.order('sort_order');
 
 	if (error) throw new Error(`Scope tasks fetch failed: ${error.message}`);
@@ -1339,9 +1338,10 @@ export async function getScopeTasksByDeal(dealId: string): Promise<ScopeTask[]> 
 export async function upsertScopeTask(
 	task: Omit<ScopeTask, 'created_at' | 'updated_at'>
 ): Promise<ScopeTask> {
+	const { phase_order, ...taskData } = task;
 	const { data, error } = await getSupabase()
 		.from('scope_tasks')
-		.upsert([{ ...task, updated_at: new Date().toISOString() }], { onConflict: 'id' })
+		.upsert([{ ...taskData, updated_at: new Date().toISOString() }], { onConflict: 'id' })
 		.select()
 		.single();
 
@@ -1381,7 +1381,7 @@ export async function bulkUpsertScopeTasks(
 	if (tasks.length === 0) return [];
 
 	const now = new Date().toISOString();
-	const rows = tasks.map((t) => ({
+	const rows = tasks.map(({ phase_order, ...t }) => ({
 		...t,
 		deal_id: dealId,
 		updated_at: now

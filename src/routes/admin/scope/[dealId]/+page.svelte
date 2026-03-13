@@ -14,7 +14,7 @@
 		deal_id: string;
 		task_name: string;
 		phase: string;
-		phase_order: number;
+		phase_order?: number;
 		trade: string | null;
 		description: string | null;
 		duration_days: number;
@@ -331,7 +331,12 @@
 			});
 			const json = await res.json();
 			if (!res.ok) throw new Error(json.message || 'Failed to save');
-			tasks = json.data || [];
+			// Preserve phase_order from local payload (column may not exist in DB yet)
+			const phaseOrderById = new Map(payload.map((p) => [p.id, p.phase_order]));
+			tasks = (json.data || []).map((t: ScopeTask) => ({
+				...t,
+				phase_order: t.phase_order ?? phaseOrderById.get(t.id) ?? 0
+			}));
 			saveStatus = 'saved';
 			setTimeout(() => {
 				if (saveStatus === 'saved') saveStatus = 'idle';

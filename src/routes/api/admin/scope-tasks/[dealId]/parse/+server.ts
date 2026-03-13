@@ -317,7 +317,14 @@ export const POST: RequestHandler = async ({ params, cookies, request }) => {
 		const tasksToInsert = buildTasks(parsed, params.dealId);
 		const savedTasks = await bulkUpsertScopeTasks(params.dealId, tasksToInsert);
 
-		return json({ data: savedTasks, raw_scope: scopeText, source }, { status: 201 });
+		// Merge phase_order back from tasksToInsert (column may not exist in DB yet)
+		const phaseOrderById = new Map(tasksToInsert.map((t) => [t.id, t.phase_order]));
+		const tasksWithPhaseOrder = savedTasks.map((t) => ({
+			...t,
+			phase_order: t.phase_order ?? phaseOrderById.get(t.id) ?? 0
+		}));
+
+		return json({ data: tasksWithPhaseOrder, raw_scope: scopeText, source }, { status: 201 });
 	} catch (err) {
 		console.error('POST /api/admin/scope-tasks/[dealId]/parse error:', err);
 		const message = err instanceof Error ? err.message : 'Failed to parse scope';
