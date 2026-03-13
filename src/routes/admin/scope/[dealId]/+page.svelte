@@ -120,6 +120,12 @@
 	let libraryFilter = '';
 	let libraryPhaseFilter = '';
 
+	// AI Parse
+	let parseLoading = false;
+	let parseError = '';
+	let rawScope = '';
+	let scopeRefExpanded = false;
+
 	// Section C: Generate
 	let startDate = new Date().toISOString().split('T')[0];
 	let generating = false;
@@ -179,6 +185,32 @@
 		} finally {
 			crmLoading = false;
 		}
+	}
+
+	async function parseScope() {
+		parseLoading = true;
+		parseError = '';
+		try {
+			const res = await fetch(`/api/admin/scope-tasks/${encodeURIComponent(dealId)}/parse`, {
+				method: 'POST'
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.message || 'Failed to parse scope');
+			tasks = json.data || [];
+			rawScope = json.raw_scope || '';
+			if (rawScope) scopeRefExpanded = true;
+		} catch (err: any) {
+			parseError = err.message || 'Failed to parse scope from CRM';
+		} finally {
+			parseLoading = false;
+		}
+	}
+
+	function reparseScope() {
+		if (!confirm('This will replace all existing tasks with AI-parsed tasks from the CRM scope. Continue?')) {
+			return;
+		}
+		parseScope();
 	}
 
 	function getCrmTextFields(): Array<{ key: string; value: string }> {
@@ -424,12 +456,43 @@
 		<div class="card-header">
 			<h2>Task Builder</h2>
 			<div class="header-actions">
+				{#if !tasksLoading && tasks.length === 0}
+					<button class="btn btn-sm btn-parse" on:click={parseScope} disabled={parseLoading}>
+						{parseLoading ? 'Parsing…' : 'Parse Scope from CRM'}
+					</button>
+				{:else if !tasksLoading && tasks.length > 0}
+					<button class="btn btn-sm" on:click={reparseScope} disabled={parseLoading}>
+						{parseLoading ? 'Parsing…' : 'Re-parse from CRM'}
+					</button>
+				{/if}
 				<button class="btn btn-sm" on:click={openLibrary}>Add from Library</button>
 				<button class="btn btn-primary btn-sm" on:click={() => saveTasks()} disabled={saveStatus === 'saving'}>
 					Save Now
 				</button>
 			</div>
 		</div>
+
+		{#if parseError}
+			<p class="error-text">{parseError}</p>
+		{/if}
+
+		{#if parseLoading}
+			<div class="parse-loading">
+				<span class="spinner"></span>
+				Analyzing scope from CRM and generating tasks…
+			</div>
+		{/if}
+
+		{#if rawScope}
+			<div class="scope-ref">
+				<button class="scope-ref-toggle" on:click={() => (scopeRefExpanded = !scopeRefExpanded)}>
+					CRM Scope Reference {scopeRefExpanded ? '▾' : '▸'}
+				</button>
+				{#if scopeRefExpanded}
+					<pre class="scope-ref-text">{rawScope}</pre>
+				{/if}
+			</div>
+		{/if}
 
 		{#if tasksLoading}
 			<p class="loading-text">Loading tasks…</p>
@@ -1187,6 +1250,75 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
+	}
+
+	/* ── AI Parse ──────────────────────────────────────────────────── */
+
+	.btn-parse {
+		background: #059669;
+		color: #fff;
+		border-color: #059669;
+	}
+	.btn-parse:hover { background: #047857; }
+
+	.parse-loading {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: #eff6ff;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		color: #1e40af;
+		margin-bottom: 1rem;
+	}
+
+	.spinner {
+		width: 16px;
+		height: 16px;
+		border: 2px solid #93c5fd;
+		border-top-color: #1e40af;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.scope-ref {
+		margin-bottom: 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.scope-ref-toggle {
+		display: block;
+		width: 100%;
+		padding: 0.6rem 0.75rem;
+		background: #f9fafb;
+		border: none;
+		text-align: left;
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #374151;
+		cursor: pointer;
+	}
+	.scope-ref-toggle:hover { background: #f3f4f6; }
+
+	.scope-ref-text {
+		padding: 0.75rem;
+		margin: 0;
+		font-size: 0.8rem;
+		line-height: 1.5;
+		color: #374151;
+		background: #fff;
+		white-space: pre-wrap;
+		word-break: break-word;
+		max-height: 300px;
+		overflow-y: auto;
+		border-top: 1px solid #e5e7eb;
 	}
 
 	/* ── Utility ────────────────────────────────────────────────────── */

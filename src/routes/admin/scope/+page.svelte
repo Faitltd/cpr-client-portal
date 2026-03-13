@@ -10,10 +10,24 @@
 		created_at?: string;
 	}
 
+	interface DealOption {
+		id: string;
+		deal_name: string;
+		stage: string;
+		contact_name: string;
+	}
+
 	let dealIdInput = '';
 	let scopes: ScopeDefinition[] = [];
 	let loading = false;
 	let loadError = '';
+
+	// Deal dropdown
+	let deals: DealOption[] = [];
+	let dealsLoading = false;
+	let dealsError = '';
+	let selectedDealId = '';
+	let manualExpanded = false;
 
 	const STATUS_COLORS: Record<string, string> = {
 		draft: '#9ca3af',
@@ -23,7 +37,7 @@
 	};
 
 	onMount(async () => {
-		await fetchScopes();
+		await Promise.all([fetchScopes(), fetchDeals()]);
 	});
 
 	async function fetchScopes() {
@@ -39,6 +53,26 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function fetchDeals() {
+		dealsLoading = true;
+		dealsError = '';
+		try {
+			const res = await fetch('/api/admin/deals');
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.message || 'Failed to load deals');
+			deals = json.data ?? [];
+		} catch (err) {
+			dealsError = err instanceof Error ? err.message : 'Failed to load deals from CRM';
+		} finally {
+			dealsLoading = false;
+		}
+	}
+
+	function openFromDropdown() {
+		if (!selectedDealId) return;
+		goto(`/admin/scope/${selectedDealId}`);
 	}
 
 	function openEditor() {
@@ -57,22 +91,46 @@
 <div class="container">
 	<h1>Scope Definitions</h1>
 
-	<!-- Navigate to editor -->
+	<!-- Deal dropdown -->
 	<div class="card nav-card">
-		<label class="field-label" for="deal-id-input">Open Scope Editor by Deal ID</label>
-		<div class="input-row">
-			<input
-				id="deal-id-input"
-				class="input"
-				type="text"
-				placeholder="Enter Zoho Deal ID"
-				bind:value={dealIdInput}
-				on:keydown={(e) => e.key === 'Enter' && openEditor()}
-			/>
-			<button class="btn btn-primary" on:click={openEditor} disabled={!dealIdInput.trim()}>
-				Open Editor
-			</button>
-		</div>
+		<label class="field-label" for="deal-select">Select a Deal</label>
+		{#if dealsLoading}
+			<p class="muted">Loading deals from CRM…</p>
+		{:else if dealsError}
+			<p class="error-text">{dealsError}</p>
+		{:else}
+			<div class="input-row">
+				<select id="deal-select" class="input deal-select" bind:value={selectedDealId}>
+					<option value="">— Select a deal —</option>
+					{#each deals as deal (deal.id)}
+						<option value={deal.id}>{deal.deal_name}{deal.contact_name ? ` (${deal.contact_name})` : ''} — {deal.stage}</option>
+					{/each}
+				</select>
+				<button class="btn btn-primary" on:click={openFromDropdown} disabled={!selectedDealId}>
+					Open Scope Builder
+				</button>
+			</div>
+		{/if}
+
+		<button class="manual-toggle" on:click={() => (manualExpanded = !manualExpanded)}>
+			{manualExpanded ? '▾' : '▸'} Or enter Deal ID manually
+		</button>
+
+		{#if manualExpanded}
+			<div class="input-row manual-row">
+				<input
+					id="deal-id-input"
+					class="input"
+					type="text"
+					placeholder="Enter Zoho Deal ID"
+					bind:value={dealIdInput}
+					on:keydown={(e) => e.key === 'Enter' && openEditor()}
+				/>
+				<button class="btn btn-primary" on:click={openEditor} disabled={!dealIdInput.trim()}>
+					Open Editor
+				</button>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Scope list -->
@@ -145,7 +203,7 @@
 	}
 
 	.nav-card {
-		max-width: 600px;
+		max-width: 700px;
 	}
 
 	.field-label {
@@ -289,6 +347,27 @@
 		color: #b91c1c;
 		font-size: 0.88rem;
 		margin: 0;
+	}
+
+	.deal-select {
+		appearance: auto;
+		cursor: pointer;
+	}
+
+	.manual-toggle {
+		display: block;
+		margin-top: 0.75rem;
+		background: none;
+		border: none;
+		color: #6b7280;
+		font-size: 0.82rem;
+		cursor: pointer;
+		padding: 0;
+	}
+	.manual-toggle:hover { color: #374151; }
+
+	.manual-row {
+		margin-top: 0.5rem;
 	}
 
 	.empty {
