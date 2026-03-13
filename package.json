@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
-    "openai": "^4.0.0"
+    "openai": "^4.0.0",
+    "pdf-parse": "^2.4.5"
   },
   "type": "module"
 }

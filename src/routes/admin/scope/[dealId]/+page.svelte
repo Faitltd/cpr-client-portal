@@ -125,6 +125,9 @@
 	let parseError = '';
 	let rawScope = '';
 	let scopeRefExpanded = false;
+	let parseSource = '';
+	let reparseDropdownOpen = false;
+	let fileInput: HTMLInputElement;
 
 	// Section C: Generate
 	let startDate = new Date().toISOString().split('T')[0];
@@ -187,17 +190,21 @@
 		}
 	}
 
-	async function parseScope() {
+	async function parseScopeFromCrm() {
 		parseLoading = true;
 		parseError = '';
+		reparseDropdownOpen = false;
 		try {
 			const res = await fetch(`/api/admin/scope-tasks/${encodeURIComponent(dealId)}/parse`, {
-				method: 'POST'
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ source: 'crm' })
 			});
 			const json = await res.json();
 			if (!res.ok) throw new Error(json.message || 'Failed to parse scope');
 			tasks = json.data || [];
 			rawScope = json.raw_scope || '';
+			parseSource = json.source || 'crm';
 			if (rawScope) scopeRefExpanded = true;
 		} catch (err: any) {
 			parseError = err.message || 'Failed to parse scope from CRM';
@@ -206,11 +213,49 @@
 		}
 	}
 
-	function reparseScope() {
-		if (!confirm('This will replace all existing tasks with AI-parsed tasks from the CRM scope. Continue?')) {
+	async function parseScopeFromPdf(file: File) {
+		parseLoading = true;
+		parseError = '';
+		reparseDropdownOpen = false;
+		try {
+			const formData = new FormData();
+			formData.append('pdf', file);
+			const res = await fetch(`/api/admin/scope-tasks/${encodeURIComponent(dealId)}/parse`, {
+				method: 'POST',
+				body: formData
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.message || 'Failed to parse PDF');
+			tasks = json.data || [];
+			rawScope = json.raw_scope || '';
+			parseSource = json.source || 'pdf_upload';
+			if (rawScope) scopeRefExpanded = true;
+		} catch (err: any) {
+			parseError = err.message || 'Failed to parse estimate PDF';
+		} finally {
+			parseLoading = false;
+		}
+	}
+
+	function handleFileSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		if (tasks.length > 0) {
+			if (!confirm('This will replace all existing tasks with AI-parsed tasks from the PDF. Continue?')) {
+				input.value = '';
+				return;
+			}
+		}
+		parseScopeFromPdf(file);
+		input.value = '';
+	}
+
+	function reparseCrm() {
+		if (!confirm('This will replace all existing tasks with AI-parsed tasks from the CRM. Continue?')) {
 			return;
 		}
-		parseScope();
+		parseScopeFromCrm();
 	}
 
 	function getCrmTextFields(): Array<{ key: string; value: string }> {
@@ -456,14 +501,34 @@
 		<div class="card-header">
 			<h2>Task Builder</h2>
 			<div class="header-actions">
+				<input type="file" accept=".pdf" class="visually-hidden" bind:this={fileInput} on:change={handleFileSelect} />
 				{#if !tasksLoading && tasks.length === 0}
-					<button class="btn btn-sm btn-parse" on:click={parseScope} disabled={parseLoading}>
-						{parseLoading ? 'Parsing…' : 'Parse Scope from CRM'}
+					<button class="btn btn-sm btn-parse" disabled={parseLoading} on:click={() => fileInput.click()}>
+						{parseLoading ? 'Parsing…' : 'Upload Estimate PDF'}
+					</button>
+					<button class="btn btn-sm" on:click={parseScopeFromCrm} disabled={parseLoading}>
+						{parseLoading ? 'Parsing…' : 'Pull from CRM'}
 					</button>
 				{:else if !tasksLoading && tasks.length > 0}
-					<button class="btn btn-sm" on:click={reparseScope} disabled={parseLoading}>
-						{parseLoading ? 'Parsing…' : 'Re-parse from CRM'}
-					</button>
+					<div class="reparse-group">
+						<button
+							class="btn btn-sm"
+							on:click={() => (reparseDropdownOpen = !reparseDropdownOpen)}
+							disabled={parseLoading}
+						>
+							{parseLoading ? 'Parsing…' : 'Re-parse ▾'}
+						</button>
+						{#if reparseDropdownOpen}
+							<div class="reparse-dropdown">
+								<button class="reparse-option" on:click={() => { reparseDropdownOpen = false; fileInput.click(); }}>
+									Upload New Estimate
+								</button>
+								<button class="reparse-option" on:click={reparseCrm}>
+									Re-parse from CRM
+								</button>
+							</div>
+						{/if}
+					</div>
 				{/if}
 				<button class="btn btn-sm" on:click={openLibrary}>Add from Library</button>
 				<button class="btn btn-primary btn-sm" on:click={() => saveTasks()} disabled={saveStatus === 'saving'}>
@@ -479,14 +544,14 @@
 		{#if parseLoading}
 			<div class="parse-loading">
 				<span class="spinner"></span>
-				Analyzing scope from CRM and generating tasks…
+				Analyzing estimate and generating tasks…
 			</div>
 		{/if}
 
 		{#if rawScope}
 			<div class="scope-ref">
 				<button class="scope-ref-toggle" on:click={() => (scopeRefExpanded = !scopeRefExpanded)}>
-					CRM Scope Reference {scopeRefExpanded ? '▾' : '▸'}
+					Parsed Source Text {scopeRefExpanded ? '▾' : '▸'}
 				</button>
 				{#if scopeRefExpanded}
 					<pre class="scope-ref-text">{rawScope}</pre>
@@ -1254,12 +1319,56 @@
 
 	/* ── AI Parse ──────────────────────────────────────────────────── */
 
+	.visually-hidden {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
 	.btn-parse {
 		background: #059669;
 		color: #fff;
 		border-color: #059669;
 	}
 	.btn-parse:hover { background: #047857; }
+
+	.reparse-group {
+		position: relative;
+	}
+
+	.reparse-dropdown {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		margin-top: 0.25rem;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		z-index: 50;
+		min-width: 180px;
+		overflow: hidden;
+	}
+
+	.reparse-option {
+		display: block;
+		width: 100%;
+		padding: 0.6rem 1rem;
+		background: transparent;
+		border: none;
+		text-align: left;
+		font-size: 0.85rem;
+		color: #374151;
+		cursor: pointer;
+	}
+	.reparse-option:hover { background: #f3f4f6; }
+	.reparse-option + .reparse-option { border-top: 1px solid #f3f4f6; }
 
 	.parse-loading {
 		display: flex;
