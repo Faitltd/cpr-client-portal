@@ -144,6 +144,7 @@
 				<a class="action-btn" href="/admin/procurement">Procurement</a>
 				<a class="action-btn" href="/admin/change-orders">Change Orders</a>
 				<a class="action-btn" href="/admin/clients">Clients</a>
+				<a class="action-btn" href="/admin/email-updates">Email Updates</a>
 			</div>
 		</div>
 	{/if}

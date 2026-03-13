@@ -9,6 +9,14 @@
 		deal_id: string;
 	}
 
+	interface EmailPref {
+		id: string;
+		deal_id: string;
+		client_email: string;
+		frequency: string;
+		enabled: boolean;
+	}
+
 	let projects: any[] = [];
 	let invoices: any[] = [];
 	let loading = true;
@@ -18,6 +26,8 @@
 	let activityItems: ActivityItem[] = [];
 	let activityLoading = true;
 	let activityError = '';
+	let emailPrefs: EmailPref[] = [];
+	let emailPrefsLoading = true;
 	const getErrorMessage = (payload: any, fallback: string) =>
 		payload?.error || payload?.message || fallback;
 	const readJson = async (res: Response) => res.json().catch(() => ({}));
@@ -81,7 +91,34 @@
 		return new Date(value).toLocaleDateString();
 	};
 
+	const updateEmailFrequency = async (pref: EmailPref, frequency: string) => {
+		try {
+			const res = await fetch('/api/client/email-preferences', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ deal_id: pref.deal_id, frequency })
+			});
+			if (!res.ok) {
+				const payload = await readJson(res);
+				throw new Error(getErrorMessage(payload, 'Failed to update'));
+			}
+			pref.frequency = frequency;
+			emailPrefs = [...emailPrefs];
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Failed to update email preference');
+		}
+	};
+
 	onMount(async () => {
+		fetch('/api/client/email-preferences')
+			.then(async (res) => {
+				if (res.status === 401) return;
+				const payload = await readJson(res);
+				if (res.ok) emailPrefs = payload.data || [];
+			})
+			.catch(() => {})
+			.finally(() => { emailPrefsLoading = false; });
+
 		fetch('/api/client/activity')
 			.then(async (res) => {
 				if (res.status === 401) return;
@@ -287,6 +324,34 @@
 									</a>
 								{/if}
 							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</section>
+
+		<section class="email-prefs-section">
+			<div class="section-toggle section-static">Email Updates</div>
+			{#if emailPrefsLoading}
+				<p class="activity-muted">Loading...</p>
+			{:else if emailPrefs.length === 0}
+				<p class="activity-muted">No email update preferences configured for your projects yet.</p>
+			{:else}
+				<div class="email-prefs-list">
+					{#each emailPrefs as pref (pref.id)}
+						<div class="email-pref-item">
+							<div class="email-pref-info">
+								<span class="email-pref-deal">Project {pref.deal_id.slice(-6)}</span>
+								<span class="email-pref-email">{pref.client_email}</span>
+							</div>
+							<select
+								value={pref.frequency}
+								on:change={(e) => updateEmailFrequency(pref, e.currentTarget.value)}
+							>
+								<option value="daily">Daily</option>
+								<option value="weekly">Weekly</option>
+								<option value="none">None</option>
+							</select>
 						</div>
 					{/each}
 				</div>
@@ -587,6 +652,54 @@
 		margin: 0;
 		color: #111827;
 		line-height: 1.5;
+	}
+
+	.email-prefs-section {
+		margin-top: 2rem;
+	}
+
+	.email-prefs-list {
+		display: grid;
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.email-pref-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		background: #fff;
+		flex-wrap: wrap;
+	}
+
+	.email-pref-info {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+
+	.email-pref-deal {
+		font-weight: 700;
+		color: #111827;
+	}
+
+	.email-pref-email {
+		color: #6b7280;
+		font-size: 0.9rem;
+	}
+
+	.email-pref-item select {
+		padding: 0.5rem 0.75rem;
+		border-radius: 6px;
+		border: 1px solid #d1d5db;
+		min-height: 40px;
+		font-size: 0.95rem;
+		background: #fff;
 	}
 
 	@media (max-width: 720px) {

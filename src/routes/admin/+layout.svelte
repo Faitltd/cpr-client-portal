@@ -35,6 +35,7 @@
 				<a class="admin-link" href="/admin/change-orders">Change Orders</a>
 				<a class="admin-link" href="/admin/task-library">Task Library</a>
 				<a class="admin-link" href="/admin/scope">Scope</a>
+				<a class="admin-link" href="/admin/email-updates">Email Updates</a>
 				<a class="admin-link" href="/admin/logout">Log out</a>
 			</nav>
 		</div>
