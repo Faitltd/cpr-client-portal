@@ -55,23 +55,19 @@
 
 	// ── Constants ────────────────────────────────────────────────────────────
 
-	const PHASES = ['preconstruction', 'demo', 'rough', 'finish', 'closeout'] as const;
+	const DYNAMIC_PHASE_PALETTE = [
+		'#6b7280', '#dc2626', '#d97706', '#059669', '#7c3aed',
+		'#0891b2', '#b45309', '#4f46e5', '#0284c7', '#9333ea',
+		'#374151', '#e11d48', '#16a34a', '#2563eb', '#c026d3'
+	];
 
-	const PHASE_COLORS: Record<string, string> = {
-		preconstruction: '#6b7280',
-		demo: '#dc2626',
-		rough: '#d97706',
-		finish: '#059669',
-		closeout: '#7c3aed'
-	};
+	function getPhaseColor(phase: string, index: number): string {
+		return DYNAMIC_PHASE_PALETTE[index % DYNAMIC_PHASE_PALETTE.length];
+	}
 
-	const PHASE_LABELS: Record<string, string> = {
-		preconstruction: 'Preconstruction',
-		demo: 'Demo',
-		rough: 'Rough',
-		finish: 'Finish',
-		closeout: 'Closeout'
-	};
+	function getPhaseLabel(phase: string): string {
+		return phase;
+	}
 
 	const TRADE_OPTIONS = [
 		'plumbing', 'electrical', 'tile', 'paint', 'general', 'hvac',
@@ -140,9 +136,27 @@
 
 	// ── Derived ──────────────────────────────────────────────────────────────
 
+	$: uniquePhases = (() => {
+		const seen = new Set<string>();
+		const ordered: string[] = [];
+		for (const t of tasks) {
+			if (!seen.has(t.phase)) {
+				seen.add(t.phase);
+				ordered.push(t.phase);
+			}
+		}
+		return ordered;
+	})();
+
+	$: phaseColorMap = (() => {
+		const map: Record<string, string> = {};
+		uniquePhases.forEach((p, i) => { map[p] = getPhaseColor(p, i); });
+		return map;
+	})();
+
 	$: tasksByPhase = (() => {
 		const map = new Map<string, ScopeTask[]>();
-		for (const phase of PHASES) {
+		for (const phase of uniquePhases) {
 			map.set(phase, tasks.filter((t) => t.phase === phase).sort((a, b) => a.sort_order - b.sort_order));
 		}
 		return map;
@@ -565,15 +579,16 @@
 			<p class="error-text">{tasksError}</p>
 		{/if}
 
-		{#each PHASES as phase}
+		{#each uniquePhases as phase}
 			{@const phaseTasks = tasksByPhase.get(phase) || []}
+			{@const color = phaseColorMap[phase] || '#6b7280'}
 			<div class="phase-group">
 				<button
 					class="phase-header"
-					style="border-left: 4px solid {PHASE_COLORS[phase]}"
+					style="border-left: 4px solid {color}"
 					on:click={() => togglePhase(phase)}
 				>
-					<span class="phase-name" style="color: {PHASE_COLORS[phase]}">{PHASE_LABELS[phase]}</span>
+					<span class="phase-name" style="color: {color}">{getPhaseLabel(phase)}</span>
 					<span class="phase-count">{phaseTasks.length} task{phaseTasks.length !== 1 ? 's' : ''}</span>
 					<span class="phase-toggle">{collapsedPhases[phase] ? '+' : '−'}</span>
 				</button>
@@ -665,7 +680,7 @@
 						{/each}
 
 						<button class="add-task-btn" on:click={() => addTask(phase)}>
-							+ Add task to {PHASE_LABELS[phase]}
+							+ Add task to {getPhaseLabel(phase)}
 						</button>
 					</div>
 				{/if}
@@ -753,8 +768,8 @@
 				/>
 				<select bind:value={libraryPhaseFilter}>
 					<option value="">All phases</option>
-					{#each PHASES as p}
-						<option value={p}>{PHASE_LABELS[p]}</option>
+					{#each uniquePhases as p}
+						<option value={p}>{getPhaseLabel(p)}</option>
 					{/each}
 				</select>
 			</div>
@@ -769,7 +784,7 @@
 							<div class="library-info">
 								<span class="library-name">{tpl.task_name}</span>
 								<span class="library-meta">
-									<span class="phase-pill" style="background: {PHASE_COLORS[tpl.phase]}">{tpl.phase}</span>
+									<span class="phase-pill" style="background: {phaseColorMap[tpl.phase] || '#6b7280'}">{tpl.phase}</span>
 									{#if tpl.trade}
 										<span class="trade-pill" style="background: {TRADE_COLORS[tpl.trade] || '#6b7280'}">{tpl.trade}</span>
 									{/if}

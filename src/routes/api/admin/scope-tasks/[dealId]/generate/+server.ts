@@ -15,7 +15,7 @@ import {
 	createZohoTask,
 	sleep
 } from '$lib/server/projects';
-import { addBusinessDays, PHASE_ORDER } from '$lib/server/scope-mapper';
+import { addBusinessDays } from '$lib/server/scope-mapper';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import type { RequestHandler } from './$types';
 
@@ -64,10 +64,8 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			phaseGroups.set(task.phase, group);
 		}
 
-		// Sort phases by PHASE_ORDER
-		const sortedPhases = [...phaseGroups.keys()].sort(
-			(a, b) => (PHASE_ORDER[a] ?? 99) - (PHASE_ORDER[b] ?? 99)
-		);
+		// Sort phases by first appearance in the task list (preserves estimate order)
+		const sortedPhases = [...phaseGroups.keys()];
 
 		// Calculate dates for each task sequentially within phases
 		const taskDates = new Map<string, { start: string; end: string }>();
@@ -100,21 +98,67 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		}
 
 		try {
-			// Create project
+			// Check if deal already has a linked Zoho project
 			await updateGenerationLog(genLog.id, {
 				status: 'creating_project',
-				last_completed_step: 'starting_project_creation'
+				last_completed_step: 'checking_existing_project'
 			});
 
-			project = await createZohoProject({
-				name: dealId + ' - Scope Builder',
-				description: 'Generated from scope builder'
-			});
+			let existingProjectId: string | null = null;
+			try {
+				const tokens = await getZohoTokens();
+				if (tokens) {
+					let accessToken = tokens.access_token;
+					let apiDomain = tokens.api_domain ?? undefined;
 
-			await updateGenerationLog(genLog.id, {
-				zoho_project_id: project.id,
-				last_completed_step: 'project:' + project.name
-			});
+					if (new Date(tokens.expires_at) < new Date()) {
+						const refreshed = await refreshAccessToken(tokens.refresh_token);
+						accessToken = refreshed.access_token;
+						apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
+
+						await upsertZohoTokens({
+							user_id: tokens.user_id,
+							access_token: refreshed.access_token,
+							refresh_token: refreshed.refresh_token,
+							expires_at: new Date(refreshed.expires_at).toISOString(),
+							scope: tokens.scope,
+							api_domain: apiDomain || null
+						});
+					}
+
+					const dealResult = await zohoApiCall(
+						accessToken,
+						'/Deals/' + dealId,
+						{ method: 'GET' },
+						apiDomain
+					);
+
+					const deal = dealResult?.data?.[0];
+					if (deal?.Zoho_Projects_ID) {
+						existingProjectId = String(deal.Zoho_Projects_ID);
+					}
+				}
+			} catch (err) {
+				console.error('Failed to check existing project, will create new:', err);
+			}
+
+			if (existingProjectId) {
+				project = { id: existingProjectId, name: dealId + ' - Scope Builder' };
+				await updateGenerationLog(genLog.id, {
+					zoho_project_id: project.id,
+					last_completed_step: 'project:existing:' + project.id
+				});
+			} else {
+				project = await createZohoProject({
+					name: dealId + ' - Scope Builder',
+					description: 'Generated from scope builder'
+				});
+
+				await updateGenerationLog(genLog.id, {
+					zoho_project_id: project.id,
+					last_completed_step: 'project:' + project.name
+				});
+			}
 
 			await sleep(200);
 

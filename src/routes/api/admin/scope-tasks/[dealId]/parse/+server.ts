@@ -53,20 +53,23 @@ function findScopeText(deal: Record<string, unknown>): string | null {
 	return longestField;
 }
 
-const SYSTEM_PROMPT = `You are a renovation project task parser for Custom Professional Renovations (CPR). Parse a renovation estimate into construction tasks by phase.
+const SYSTEM_PROMPT = `You are a renovation project task parser for Custom Professional Renovations (CPR). Parse a renovation estimate into construction tasks organized by the estimate's own sections/categories.
 
-For each task return: task_name, phase (preconstruction/demo/rough/finish/closeout), trade (plumbing/electrical/tile/paint/general/hvac/framing/drywall/flooring/cabinetry/countertops/roofing/siding/windows/doors or null), duration_days (integer), requires_inspection (boolean), requires_client_decision (boolean), description (include allowance amounts, keep concise).
+For each task return:
+- task_name: Clear, concise task name (just the task, no prefixes or labels)
+- phase: The section/category from the estimate this task belongs to (e.g., "Kitchen", "Flooring", "General", "Laundry Room", "Bathroom", etc.) — use the exact section headers from the estimate
+- trade: One of: plumbing, electrical, tile, paint, general, hvac, framing, drywall, flooring, cabinetry, countertops, roofing, siding, windows, doors, or null
+- duration_days: Estimated working days (integer)
+- requires_inspection: true if likely needs building inspection
+- requires_client_decision: true if client must select materials/finishes
+- description: Brief note with any allowance amounts. Keep concise. Do NOT include this in the task_name.
 
-Phase rules:
-- preconstruction: material ordering/selection, permits, design
-- demo: all removal/demolition
-- rough: electrical outlets, plumbing rough-in, HVAC, framing
-- finish: cabinet install, countertop, tile, flooring, paint, fixtures, appliances
-- closeout: debris removal, cleaning, punch list, final inspection
+IMPORTANT:
+- task_name should be ONLY the task name, clean and concise. No "Task Name:" prefix, no descriptions mixed in.
+- Use the estimate's own section groupings as the phase value
+- Do not skip any line items
 
-Do not skip any line items. Material allowances become preconstruction ordering tasks. Return ONLY a JSON array. No markdown fences.`;
-
-const PHASES = ['preconstruction', 'demo', 'rough', 'finish', 'closeout'];
+Return ONLY a valid JSON array. No markdown fences.`;
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
 	const data = await pdfParse(buffer);
@@ -135,6 +138,13 @@ async function fetchCrmPdfAttachment(
 	}
 }
 
+/** Strip common field-label prefixes the AI may include in task names. */
+function cleanTaskName(raw: string): string {
+	return raw
+		.replace(/^(Task\s*Name|Short\s*Description|Trade\s*Partner\s*Notes|Description)\s*:\s*/i, '')
+		.trim();
+}
+
 function buildTasks(
 	parsed: Array<{
 		task_name: string;
@@ -149,14 +159,14 @@ function buildTasks(
 ) {
 	const phaseCounters: Record<string, number> = {};
 	return parsed.map((t) => {
-		const phase = PHASES.includes(t.phase) ? t.phase : 'finish';
+		const phase = t.phase || 'General';
 		if (!(phase in phaseCounters)) phaseCounters[phase] = 0;
 		const sort_order = phaseCounters[phase]++;
 
 		return {
 			id: crypto.randomUUID(),
 			deal_id: dealId,
-			task_name: t.task_name || 'Untitled Task',
+			task_name: cleanTaskName(t.task_name) || 'Untitled Task',
 			phase,
 			trade: t.trade || null,
 			description: t.description || null,
