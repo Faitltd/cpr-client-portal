@@ -14,6 +14,7 @@
 		deal_id: string;
 		task_name: string;
 		phase: string;
+		phase_order: number;
 		trade: string | null;
 		description: string | null;
 		duration_days: number;
@@ -137,15 +138,15 @@
 	// ── Derived ──────────────────────────────────────────────────────────────
 
 	$: uniquePhases = (() => {
-		const seen = new Set<string>();
-		const ordered: string[] = [];
+		const phaseMap = new Map<string, number>();
 		for (const t of tasks) {
-			if (!seen.has(t.phase)) {
-				seen.add(t.phase);
-				ordered.push(t.phase);
+			if (!phaseMap.has(t.phase)) {
+				phaseMap.set(t.phase, t.phase_order ?? 0);
 			}
 		}
-		return ordered;
+		return [...phaseMap.entries()]
+			.sort((a, b) => a[1] - b[1])
+			.map(([phase]) => phase);
 	})();
 
 	$: phaseColorMap = (() => {
@@ -314,6 +315,7 @@
 				deal_id: dealId,
 				task_name: t.task_name,
 				phase: t.phase,
+				phase_order: t.phase_order ?? 0,
 				trade: t.trade,
 				description: t.description,
 				duration_days: t.duration_days,
@@ -342,11 +344,13 @@
 
 	function addTask(phase: string) {
 		const phaseTasks = tasks.filter((t) => t.phase === phase);
+		const phaseOrder = phaseTasks.length > 0 ? phaseTasks[0].phase_order : 0;
 		const newTask: ScopeTask = {
 			id: crypto.randomUUID(),
 			deal_id: dealId,
 			task_name: '',
 			phase,
+			phase_order: phaseOrder,
 			trade: null,
 			description: null,
 			duration_days: 1,
@@ -408,11 +412,13 @@
 
 	function addFromTemplate(template: TaskTemplate) {
 		const phaseTasks = tasks.filter((t) => t.phase === template.phase);
+		const phaseOrder = phaseTasks.length > 0 ? phaseTasks[0].phase_order : 0;
 		const newTask: ScopeTask = {
 			id: crypto.randomUUID(),
 			deal_id: dealId,
 			task_name: template.task_name,
 			phase: template.phase,
+			phase_order: phaseOrder,
 			trade: template.trade,
 			description: template.description,
 			duration_days: template.default_duration_days,

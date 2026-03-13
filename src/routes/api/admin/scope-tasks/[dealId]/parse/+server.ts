@@ -53,23 +53,29 @@ function findScopeText(deal: Record<string, unknown>): string | null {
 	return longestField;
 }
 
-const SYSTEM_PROMPT = `You are a renovation project task parser for Custom Professional Renovations (CPR). Parse a renovation estimate into construction tasks organized by the estimate's own sections/categories.
+const SYSTEM_PROMPT = `You are a renovation project task parser for Custom Professional Renovations (CPR). Your job is to parse a renovation estimate PDF into structured tasks. You MUST extract EVERY line item — do not skip, merge, or summarize any items.
 
-For each task return:
-- task_name: Clear, concise task name (just the task, no prefixes or labels)
-- phase: The section/category from the estimate this task belongs to (e.g., "Kitchen", "Flooring", "General", "Laundry Room", "Bathroom", etc.) — use the exact section headers from the estimate
-- trade: One of: plumbing, electrical, tile, paint, general, hvac, framing, drywall, flooring, cabinetry, countertops, roofing, siding, windows, doors, or null
-- duration_days: Estimated working days (integer)
-- requires_inspection: true if likely needs building inspection
-- requires_client_decision: true if client must select materials/finishes
-- description: Brief note with any allowance amounts. Keep concise. Do NOT include this in the task_name.
+STEP 1 — Identify the section headers in the estimate. Estimates are organized with numbered sections (e.g., "1. Demo", "2. Framing", "3. Cabinetry & Countertop"). Extract each section header exactly as written (without the number prefix).
 
-IMPORTANT:
-- task_name should be ONLY the task name, clean and concise. No "Task Name:" prefix, no descriptions mixed in.
-- Use the estimate's own section groupings as the phase value
-- Do not skip any line items
+STEP 2 — For each line item under a section, create a task object. Line items are typically numbered like 1.1, 1.2, 3.1, 3.2, etc.
 
-Return ONLY a valid JSON array. No markdown fences.`;
+Each task object must have:
+- task_name: Clean, concise name for the task (e.g., "Interior Demolition", "Quartz Countertop Material & Labor"). NO prefixes like "Task Name:" or "Description:". Just the task itself.
+- phase: The EXACT section header this line item falls under (e.g., "Demo", "Framing", "Cabinetry & Countertop"). Use the estimate's own section names — do NOT invent generic phases.
+- phase_order: The 1-based index of the section in the estimate (first section = 1, second = 2, etc.). This preserves the original estimate ordering.
+- trade: Best-fit trade from this list: plumbing, electrical, tile, paint, general, hvac, framing, drywall, flooring, cabinetry, countertops, roofing, siding, windows, doors — or null if none fit.
+- duration_days: Estimated working days (integer, minimum 1).
+- requires_inspection: true if this task likely needs a building inspection (e.g., rough plumbing, electrical, framing, HVAC).
+- requires_client_decision: true if the client must select materials, finishes, or fixtures.
+- description: Brief note with any allowance amounts, material specs, or scope details. Keep concise. Do NOT duplicate the task_name here.
+
+CRITICAL RULES:
+- Extract ALL line items. If the estimate has 33 line items, return 33 tasks. Do NOT skip any.
+- Use the estimate's own section headers as the phase value — do NOT use generic phases like "rough", "finish", "closeout".
+- Preserve the original section ordering via phase_order.
+- task_name must be ONLY the task name — no labels, no descriptions mixed in.
+
+Return ONLY a valid JSON array. No markdown fences, no commentary.`;
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
 	const data = await pdfParse(buffer);
@@ -149,6 +155,7 @@ function buildTasks(
 	parsed: Array<{
 		task_name: string;
 		phase: string;
+		phase_order?: number;
 		trade: string | null;
 		duration_days: number;
 		requires_inspection: boolean;
@@ -157,6 +164,19 @@ function buildTasks(
 	}>,
 	dealId: string
 ) {
+	// Build phase_order from AI output, falling back to first-appearance order
+	const phaseOrderMap: Record<string, number> = {};
+	let nextOrder = 1;
+	for (const t of parsed) {
+		const phase = t.phase || 'General';
+		if (!(phase in phaseOrderMap)) {
+			phaseOrderMap[phase] = typeof t.phase_order === 'number' && t.phase_order > 0
+				? t.phase_order
+				: nextOrder;
+			nextOrder++;
+		}
+	}
+
 	const phaseCounters: Record<string, number> = {};
 	return parsed.map((t) => {
 		const phase = t.phase || 'General';
@@ -168,6 +188,7 @@ function buildTasks(
 			deal_id: dealId,
 			task_name: cleanTaskName(t.task_name) || 'Untitled Task',
 			phase,
+			phase_order: phaseOrderMap[phase] || 0,
 			trade: t.trade || null,
 			description: t.description || null,
 			duration_days: typeof t.duration_days === 'number' && t.duration_days > 0 ? t.duration_days : 1,
@@ -261,7 +282,8 @@ export const POST: RequestHandler = async ({ params, cookies, request }) => {
 				{ role: 'system', content: SYSTEM_PROMPT },
 				{ role: 'user', content: scopeText }
 			],
-			temperature: 0.3
+			temperature: 0.3,
+			max_tokens: 16384
 		});
 
 		const content = completion.choices[0]?.message?.content?.trim();
@@ -273,6 +295,7 @@ export const POST: RequestHandler = async ({ params, cookies, request }) => {
 		let parsed: Array<{
 			task_name: string;
 			phase: string;
+			phase_order?: number;
 			trade: string | null;
 			duration_days: number;
 			requires_inspection: boolean;

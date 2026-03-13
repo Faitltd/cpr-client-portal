@@ -1306,6 +1306,7 @@ export interface ScopeTask {
 	deal_id: string;
 	task_name: string;
 	phase: string;
+	phase_order: number;
 	trade: string | null;
 	description: string | null;
 	duration_days: number;
@@ -1325,7 +1326,7 @@ export async function getScopeTasksByDeal(dealId: string): Promise<ScopeTask[]> 
 		.from('scope_tasks')
 		.select('*')
 		.eq('deal_id', dealId)
-		.order('phase')
+		.order('phase_order')
 		.order('sort_order');
 
 	if (error) throw new Error(`Scope tasks fetch failed: ${error.message}`);
