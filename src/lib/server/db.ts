@@ -1296,3 +1296,128 @@ export async function getFieldUpdatesByDeal(dealId: string): Promise<FieldUpdate
 	if (error) throw new Error(`Field update fetch failed: ${error.message}`);
 	return (data as FieldUpdate[]) || [];
 }
+
+// ---------------------------------------------------------------------------
+// Scope Tasks
+// ---------------------------------------------------------------------------
+
+export interface ScopeTask {
+	id: string;
+	deal_id: string;
+	task_name: string;
+	phase: string;
+	trade: string | null;
+	description: string | null;
+	duration_days: number;
+	sort_order: number;
+	requires_inspection: boolean;
+	requires_client_decision: boolean;
+	dependency_id: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+/**
+ * Fetch all scope tasks for a deal, ordered by phase then sort_order.
+ */
+export async function getScopeTasksByDeal(dealId: string): Promise<ScopeTask[]> {
+	const { data, error } = await getSupabase()
+		.from('scope_tasks')
+		.select('*')
+		.eq('deal_id', dealId)
+		.order('phase')
+		.order('sort_order');
+
+	if (error) throw new Error(`Scope tasks fetch failed: ${error.message}`);
+	return (data as ScopeTask[]) || [];
+}
+
+/**
+ * Insert or update a single scope task.
+ */
+export async function upsertScopeTask(
+	task: Omit<ScopeTask, 'created_at' | 'updated_at'>
+): Promise<ScopeTask> {
+	const { data, error } = await getSupabase()
+		.from('scope_tasks')
+		.upsert([{ ...task, updated_at: new Date().toISOString() }], { onConflict: 'id' })
+		.select()
+		.single();
+
+	if (error) throw new Error(`Scope task upsert failed: ${error.message}`);
+	return data as ScopeTask;
+}
+
+/**
+ * Delete a single scope task by id.
+ */
+export async function deleteScopeTask(id: string): Promise<void> {
+	const { error } = await getSupabase()
+		.from('scope_tasks')
+		.delete()
+		.eq('id', id);
+
+	if (error) throw new Error(`Scope task delete failed: ${error.message}`);
+}
+
+/**
+ * Bulk upsert scope tasks for a deal: clears existing tasks then inserts new ones.
+ */
+export async function bulkUpsertScopeTasks(
+	dealId: string,
+	tasks: Array<Omit<ScopeTask, 'created_at' | 'updated_at'>>
+): Promise<ScopeTask[]> {
+	const supabase = getSupabase();
+
+	// Clear existing tasks for this deal
+	const { error: deleteError } = await supabase
+		.from('scope_tasks')
+		.delete()
+		.eq('deal_id', dealId);
+
+	if (deleteError) throw new Error(`Scope tasks clear failed: ${deleteError.message}`);
+
+	if (tasks.length === 0) return [];
+
+	const now = new Date().toISOString();
+	const rows = tasks.map((t) => ({
+		...t,
+		deal_id: dealId,
+		updated_at: now
+	}));
+
+	const { data, error } = await supabase
+		.from('scope_tasks')
+		.insert(rows)
+		.select();
+
+	if (error) throw new Error(`Scope tasks bulk insert failed: ${error.message}`);
+	return (data as ScopeTask[]) || [];
+}
+
+/**
+ * Delete all scope tasks for a deal.
+ */
+export async function clearScopeTasks(dealId: string): Promise<void> {
+	const { error } = await getSupabase()
+		.from('scope_tasks')
+		.delete()
+		.eq('deal_id', dealId);
+
+	if (error) throw new Error(`Scope tasks clear failed: ${error.message}`);
+}
+
+/**
+ * Fetch all active task templates (all project types) for the library modal.
+ */
+export async function getAllActiveTaskTemplates(): Promise<TaskTemplate[]> {
+	const { data, error } = await getSupabase()
+		.from('task_templates')
+		.select('id, project_type, phase, task_name, trade, description, default_duration_days, dependency_key, requires_inspection, requires_client_decision, material_lead_time_days, sort_order, is_conditional, condition_key, condition_value, active, created_at')
+		.eq('active', true)
+		.order('phase')
+		.order('sort_order');
+
+	if (error) throw new Error(`Task templates fetch failed: ${error.message}`);
+	return (data as TaskTemplate[]) || [];
+}

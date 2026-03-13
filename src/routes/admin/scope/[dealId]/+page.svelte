@@ -9,24 +9,18 @@
 
 	// ── Types ────────────────────────────────────────────────────────────────
 
-	interface Area {
-		name: string;
-		sqft?: number | null;
-	}
-
-	interface ScopeDefinition {
+	interface ScopeTask {
+		id: string;
 		deal_id: string;
-		project_type: string;
-		areas: Area[];
-		included_items: string[];
-		excluded_items: string[];
-		selections_needed: string[];
-		permit_required: boolean;
-		long_lead_items: string[];
-		special_conditions: Record<string, boolean | string>;
-		trade_notes: string;
-		status: string;
-		updated_at?: string;
+		task_name: string;
+		phase: string;
+		trade: string | null;
+		description: string | null;
+		duration_days: number;
+		sort_order: number;
+		requires_inspection: boolean;
+		requires_client_decision: boolean;
+		dependency_id: string | null;
 	}
 
 	interface TaskTemplate {
@@ -35,1587 +29,1189 @@
 		phase: string;
 		task_name: string;
 		trade: string | null;
+		description: string | null;
 		default_duration_days: number;
 		requires_inspection: boolean;
 		requires_client_decision: boolean;
-		material_lead_time_days: number;
-		is_conditional: boolean;
-		condition_key: string | null;
-		condition_value: string | null;
 		sort_order: number;
 	}
 
-	interface PreviewTask {
-		task_name: string;
-		phase: string;
-		trade: string | null;
-		default_duration_days: number;
-		requires_inspection: boolean;
-		requires_client_decision: boolean;
-		is_conditional: boolean;
+	interface CrmDeal {
+		deal_name: string;
+		stage: string;
+		contact_name: string;
+		all_fields: Record<string, any>;
 	}
 
-	interface PreviewData {
-		totalTasks: number;
-		tasks: PreviewTask[];
-		scope?: { status?: string };
+	interface GenResult {
+		success: boolean;
+		zohoProjectId?: string | null;
+		phasesCreated: number;
+		tasklistsCreated: number;
+		tasksCreated: number;
+		tasksTotal: number;
+		error?: string;
 	}
+
+	// ── Constants ────────────────────────────────────────────────────────────
+
+	const PHASES = ['preconstruction', 'demo', 'rough', 'finish', 'closeout'] as const;
+
+	const PHASE_COLORS: Record<string, string> = {
+		preconstruction: '#6b7280',
+		demo: '#dc2626',
+		rough: '#d97706',
+		finish: '#059669',
+		closeout: '#7c3aed'
+	};
+
+	const PHASE_LABELS: Record<string, string> = {
+		preconstruction: 'Preconstruction',
+		demo: 'Demo',
+		rough: 'Rough',
+		finish: 'Finish',
+		closeout: 'Closeout'
+	};
+
+	const TRADE_OPTIONS = [
+		'plumbing', 'electrical', 'tile', 'paint', 'general', 'hvac',
+		'framing', 'drywall', 'flooring', 'cabinetry', 'countertops',
+		'roofing', 'siding', 'windows', 'doors'
+	];
+
+	const TRADE_COLORS: Record<string, string> = {
+		plumbing: '#2563eb',
+		electrical: '#d97706',
+		tile: '#059669',
+		paint: '#7c3aed',
+		general: '#6b7280',
+		hvac: '#dc2626',
+		framing: '#92400e',
+		drywall: '#64748b',
+		flooring: '#b45309',
+		cabinetry: '#6d28d9',
+		countertops: '#0891b2',
+		roofing: '#374151',
+		siding: '#4f46e5',
+		windows: '#0284c7',
+		doors: '#9333ea'
+	};
 
 	// ── State ────────────────────────────────────────────────────────────────
 
-	const ALL_PHASES = ['preconstruction', 'demo', 'rough', 'finish', 'closeout'];
-	const ALL_PROJECT_TYPES = ['hall_bath', 'primary_bath', 'kitchen', 'basement', 'deck'];
+	// Section A: CRM
+	let crmDeal: CrmDeal | null = null;
+	let crmLoading = false;
+	let crmError = '';
+	let crmExpanded = false;
 
-	const TRADE_COLORS: Record<string, { bg: string }> = {
-		plumbing:   { bg: '#2563eb' },
-		electrical: { bg: '#d97706' },
-		tile:       { bg: '#059669' },
-		paint:      { bg: '#7c3aed' },
-		general:    { bg: '#6b7280' },
-		hvac:       { bg: '#dc2626' },
-		framing:    { bg: '#92400e' }
-	};
+	// Section B: Tasks
+	let tasks: ScopeTask[] = [];
+	let tasksLoading = true;
+	let tasksError = '';
+	let saveStatus: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
+	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+	let editingTaskId: string | null = null;
 
-	const STATUS_COLORS: Record<string, string> = {
-		draft: '#9ca3af',
-		reviewed: '#3b82f6',
-		approved: '#059669',
-		generated: '#7c3aed'
-	};
+	// Library modal
+	let libraryOpen = false;
+	let libraryTemplates: TaskTemplate[] = [];
+	let libraryLoading = false;
+	let libraryFilter = '';
+	let libraryPhaseFilter = '';
 
-	// Form fields
-	let projectType = 'hall_bath';
-	let areas: Area[] = [{ name: '', sqft: null }];
-
-	let includedItems: string[] = [];
-	let includedInput = '';
-	let excludedItems: string[] = [];
-	let excludedInput = '';
-	let selectionsNeeded: string[] = [];
-	let selectionsInput = '';
-	let longLeadItems: string[] = [];
-	let longLeadInput = '';
-
-	let permitRequired = false;
-	let conditionKeys: string[] = [];
-	let specialConditions: Record<string, boolean> = {};
-
-	let tradeNotes = '';
-	let currentStatus = 'draft';
-
-	// UI state
-	let saving = false;
-	let saveError = '';
-	let saveSuccess = false;
-	let statusChanging = false;
-
-	let previewData: PreviewData | null = null;
-	let previewLoading = false;
-	let previewError = '';
+	// Section C: Generate
+	let startDate = new Date().toISOString().split('T')[0];
 	let generating = false;
+	let genResult: GenResult | null = null;
+	let genError = '';
 
-	// Generation log state
-	let latestGenLog: any = null;
-	let genLogHistory: any[] = [];
-	let genLogLoading = true;
+	// Collapsed phases
+	let collapsedPhases: Record<string, boolean> = {};
 
 	// ── Derived ──────────────────────────────────────────────────────────────
 
-	$: previewTasks = previewData?.tasks ?? [];
-	$: totalDays = previewTasks.reduce((s, t) => s + t.default_duration_days, 0);
-	$: totalDecisions = previewTasks.filter((t) => t.requires_client_decision).length;
-	$: totalInspections = previewTasks.filter((t) => t.requires_inspection).length;
-
-	$: groupedPreview = (() => {
-		const map = new Map<string, PreviewTask[]>();
-		for (const phase of ALL_PHASES) {
-			const tasks = previewTasks
-				.filter((t) => t.phase === phase)
-				.sort((a, b) => a.task_name.localeCompare(b.task_name));
-			if (tasks.length) map.set(phase, tasks);
+	$: tasksByPhase = (() => {
+		const map = new Map<string, ScopeTask[]>();
+		for (const phase of PHASES) {
+			map.set(phase, tasks.filter((t) => t.phase === phase).sort((a, b) => a.sort_order - b.sort_order));
 		}
 		return map;
+	})();
+
+	$: totalTasks = tasks.length;
+	$: totalDays = tasks.reduce((s, t) => s + t.duration_days, 0);
+	$: totalInspections = tasks.filter((t) => t.requires_inspection).length;
+	$: totalDecisions = tasks.filter((t) => t.requires_client_decision).length;
+
+	$: filteredLibrary = (() => {
+		let list = libraryTemplates;
+		if (libraryPhaseFilter) list = list.filter((t) => t.phase === libraryPhaseFilter);
+		if (libraryFilter) {
+			const q = libraryFilter.toLowerCase();
+			list = list.filter(
+				(t) =>
+					t.task_name.toLowerCase().includes(q) ||
+					(t.trade && t.trade.toLowerCase().includes(q))
+			);
+		}
+		return list;
 	})();
 
 	// ── Init ─────────────────────────────────────────────────────────────────
 
 	onMount(async () => {
-		await Promise.all([loadScope(), loadPreview(), loadGenLogs()]);
+		await loadTasks();
 	});
 
-	async function loadScope() {
+	// ── Section A: CRM ──────────────────────────────────────────────────────
+
+	async function fetchCrmDeal() {
+		crmLoading = true;
+		crmError = '';
 		try {
-			const res = await fetch(`/api/admin/scope?dealId=${encodeURIComponent(dealId)}`);
+			const res = await fetch(`/api/admin/crm-scope/${encodeURIComponent(dealId)}`);
 			const json = await res.json();
-			if (!res.ok) return;
-			const scope: ScopeDefinition | null = json.data ?? null;
-			if (scope) {
-				populateForm(scope);
-				await loadConditionKeys(scope.project_type);
-			} else {
-				await loadConditionKeys(projectType);
-			}
-		} catch {
-			await loadConditionKeys(projectType);
-		}
-	}
-
-	function populateForm(scope: ScopeDefinition) {
-		projectType = scope.project_type ?? 'hall_bath';
-		areas = scope.areas?.length ? scope.areas.map((a) => ({ name: a.name, sqft: a.sqft ?? null })) : [{ name: '', sqft: null }];
-		includedItems = [...(scope.included_items ?? [])];
-		excludedItems = [...(scope.excluded_items ?? [])];
-		selectionsNeeded = [...(scope.selections_needed ?? [])];
-		longLeadItems = [...(scope.long_lead_items ?? [])];
-		permitRequired = scope.permit_required ?? false;
-		tradeNotes = scope.trade_notes ?? '';
-		currentStatus = scope.status ?? 'draft';
-
-		const sc = scope.special_conditions ?? {};
-		const raw: Record<string, boolean> = {};
-		for (const [k, v] of Object.entries(sc)) {
-			if (k !== 'permit_required') raw[k] = v === true || v === 'true';
-		}
-		specialConditions = raw;
-	}
-
-	async function loadConditionKeys(type: string) {
-		try {
-			const res = await fetch(`/api/admin/task-templates?projectType=${encodeURIComponent(type)}`);
-			const json = await res.json();
-			if (!res.ok) return;
-			const templates: TaskTemplate[] = json.data ?? [];
-			const keys = new Set<string>();
-			for (const t of templates) {
-				if (t.is_conditional && t.condition_key) keys.add(t.condition_key);
-			}
-			conditionKeys = [...keys].filter((k) => k !== 'permit_required');
-			// ensure specialConditions has entries for each key
-			const updated: Record<string, boolean> = {};
-			for (const k of conditionKeys) {
-				updated[k] = specialConditions[k] ?? false;
-			}
-			specialConditions = updated;
-		} catch {
-			// silently ignore
-		}
-	}
-
-	async function loadPreview() {
-		previewLoading = true;
-		previewError = '';
-		try {
-			const res = await fetch(`/api/admin/scope/${encodeURIComponent(dealId)}/preview`);
-			const json = await res.json();
-			if (!res.ok) {
-				// 404 means no scope yet — that's fine
-				if (res.status !== 404) previewError = json.message || 'Preview failed';
-				previewData = null;
-				return;
-			}
-			previewData = json.data ?? null;
-		} catch {
-			previewData = null;
+			if (!res.ok) throw new Error(json.message || 'Failed to fetch deal');
+			crmDeal = json.data;
+		} catch (err: any) {
+			crmError = err.message || 'Failed to fetch CRM data';
 		} finally {
-			previewLoading = false;
+			crmLoading = false;
 		}
 	}
 
-	async function loadGenLogs() {
-		genLogLoading = true;
+	function getCrmTextFields(): Array<{ key: string; value: string }> {
+		if (!crmDeal?.all_fields) return [];
+		const fields: Array<{ key: string; value: string }> = [];
+		for (const [key, val] of Object.entries(crmDeal.all_fields)) {
+			if (typeof val === 'string' && val.trim().length > 0 && val.length < 2000) {
+				fields.push({ key, value: val });
+			}
+		}
+		return fields.sort((a, b) => a.key.localeCompare(b.key));
+	}
+
+	// ── Section B: Tasks ────────────────────────────────────────────────────
+
+	async function loadTasks() {
+		tasksLoading = true;
+		tasksError = '';
 		try {
-			const [latestRes, historyRes] = await Promise.all([
-				fetch(`/api/admin/generation-log?dealId=${encodeURIComponent(dealId)}&latest=true`),
-				fetch(`/api/admin/generation-log?dealId=${encodeURIComponent(dealId)}`)
-			]);
-			const latestJson = await latestRes.json();
-			const historyJson = await historyRes.json();
-			latestGenLog = latestJson.data ?? null;
-			genLogHistory = historyJson.data ?? [];
-		} catch {
-			latestGenLog = null;
-			genLogHistory = [];
+			const res = await fetch(`/api/admin/scope-tasks/${encodeURIComponent(dealId)}`);
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.message || 'Failed to load tasks');
+			tasks = json.data || [];
+		} catch (err: any) {
+			tasksError = err.message || 'Failed to load tasks';
 		} finally {
-			genLogLoading = false;
+			tasksLoading = false;
 		}
 	}
 
-	// ── Project type change ───────────────────────────────────────────────────
-
-	async function onTypeChange() {
-		await loadConditionKeys(projectType);
+	function scheduleSave() {
+		if (saveTimer) clearTimeout(saveTimer);
+		saveStatus = 'idle';
+		saveTimer = setTimeout(() => saveTasks(), 1500);
 	}
 
-	// ── Areas ─────────────────────────────────────────────────────────────────
-
-	function addArea() {
-		areas = [...areas, { name: '', sqft: null }];
-	}
-
-	function removeArea(i: number) {
-		areas = areas.filter((_, idx) => idx !== i);
-		if (areas.length === 0) areas = [{ name: '', sqft: null }];
-	}
-
-	// ── Tag inputs ────────────────────────────────────────────────────────────
-
-	function addTag(list: string[], value: string): string[] {
-		const v = value.trim();
-		if (v && !list.includes(v)) return [...list, v];
-		return list;
-	}
-
-	function removeTag(list: string[], value: string): string[] {
-		return list.filter((t) => t !== value);
-	}
-
-	function handleTagKey(
-		e: KeyboardEvent & { currentTarget: HTMLInputElement },
-		list: string[],
-		setter: (v: string[]) => void,
-		inputSetter: (v: string) => void
-	) {
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			setter(addTag(list, e.currentTarget.value));
-			inputSetter('');
-		}
-	}
-
-	// ── Save ─────────────────────────────────────────────────────────────────
-
-	async function saveScope() {
-		saving = true;
-		saveError = '';
-		saveSuccess = false;
+	async function saveTasks() {
+		saveStatus = 'saving';
 		try {
-			const sc: Record<string, boolean | string> = { ...specialConditions };
-			if (permitRequired) sc.permit_required = true;
-
-			const body = {
-				dealId: dealId,
-				projectType: projectType,
-				areas: areas.filter((a) => a.name.trim()).map((a) => ({
-					name: a.name.trim(),
-					...(a.sqft != null && a.sqft > 0 ? { sqft: a.sqft } : {})
-				})),
-				includedItems: includedItems,
-				excludedItems: excludedItems,
-				selectionsNeeded: selectionsNeeded,
-				permitRequired: permitRequired,
-				longLeadItems: longLeadItems,
-				specialConditions: sc,
-				tradeNotes: tradeNotes.trim() || null
-			};
-
-			const res = await fetch('/api/admin/scope', {
+			const payload = tasks.map((t, i) => ({
+				id: t.id,
+				deal_id: dealId,
+				task_name: t.task_name,
+				phase: t.phase,
+				trade: t.trade,
+				description: t.description,
+				duration_days: t.duration_days,
+				sort_order: i,
+				requires_inspection: t.requires_inspection,
+				requires_client_decision: t.requires_client_decision,
+				dependency_id: t.dependency_id
+			}));
+			const res = await fetch(`/api/admin/scope-tasks/${encodeURIComponent(dealId)}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(body)
+				body: JSON.stringify({ tasks: payload })
 			});
 			const json = await res.json();
-			if (!res.ok) throw new Error(json.message || 'Save failed');
-			saveSuccess = true;
-			setTimeout(() => (saveSuccess = false), 3000);
-			await loadPreview();
-		} catch (err) {
-			saveError = err instanceof Error ? err.message : 'Save failed';
-		} finally {
-			saving = false;
+			if (!res.ok) throw new Error(json.message || 'Failed to save');
+			tasks = json.data || [];
+			saveStatus = 'saved';
+			setTimeout(() => {
+				if (saveStatus === 'saved') saveStatus = 'idle';
+			}, 2000);
+		} catch (err: any) {
+			saveStatus = 'error';
+			tasksError = err.message || 'Failed to save tasks';
 		}
 	}
 
-	// ── Status transitions ────────────────────────────────────────────────────
+	function addTask(phase: string) {
+		const phaseTasks = tasks.filter((t) => t.phase === phase);
+		const newTask: ScopeTask = {
+			id: crypto.randomUUID(),
+			deal_id: dealId,
+			task_name: '',
+			phase,
+			trade: null,
+			description: null,
+			duration_days: 1,
+			sort_order: phaseTasks.length,
+			requires_inspection: false,
+			requires_client_decision: false,
+			dependency_id: null
+		};
+		tasks = [...tasks, newTask];
+		editingTaskId = newTask.id;
+		scheduleSave();
+	}
 
-	async function setStatus(status: string) {
-		statusChanging = true;
+	function removeTask(taskId: string) {
+		tasks = tasks.filter((t) => t.id !== taskId);
+		if (editingTaskId === taskId) editingTaskId = null;
+		scheduleSave();
+	}
+
+	function updateTask(taskId: string, field: keyof ScopeTask, value: any) {
+		tasks = tasks.map((t) => (t.id === taskId ? { ...t, [field]: value } : t));
+		scheduleSave();
+	}
+
+	function moveTask(taskId: string, direction: -1 | 1) {
+		const idx = tasks.findIndex((t) => t.id === taskId);
+		if (idx < 0) return;
+		const task = tasks[idx];
+		const phaseTasks = tasks.filter((t) => t.phase === task.phase);
+		const phaseIdx = phaseTasks.findIndex((t) => t.id === taskId);
+		const swapIdx = phaseIdx + direction;
+		if (swapIdx < 0 || swapIdx >= phaseTasks.length) return;
+
+		const swapTask = phaseTasks[swapIdx];
+		tasks = tasks.map((t) => {
+			if (t.id === taskId) return { ...t, sort_order: swapTask.sort_order };
+			if (t.id === swapTask.id) return { ...t, sort_order: task.sort_order };
+			return t;
+		});
+		scheduleSave();
+	}
+
+	// ── Library ─────────────────────────────────────────────────────────────
+
+	async function openLibrary() {
+		libraryOpen = true;
+		if (libraryTemplates.length > 0) return;
+		libraryLoading = true;
 		try {
-			const res = await fetch(`/api/admin/scope/${encodeURIComponent(dealId)}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ status })
-			});
+			const res = await fetch('/api/admin/task-templates?all=true');
 			const json = await res.json();
-			if (!res.ok) throw new Error(json.message || 'Status update failed');
-			currentStatus = status;
-		} catch (err) {
-			saveError = err instanceof Error ? err.message : 'Status update failed';
+			if (res.ok) libraryTemplates = json.data || [];
+		} catch {
+			// silently fail
 		} finally {
-			statusChanging = false;
+			libraryLoading = false;
 		}
 	}
 
-	async function handleGenerate() {
-		if (generating) return;
+	function addFromTemplate(template: TaskTemplate) {
+		const phaseTasks = tasks.filter((t) => t.phase === template.phase);
+		const newTask: ScopeTask = {
+			id: crypto.randomUUID(),
+			deal_id: dealId,
+			task_name: template.task_name,
+			phase: template.phase,
+			trade: template.trade,
+			description: template.description,
+			duration_days: template.default_duration_days,
+			sort_order: phaseTasks.length,
+			requires_inspection: template.requires_inspection,
+			requires_client_decision: template.requires_client_decision,
+			dependency_id: null
+		};
+		tasks = [...tasks, newTask];
+		scheduleSave();
+	}
+
+	// ── Section C: Generate ─────────────────────────────────────────────────
+
+	async function generateProject() {
+		if (tasks.length === 0) return;
 		generating = true;
-
+		genResult = null;
+		genError = '';
 		try {
-			const res = await fetch('/api/admin/scope/' + encodeURIComponent(dealId) + '/generate', {
+			// Save tasks first
+			if (saveTimer) {
+				clearTimeout(saveTimer);
+				saveTimer = null;
+			}
+			await saveTasks();
+
+			const res = await fetch(`/api/admin/scope-tasks/${encodeURIComponent(dealId)}/generate`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({})
+				body: JSON.stringify({ start_date: startDate })
 			});
 			const json = await res.json();
-			if (!res.ok) throw new Error(json.message || 'Generation failed');
-			if (json.data?.success === false) {
-				throw new Error(json.data.error || 'Generation failed');
-			}
-			if (json.data?.success) {
-				currentStatus = 'generated';
-			}
-			// Refresh generation logs to show the result
-			await loadGenLogs();
-		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Generation failed');
+			if (!res.ok && !json.data) throw new Error(json.message || 'Generation failed');
+			genResult = json.data;
+		} catch (err: any) {
+			genError = err.message || 'Generation failed';
 		} finally {
 			generating = false;
 		}
 	}
 
-	// ── Helpers ───────────────────────────────────────────────────────────────
-
-	function capitalize(s: string) {
-		return s.charAt(0).toUpperCase() + s.slice(1);
-	}
-
-	function tradeBg(trade: string | null): string {
-		if (!trade || !TRADE_COLORS[trade]) return '#e5e7eb';
-		return TRADE_COLORS[trade].bg;
-	}
-
-	function fmtDateTime(value: string | null | undefined): string {
-		if (!value) return '—';
-		const d = new Date(value);
-		return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
-	}
-
-	function genLogStatusStyle(status: string): string {
-		if (status === 'completed') return 'background:#dcfce7;color:#166534;';
-		if (status === 'failed') return 'background:#fee2e2;color:#991b1b;';
-		if (status === 'partial') return 'background:#ffedd5;color:#9a3412;';
-		return 'background:#fef3c7;color:#92400e;';
-	}
-
-	function genLogStatusLabel(status: string): string {
-		if (status === 'completed') return 'Completed';
-		if (status === 'failed') return 'Failed';
-		if (status === 'partial') return 'Partial';
-		return 'In Progress';
+	function togglePhase(phase: string) {
+		collapsedPhases = { ...collapsedPhases, [phase]: !collapsedPhases[phase] };
 	}
 </script>
 
-<div class="container">
-	<!-- Header -->
-	<div class="page-header">
-		<a class="back-link" href="/admin/scope">← Back to Scope List</a>
-		<h1>Scope Editor</h1>
-		<p class="deal-id-label">{dealId}</p>
-	</div>
+<div class="scope-builder">
+	<header class="page-header">
+		<h1>Scope Builder</h1>
+		<span class="deal-badge">{dealId}</span>
+		{#if saveStatus === 'saving'}
+			<span class="save-indicator saving">Saving…</span>
+		{:else if saveStatus === 'saved'}
+			<span class="save-indicator saved">Saved</span>
+		{:else if saveStatus === 'error'}
+			<span class="save-indicator error">Save failed</span>
+		{/if}
+	</header>
 
-	<div class="two-panel">
-		<!-- ── LEFT: Form ─────────────────────────────────────────────────── -->
-		<div class="form-panel">
-
-			<!-- Section A: Project Details -->
-			<div class="card">
-				<h3>Project Details</h3>
-				<div class="field">
-					<label class="field-label" for="project-type">Project Type</label>
-					<select
-						id="project-type"
-						class="select"
-						bind:value={projectType}
-						on:change={onTypeChange}
-					>
-						{#each ALL_PROJECT_TYPES as t}
-							<option value={t}>{t.replace(/_/g, ' ')}</option>
-						{/each}
-					</select>
-				</div>
-			</div>
-
-			<!-- Section B: Areas -->
-			<div class="card">
-				<h3>Areas</h3>
-				<div class="areas-list">
-					{#each areas as area, i}
-						<div class="area-row">
-							<input
-								class="input area-name-input"
-								type="text"
-								placeholder="Area name (e.g. Main Bath)"
-								bind:value={area.name}
-							/>
-							<input
-								class="input area-sqft-input"
-								type="number"
-								placeholder="sqft (optional)"
-								min="0"
-								bind:value={area.sqft}
-							/>
-							<button
-								class="btn btn-icon"
-								type="button"
-								aria-label="Remove area"
-								on:click={() => removeArea(i)}
-							>
-								✕
-							</button>
-						</div>
-					{/each}
-				</div>
-				<button class="btn btn-outline" type="button" on:click={addArea}>
-					+ Add Area
-				</button>
-			</div>
-
-			<!-- Section C: Scope Items -->
-			<div class="card">
-				<h3>Scope Items</h3>
-				<div class="scope-items-grid">
-					<!-- Included -->
-					<div class="tag-section">
-						<h4 class="tag-heading">Included Items</h4>
-						<div class="tags-container">
-							{#each includedItems as tag}
-								<span class="tag tag-included">
-									{tag}
-									<button
-										class="tag-remove"
-										type="button"
-										aria-label="Remove {tag}"
-										on:click={() => (includedItems = removeTag(includedItems, tag))}
-									>✕</button>
-								</span>
-							{/each}
-						</div>
-						<div class="tag-input-row">
-							<input
-								class="input"
-								type="text"
-								placeholder="Type and press Enter"
-								bind:value={includedInput}
-								on:keydown={(e) => handleTagKey(e, includedItems, (v) => (includedItems = v), (v) => (includedInput = v))}
-							/>
-							<button
-								class="btn btn-outline btn-sm"
-								type="button"
-								on:click={() => {
-									includedItems = addTag(includedItems, includedInput);
-									includedInput = '';
-								}}
-							>Add</button>
-						</div>
-						{#if conditionKeys.length > 0}
-							<p class="helper-text">Common keys: {conditionKeys.join(', ')}</p>
-						{/if}
-					</div>
-
-					<!-- Excluded -->
-					<div class="tag-section">
-						<h4 class="tag-heading">Excluded Items</h4>
-						<div class="tags-container">
-							{#each excludedItems as tag}
-								<span class="tag tag-excluded">
-									{tag}
-									<button
-										class="tag-remove"
-										type="button"
-										aria-label="Remove {tag}"
-										on:click={() => (excludedItems = removeTag(excludedItems, tag))}
-									>✕</button>
-								</span>
-							{/each}
-						</div>
-						<div class="tag-input-row">
-							<input
-								class="input"
-								type="text"
-								placeholder="Type and press Enter"
-								bind:value={excludedInput}
-								on:keydown={(e) => handleTagKey(e, excludedItems, (v) => (excludedItems = v), (v) => (excludedInput = v))}
-							/>
-							<button
-								class="btn btn-outline btn-sm"
-								type="button"
-								on:click={() => {
-									excludedItems = addTag(excludedItems, excludedInput);
-									excludedInput = '';
-								}}
-							>Add</button>
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Section D: Conditions -->
-			<div class="card">
-				<h3>Conditions</h3>
-				<label class="checkbox-label permit-row">
-					<input type="checkbox" bind:checked={permitRequired} />
-					Permit Required
-				</label>
-
-				{#if conditionKeys.length > 0}
-					<div class="conditions-list">
-						{#each conditionKeys as key}
-							<label class="checkbox-label">
-								<input type="checkbox" bind:checked={specialConditions[key]} />
-								{key.replace(/_/g, ' ')}
-							</label>
-						{/each}
-					</div>
-				{:else}
-					<p class="muted" style="margin-top:0.5rem;">Select a project type with templates to see conditions.</p>
-				{/if}
-			</div>
-
-			<!-- Section E: Selections & Lead Times -->
-			<div class="card">
-				<h3>Selections &amp; Lead Times</h3>
-				<div class="scope-items-grid">
-					<!-- Selections needed -->
-					<div class="tag-section">
-						<h4 class="tag-heading">Selections Needed</h4>
-						<div class="tags-container">
-							{#each selectionsNeeded as tag}
-								<span class="tag tag-selection">
-									{tag}
-									<button
-										class="tag-remove"
-										type="button"
-										aria-label="Remove {tag}"
-										on:click={() => (selectionsNeeded = removeTag(selectionsNeeded, tag))}
-									>✕</button>
-								</span>
-							{/each}
-						</div>
-						<div class="tag-input-row">
-							<input
-								class="input"
-								type="text"
-								placeholder="Type and press Enter"
-								bind:value={selectionsInput}
-								on:keydown={(e) => handleTagKey(e, selectionsNeeded, (v) => (selectionsNeeded = v), (v) => (selectionsInput = v))}
-							/>
-							<button
-								class="btn btn-outline btn-sm"
-								type="button"
-								on:click={() => {
-									selectionsNeeded = addTag(selectionsNeeded, selectionsInput);
-									selectionsInput = '';
-								}}
-							>Add</button>
-						</div>
-					</div>
-
-					<!-- Long lead items -->
-					<div class="tag-section">
-						<h4 class="tag-heading">Long Lead Items</h4>
-						<div class="tags-container">
-							{#each longLeadItems as tag}
-								<span class="tag tag-lead">
-									{tag}
-									<button
-										class="tag-remove"
-										type="button"
-										aria-label="Remove {tag}"
-										on:click={() => (longLeadItems = removeTag(longLeadItems, tag))}
-									>✕</button>
-								</span>
-							{/each}
-						</div>
-						<div class="tag-input-row">
-							<input
-								class="input"
-								type="text"
-								placeholder="Type and press Enter"
-								bind:value={longLeadInput}
-								on:keydown={(e) => handleTagKey(e, longLeadItems, (v) => (longLeadItems = v), (v) => (longLeadInput = v))}
-							/>
-							<button
-								class="btn btn-outline btn-sm"
-								type="button"
-								on:click={() => {
-									longLeadItems = addTag(longLeadItems, longLeadInput);
-									longLeadInput = '';
-								}}
-							>Add</button>
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Section F: Notes -->
-			<div class="card">
-				<h3>Notes</h3>
-				<div class="field">
-					<label class="field-label" for="trade-notes">Trade Notes</label>
-					<textarea
-						id="trade-notes"
-						class="textarea"
-						rows="4"
-						placeholder="Notes for trade partners about this scope..."
-						bind:value={tradeNotes}
-					></textarea>
-				</div>
-			</div>
-
-			<!-- Section G: Status -->
-			<div class="card">
-				<h3>Status</h3>
-				<div class="status-row">
-					<span
-						class="status-badge"
-						style="background:{STATUS_COLORS[currentStatus] ?? '#9ca3af'};color:#fff;"
-					>
-						{currentStatus}
-					</span>
-
-					{#if currentStatus === 'draft'}
-						<button
-							class="btn btn-reviewed"
-							on:click={() => setStatus('reviewed')}
-							disabled={statusChanging}
-						>
-							Mark as Reviewed
-						</button>
-					{:else if currentStatus === 'reviewed'}
-						<button
-							class="btn btn-approved"
-							on:click={() => setStatus('approved')}
-							disabled={statusChanging}
-						>
-							Approve Scope
-						</button>
-					{:else if currentStatus === 'approved'}
-						<span class="status-info">Scope approved — ready for project generation</span>
-					{:else if currentStatus === 'generated'}
-						<span class="status-info">✓ Project generated</span>
-					{/if}
-				</div>
-			</div>
-
-			<!-- Save -->
-			{#if saveError}
-				<p class="error-text">{saveError}</p>
-			{/if}
-			{#if saveSuccess}
-				<p class="success-text">Scope saved successfully.</p>
-			{/if}
-			<button
-				class="btn btn-primary btn-save"
-				type="button"
-				on:click={saveScope}
-				disabled={saving}
-			>
-				{saving ? 'Saving…' : 'Save Scope'}
+	<!-- ── Section A: CRM Scope Reference ──────────────────────────────── -->
+	<section class="card crm-section">
+		<div class="card-header">
+			<h2>CRM Scope Reference</h2>
+			<button class="btn btn-sm" on:click={fetchCrmDeal} disabled={crmLoading}>
+				{crmLoading ? 'Pulling…' : 'Pull from CRM'}
 			</button>
 		</div>
 
-		<!-- ── RIGHT: Preview ─────────────────────────────────────────────── -->
-		<div class="preview-panel">
-			<div class="preview-sticky">
-				<h2 class="preview-heading">Task Preview</h2>
+		{#if crmError}
+			<p class="error-text">{crmError}</p>
+		{/if}
 
-				{#if previewLoading}
-					<p class="muted">Loading preview…</p>
-				{:else if previewData === null}
-					<div class="preview-empty">Save scope to see task preview.</div>
-				{:else}
-					<!-- Summary bar -->
-					<div class="summary-bar">
-						<span><strong>{previewTasks.length}</strong> tasks</span>
-						<span>·</span>
-						<span><strong>{totalDays}</strong> days</span>
-						<span>·</span>
-						<span><strong>{totalDecisions}</strong> decisions</span>
-						<span>·</span>
-						<span><strong>{totalInspections}</strong> inspections</span>
-					</div>
-
-					<!-- Tasks by phase -->
-					{#each ALL_PHASES as phase}
-						{#if groupedPreview.has(phase)}
-							{@const phaseTasks = groupedPreview.get(phase) ?? []}
-							<div class="preview-phase">
-								<div class="preview-phase-header">
-									<span>{capitalize(phase)}</span>
-									<span class="phase-count">{phaseTasks.length}</span>
-								</div>
-								{#each phaseTasks as task}
-									<div class="preview-task-row">
-										<span class="preview-task-name">{task.task_name}</span>
-										<div class="preview-task-meta">
-											{#if task.trade}
-												<span
-													class="preview-trade"
-													style="background:{tradeBg(task.trade)};color:#fff;"
-												>{task.trade}</span>
-											{/if}
-											<span class="preview-duration muted">{task.default_duration_days}d</span>
-											{#if task.requires_client_decision}
-												<span class="preview-flag flag-decision">Decision</span>
-											{/if}
-											{#if task.requires_inspection}
-												<span class="preview-flag flag-inspect">Inspect</span>
-											{/if}
-											{#if task.is_conditional}
-												<span class="preview-flag flag-conditional">Conditional</span>
-											{/if}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{/if}
-				{/each}
-			{/if}
-
-			<!-- Generation Status -->
-			<div class="card gen-status-card">
-				<h3>Generation Status</h3>
-
-				{#if genLogLoading}
-					<p class="muted">Loading…</p>
-				{:else if latestGenLog === null}
-					<p class="muted">Not yet generated.</p>
-				{:else}
-					<div class="gen-status-header">
-						<span class="status-badge" style={genLogStatusStyle(latestGenLog.status)}>
-							{genLogStatusLabel(latestGenLog.status)}
-						</span>
-						<span class="gen-progress muted">
-							{latestGenLog.tasks_created ?? 0} / {latestGenLog.tasks_total ?? '?'} tasks
-						</span>
-					</div>
-
-					<div class="gen-detail-list">
-						<div class="gen-detail-row">
-							<span class="gen-detail-label">Phases created</span>
-							<span class="gen-detail-value">{latestGenLog.phases_created ?? 0}</span>
-						</div>
-						<div class="gen-detail-row">
-							<span class="gen-detail-label">Tasklists created</span>
-							<span class="gen-detail-value">{latestGenLog.tasklists_created ?? 0}</span>
-						</div>
-						<div class="gen-detail-row">
-							<span class="gen-detail-label">Started</span>
-							<span class="gen-detail-value">{fmtDateTime(latestGenLog.started_at)}</span>
-						</div>
-						<div class="gen-detail-row">
-							<span class="gen-detail-label">Completed</span>
-							<span class="gen-detail-value">{fmtDateTime(latestGenLog.completed_at)}</span>
-						</div>
-						<div class="gen-detail-row">
-							<span class="gen-detail-label">Last step</span>
-							<span class="gen-detail-value">{latestGenLog.last_completed_step ?? '—'}</span>
-						</div>
-					</div>
-
-					{#if latestGenLog.status === 'failed' && latestGenLog.error_message}
-						<div class="gen-error-box">{latestGenLog.error_message}</div>
-					{/if}
-
-					{#if latestGenLog.zoho_project_id}
-						<p class="gen-zoho-link">
-							Zoho Project:
-							<a
-								href="https://projects.zoho.com/portal/cprco#project/{latestGenLog.zoho_project_id}"
-								target="_blank"
-								rel="noopener noreferrer"
-							>{latestGenLog.zoho_project_id}</a>
-						</p>
-					{/if}
-
-					{#if genLogHistory.length > 0}
-						<details class="gen-history-details">
-							<summary class="gen-history-summary">
-								Generation History ({genLogHistory.length})
-							</summary>
-							<div class="gen-history-list">
-								{#each genLogHistory as log (log.id)}
-									<div class="gen-history-row">
-										<span class="gen-history-date muted">{fmtDateTime(log.started_at)}</span>
-										<span class="status-badge gen-history-badge" style={genLogStatusStyle(log.status)}>
-											{genLogStatusLabel(log.status)}
-										</span>
-										<span class="gen-history-tasks muted">
-											{log.tasks_created ?? 0}/{log.tasks_total ?? '?'}
-										</span>
-									</div>
-								{/each}
-							</div>
-						</details>
-					{/if}
-				{/if}
-
-				{#if currentStatus === 'approved' || (currentStatus === 'generated' && latestGenLog?.status === 'failed')}
-					<p class="gen-warning">This will create a real Zoho Projects project.</p>
-					<button class="btn btn-generate" type="button" on:click={handleGenerate} disabled={generating}>
-						{#if generating}
-							Generating…
-						{:else if latestGenLog?.status === 'failed'}
-							Retry Generation
-						{:else}
-							Generate Zoho Project
-						{/if}
-					</button>
-				{/if}
-
-				<a
-					class="btn btn-sow-link"
-					href="/admin/scope/{dealId}/sow"
-					target="_blank"
-					rel="noopener noreferrer"
-				>
-					View Scope of Work
-				</a>
+		{#if crmDeal}
+			<div class="crm-summary">
+				<div class="crm-field"><strong>Deal:</strong> {crmDeal.deal_name}</div>
+				<div class="crm-field"><strong>Stage:</strong> {crmDeal.stage}</div>
+				<div class="crm-field"><strong>Contact:</strong> {crmDeal.contact_name}</div>
 			</div>
+
+			<button class="btn btn-sm" on:click={() => (crmExpanded = !crmExpanded)}>
+				{crmExpanded ? 'Hide' : 'Show'} all CRM fields ({getCrmTextFields().length})
+			</button>
+
+			{#if crmExpanded}
+				<div class="crm-fields-grid">
+					{#each getCrmTextFields() as field}
+						<div class="crm-field-item">
+							<span class="crm-field-key">{field.key}</span>
+							<span class="crm-field-value">{field.value}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+	</section>
+
+	<!-- ── Section B: Task Builder ─────────────────────────────────────── -->
+	<section class="card task-section">
+		<div class="card-header">
+			<h2>Task Builder</h2>
+			<div class="header-actions">
+				<button class="btn btn-sm" on:click={openLibrary}>Add from Library</button>
+				<button class="btn btn-primary btn-sm" on:click={() => saveTasks()} disabled={saveStatus === 'saving'}>
+					Save Now
+				</button>
+			</div>
+		</div>
+
+		{#if tasksLoading}
+			<p class="loading-text">Loading tasks…</p>
+		{:else if tasksError}
+			<p class="error-text">{tasksError}</p>
+		{/if}
+
+		{#each PHASES as phase}
+			{@const phaseTasks = tasksByPhase.get(phase) || []}
+			<div class="phase-group">
+				<button
+					class="phase-header"
+					style="border-left: 4px solid {PHASE_COLORS[phase]}"
+					on:click={() => togglePhase(phase)}
+				>
+					<span class="phase-name" style="color: {PHASE_COLORS[phase]}">{PHASE_LABELS[phase]}</span>
+					<span class="phase-count">{phaseTasks.length} task{phaseTasks.length !== 1 ? 's' : ''}</span>
+					<span class="phase-toggle">{collapsedPhases[phase] ? '+' : '−'}</span>
+				</button>
+
+				{#if !collapsedPhases[phase]}
+					<div class="phase-tasks">
+						{#if phaseTasks.length > 0}
+							<div class="task-grid-header">
+								<span class="col-name">Task Name</span>
+								<span class="col-trade">Trade</span>
+								<span class="col-days">Days</span>
+								<span class="col-flags">Flags</span>
+								<span class="col-actions">Actions</span>
+							</div>
+						{/if}
+
+						{#each phaseTasks as task (task.id)}
+							<div class="task-row" class:editing={editingTaskId === task.id}>
+								<div class="col-name">
+									<input
+										type="text"
+										value={task.task_name}
+										placeholder="Task name"
+										on:focus={() => (editingTaskId = task.id)}
+										on:input={(e) => updateTask(task.id, 'task_name', e.currentTarget.value)}
+									/>
+								</div>
+								<div class="col-trade">
+									<select
+										value={task.trade || ''}
+										on:change={(e) => updateTask(task.id, 'trade', e.currentTarget.value || null)}
+									>
+										<option value="">—</option>
+										{#each TRADE_OPTIONS as t}
+											<option value={t}>{t}</option>
+										{/each}
+									</select>
+									{#if task.trade}
+										<span
+											class="trade-dot"
+											style="background: {TRADE_COLORS[task.trade] || '#6b7280'}"
+										></span>
+									{/if}
+								</div>
+								<div class="col-days">
+									<input
+										type="number"
+										min="1"
+										max="365"
+										value={task.duration_days}
+										on:input={(e) => updateTask(task.id, 'duration_days', parseInt(e.currentTarget.value) || 1)}
+									/>
+								</div>
+								<div class="col-flags">
+									<label class="flag-label" title="Requires inspection">
+										<input
+											type="checkbox"
+											checked={task.requires_inspection}
+											on:change={() => updateTask(task.id, 'requires_inspection', !task.requires_inspection)}
+										/>
+										Insp
+									</label>
+									<label class="flag-label" title="Requires client decision">
+										<input
+											type="checkbox"
+											checked={task.requires_client_decision}
+											on:change={() => updateTask(task.id, 'requires_client_decision', !task.requires_client_decision)}
+										/>
+										Dec
+									</label>
+								</div>
+								<div class="col-actions">
+									<button class="icon-btn" title="Move up" on:click={() => moveTask(task.id, -1)}>&#9650;</button>
+									<button class="icon-btn" title="Move down" on:click={() => moveTask(task.id, 1)}>&#9660;</button>
+									<button class="icon-btn delete-btn" title="Remove" on:click={() => removeTask(task.id)}>&#10005;</button>
+								</div>
+							</div>
+
+							{#if editingTaskId === task.id}
+								<div class="task-detail-row">
+									<textarea
+										placeholder="Description (optional)"
+										value={task.description || ''}
+										on:input={(e) => updateTask(task.id, 'description', e.currentTarget.value || null)}
+										rows="2"
+									></textarea>
+								</div>
+							{/if}
+						{/each}
+
+						<button class="add-task-btn" on:click={() => addTask(phase)}>
+							+ Add task to {PHASE_LABELS[phase]}
+						</button>
+					</div>
+				{/if}
+			</div>
+		{/each}
+	</section>
+
+	<!-- ── Section C: Summary & Generate ───────────────────────────────── -->
+	<section class="card generate-section">
+		<h2>Summary & Generate</h2>
+
+		<div class="stats-bar">
+			<div class="stat">
+				<span class="stat-value">{totalTasks}</span>
+				<span class="stat-label">Tasks</span>
+			</div>
+			<div class="stat">
+				<span class="stat-value">{totalDays}</span>
+				<span class="stat-label">Total Days</span>
+			</div>
+			<div class="stat">
+				<span class="stat-value">{totalInspections}</span>
+				<span class="stat-label">Inspections</span>
+			</div>
+			<div class="stat">
+				<span class="stat-value">{totalDecisions}</span>
+				<span class="stat-label">Decisions</span>
+			</div>
+		</div>
+
+		<div class="generate-controls">
+			<label class="date-label">
+				Start Date
+				<input type="date" bind:value={startDate} />
+			</label>
+			<button
+				class="btn btn-primary"
+				on:click={generateProject}
+				disabled={generating || tasks.length === 0}
+			>
+				{generating ? 'Generating…' : 'Generate Zoho Project'}
+			</button>
+		</div>
+
+		{#if genError}
+			<div class="gen-error">{genError}</div>
+		{/if}
+
+		{#if genResult}
+			<div class="gen-result" class:gen-success={genResult.success} class:gen-fail={!genResult.success}>
+				{#if genResult.success}
+					<p><strong>Project created successfully!</strong></p>
+					<p>Zoho Project ID: <code>{genResult.zohoProjectId}</code></p>
+				{:else}
+					<p><strong>Generation failed</strong></p>
+					{#if genResult.error}
+						<p class="error-text">{genResult.error}</p>
+					{/if}
+				{/if}
+				<div class="gen-stats">
+					<span>Phases: {genResult.phasesCreated}</span>
+					<span>Tasklists: {genResult.tasklistsCreated}</span>
+					<span>Tasks: {genResult.tasksCreated}/{genResult.tasksTotal}</span>
+				</div>
+			</div>
+		{/if}
+	</section>
+</div>
+
+<!-- ── Library Modal ───────────────────────────────────────────────────── -->
+{#if libraryOpen}
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<div class="modal-overlay" on:click|self={() => (libraryOpen = false)} role="dialog" aria-modal="true" tabindex="-1">
+		<div class="modal">
+			<div class="modal-header">
+				<h3>Task Library</h3>
+				<button class="icon-btn" on:click={() => (libraryOpen = false)}>&#10005;</button>
+			</div>
+			<div class="modal-filters">
+				<input
+					type="text"
+					placeholder="Search tasks…"
+					bind:value={libraryFilter}
+				/>
+				<select bind:value={libraryPhaseFilter}>
+					<option value="">All phases</option>
+					{#each PHASES as p}
+						<option value={p}>{PHASE_LABELS[p]}</option>
+					{/each}
+				</select>
+			</div>
+			<div class="modal-body">
+				{#if libraryLoading}
+					<p class="loading-text">Loading library…</p>
+				{:else if filteredLibrary.length === 0}
+					<p class="empty-text">No templates found</p>
+				{:else}
+					{#each filteredLibrary as tpl}
+						<div class="library-item">
+							<div class="library-info">
+								<span class="library-name">{tpl.task_name}</span>
+								<span class="library-meta">
+									<span class="phase-pill" style="background: {PHASE_COLORS[tpl.phase]}">{tpl.phase}</span>
+									{#if tpl.trade}
+										<span class="trade-pill" style="background: {TRADE_COLORS[tpl.trade] || '#6b7280'}">{tpl.trade}</span>
+									{/if}
+									<span>{tpl.default_duration_days}d</span>
+								</span>
+							</div>
+							<button class="btn btn-sm" on:click={() => addFromTemplate(tpl)}>Add</button>
+						</div>
+					{/each}
+				{/if}
 			</div>
 		</div>
 	</div>
-</div>
+{/if}
 
 <style>
-	.container {
-		max-width: 1200px;
+	.scope-builder {
+		max-width: 1100px;
 		margin: 0 auto;
 		padding: 2rem;
 	}
 
 	.page-header {
-		margin-bottom: 1.75rem;
-	}
-
-	.back-link {
-		display: inline-flex;
+		display: flex;
 		align-items: center;
-		color: #6b7280;
-		text-decoration: none;
-		font-size: 0.88rem;
-		margin-bottom: 0.75rem;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+		flex-wrap: wrap;
 	}
 
-	.back-link:hover {
-		color: #0066cc;
-	}
-
-	h1 {
-		margin: 0 0 0.25rem;
-		font-size: 1.6rem;
-		color: #111827;
-	}
-
-	h2 {
-		margin: 0 0 1rem;
-		font-size: 1.1rem;
-		color: #111827;
-	}
-
-	h3 {
+	.page-header h1 {
+		font-size: 1.5rem;
 		font-weight: 700;
-		font-size: 1rem;
-		margin: 0 0 0.75rem;
-		color: #111827;
-	}
-
-	h4 {
-		font-size: 0.88rem;
-		font-weight: 700;
-		color: #374151;
-		margin: 0 0 0.5rem;
-	}
-
-	.tag-heading {
-		font-size: 0.88rem;
-		font-weight: 700;
-		color: #374151;
-		margin: 0 0 0.5rem;
-	}
-
-	.deal-id-label {
-		font-size: 0.9rem;
-		color: #6b7280;
 		margin: 0;
+	}
+
+	.deal-badge {
+		background: #f3f4f6;
+		color: #374151;
+		padding: 0.25rem 0.75rem;
+		border-radius: 999px;
+		font-size: 0.8rem;
 		font-family: monospace;
 	}
 
-	/* Two-panel layout */
-	.two-panel {
-		display: grid;
-		grid-template-columns: 1fr 380px;
-		gap: 2rem;
-		align-items: start;
+	.save-indicator {
+		font-size: 0.8rem;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+		margin-left: auto;
 	}
+	.save-indicator.saving { background: #fef3c7; color: #92400e; }
+	.save-indicator.saved { background: #d1fae5; color: #065f46; }
+	.save-indicator.error { background: #fee2e2; color: #991b1b; }
 
-	/* Cards */
+	/* ── Cards ──────────────────────────────────────────────────────── */
+
 	.card {
 		border: 1px solid #e0e0e0;
 		border-radius: 8px;
 		padding: 1.5rem;
+		margin-bottom: 1.5rem;
 		background: #fff;
-		margin-bottom: 1rem;
 	}
 
-	/* Fields */
-	.field {
+	.card-header {
 		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 	}
 
-	.field-label {
-		font-size: 0.88rem;
+	.card-header h2,
+	.card h2 {
+		font-size: 1.15rem;
 		font-weight: 600;
-		color: #374151;
-		display: block;
+		margin: 0 0 0.5rem 0;
 	}
 
-	.input {
-		border: 1px solid #ccc;
-		border-radius: 6px;
-		padding: 0.75rem;
-		font-size: 0.93rem;
-		width: 100%;
-		box-sizing: border-box;
-		min-height: 44px;
+	.card-header h2 { margin-bottom: 0; }
+
+	.header-actions {
+		display: flex;
+		gap: 0.5rem;
 	}
 
-	.input:focus {
-		outline: 2px solid #0066cc;
-		outline-offset: 1px;
-	}
+	/* ── Buttons ────────────────────────────────────────────────────── */
 
-	.input:disabled {
-		background: #f3f4f6;
-		color: #6b7280;
-	}
-
-	.select {
-		border: 1px solid #ccc;
-		border-radius: 6px;
-		padding: 0.75rem;
-		font-size: 0.93rem;
-		width: 100%;
-		box-sizing: border-box;
-		min-height: 44px;
-		background: #fff;
-		text-transform: capitalize;
-	}
-
-	.select:focus {
-		outline: 2px solid #0066cc;
-		outline-offset: 1px;
-	}
-
-	.textarea {
-		border: 1px solid #ccc;
-		border-radius: 6px;
-		padding: 0.75rem;
-		font-size: 0.93rem;
-		width: 100%;
-		box-sizing: border-box;
-		min-height: 100px;
-		resize: vertical;
-		font-family: inherit;
-	}
-
-	.textarea:focus {
-		outline: 2px solid #0066cc;
-		outline-offset: 1px;
-	}
-
-	/* Buttons */
 	.btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0.5rem 1.1rem;
-		border: 1px solid #d0d0d0;
+		min-height: 44px;
+		padding: 0.5rem 1.25rem;
+		border: 1px solid #d1d5db;
 		border-radius: 999px;
 		background: #fff;
-		color: #1a1a1a;
-		min-height: 44px;
+		color: #374151;
+		font-size: 0.875rem;
 		cursor: pointer;
-		font-size: 0.93rem;
-		white-space: nowrap;
+		font-weight: 500;
+		transition: background 0.15s;
 	}
-
-	.btn:hover:not(:disabled) {
-		background: #f3f4f6;
-	}
-
-	.btn:disabled {
-		opacity: 0.55;
-		cursor: not-allowed;
-	}
+	.btn:hover { background: #f3f4f6; }
+	.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.btn-primary {
 		background: #0066cc;
-		border-color: #0066cc;
 		color: #fff;
+		border-color: #0066cc;
 	}
-
-	.btn-primary:hover:not(:disabled) {
-		background: #0055aa;
-	}
-
-	.btn-outline {
-		border-color: #d0d0d0;
-		background: #fff;
-	}
+	.btn-primary:hover { background: #0055aa; }
 
 	.btn-sm {
 		min-height: 36px;
-		padding: 0.3rem 0.85rem;
-		font-size: 0.85rem;
-	}
-
-	.btn-icon {
-		min-height: 36px;
-		min-width: 36px;
-		padding: 0;
-		font-size: 0.85rem;
-		flex-shrink: 0;
-		border-radius: 999px;
-	}
-
-	.btn-reviewed {
-		background: #3b82f6;
-		border-color: #3b82f6;
-		color: #fff;
-	}
-
-	.btn-reviewed:hover:not(:disabled) {
-		background: #2563eb;
-	}
-
-	.btn-approved {
-		background: #059669;
-		border-color: #059669;
-		color: #fff;
-	}
-
-	.btn-approved:hover:not(:disabled) {
-		background: #047857;
-	}
-
-	.btn-save {
-		width: 100%;
-		font-size: 1rem;
-		min-height: 48px;
-		margin-bottom: 2rem;
-	}
-
-	/* Areas */
-	.areas-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.area-row {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-
-	.area-name-input {
-		flex: 2;
-	}
-
-	.area-sqft-input {
-		flex: 1;
-		min-width: 80px;
-	}
-
-	/* Scope items grid */
-	.scope-items-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1.5rem;
-	}
-
-	/* Tags */
-	.tag-section {
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-	}
-
-	.tags-container {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-		min-height: 2rem;
-	}
-
-	.tag {
-		display: inline-flex;
-		align-items: center;
-		border-radius: 999px;
-		padding: 0.25rem 0.75rem;
-		font-size: 0.85rem;
-		gap: 0.25rem;
-	}
-
-	.tag-included {
-		background: #dcfce7;
-		color: #166534;
-	}
-
-	.tag-excluded {
-		background: #fee2e2;
-		color: #991b1b;
-	}
-
-	.tag-selection {
-		background: #e0e7ff;
-		color: #3730a3;
-	}
-
-	.tag-lead {
-		background: #fef3c7;
-		color: #92400e;
-	}
-
-	.tag-remove {
-		background: none;
-		border: none;
-		padding: 0;
-		cursor: pointer;
-		opacity: 0.6;
+		padding: 0.35rem 0.9rem;
 		font-size: 0.8rem;
-		line-height: 1;
+	}
+
+	.icon-btn {
 		display: inline-flex;
 		align-items: center;
-	}
-
-	.tag-remove:hover {
-		opacity: 1;
-	}
-
-	.tag-input-row {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-
-	.tag-input-row .input {
-		flex: 1;
-		min-height: 38px;
-		padding: 0.45rem 0.75rem;
-	}
-
-	.helper-text {
-		font-size: 0.78rem;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border: none;
+		background: transparent;
 		color: #6b7280;
-		margin: 0;
+		cursor: pointer;
+		border-radius: 4px;
+		font-size: 0.75rem;
 	}
+	.icon-btn:hover { background: #f3f4f6; }
+	.delete-btn:hover { background: #fee2e2; color: #dc2626; }
 
-	/* Conditions */
-	.permit-row {
+	/* ── CRM Section ───────────────────────────────────────────────── */
+
+	.crm-summary {
+		display: flex;
+		gap: 1.5rem;
 		margin-bottom: 0.75rem;
+		flex-wrap: wrap;
 	}
 
-	.conditions-list {
+	.crm-field {
+		font-size: 0.9rem;
+	}
+
+	.crm-fields-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+		max-height: 400px;
+		overflow-y: auto;
+		padding: 0.5rem;
+		background: #f9fafb;
+		border-radius: 6px;
+	}
+
+	.crm-field-item {
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
+		font-size: 0.8rem;
+		padding: 0.35rem 0;
 	}
 
-	.checkbox-label {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.9rem;
-		color: #374151;
-		cursor: pointer;
-		text-transform: capitalize;
-		min-height: 28px;
-	}
-
-	/* Status */
-	.status-row {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		flex-wrap: wrap;
-	}
-
-	.status-badge {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.25rem 0.55rem;
-		border-radius: 999px;
-		font-size: 0.78rem;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		white-space: nowrap;
-	}
-
-	.status-info {
-		font-size: 0.9rem;
-		color: #374151;
-	}
-
-	/* Preview panel */
-	.preview-panel {
-		min-width: 0;
-	}
-
-	.preview-sticky {
-		position: sticky;
-		top: 5rem;
-	}
-
-	.preview-heading {
-		font-size: 1.1rem;
-		font-weight: 700;
-		color: #111827;
-		margin: 0 0 0.75rem;
-	}
-
-	.preview-empty {
-		border: 1px dashed #d1d5db;
-		border-radius: 8px;
-		padding: 2rem 1rem;
-		text-align: center;
+	.crm-field-key {
 		color: #6b7280;
-		background: #fff;
-		font-size: 0.9rem;
+		font-weight: 500;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
 	}
 
-	.summary-bar {
+	.crm-field-value {
+		color: #1f2937;
+		word-break: break-word;
+	}
+
+	/* ── Phase Groups ──────────────────────────────────────────────── */
+
+	.phase-group {
+		margin-bottom: 0.5rem;
+	}
+
+	.phase-header {
 		display: flex;
-		gap: 0.5rem;
 		align-items: center;
-		flex-wrap: wrap;
-		background: #f3f4f6;
-		border-radius: 8px;
-		padding: 0.75rem 1rem;
-		font-size: 0.9rem;
-		color: #374151;
-		margin-bottom: 1rem;
-	}
-
-	.preview-phase {
-		margin-bottom: 1rem;
-		border: 1px solid #e0e0e0;
-		border-radius: 8px;
-		background: #fff;
-		overflow: hidden;
-	}
-
-	.preview-phase-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.5rem 0.85rem;
+		width: 100%;
+		padding: 0.65rem 0.75rem;
 		background: #f9fafb;
-		border-bottom: 1px solid #e0e0e0;
-		font-weight: 700;
-		font-size: 0.82rem;
-		color: #374151;
-		text-transform: capitalize;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		cursor: pointer;
+		gap: 0.75rem;
+		text-align: left;
+	}
+	.phase-header:hover { background: #f3f4f6; }
+
+	.phase-name {
+		font-weight: 600;
+		font-size: 0.95rem;
 	}
 
 	.phase-count {
-		background: #e5e7eb;
-		color: #374151;
-		border-radius: 999px;
-		padding: 0.1rem 0.45rem;
-		font-size: 0.75rem;
-		font-weight: 700;
+		color: #6b7280;
+		font-size: 0.8rem;
 	}
 
-	.preview-task-row {
-		padding: 0.5rem 0.85rem;
+	.phase-toggle {
+		margin-left: auto;
+		font-size: 1rem;
+		color: #9ca3af;
+	}
+
+	.phase-tasks {
+		padding: 0.5rem 0 0.5rem 0.5rem;
+	}
+
+	/* ── Task Grid ─────────────────────────────────────────────────── */
+
+	.task-grid-header {
+		display: grid;
+		grid-template-columns: 1fr 120px 60px 100px 80px;
+		gap: 0.5rem;
+		padding: 0.35rem 0.5rem;
+		font-size: 0.7rem;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		font-weight: 600;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.task-row {
+		display: grid;
+		grid-template-columns: 1fr 120px 60px 100px 80px;
+		gap: 0.5rem;
+		align-items: center;
+		padding: 0.35rem 0.5rem;
+		min-height: 44px;
 		border-bottom: 1px solid #f3f4f6;
+	}
+	.task-row:hover { background: #fafbfc; }
+	.task-row.editing { background: #eff6ff; }
+
+	.task-row input[type="text"] {
+		width: 100%;
+		border: 1px solid transparent;
+		border-radius: 4px;
+		padding: 0.3rem 0.5rem;
+		font-size: 0.875rem;
+		background: transparent;
+	}
+	.task-row input[type="text"]:focus {
+		border-color: #0066cc;
+		background: #fff;
+		outline: none;
+	}
+
+	.task-row input[type="number"] {
+		width: 100%;
+		border: 1px solid #e5e7eb;
+		border-radius: 4px;
+		padding: 0.3rem;
+		font-size: 0.85rem;
+		text-align: center;
+	}
+
+	.task-row select {
+		width: 100%;
+		border: 1px solid #e5e7eb;
+		border-radius: 4px;
+		padding: 0.2rem;
+		font-size: 0.8rem;
+		background: #fff;
+	}
+
+	.col-trade {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	.trade-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.col-flags {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.flag-label {
+		display: flex;
+		align-items: center;
+		gap: 0.2rem;
+		font-size: 0.75rem;
+		color: #6b7280;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.flag-label input[type="checkbox"] {
+		width: 14px;
+		height: 14px;
+	}
+
+	.col-actions {
+		display: flex;
+		gap: 0.15rem;
+		justify-content: flex-end;
+	}
+
+	.task-detail-row {
+		padding: 0 0.5rem 0.5rem 0.5rem;
+	}
+
+	.task-detail-row textarea {
+		width: 100%;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		padding: 0.5rem;
+		font-size: 0.85rem;
+		resize: vertical;
+		font-family: inherit;
+	}
+
+	.add-task-btn {
+		display: block;
+		width: 100%;
+		padding: 0.5rem;
+		background: transparent;
+		border: 1px dashed #d1d5db;
+		border-radius: 6px;
+		color: #6b7280;
+		font-size: 0.85rem;
+		cursor: pointer;
+		margin-top: 0.25rem;
+	}
+	.add-task-btn:hover {
+		background: #f9fafb;
+		border-color: #0066cc;
+		color: #0066cc;
+	}
+
+	/* ── Stats & Generate ──────────────────────────────────────────── */
+
+	.stats-bar {
+		display: flex;
+		gap: 1.5rem;
+		padding: 1rem;
+		background: #f9fafb;
+		border-radius: 8px;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.stat {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		min-width: 80px;
+	}
+
+	.stat-value {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #1f2937;
+	}
+
+	.stat-label {
+		font-size: 0.75rem;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.generate-controls {
+		display: flex;
+		align-items: flex-end;
+		gap: 1rem;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.date-label {
+		display: flex;
+		flex-direction: column;
+		font-size: 0.8rem;
+		font-weight: 500;
+		color: #374151;
+		gap: 0.3rem;
+	}
+
+	.date-label input[type="date"] {
+		min-height: 44px;
+		border: 1px solid #d1d5db;
+		border-radius: 999px;
+		padding: 0.5rem 1rem;
+		font-size: 0.875rem;
+	}
+
+	.gen-error {
+		padding: 0.75rem 1rem;
+		background: #fee2e2;
+		color: #991b1b;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.gen-result {
+		padding: 1rem;
+		border-radius: 8px;
+		font-size: 0.875rem;
+	}
+	.gen-success { background: #d1fae5; color: #065f46; }
+	.gen-fail { background: #fee2e2; color: #991b1b; }
+
+	.gen-result p { margin: 0 0 0.3rem; }
+	.gen-result code {
+		background: rgba(0,0,0,0.08);
+		padding: 0.1rem 0.4rem;
+		border-radius: 4px;
+		font-size: 0.8rem;
+	}
+
+	.gen-stats {
+		display: flex;
+		gap: 1rem;
+		margin-top: 0.5rem;
+		font-size: 0.8rem;
+		opacity: 0.8;
+	}
+
+	/* ── Modal ─────────────────────────────────────────────────────── */
+
+	.modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.4);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 2rem;
+	}
+
+	.modal {
+		background: #fff;
+		border-radius: 12px;
+		width: 100%;
+		max-width: 640px;
+		max-height: 80vh;
+		display: flex;
+		flex-direction: column;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.modal-header h3 {
+		margin: 0;
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+
+	.modal-filters {
+		display: flex;
+		gap: 0.5rem;
+		padding: 0.75rem 1.25rem;
+		border-bottom: 1px solid #f3f4f6;
+	}
+
+	.modal-filters input {
+		flex: 1;
+		border: 1px solid #d1d5db;
+		border-radius: 999px;
+		padding: 0.4rem 0.75rem;
+		font-size: 0.85rem;
+	}
+
+	.modal-filters select {
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		padding: 0.4rem 0.5rem;
+		font-size: 0.85rem;
+	}
+
+	.modal-body {
+		overflow-y: auto;
+		padding: 0.5rem 1.25rem 1.25rem;
+	}
+
+	.library-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.6rem 0;
+		border-bottom: 1px solid #f3f4f6;
+	}
+	.library-item:last-child { border-bottom: none; }
+
+	.library-info {
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
 	}
 
-	.preview-task-row:last-child {
-		border-bottom: none;
-	}
-
-	.preview-task-name {
-		font-size: 0.85rem;
+	.library-name {
+		font-size: 0.9rem;
 		font-weight: 500;
-		color: #111827;
 	}
 
-	.preview-task-meta {
+	.library-meta {
 		display: flex;
-		align-items: center;
-		gap: 0.3rem;
-		flex-wrap: wrap;
-	}
-
-	.preview-trade {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.1rem 0.4rem;
-		border-radius: 999px;
-		font-size: 0.7rem;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		white-space: nowrap;
-	}
-
-	.preview-duration {
-		font-size: 0.75rem;
-	}
-
-	.preview-flag {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.1rem 0.35rem;
-		border-radius: 4px;
-		font-size: 0.7rem;
-		font-weight: 600;
-		white-space: nowrap;
-	}
-
-	.flag-decision {
-		background: #fef3c7;
-		color: #92400e;
-	}
-
-	.flag-inspect {
-		background: #e0f2fe;
-		color: #0369a1;
-	}
-
-	.flag-conditional {
-		background: #f3e8ff;
-		color: #6b21a8;
-	}
-
-	/* Utilities */
-	.muted {
-		color: #6b7280;
-		font-size: 0.85rem;
-	}
-
-	.error-text {
-		color: #b91c1c;
-		font-size: 0.88rem;
-		margin: 0 0 0.5rem;
-	}
-
-	.success-text {
-		color: #166534;
-		font-size: 0.88rem;
-		margin: 0 0 0.5rem;
-	}
-
-	/* Generation status */
-	.gen-status-card {
-		margin-top: 1.5rem;
-	}
-
-	.gen-status-header {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 0.85rem;
-		flex-wrap: wrap;
-	}
-
-	.gen-progress {
-		font-size: 0.88rem;
-	}
-
-	.gen-detail-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
-		margin-bottom: 0.85rem;
-	}
-
-	.gen-detail-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 0.5rem;
-		font-size: 0.85rem;
-		border-bottom: 1px solid #f3f4f6;
-		padding-bottom: 0.3rem;
-	}
-
-	.gen-detail-row:last-child {
-		border-bottom: none;
-	}
-
-	.gen-detail-label {
-		color: #6b7280;
-		flex-shrink: 0;
-	}
-
-	.gen-detail-value {
-		color: #111827;
-		text-align: right;
-		word-break: break-all;
-	}
-
-	.gen-error-box {
-		background: #fef2f2;
-		border: 1px solid #fecaca;
-		border-radius: 6px;
-		padding: 0.75rem;
-		color: #991b1b;
-		font-size: 0.85rem;
-		margin-bottom: 0.85rem;
-	}
-
-	.gen-zoho-link {
-		font-size: 0.85rem;
-		color: #374151;
-		margin: 0 0 0.85rem;
-	}
-
-	.gen-zoho-link a {
-		color: #0066cc;
-	}
-
-	.gen-history-details {
-		border-top: 1px solid #e0e0e0;
-		padding-top: 0.75rem;
-		margin-bottom: 0.85rem;
-	}
-
-	.gen-history-summary {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: #374151;
-		cursor: pointer;
-		list-style: none;
-		user-select: none;
-	}
-
-	.gen-history-summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.gen-history-summary::before {
-		content: '▶ ';
-		font-size: 0.65rem;
-		color: #6b7280;
-	}
-
-	details[open] > .gen-history-summary::before {
-		content: '▼ ';
-	}
-
-	.gen-history-list {
-		display: flex;
-		flex-direction: column;
 		gap: 0.4rem;
-		margin-top: 0.5rem;
-	}
-
-	.gen-history-row {
-		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		font-size: 0.82rem;
+		font-size: 0.75rem;
+		color: #6b7280;
 	}
 
-	.gen-history-date {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.gen-history-badge {
-		padding: 0.1rem 0.4rem;
-		font-size: 0.7rem;
-	}
-
-	.gen-history-tasks {
-		font-size: 0.8rem;
-	}
-
-	.btn-generate {
-		width: 100%;
-		min-height: 44px;
+	.phase-pill,
+	.trade-pill {
+		display: inline-block;
+		padding: 0.1rem 0.5rem;
 		border-radius: 999px;
-		background: #0066cc;
 		color: #fff;
-		border: none;
-		cursor: pointer;
-		font-size: 0.93rem;
-		font-weight: 700;
-		margin-top: 0.5rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		font-size: 0.65rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
 	}
 
-	.btn-generate:disabled {
-		background: #9ca3af;
-		cursor: not-allowed;
-	}
+	/* ── Utility ────────────────────────────────────────────────────── */
 
-	.gen-warning {
-		font-size: 0.82rem;
-		color: #b45309;
-		margin: 0.5rem 0 0.25rem;
-	}
+	.error-text { color: #dc2626; font-size: 0.875rem; }
+	.loading-text { color: #6b7280; font-size: 0.875rem; }
+	.empty-text { color: #9ca3af; font-size: 0.875rem; text-align: center; padding: 2rem 0; }
 
-	.btn-sow-link {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		min-height: 44px;
-		border-radius: 999px;
-		background: #f5f5f5;
-		color: #1a1a1a;
-		border: 1px solid #d0d0d0;
-		font-size: 0.93rem;
-		font-weight: 700;
-		text-decoration: none;
-		margin-top: 0.5rem;
-	}
-
-	.btn-sow-link:hover {
-		background: #e8e8e8;
-	}
+	/* ── Responsive ─────────────────────────────────────────────────── */
 
 	@media (max-width: 720px) {
-		.container {
-			padding: 1.5rem 1.25rem;
+		.scope-builder { padding: 1rem; }
+
+		.task-grid-header,
+		.task-row {
+			grid-template-columns: 1fr 90px 50px 80px 70px;
+			gap: 0.3rem;
+			font-size: 0.8rem;
 		}
 
-		.two-panel {
-			grid-template-columns: 1fr;
-		}
+		.stats-bar { gap: 1rem; }
+		.stat { min-width: 60px; }
+		.stat-value { font-size: 1.2rem; }
 
-		.preview-sticky {
-			position: static;
-		}
-
-		.scope-items-grid {
-			grid-template-columns: 1fr;
-		}
-
-		.area-row {
-			flex-wrap: wrap;
-		}
-
-		.area-sqft-input {
-			flex: 1 1 80px;
-		}
-
-		.btn-save {
-			margin-bottom: 1.5rem;
-		}
+		.crm-fields-grid { grid-template-columns: 1fr; }
+		.crm-summary { flex-direction: column; gap: 0.5rem; }
 	}
 </style>

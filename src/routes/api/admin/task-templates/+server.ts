@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { isValidAdminSession } from '$lib/server/admin';
-import { getTaskTemplatesByProjectType, getDistinctProjectTypes, createTaskTemplate } from '$lib/server/db';
+import { getTaskTemplatesByProjectType, getDistinctProjectTypes, createTaskTemplate, getAllActiveTaskTemplates } from '$lib/server/db';
 import type { RequestHandler } from './$types';
 
 function checkAdmin(cookies: Parameters<RequestHandler>[0]['cookies']): Response | null {
@@ -15,8 +15,13 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	if (authError) return authError;
 
 	const projectType = url.searchParams.get('projectType');
+	const all = url.searchParams.get('all');
 
 	try {
+		if (all === 'true') {
+			const data = await getAllActiveTaskTemplates();
+			return json({ data });
+		}
 		if (projectType) {
 			const data = await getTaskTemplatesByProjectType(projectType);
 			return json({ data });
