@@ -492,6 +492,7 @@
 		color: #111827;
 		cursor: pointer;
 		flex-shrink: 0;
+		width: 150px;
 	}
 
 	.status-select:disabled {
@@ -542,6 +543,16 @@
 	@media (max-width: 720px) {
 		.project-detail {
 			padding: 1.5rem 1.25rem;
+		}
+
+		.card-row {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.status-select {
+			width: 100%;
+			max-width: 180px;
 		}
 	}
 </style>
