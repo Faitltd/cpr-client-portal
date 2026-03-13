@@ -2,6 +2,14 @@
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
+	import { createDraft, type DraftHandle } from '$lib/stores/draftStore';
+
+	type ReportIssueDraft = {
+		issueType: string;
+		severity: string;
+		title: string;
+		description: string;
+	};
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -59,6 +67,57 @@
 	let submitting = false;
 	let successMessage = '';
 	let errorMessage = '';
+
+	// Draft saving
+	let draft: DraftHandle<ReportIssueDraft> | null = null;
+	let draftStatus: 'idle' | 'saving' | 'saved' = 'idle';
+	let draftRestorable = false;
+	let draftSavedAt = 0;
+
+	const getDraftData = (): ReportIssueDraft => ({ issueType, severity, title, description });
+
+	const isDraftEmpty = (d: ReportIssueDraft) =>
+		!d.title.trim() && !d.description.trim() &&
+		d.issueType === 'damaged_material' && d.severity === 'medium';
+
+	const restoreDraft = (d: ReportIssueDraft) => {
+		issueType = d.issueType as FieldIssue['issue_type'];
+		severity = d.severity as FieldIssue['severity'];
+		title = d.title;
+		description = d.description;
+		draftRestorable = false;
+	};
+
+	const dismissDraft = () => {
+		draftRestorable = false;
+		draft?.clear();
+	};
+
+	const initDraft = (dealId: string) => {
+		draft?.cancelPending();
+		draftStatus = 'idle';
+		draftRestorable = false;
+		draft = createDraft<ReportIssueDraft>(`draft_report_issue_${dealId}`, isDraftEmpty);
+		const saved = draft.load();
+		if (saved) {
+			draftRestorable = true;
+			draftSavedAt = saved.savedAt;
+		}
+	};
+
+	$: if (browser && selectedDealId) initDraft(selectedDealId);
+
+	$: if (browser && draft && !draftRestorable) {
+		const data = getDraftData();
+		if (!isDraftEmpty(data)) {
+			draftStatus = 'saving';
+			draft.scheduleSave(data);
+			setTimeout(() => { draftStatus = 'saved'; }, 2100);
+		} else {
+			draft.clear();
+			draftStatus = 'idle';
+		}
+	}
 
 	let issues: FieldIssue[] = [];
 	let issuesLoading = false;
@@ -155,6 +214,8 @@
 				throw new Error('Issue was created but no response data was returned.');
 			}
 
+			draft?.clear();
+			draftStatus = 'idle';
 			title = '';
 			description = '';
 			issueType = 'damaged_material';
@@ -177,7 +238,10 @@
 		loadIssues(selectedDealId);
 	}
 
-	onDestroy(() => issuesController?.abort());
+	onDestroy(() => {
+		issuesController?.abort();
+		draft?.cancelPending();
+	});
 </script>
 
 <div class="dashboard">
@@ -205,6 +269,16 @@
 
 		<div class="card form-card">
 			<h2>New Issue</h2>
+
+			{#if draftRestorable}
+				<div class="draft-banner">
+					<span>Draft saved {new Date(draftSavedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>
+					<div class="draft-banner-actions">
+						<button type="button" class="draft-restore-btn" on:click={() => { const saved = draft?.load(); if (saved) restoreDraft(saved.data); }}>Restore</button>
+						<button type="button" class="draft-dismiss-btn" on:click={dismissDraft}>Dismiss</button>
+					</div>
+				</div>
+			{/if}
 
 			{#if successMessage}
 				<div class="success-message">{successMessage}</div>
@@ -264,9 +338,16 @@
 					/>
 				</div>
 
-				<button class="submit-button" type="submit" disabled={submitting || !canSubmit}>
-					{submitting ? 'Submitting...' : 'Submit Issue'}
-				</button>
+				<div class="form-footer">
+					<button class="submit-button" type="submit" disabled={submitting || !canSubmit}>
+						{submitting ? 'Submitting...' : 'Submit Issue'}
+					</button>
+					{#if draftStatus === 'saving'}
+						<span class="draft-indicator">Saving…</span>
+					{:else if draftStatus === 'saved'}
+						<span class="draft-indicator">Draft saved</span>
+					{/if}
+				</div>
 			</form>
 		</div>
 
@@ -630,6 +711,68 @@
 	.status-resolved {
 		background: #d1fae5;
 		color: #065f46;
+	}
+
+	.draft-banner {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+		padding: 0.85rem 1rem;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px;
+		color: #1e40af;
+		font-size: 0.9rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.draft-banner-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.draft-restore-btn {
+		background: #2563eb;
+		color: #fff;
+		border: none;
+		border-radius: 6px;
+		padding: 0.4rem 0.85rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.draft-restore-btn:hover {
+		background: #1d4ed8;
+	}
+
+	.draft-dismiss-btn {
+		background: transparent;
+		color: #1e40af;
+		border: 1px solid #93c5fd;
+		border-radius: 6px;
+		padding: 0.4rem 0.85rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.draft-dismiss-btn:hover {
+		background: #dbeafe;
+	}
+
+	.form-footer {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.draft-indicator {
+		color: #9ca3af;
+		font-size: 0.85rem;
 	}
 
 	@media (max-width: 720px) {

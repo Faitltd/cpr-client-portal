@@ -2,6 +2,16 @@
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
+	import { createDraft, type DraftHandle } from '$lib/stores/draftStore';
+
+	type DailyLogDraft = {
+		logDate: string;
+		hoursWorked: number | '';
+		workCompleted: string;
+		workPlanned: string;
+		issuesEncountered: string;
+		weatherDelay: boolean;
+	};
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -41,6 +51,61 @@
 	let successMessage = '';
 	let errorMessage = '';
 
+	// Draft saving
+	let draft: DraftHandle<DailyLogDraft> | null = null;
+	let draftStatus: 'idle' | 'saving' | 'saved' = 'idle';
+	let draftRestorable = false;
+	let draftSavedAt = 0;
+
+	const getDraftData = (): DailyLogDraft => ({
+		logDate, hoursWorked, workCompleted, workPlanned, issuesEncountered, weatherDelay
+	});
+
+	const isDraftEmpty = (d: DailyLogDraft) =>
+		!d.workCompleted.trim() && !d.workPlanned.trim() && !d.issuesEncountered.trim() &&
+		d.hoursWorked === '' && !d.weatherDelay && d.logDate === today;
+
+	const restoreDraft = (d: DailyLogDraft) => {
+		logDate = d.logDate;
+		hoursWorked = d.hoursWorked;
+		workCompleted = d.workCompleted;
+		workPlanned = d.workPlanned;
+		issuesEncountered = d.issuesEncountered;
+		weatherDelay = d.weatherDelay;
+		draftRestorable = false;
+	};
+
+	const dismissDraft = () => {
+		draftRestorable = false;
+		draft?.clear();
+	};
+
+	const initDraft = (dealId: string) => {
+		draft?.cancelPending();
+		draftStatus = 'idle';
+		draftRestorable = false;
+		draft = createDraft<DailyLogDraft>(`draft_daily_log_${dealId}`, isDraftEmpty);
+		const saved = draft.load();
+		if (saved) {
+			draftRestorable = true;
+			draftSavedAt = saved.savedAt;
+		}
+	};
+
+	$: if (browser && selectedDealId) initDraft(selectedDealId);
+
+	$: if (browser && draft && !draftRestorable) {
+		const data = getDraftData();
+		if (!isDraftEmpty(data)) {
+			draftStatus = 'saving';
+			draft.scheduleSave(data);
+			setTimeout(() => { draftStatus = 'saved'; }, 2100);
+		} else {
+			draft.clear();
+			draftStatus = 'idle';
+		}
+	}
+
 	const handleSubmit = async () => {
 		if (!selectedDealId) {
 			errorMessage = 'Please select a deal first.';
@@ -73,6 +138,8 @@
 			}
 
 			successMessage = 'Daily log submitted successfully!';
+			draft?.clear();
+			draftStatus = 'idle';
 			photoUploadRef?.reset();
 			uploadedPhotoIds = [];
 			await loadLogs(selectedDealId);
@@ -133,7 +200,10 @@
 		loadLogs(selectedDealId);
 	}
 
-	onDestroy(() => logsController?.abort());
+	onDestroy(() => {
+		logsController?.abort();
+		draft?.cancelPending();
+	});
 
 	const formatLogDate = (dateStr: string) => {
 		const d = new Date(dateStr + 'T00:00:00');
@@ -165,6 +235,16 @@
 
 		<div class="card form-card">
 			<h2>Submit Daily Log</h2>
+
+			{#if draftRestorable}
+				<div class="draft-banner">
+					<span>Draft saved {new Date(draftSavedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>
+					<div class="draft-banner-actions">
+						<button type="button" class="draft-restore-btn" on:click={() => { const saved = draft?.load(); if (saved) restoreDraft(saved.data); }}>Restore</button>
+						<button type="button" class="draft-dismiss-btn" on:click={dismissDraft}>Dismiss</button>
+					</div>
+				</div>
+			{/if}
 
 			{#if successMessage}
 				<div class="success-message">{successMessage}</div>
@@ -234,9 +314,16 @@
 					/>
 				</div>
 
-				<button class="submit-button" type="submit" disabled={submitting}>
-					{submitting ? 'Submitting…' : 'Submit Daily Log'}
-				</button>
+				<div class="form-footer">
+					<button class="submit-button" type="submit" disabled={submitting}>
+						{submitting ? 'Submitting…' : 'Submit Daily Log'}
+					</button>
+					{#if draftStatus === 'saving'}
+						<span class="draft-indicator">Saving…</span>
+					{:else if draftStatus === 'saved'}
+						<span class="draft-indicator">Draft saved</span>
+					{/if}
+				</div>
 			</form>
 		</div>
 
@@ -592,6 +679,68 @@
 		height: 100%;
 		object-fit: cover;
 		display: block;
+	}
+
+	.draft-banner {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+		padding: 0.85rem 1rem;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px;
+		color: #1e40af;
+		font-size: 0.9rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.draft-banner-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.draft-restore-btn {
+		background: #2563eb;
+		color: #fff;
+		border: none;
+		border-radius: 6px;
+		padding: 0.4rem 0.85rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.draft-restore-btn:hover {
+		background: #1d4ed8;
+	}
+
+	.draft-dismiss-btn {
+		background: transparent;
+		color: #1e40af;
+		border: 1px solid #93c5fd;
+		border-radius: 6px;
+		padding: 0.4rem 0.85rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.draft-dismiss-btn:hover {
+		background: #dbeafe;
+	}
+
+	.form-footer {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.draft-indicator {
+		color: #9ca3af;
+		font-size: 0.85rem;
 	}
 
 	@media (max-width: 720px) {

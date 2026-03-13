@@ -3,6 +3,12 @@
 	import { browser } from '$app/environment';
 	import { formatCrmRichText } from '$lib/html';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
+	import { createDraft, type DraftHandle } from '$lib/stores/draftStore';
+
+	type FieldUpdateDraft = {
+		formUpdateType: string;
+		formNote: string;
+	};
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -214,7 +220,10 @@
 		loadFieldUpdates(selectedDealId);
 	}
 
-	onDestroy(() => fieldUpdatesController?.abort());
+	onDestroy(() => {
+		fieldUpdatesController?.abort();
+		draft?.cancelPending();
+	});
 
 	// --- Field Update Form ---
 	const UPDATE_TYPES = [
@@ -236,6 +245,55 @@
 	let formError = '';
 	let formSuccess = '';
 	let photoUploadRef: PhotoUpload;
+
+	// Draft saving
+	let draft: DraftHandle<FieldUpdateDraft> | null = null;
+	let draftStatus: 'idle' | 'saving' | 'saved' = 'idle';
+	let draftRestorable = false;
+	let draftSavedAt = 0;
+
+	const getDraftData = (): FieldUpdateDraft => ({ formUpdateType, formNote });
+
+	const isDraftEmpty = (d: FieldUpdateDraft) =>
+		!d.formNote.trim() && d.formUpdateType === 'progress';
+
+	const restoreDraft = (d: FieldUpdateDraft) => {
+		formUpdateType = d.formUpdateType;
+		formNote = d.formNote;
+		showUpdateForm = true;
+		draftRestorable = false;
+	};
+
+	const dismissDraft = () => {
+		draftRestorable = false;
+		draft?.clear();
+	};
+
+	const initDraft = (dealId: string) => {
+		draft?.cancelPending();
+		draftStatus = 'idle';
+		draftRestorable = false;
+		draft = createDraft<FieldUpdateDraft>(`draft_field_update_${dealId}`, isDraftEmpty);
+		const saved = draft.load();
+		if (saved) {
+			draftRestorable = true;
+			draftSavedAt = saved.savedAt;
+		}
+	};
+
+	$: if (browser && selectedDealId) initDraft(selectedDealId);
+
+	$: if (browser && draft && !draftRestorable && showUpdateForm) {
+		const data = getDraftData();
+		if (!isDraftEmpty(data)) {
+			draftStatus = 'saving';
+			draft.scheduleSave(data);
+			setTimeout(() => { draftStatus = 'saved'; }, 2100);
+		} else {
+			draft.clear();
+			draftStatus = 'idle';
+		}
+	}
 
 	const resetForm = () => {
 		formUpdateType = 'progress';
@@ -281,6 +339,8 @@
 			}
 
 			formSuccess = 'Field update submitted successfully!';
+			draft?.clear();
+			draftStatus = 'idle';
 			resetForm();
 			showUpdateForm = false;
 			loadFieldUpdates(selectedDealId);
@@ -320,6 +380,16 @@
 
 		{#if formSuccess && !showUpdateForm}
 			<p class="form-success">{formSuccess}</p>
+		{/if}
+
+		{#if draftRestorable && !showUpdateForm}
+			<div class="draft-banner">
+				<span>Draft saved {new Date(draftSavedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>
+				<div class="draft-banner-actions">
+					<button type="button" class="draft-restore-btn" on:click={() => { const saved = draft?.load(); if (saved) restoreDraft(saved.data); }}>Restore</button>
+					<button type="button" class="draft-dismiss-btn" on:click={dismissDraft}>Dismiss</button>
+				</div>
+			</div>
 		{/if}
 
 		{#if showUpdateForm}
@@ -364,6 +434,11 @@
 					>
 						Cancel
 					</button>
+					{#if draftStatus === 'saving'}
+						<span class="draft-indicator">Saving…</span>
+					{:else if draftStatus === 'saved'}
+						<span class="draft-indicator">Draft saved</span>
+					{/if}
 				</div>
 			</form>
 		{/if}
@@ -860,6 +935,61 @@
 
 	.file-link:hover {
 		color: #1e40af;
+	}
+
+	.draft-banner {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+		padding: 0.85rem 1rem;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px;
+		color: #1e40af;
+		font-size: 0.9rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.draft-banner-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.draft-restore-btn {
+		background: #2563eb;
+		color: #fff;
+		border: none;
+		border-radius: 6px;
+		padding: 0.4rem 0.85rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.draft-restore-btn:hover {
+		background: #1d4ed8;
+	}
+
+	.draft-dismiss-btn {
+		background: transparent;
+		color: #1e40af;
+		border: 1px solid #93c5fd;
+		border-radius: 6px;
+		padding: 0.4rem 0.85rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.draft-dismiss-btn:hover {
+		background: #dbeafe;
+	}
+
+	.draft-indicator {
+		color: #9ca3af;
+		font-size: 0.85rem;
 	}
 
 	@media (max-width: 720px) {
