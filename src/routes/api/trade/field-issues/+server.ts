@@ -4,6 +4,7 @@ import {
 	getFieldIssuesByTradePartner,
 	getTradeSession,
 	getZohoTokens,
+	supabase,
 	upsertZohoTokens
 } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
@@ -91,7 +92,14 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		}
 
 		const issues = await getFieldIssuesByTradePartner(dealId, session.trade_partner_id);
-		return json({ data: issues });
+		const enriched = issues.map((issue: any) => {
+			if (!issue.photo_ids?.length) return { ...issue, photo_urls: null };
+			const photo_urls = issue.photo_ids.map(
+				(id: string) => supabase.storage.from('trade-photos').getPublicUrl(id).data.publicUrl
+			);
+			return { ...issue, photo_urls };
+		});
+		return json({ data: enriched });
 	} catch (err) {
 		console.error('Failed to fetch field issues:', err);
 		return json({ error: 'Failed to fetch field issues' }, { status: 500 });

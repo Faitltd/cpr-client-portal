@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
+	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -24,6 +25,7 @@
 		title: string;
 		description: string | null;
 		photo_ids: string[] | null;
+		photo_urls: string[] | null;
 		status: 'open' | 'acknowledged' | 'resolved';
 		resolved_at: string | null;
 		created_at: string;
@@ -52,6 +54,8 @@
 	let severity: FieldIssue['severity'] = 'medium';
 	let title = '';
 	let description = '';
+	let uploadedPhotoIds: string[] = [];
+	let photoUploadRef: PhotoUpload;
 	let submitting = false;
 	let successMessage = '';
 	let errorMessage = '';
@@ -126,6 +130,7 @@
 		errorMessage = '';
 
 		try {
+			const photoIds = photoUploadRef?.getPhotoIds() ?? [];
 			const res = await fetch('/api/trade/field-issues', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -134,7 +139,8 @@
 					issue_type: issueType,
 					severity,
 					title: title.trim(),
-					description: description.trim() || undefined
+					description: description.trim() || undefined,
+					photo_ids: photoIds.length > 0 ? photoIds : undefined
 				})
 			});
 
@@ -153,6 +159,8 @@
 			description = '';
 			issueType = 'damaged_material';
 			severity = 'medium';
+			photoUploadRef?.reset();
+			uploadedPhotoIds = [];
 			successMessage = 'Issue submitted successfully.';
 			issues = [created, ...issues];
 		} catch (err) {
@@ -248,6 +256,14 @@
 					></textarea>
 				</div>
 
+				<div class="form-field">
+					<label>Photos</label>
+					<PhotoUpload
+						bind:this={photoUploadRef}
+						on:change={(e) => { uploadedPhotoIds = e.detail.map((p) => p.id); }}
+					/>
+				</div>
+
 				<button class="submit-button" type="submit" disabled={submitting || !canSubmit}>
 					{submitting ? 'Submitting...' : 'Submit Issue'}
 				</button>
@@ -281,6 +297,16 @@
 
 							{#if issue.description}
 								<p class="issue-description">{issue.description}</p>
+							{/if}
+
+							{#if issue.photo_urls?.length}
+								<div class="issue-photos">
+									{#each issue.photo_urls as url}
+										<a href={url} target="_blank" rel="noopener noreferrer" class="issue-photo-thumb">
+											<img src={url} alt="Issue photo" loading="lazy" />
+										</a>
+									{/each}
+								</div>
 							{/if}
 						</article>
 					{/each}
@@ -526,6 +552,29 @@
 		margin: 1rem 0 0;
 		color: #374151;
 		line-height: 1.55;
+	}
+
+	.issue-photos {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+
+	.issue-photo-thumb {
+		display: block;
+		width: 64px;
+		height: 64px;
+		border-radius: 6px;
+		overflow: hidden;
+		border: 1px solid #e5e7eb;
+	}
+
+	.issue-photo-thumb img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
 	}
 
 	.issue-time {

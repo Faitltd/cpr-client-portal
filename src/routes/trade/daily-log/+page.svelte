@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
+	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -33,6 +34,8 @@
 	let workPlanned = '';
 	let issuesEncountered = '';
 	let weatherDelay = false;
+	let uploadedPhotoIds: string[] = [];
+	let photoUploadRef: PhotoUpload;
 
 	let submitting = false;
 	let successMessage = '';
@@ -48,6 +51,7 @@
 		errorMessage = '';
 
 		try {
+			const photoIds = photoUploadRef?.getPhotoIds() ?? [];
 			const res = await fetch('/api/trade/daily-log', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -58,7 +62,8 @@
 					workCompleted,
 					workPlanned,
 					issuesEncountered,
-					weatherDelay
+					weatherDelay,
+					photoIds: photoIds.length > 0 ? photoIds : undefined
 				})
 			});
 
@@ -68,6 +73,8 @@
 			}
 
 			successMessage = 'Daily log submitted successfully!';
+			photoUploadRef?.reset();
+			uploadedPhotoIds = [];
 			await loadLogs(selectedDealId);
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Failed to submit daily log.';
@@ -85,6 +92,8 @@
 		work_planned: string | null;
 		issues_encountered: string | null;
 		weather_delay: boolean | null;
+		photo_ids: string[] | null;
+		photo_urls: string[] | null;
 	};
 
 	let logs: DailyLog[] = [];
@@ -217,6 +226,14 @@
 					</label>
 				</div>
 
+				<div class="form-field">
+					<label>Photos</label>
+					<PhotoUpload
+						bind:this={photoUploadRef}
+						on:change={(e) => { uploadedPhotoIds = e.detail.map((p) => p.id); }}
+					/>
+				</div>
+
 				<button class="submit-button" type="submit" disabled={submitting}>
 					{submitting ? 'Submitting…' : 'Submit Daily Log'}
 				</button>
@@ -265,6 +282,18 @@
 									<div class="log-section">
 										<h4>Issues / Blockers</h4>
 										<p>{log.issues_encountered}</p>
+									</div>
+								{/if}
+								{#if log.photo_urls?.length}
+									<div class="log-section">
+										<h4>Photos</h4>
+										<div class="log-photos">
+											{#each log.photo_urls as url}
+												<a href={url} target="_blank" rel="noopener noreferrer" class="log-photo-thumb">
+													<img src={url} alt="Log photo" loading="lazy" />
+												</a>
+											{/each}
+										</div>
 									</div>
 								{/if}
 							</div>
@@ -541,6 +570,28 @@
 		color: #111827;
 		white-space: pre-wrap;
 		line-height: 1.45;
+	}
+
+	.log-photos {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.log-photo-thumb {
+		display: block;
+		width: 64px;
+		height: 64px;
+		border-radius: 6px;
+		overflow: hidden;
+		border: 1px solid #e5e7eb;
+	}
+
+	.log-photo-thumb img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
 	}
 
 	@media (max-width: 720px) {

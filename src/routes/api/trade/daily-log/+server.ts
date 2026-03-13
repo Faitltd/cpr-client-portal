@@ -3,6 +3,7 @@ import {
 	getMyDailyLogsForDeal,
 	getTradeSession,
 	getZohoTokens,
+	supabase,
 	upsertDailyLog,
 	upsertZohoTokens
 } from '$lib/server/db';
@@ -84,7 +85,14 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		}
 
 		const logs = await getMyDailyLogsForDeal(dealId, session.trade_partner_id);
-		return json({ data: logs });
+		const enriched = logs.map((log) => {
+			if (!log.photo_ids?.length) return { ...log, photo_urls: null };
+			const photo_urls = log.photo_ids.map(
+				(id) => supabase.storage.from('trade-photos').getPublicUrl(id).data.publicUrl
+			);
+			return { ...log, photo_urls };
+		});
+		return json({ data: enriched });
 	} catch (err) {
 		console.error('Failed to fetch daily logs:', err);
 		return json({ error: 'Failed to fetch daily logs' }, { status: 500 });
@@ -141,6 +149,10 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				? body.issuesEncountered.trim()
 				: null;
 		const weatherDelay = body?.weatherDelay === true;
+		const photoIds =
+			Array.isArray(body?.photoIds) && body.photoIds.every((id: unknown) => typeof id === 'string')
+				? body.photoIds
+				: null;
 
 		const log = await upsertDailyLog({
 			deal_id: dealId,
@@ -150,7 +162,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			work_completed: workCompleted,
 			work_planned: workPlanned,
 			issues_encountered: issuesEncountered,
-			photo_ids: null,
+			photo_ids: photoIds,
 			weather_delay: weatherDelay
 		});
 
