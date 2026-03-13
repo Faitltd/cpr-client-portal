@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import { selectedDealId } from '$lib/stores/dealContext';
 
 	interface Approval {
 		id: string;
@@ -49,10 +50,20 @@
 	let createError = '';
 	let createSuccess = false;
 
+	onMount(() => {
+		const stored = $selectedDealId;
+		if (stored) {
+			dealIdInput = stored;
+			loadedDealId = stored;
+			Promise.all([fetchPending(), fetchAll()]);
+		}
+	});
+
 	async function loadDeal() {
 		const id = dealIdInput.trim();
 		if (!id) return;
 		loadedDealId = id;
+		selectedDealId.set(id);
 		createSuccess = false;
 		await Promise.all([fetchPending(), fetchAll()]);
 	}

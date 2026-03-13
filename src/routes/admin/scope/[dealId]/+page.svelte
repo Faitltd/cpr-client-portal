@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
+	import { selectedDealId } from '$lib/stores/dealContext';
 
 	export let data: PageData;
 	const dealId = data.dealId;
+	selectedDealId.set(dealId);
 
 	// ── Types ────────────────────────────────────────────────────────────────
 

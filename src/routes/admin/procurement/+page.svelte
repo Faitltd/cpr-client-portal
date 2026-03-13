@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { selectedDealId } from '$lib/stores/dealContext';
+
 	interface ProcurementItem {
 		id: string;
 		deal_id: string;
@@ -62,10 +65,20 @@
 	$: filteredItems =
 		statusFilter === 'all' ? items : items.filter((item) => item.status === statusFilter);
 
+	onMount(() => {
+		const stored = $selectedDealId;
+		if (stored) {
+			dealIdInput = stored;
+			loadedDealId = stored;
+			fetchItems();
+		}
+	});
+
 	async function loadDeal() {
 		const id = dealIdInput.trim();
 		if (!id) return;
 		loadedDealId = id;
+		selectedDealId.set(id);
 		actionError = '';
 		await fetchItems();
 	}

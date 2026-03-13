@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { selectedDealId } from '$lib/stores/dealContext';
+
 	interface DailyLog {
 		id: string;
 		deal_id: string;
@@ -35,10 +38,20 @@
 	$: weatherDelays = logs.filter((l) => l.weather_delay).length;
 	$: logsWithIssues = logs.filter((l) => l.issues_encountered?.trim()).length;
 
+	onMount(() => {
+		const stored = $selectedDealId;
+		if (stored) {
+			dealIdInput = stored;
+			loadedDealId = stored;
+			fetchLogs();
+		}
+	});
+
 	async function loadDeal() {
 		const id = dealIdInput.trim();
 		if (!id) return;
 		loadedDealId = id;
+		selectedDealId.set(id);
 		await fetchLogs();
 	}
 

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { selectedDealId } from '$lib/stores/dealContext';
+
 	interface ChangeOrder {
 		id: string;
 		deal_id: string;
@@ -67,10 +70,20 @@
 			.reduce((sum, order) => sum + (order.estimated_amount ?? 0), 0)
 	};
 
+	onMount(() => {
+		const stored = $selectedDealId;
+		if (stored) {
+			dealIdInput = stored;
+			loadedDealId = stored;
+			fetchOrders();
+		}
+	});
+
 	async function loadDeal() {
 		const id = dealIdInput.trim();
 		if (!id) return;
 		loadedDealId = id;
+		selectedDealId.set(id);
 		actionError = '';
 		await fetchOrders();
 	}

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { selectedDealId } from '$lib/stores/dealContext';
+
 	interface CommsLogEntry {
 		id: string;
 		deal_id: string;
@@ -31,10 +34,20 @@
 	let submitError = '';
 	let submitSuccess = false;
 
+	onMount(() => {
+		const stored = $selectedDealId;
+		if (stored) {
+			dealIdInput = stored;
+			loadedDealId = stored;
+			fetchEntries();
+		}
+	});
+
 	async function loadDeal() {
 		const id = dealIdInput.trim();
 		if (!id) return;
 		loadedDealId = id;
+		selectedDealId.set(id);
 		submitSuccess = false;
 		await fetchEntries();
 	}
