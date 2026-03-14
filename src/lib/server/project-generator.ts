@@ -250,24 +250,28 @@ export async function generateProject(
 			console.error('Failed to update CRM deal, continuing:', err);
 		}
 
-		for (const task of taskSet.tasks) {
-			if (!task.requires_client_decision) continue;
+		try {
+			for (const task of taskSet.tasks) {
+				if (!task.requires_client_decision) continue;
 
-			await createApproval({
-				deal_id: dealId,
-				title: 'Decision needed: ' + task.task_name,
-				description: task.description,
-				category: 'general',
-				assigned_to: 'client',
-				status: 'pending',
-				priority: 'normal',
-				due_date: task.start_date,
-				created_by: 'generator'
-			});
+				await createApproval({
+					deal_id: dealId,
+					title: 'Decision needed: ' + task.task_name,
+					description: task.description,
+					category: 'general',
+					assigned_to: 'client',
+					status: 'pending',
+					priority: 'normal',
+					due_date: task.start_date,
+					created_by: 'generator'
+				});
 
-			if (logId) await updateGenerationLog(logId, {
-				last_completed_step: 'approval:' + task.task_name
-			});
+				if (logId) await updateGenerationLog(logId, {
+					last_completed_step: 'approval:' + task.task_name
+				});
+			}
+		} catch (err) {
+			console.error('Failed to create approvals, continuing:', err);
 		}
 
 		await updateScopeStatus(dealId, 'generated');
