@@ -947,163 +947,202 @@ function findBestProjectMatchForDeal(
 	if (!best) return null;
 	if (best.score < 80) return null;
 	// Allow high-confidence matches even when duplicates exist (for example, an archived
-	// copy of the same project name). Keep the ambiguity suppression only for near-equal scores.
-	if (secondBestScore >= 80 && best.score - secondBestScore < 5) return null;
+	// copy of the same project name). Keep the ambiguity guard only for borderline scores.
+	if (best.score < 90 && secondBestScore >= 80) return null;
 
 	return best;
 }
 
-type ContactProjectLink = {
+function hasMorePages(payload: any, pageItemCount: number, pageSize: number) {
+	if (pageItemCount < pageSize) return false;
+	const moreRecords = payload?.info?.more_records ?? payload?.page_context?.has_more_page;
+	if (typeof moreRecords === 'boolean') return moreRecords;
+	return pageItemCount >= pageSize;
+}
+
+function pickCrmArray(payload: any, key?: string): any[] {
+	if (!payload) return [];
+	if (key && Array.isArray(payload[key])) return payload[key];
+	if (Array.isArray(payload.data)) return payload.data;
+	if (Array.isArray(payload)) return payload;
+	return [];
+}
+
+export interface ContactProjectLink {
+	contactId: string;
 	projectId: string;
-	portalId: string;
-	base: string;
-	source: 'crm_deal_field' | 'crm_related_list' | 'projects_membership';
-};
+	dealId?: string;
+	dealName?: string;
+	stage?: string;
+	matchSource: 'project_id_field' | 'related_list' | 'name_match';
+}
 
-async function getContactProjectLinks(
+type ProjectsApiEndpoint = `/portal/${string}/projects/${string}${string}`;
+function buildProjectsApiEndpoint(
+	portalId: string,
+	projectId: string,
+	suffix: string
+): ProjectsApiEndpoint {
+	return `/portal/${portalId}/projects/${projectId}${suffix}`;
+}
+
+async function callProjectsApi(
 	accessToken: string,
-	zohoContactId: string | null | undefined,
-	email: string,
-	opts: {
-		signal?: AbortSignal;
-		skipMembershipLookup?: boolean;
+	base: string,
+	endpoint: string,
+	init?: RequestInit
+) {
+	const url = `${base}/api/v3${endpoint}`;
+	const response = await fetchProjectsApiWithTimeout(
+		url,
+		{
+			...init,
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				...(init?.headers ?? {})
+			}
+		},
+		endpoint
+	);
+
+	if (response.status === 429) {
+		const text = await response.text().catch(() => '');
+		log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
+			status: 429,
+			endpoint,
+			base,
+			response: text
+		});
+		throw new Error(`Zoho Projects API error 429: ${text}`);
 	}
-): Promise<ContactProjectLink[]> {
-	const cacheKey = getClientCacheKey(zohoContactId, email);
-	const cached = clientProjectLinksCache.get(cacheKey);
-	if (cached && Date.now() - cached.fetchedAt < CLIENT_PROJECT_LINKS_CACHE_TTL_MS) {
-		return cached.links;
+
+	if (!response.ok) {
+		const text = await response.text().catch(() => '');
+		throw new Error(`Zoho Projects API error ${response.status}: ${text}`);
 	}
 
-	const deals = await getClientDeals(accessToken, zohoContactId, email);
-	const fieldApiNames = await getDealProjectFieldApiNames(accessToken);
-	const relatedListApiNames = await getDealProjectRelatedListApiNames(accessToken);
+	return response.json();
+}
 
-	const sortedDeals = sortDealsForProjectMatching(deals);
+type RoutedProjectsApiCall = (endpoint: string, init?: RequestInit) => Promise<any>;
 
-	const links: ContactProjectLink[] = [];
-	const seenProjectIds = new Set<string>();
-	const addLink = (link: ContactProjectLink) => {
-		if (seenProjectIds.has(link.projectId)) return;
-		seenProjectIds.add(link.projectId);
-		links.push(link);
-	};
+async function withProjectRoute(
+	accessToken: string,
+	projectId: string,
+	callback: (call: RoutedProjectsApiCall, base: string, portalId: string) => Promise<any>
+): Promise<any> {
+	const cachedRoute = getCachedProjectRoute(projectId);
 
-	const base = getPreferredProjectsApiBase();
-	const portalId = await resolvePortalId(accessToken);
+	if (cachedRoute) {
+		try {
+			return await callback(
+				(endpoint, init) => callProjectsApi(accessToken, cachedRoute.base, endpoint, init),
+				cachedRoute.base,
+				cachedRoute.portalId
+			);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (!message.includes('404') && !message.includes('403')) throw err;
+			// Fall through to rediscover route.
+		}
+	}
 
-	for (const deal of sortedDeals) {
-		const dealId = deal?.id ? String(deal.id) : null;
-		if (!dealId) continue;
+	const baseCandidates = getProjectsApiBaseCandidates();
+	const errors: string[] = [];
+	let attempts = 0;
 
-		// 1. Check for project IDs in deal fields
-		const dealProjectIds = getDealProjectIdsForLinking(deal);
-		for (const projectId of dealProjectIds) {
-			addLink({ projectId, portalId, base, source: 'crm_deal_field' });
+	for (const base of baseCandidates) {
+		const portalIdCandidates = await getPortalIdCandidatesForBase(accessToken, base, projectId);
+
+		for (const portalId of portalIdCandidates) {
+			if (attempts >= MAX_PROJECT_ROUTE_ATTEMPTS) break;
+			attempts += 1;
+
+			try {
+				const result = await callback(
+					(endpoint, init) => callProjectsApi(accessToken, base, endpoint, init),
+					base,
+					portalId
+				);
+				cacheProjectsApiBase(base);
+				cacheProjectRoute(projectId, base, portalId);
+				return result;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				if (!message.includes('404') && !message.includes('403')) {
+					cacheProjectsApiBase(base);
+					throw err;
+				}
+				errors.push(`${base}/${portalId}: ${message}`);
+			}
 		}
 
-		// 2. Check deal's related lists for project IDs (limited to configured max)
-		if (links.length < MAX_DEAL_RELATED_PROJECT_LOOKUPS) {
-			const relatedProjectIds = await getProjectIdsFromDealRelatedLists(
-				accessToken,
-				dealId,
-				relatedListApiNames
-			);
-			for (const projectId of relatedProjectIds) {
-				addLink({ projectId, portalId, base, source: 'crm_related_list' });
+		if (attempts >= MAX_PROJECT_ROUTE_ATTEMPTS) break;
+	}
+
+	throw new Error(
+		`Project route not found for projectId=${projectId} after ${attempts} attempts. Errors: ${errors.join(' | ')}`
+	);
+}
+
+async function withPortalRoute(
+	accessToken: string,
+	callback: (call: RoutedProjectsApiCall, base: string, portalId: string) => Promise<any>
+): Promise<any> {
+	const preferredBase = getPreferredProjectsApiBase();
+	const baseCandidates = [
+		preferredBase,
+		...getProjectsApiBaseCandidates().filter((b) => b !== preferredBase)
+	];
+
+	const errors: string[] = [];
+	for (const base of baseCandidates) {
+		const portalIdCandidates = await getPortalIdCandidatesForBase(accessToken, base);
+
+		for (const portalId of portalIdCandidates) {
+			try {
+				const result = await callback(
+					(endpoint, init) => callProjectsApi(accessToken, base, endpoint, init),
+					base,
+					portalId
+				);
+				cacheProjectsApiBase(base);
+				return result;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				if (!message.includes('404') && !message.includes('403')) throw err;
+				errors.push(`${base}/${portalId}: ${message}`);
 			}
 		}
 	}
 
-	if (!opts.skipMembershipLookup) {
-		const membershipProjectIds = await getMembershipProjectIds(accessToken, email, opts.signal);
-		for (const projectId of membershipProjectIds) {
-			addLink({ projectId, portalId, base, source: 'projects_membership' });
-		}
-	}
-
-	clientProjectLinksCache.set(cacheKey, { fetchedAt: Date.now(), links });
-	return links;
+	throw new Error(`Portal route not found. Errors: ${errors.join(' | ')}`);
 }
 
-async function getClientDeals(
-	accessToken: string,
-	zohoContactId: string | null | undefined,
-	email: string
-): Promise<any[]> {
-	const cacheKey = getClientCacheKey(zohoContactId, email);
+export async function listPortals(accessToken: string) {
+	const baseCandidates = getProjectsApiBaseCandidates();
+	const results: { portalId: string; base: string }[] = [];
+	const seenPortalIds = new Set<string>();
 
-	const cached = clientDealsCache.get(cacheKey);
-	if (cached && Date.now() - cached.fetchedAt < CLIENT_DEALS_CACHE_TTL_MS) {
-		return cached.deals;
-	}
-
-	const inFlight = clientDealsInFlightByKey.get(cacheKey);
-	if (inFlight) return inFlight;
-
-	const promise = (async () => {
+	for (const base of baseCandidates) {
 		try {
-			const deals = await getContactDeals(accessToken, zohoContactId, email);
-			clientDealsCache.set(cacheKey, { fetchedAt: Date.now(), deals });
-			return deals;
-		} finally {
-			clientDealsInFlightByKey.delete(cacheKey);
-		}
-	})();
-
-	clientDealsInFlightByKey.set(cacheKey, promise);
-	return promise;
-}
-
-async function getMembershipProjectIds(
-	accessToken: string,
-	email: string,
-	signal?: AbortSignal
-): Promise<string[]> {
-	const cached = membershipProjectIdsByEmailCache.get(email);
-	if (cached && Date.now() - cached.fetchedAt < PROJECT_MEMBERSHIP_CACHE_TTL_MS) {
-		return cached.projectIds;
-	}
-
-	const fetchedProjectIds = await fetchMembershipProjectIds(accessToken, email, signal);
-	membershipProjectIdsByEmailCache.set(email, { fetchedAt: Date.now(), projectIds: fetchedProjectIds });
-	return fetchedProjectIds;
-}
-
-async function fetchMembershipProjectIds(
-	accessToken: string,
-	email: string,
-	signal?: AbortSignal
-): Promise<string[]> {
-	const projects = await fetchAllProjects(accessToken, signal);
-
-	if (projects.length === 0) return [];
-
-	const projectIds: string[] = [];
-	const seenIds = new Set<string>();
-	let lookups = 0;
-
-	for (const project of projects) {
-		if (lookups >= MAX_PROJECT_MEMBERSHIP_LOOKUPS) break;
-		const projectId = getProjectId(project);
-		if (!projectId || seenIds.has(projectId)) continue;
-		seenIds.add(projectId);
-
-		try {
-			lookups += 1;
-			const isMember = await checkProjectMembership(accessToken, projectId, email, signal);
-			if (isMember) projectIds.push(projectId);
+			const portalIds = await getPortalIdsForBase(accessToken, base);
+			for (const portalId of portalIds) {
+				if (!seenPortalIds.has(portalId)) {
+					seenPortalIds.add(portalId);
+					results.push({ portalId, base });
+				}
+			}
 		} catch (err) {
-			if (signal?.aborted) break;
 			const message = err instanceof Error ? err.message : String(err);
-			log.warn('Project membership check failed', { projectId, email, error: message });
+			log.warn('listPortals: failed to get portal IDs for base', { base, error: message });
 		}
 	}
 
-	return projectIds;
+	return results;
 }
 
-async function fetchAllProjects(accessToken: string, signal?: AbortSignal): Promise<any[]> {
+export async function getProjectCatalog(accessToken: string) {
 	if (
 		projectCatalogCache &&
 		Date.now() - projectCatalogCache.fetchedAt < PROJECT_CATALOG_CACHE_TTL_MS
@@ -1111,478 +1150,730 @@ async function fetchAllProjects(accessToken: string, signal?: AbortSignal): Prom
 		return projectCatalogCache.projects;
 	}
 
+	const portalId = await resolvePortalId(accessToken);
+	const preferredBase = getPreferredProjectsApiBase();
 	const allProjects: any[] = [];
 
 	for (let page = 1; page <= MAX_PAGES; page += 1) {
-		if (signal?.aborted) break;
-
-		try {
-			const payload = await projectsApiCall(
-				`/projects/?page=${page}&page_size=${DEFAULT_PAGE_SIZE}`,
-				{ signal }
-			);
-			const projects = Array.isArray(payload?.projects) ? payload.projects : [];
-			allProjects.push(...projects);
-			if (projects.length < DEFAULT_PAGE_SIZE) break;
-		} catch (err) {
-			if (signal?.aborted) break;
-			const message = err instanceof Error ? err.message : String(err);
-			log.warn('Failed to fetch projects page', { page, error: message });
-			break;
-		}
+		const payload = await callProjectsApi(
+			accessToken,
+			preferredBase,
+			`/portal/${portalId}/projects/?page=${page}&per_page=${DEFAULT_PAGE_SIZE}&status=all`
+		);
+		const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+		allProjects.push(...projects);
+		if (projects.length < DEFAULT_PAGE_SIZE) break;
 	}
 
 	projectCatalogCache = { fetchedAt: Date.now(), projects: allProjects };
 	return allProjects;
 }
 
-async function checkProjectMembership(
-	accessToken: string,
-	projectId: string,
-	email: string,
-	signal?: AbortSignal
-): Promise<boolean> {
-	const normalizedEmail = email.trim().toLowerCase();
+export async function getProject(accessToken: string, projectId: string) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
 
-	const payload = await projectsApiCall(`/projects/${projectId}/users/`, { signal });
-	const users = Array.isArray(payload?.users) ? payload.users : [];
-
-	return users.some((user: any) => {
-		const userEmail = typeof user?.email === 'string' ? user.email.trim().toLowerCase() : '';
-		return userEmail === normalizedEmail;
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const payload = await call(
+			buildProjectsApiEndpoint(portalId, normalizedProjectId, '')
+		);
+		const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+		return projects[0] ?? null;
 	});
 }
 
-export async function getProjectDetails(
+export async function createZohoProject(
 	accessToken: string,
-	projectId: string
-): Promise<{ id: string; name: string } | null> {
-	try {
-		const payload = await projectsApiCall(`/projects/${projectId}/`);
-		const project = Array.isArray(payload?.projects) ? payload.projects[0] : null;
-		if (!project?.id || !project?.name) return null;
-		return { id: String(project.id), name: String(project.name) };
-	} catch {
-		return null;
+	data: {
+		name: string;
+		description?: string;
+		startDate?: string;
+		endDate?: string;
+		[key: string]: unknown;
 	}
-}
+) {
+	const portalId = await resolvePortalId(accessToken);
+	const preferredBase = getPreferredProjectsApiBase();
 
-export async function getClientProjects(
-	accessToken: string,
-	zohoContactId: string | null | undefined,
-	email: string,
-	opts: { signal?: AbortSignal; skipMembershipLookup?: boolean } = {}
-): Promise<{ id: string; name: string }[]> {
-	const links = await getContactProjectLinks(accessToken, zohoContactId, email, opts);
+	log.debug('createZohoProject: request', {
+		base: preferredBase,
+		portalId,
+		data
+	});
 
-	if (links.length === 0) return [];
-
-	const results: { id: string; name: string }[] = [];
-	const seenIds = new Set<string>();
-
-	// Try to get all projects from cache first
-	const allProjects = await fetchAllProjects(accessToken, opts.signal);
-	const projectIndex = new Map<string, any>();
-	for (const project of allProjects) {
-		const id = getProjectId(project);
-		if (id) projectIndex.set(id, project);
-	}
-
-	for (const link of links) {
-		if (seenIds.has(link.projectId)) continue;
-		seenIds.add(link.projectId);
-
-		// Check if we have it in the project index
-		const cachedProject = projectIndex.get(link.projectId);
-		if (cachedProject) {
-			const id = getProjectId(cachedProject);
-			const name = getProjectName(cachedProject);
-			if (id && name) {
-				results.push({ id, name });
-				continue;
-			}
+	const payload = await callProjectsApi(
+		accessToken,
+		preferredBase,
+		`/portal/${portalId}/projects/`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ projects: [data] })
 		}
-
-		const details = await getProjectDetails(accessToken, link.projectId);
-		if (details) {
-			results.push(details);
-		}
-	}
-
-	return results;
-}
-
-export async function resolveClientProjectByDealName(
-	accessToken: string,
-	zohoContactId: string | null | undefined,
-	email: string,
-	dealName: string,
-	opts: { signal?: AbortSignal } = {}
-): Promise<{ id: string; name: string } | null> {
-	const deals = await getClientDeals(accessToken, zohoContactId, email);
-	const matchingDeal = deals.find(
-		(deal) => getDealName(deal)?.toLowerCase() === dealName.toLowerCase()
 	);
 
-	if (!matchingDeal) return null;
+	log.debug('createZohoProject: response', { payload });
 
-	// Build a list of all projects
-	const allProjects = await fetchAllProjects(accessToken, opts.signal);
-	
-	// First try to match by deal name against project names
-	const dealCandidates = getDealExactMatchNameCandidates(matchingDeal);
-	const exactNameIndex = buildExactProjectNameIndex(allProjects);
-	
-	for (const candidate of dealCandidates) {
-		const matchingProjectIds = exactNameIndex.get(candidate);
-		if (matchingProjectIds && matchingProjectIds.length === 1) {
-			const projectId = matchingProjectIds[0];
-			if (!projectId) continue;
-			const details = await getProjectDetails(accessToken, projectId);
-			if (details) return details;
-		}
-	}
-	
-	// Then check CRM fields and related lists as fallback
-	const links = await getContactProjectLinks(accessToken, zohoContactId, email, opts);
-	const linkProjectIds = links.map((l) => l.projectId);
-	
-	for (const projectId of linkProjectIds) {
-		const details = await getProjectDetails(accessToken, projectId);
-		if (!details) continue;
-		
-		const projectNameNormalized = normalizeProjectMatchName(details.name);
-		for (const candidate of dealCandidates) {
-			if (scoreProjectNameMatch(candidate, projectNameNormalized) >= 80) {
-				return details;
-			}
-		}
-	}
-	
-	return null;
+	const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+	return projects[0] ?? null;
 }
 
-export async function resolveClientProjectsFromDeals(
+export async function createZohoPhase(
+	accessToken: string,
+	projectId: string,
+	data: {
+		name: string;
+		startDate: string;
+		endDate: string;
+		[key: string]: unknown;
+	}
+) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
+
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const payload = await call(
+			buildProjectsApiEndpoint(portalId, normalizedProjectId, '/phases/'),
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(data)
+			}
+		);
+		return payload;
+	});
+}
+
+export async function createZohoTasklist(
+	accessToken: string,
+	projectId: string,
+	data: {
+		name: string;
+		[key: string]: unknown;
+	}
+) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
+
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const payload = await call(
+			buildProjectsApiEndpoint(portalId, normalizedProjectId, '/tasklists/'),
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(data)
+			}
+		);
+		return payload;
+	});
+}
+
+export async function getTasklists(accessToken: string, projectId: string) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
+
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const allTasklists: any[] = [];
+		for (let page = 1; page <= MAX_PAGES; page += 1) {
+			const payload = await call(
+				buildProjectsApiEndpoint(
+					portalId,
+					normalizedProjectId,
+					`/tasklists/?page=${page}&per_page=${DEFAULT_PAGE_SIZE}`
+				)
+			);
+			const tasklists = Array.isArray(payload?.tasklists) ? payload.tasklists : [];
+			allTasklists.push(...tasklists);
+			if (tasklists.length < DEFAULT_PAGE_SIZE) break;
+		}
+		return allTasklists;
+	});
+}
+
+export async function getTasksForTasklist(
+	accessToken: string,
+	projectId: string,
+	tasklistId: string
+) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
+
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const allTasks: any[] = [];
+		for (let page = 1; page <= MAX_TASKLIST_TASK_LOOKUPS; page += 1) {
+			const payload = await call(
+				buildProjectsApiEndpoint(
+					portalId,
+					normalizedProjectId,
+					`/tasklists/${encodeURIComponent(tasklistId)}/tasks/?page=${page}&per_page=${DEFAULT_PAGE_SIZE}`
+				)
+			);
+			const tasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+			allTasks.push(...tasks);
+			if (tasks.length < DEFAULT_PAGE_SIZE) break;
+		}
+		return allTasks;
+	});
+}
+
+export async function getProjectMilestones(accessToken: string, projectId: string) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
+
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const allMilestones: any[] = [];
+		for (let page = 1; page <= MAX_PAGES; page += 1) {
+			const payload = await call(
+				buildProjectsApiEndpoint(
+					portalId,
+					normalizedProjectId,
+					`/milestones/?page=${page}&per_page=${DEFAULT_PAGE_SIZE}`
+				)
+			);
+			const milestones = Array.isArray(payload?.milestones) ? payload.milestones : [];
+			allMilestones.push(...milestones);
+			if (milestones.length < DEFAULT_PAGE_SIZE) break;
+		}
+		return allMilestones;
+	});
+}
+
+export async function getProjectStatuses(accessToken: string, projectId: string) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
+
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const payload = await call(
+			buildProjectsApiEndpoint(portalId, normalizedProjectId, '/statuses/')
+		);
+		return Array.isArray(payload?.statuses) ? payload.statuses : [];
+	});
+}
+
+export async function getProjectActivities(accessToken: string, projectId: string) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) throw new Error(`Invalid project ID: ${projectId}`);
+
+	return withProjectRoute(accessToken, normalizedProjectId, async (call, _base, portalId) => {
+		const allActivities: any[] = [];
+		for (let page = 1; page <= MAX_PAGES; page += 1) {
+			const payload = await call(
+				buildProjectsApiEndpoint(
+					portalId,
+					normalizedProjectId,
+					`/activities/?page=${page}&per_page=${DEFAULT_PAGE_SIZE}`
+				)
+			);
+			const activities = Array.isArray(payload?.activities) ? payload.activities : [];
+			allActivities.push(...activities);
+			if (activities.length < DEFAULT_PAGE_SIZE) break;
+		}
+		return allActivities;
+	});
+}
+
+async function fetchProjectMembership(accessToken: string, projectId: string) {
+	const normalizedProjectId = normalizeCandidateProjectId(projectId);
+	if (!normalizedProjectId) return [];
+
+	try {
+		return await withProjectRoute(
+			accessToken,
+			normalizedProjectId,
+			async (call, _base, portalId) => {
+				const allUsers: any[] = [];
+				for (let page = 1; page <= MAX_PAGES; page += 1) {
+					const payload = await call(
+						buildProjectsApiEndpoint(
+							portalId,
+							normalizedProjectId,
+							`/users/?page=${page}&per_page=${DEFAULT_PAGE_SIZE}`
+						)
+					);
+					const users = Array.isArray(payload?.users) ? payload.users : [];
+					allUsers.push(...users);
+					if (users.length < DEFAULT_PAGE_SIZE) break;
+				}
+				return allUsers;
+			}
+		);
+	} catch {
+		return [];
+	}
+}
+
+function isProjectMember(users: any[], email: string) {
+	const normalizedEmail = email.toLowerCase().trim();
+	for (const user of users) {
+		const userEmail = typeof user?.email === 'string' ? user.email.toLowerCase().trim() : '';
+		if (userEmail && userEmail === normalizedEmail) return true;
+	}
+	return false;
+}
+
+async function getMembershipProjectIdsForEmail(accessToken: string, email: string, allProjectIds: string[]) {
+	const cacheKey = email.toLowerCase().trim();
+	const cached = membershipProjectIdsByEmailCache.get(cacheKey);
+	if (cached && Date.now() - cached.fetchedAt < PROJECT_MEMBERSHIP_CACHE_TTL_MS) {
+		return cached.projectIds;
+	}
+
+	const projectIds: string[] = [];
+	const lookupProjectIds = allProjectIds.slice(0, MAX_PROJECT_MEMBERSHIP_LOOKUPS);
+
+	for (const projectId of lookupProjectIds) {
+		const users = await fetchProjectMembership(accessToken, projectId);
+		if (isProjectMember(users, email)) {
+			projectIds.push(projectId);
+		}
+	}
+
+	membershipProjectIdsByEmailCache.set(cacheKey, { fetchedAt: Date.now(), projectIds });
+	return projectIds;
+}
+
+async function getDealsForClientInternal(
 	accessToken: string,
 	zohoContactId: string | null | undefined,
-	email: string,
-	opts: { signal?: AbortSignal } = {}
-): Promise<{ id: string; name: string }[]> {
-	const deals = await getClientDeals(accessToken, zohoContactId, email);
+	email?: string | null
+) {
+	if (!zohoContactId && !email) return [];
 
-	if (deals.length === 0) return [];
-
-	const allProjects = await fetchAllProjects(accessToken, opts.signal);
-	if (allProjects.length === 0) return [];
-
-	const exactNameIndex = buildExactProjectNameIndex(allProjects);
-	const sortedDeals = sortDealsForProjectMatching(deals);
-
-	const results: { id: string; name: string }[] = [];
-	const usedProjectIds = new Set<string>();
-	const seenResultProjectIds = new Set<string>();
-
-	for (const deal of sortedDeals) {
-		if (results.length >= MAX_DEAL_RELATED_PROJECT_LOOKUPS) break;
-
-		const dealCandidates = getDealExactMatchNameCandidates(deal);
-
-		let projectId: string | null = null;
-
-		// Try exact name match first
-		for (const candidate of dealCandidates) {
-			const matchingProjectIds = exactNameIndex.get(candidate);
-			if (matchingProjectIds && matchingProjectIds.length === 1) {
-				const candidateId = matchingProjectIds[0];
-				if (candidateId && !usedProjectIds.has(candidateId)) {
-					projectId = candidateId;
-					break;
-				}
-			}
-		}
-
-		// Fall back to fuzzy match
-		if (!projectId) {
-			const bestMatch = findBestProjectMatchForDeal(deal, allProjects, usedProjectIds);
-			if (bestMatch) projectId = bestMatch.projectId;
-		}
-
-		if (!projectId) continue;
-
-		const project = allProjects.find((p) => getProjectId(p) === projectId);
-		const projectName = project ? getProjectName(project) : null;
-
-		if (projectId && projectName && !seenResultProjectIds.has(projectId)) {
-			seenResultProjectIds.add(projectId);
-			usedProjectIds.add(projectId);
-			results.push({ id: projectId, name: projectName });
-		}
+	const cacheKey = getClientCacheKey(zohoContactId, email);
+	const cachedEntry = clientDealsCache.get(cacheKey);
+	if (cachedEntry && Date.now() - cachedEntry.fetchedAt < CLIENT_DEALS_CACHE_TTL_MS) {
+		return cachedEntry.deals;
 	}
 
-	return results;
-}
+	const inFlight = clientDealsInFlightByKey.get(cacheKey);
+	if (inFlight) return inFlight;
 
-type ProjectsApiCallOptions = RequestInit & { signal?: AbortSignal };
+	const promise = (async () => {
+		let deals: any[] = [];
 
-async function projectsApiCall(endpoint: string, init: ProjectsApiCallOptions = {}) {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw new Error('Zoho tokens not configured');
-
-	let accessToken = tokens.access_token;
-	const projectId = extractProjectIdFromEndpoint(endpoint);
-
-	const baseCandidates = getProjectsApiBaseCandidates();
-
-	for (let attempt = 0; attempt < MAX_PROJECT_ROUTE_ATTEMPTS; attempt += 1) {
-		const base = baseCandidates[attempt % baseCandidates.length];
-		if (!base) continue;
-
-		const portalIdCandidates = await getPortalIdCandidatesForBase(accessToken, base, projectId || undefined);
-
-		for (const portalId of portalIdCandidates) {
-			const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
+		if (zohoContactId) {
 			try {
-				const response = await fetchProjectsApiWithTimeout(
-					url,
-					{
-						...init,
-						headers: {
-							'Content-Type': 'application/json',
-							Authorization: `Zoho-oauthtoken ${accessToken}`,
-							...(init.headers as Record<string, string> | undefined)
-						}
-					},
-					`${init.method || 'GET'} ${endpoint}`
-				);
-
-				if (response.status === 401) {
-					try {
-						const refreshed = await refreshAccessToken(tokens.refresh_token);
-						if (refreshed?.access_token) {
-							accessToken = refreshed.access_token;
-							await upsertZohoTokens({
-								...tokens,
-								access_token: refreshed.access_token
-							});
-						}
-					} catch {
-						// ignore token refresh errors, continue with next candidate
-					}
-					continue;
-				}
-
-				if (response.status === 404) {
-					continue;
-				}
-
-				if (response.status === 429) {
-					const text = await response.text().catch(() => '');
-					log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
-						status: 429,
-						endpoint,
-						base,
-						portalId,
-						response: text
-					});
-					throw new Error(`Zoho Projects API error 429: ${text}`);
-				}
-
-				if (!response.ok) {
-					const text = await response.text().catch(() => '');
-					throw new Error(`Projects API error ${response.status} at ${url}: ${text}`);
-				}
-
-				cacheProjectsApiBase(base);
-				if (projectId) cacheProjectRoute(projectId, base, portalId);
-
-				return response.json();
+				const result = await getContactDeals(accessToken, String(zohoContactId));
+				if (Array.isArray(result)) deals = result;
 			} catch (err) {
-				if (
-					err instanceof Error &&
-					(err.message.includes('timeout') || err.message.includes('429'))
-				) {
-					throw err;
-				}
+				const message = err instanceof Error ? err.message : String(err);
+				log.warn('getDealsForClient: failed to fetch deals by contact ID', {
+					zohoContactId,
+					error: message
+				});
 			}
+		}
+
+		if (deals.length === 0 && email) {
+			try {
+				const contact = await findContactByEmail(accessToken, email);
+				const resolvedContactId = contact?.id ?? contact?.Contact_ID ?? null;
+				if (resolvedContactId) {
+					const result = await getContactDeals(accessToken, String(resolvedContactId));
+					if (Array.isArray(result)) deals = result;
+				}
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				log.warn('getDealsForClient: failed to fetch deals by email fallback', {
+					email,
+					error: message
+				});
+			}
+		}
+
+		if (deals.length === 0 && email) {
+			try {
+				const payload = await zohoApiCall(
+					accessToken,
+					`/Deals/search?criteria=(Email:equals:${encodeURIComponent(email)})&fields=${CRM_DEAL_EMAIL_FALLBACK_FIELDS}&per_page=10`
+				);
+				const found = pickCrmArray(payload);
+				if (found.length > 0) deals = found;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				log.warn('getDealsForClient: email fallback search failed', {
+					email,
+					error: message
+				});
+			}
+		}
+
+		clientDealsCache.set(cacheKey, { fetchedAt: Date.now(), deals });
+		clientDealsInFlightByKey.delete(cacheKey);
+		return deals;
+	})();
+
+	clientDealsInFlightByKey.set(cacheKey, promise);
+	return promise;
+}
+
+export async function getDealsForClient(
+	accessToken: string,
+	zohoContactId: string | null | undefined,
+	email?: string | null
+) {
+	return getDealsForClientInternal(accessToken, zohoContactId, email);
+}
+
+async function getProjectLinksForDeal(
+	accessToken: string,
+	deal: any,
+	allProjects: any[],
+	exactNameIndex: Map<string, string[]>,
+	projectIdFieldApiNames: string[]
+): Promise<ContactProjectLink[]> {
+	const dealId = deal?.id ?? null;
+	const dealName = getDealName(deal);
+	const stage = typeof deal?.Stage === 'string' ? deal.Stage : undefined;
+
+	// --- Strategy 1: project ID in deal fields ---
+	const projectIdsFromFields = getDealProjectIdsForLinking(deal);
+	if (projectIdsFromFields.length > 0) {
+		return projectIdsFromFields.map((projectId) => ({
+			contactId: deal.Contact_Name?.id ?? deal.Contact_Name ?? '',
+			projectId,
+			dealId: dealId ? String(dealId) : undefined,
+			dealName: dealName ?? undefined,
+			stage,
+			matchSource: 'project_id_field' as const
+		}));
+	}
+
+	// --- Strategy 2: project related list ---
+	if (dealId) {
+		const relatedListApiNames = await getDealProjectRelatedListApiNames(accessToken);
+		const projectIdsFromRelatedList = await getProjectIdsFromDealRelatedLists(
+			accessToken,
+			String(dealId),
+			relatedListApiNames
+		);
+		if (projectIdsFromRelatedList.length > 0) {
+			return projectIdsFromRelatedList.map((projectId) => ({
+				contactId: deal.Contact_Name?.id ?? deal.Contact_Name ?? '',
+				projectId,
+				dealId: dealId ? String(dealId) : undefined,
+				dealName: dealName ?? undefined,
+				stage,
+				matchSource: 'related_list' as const
+			}));
 		}
 	}
 
-	throw new Error(`Zoho Projects API: all route candidates exhausted for ${endpoint}`);
-}
-
-function hasMorePages(payload: any, count: number, pageSize: number) {
-	const info = payload?.page_context ?? payload?.pageContext ?? payload?.pagination ?? null;
-	if (info && typeof info === 'object') {
-		if (info.has_more_page === false || info.hasMorePage === false) return false;
-		if (info.has_more_page === true || info.hasMorePage === true) return true;
+	// --- Strategy 3: exact name match ---
+	const exactMatchCandidates = getDealExactMatchNameCandidates(deal);
+	for (const candidate of exactMatchCandidates) {
+		const matchedProjectIds = exactNameIndex.get(candidate);
+		if (matchedProjectIds && matchedProjectIds.length === 1) {
+			return [{
+				contactId: deal.Contact_Name?.id ?? deal.Contact_Name ?? '',
+				projectId: matchedProjectIds[0],
+				dealId: dealId ? String(dealId) : undefined,
+				dealName: dealName ?? undefined,
+				stage,
+				matchSource: 'name_match' as const
+			}];
+		}
 	}
-	return count >= pageSize;
-}
 
-function pickCrmArray(payload: any, key?: string) {
-	if (Array.isArray(payload)) return payload;
-	if (key && Array.isArray(payload?.[key])) return payload[key];
-	if (Array.isArray(payload?.data)) return payload.data;
 	return [];
 }
 
-export async function createZohoProject(data: {
-	name: string;
-	description?: string;
-	start_date?: string;
-	end_date?: string;
-}): Promise<{ id: string; name: string }> {
-	try {
-		console.log('[createZohoProject] calling /projects/ with body:', JSON.stringify({ projects: [data] }).substring(0, 200));
-		const payload = await projectsApiCall('/projects/', {
-			method: 'POST',
-			body: JSON.stringify({ projects: [data] })
-		});
-		const project = payload?.id ? payload : (Array.isArray(payload?.projects) ? payload.projects[0] : null);
-		if (!project?.id || !project?.name) {
-			throw new Error('response missing created project');
-		}
-		if (discoveredPortalIdCache) {
-			cacheProjectRoute(String(project.id), discoveredPortalIdCache.base, discoveredPortalIdCache.portalId);
-		}
-		return {
-			id: String(project.id),
-			name: String(project.name)
-		};
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Zoho Projects create project failed: ${message}`);
+async function getProjectLinksForClient(
+	accessToken: string,
+	zohoContactId: string | null | undefined,
+	email?: string | null,
+	options?: { signal?: AbortSignal }
+): Promise<ContactProjectLink[]> {
+	if (!zohoContactId && !email) return [];
+
+	const cacheKey = getClientCacheKey(zohoContactId, email);
+	const cachedEntry = clientProjectLinksCache.get(cacheKey);
+	if (cachedEntry && Date.now() - cachedEntry.fetchedAt < CLIENT_PROJECT_LINKS_CACHE_TTL_MS) {
+		return cachedEntry.links;
 	}
+
+	const allProjects = await getProjectCatalog(accessToken);
+	const exactNameIndex = buildExactProjectNameIndex(allProjects);
+
+	const projectIdFieldApiNames = await getDealProjectFieldApiNames(accessToken);
+
+	const deals = await getDealsForClientInternal(accessToken, zohoContactId, email);
+	const sortedDeals = sortDealsForProjectMatching(deals);
+
+	const allLinks: ContactProjectLink[] = [];
+	const usedProjectIds = new Set<string>();
+
+	for (const deal of sortedDeals) {
+		const links = await getProjectLinksForDeal(
+			accessToken,
+			deal,
+			allProjects,
+			exactNameIndex,
+			projectIdFieldApiNames
+		);
+		for (const link of links) {
+			if (!usedProjectIds.has(link.projectId)) {
+				usedProjectIds.add(link.projectId);
+				allLinks.push(link);
+			}
+		}
+	}
+
+	// --- Strategy 4: fuzzy name match (fallback) ---
+	const dealsWithNoMatch = sortedDeals.filter(
+		(deal) => !allLinks.some((link) => link.dealId === String(deal.id ?? ''))
+	);
+	for (const deal of dealsWithNoMatch.slice(0, MAX_DEAL_RELATED_PROJECT_LOOKUPS)) {
+		const bestMatch = findBestProjectMatchForDeal(deal, allProjects, usedProjectIds);
+		if (!bestMatch) continue;
+		const dealId = deal?.id ?? null;
+		const dealName = getDealName(deal);
+		const stage = typeof deal?.Stage === 'string' ? deal.Stage : undefined;
+		allLinks.push({
+			contactId: deal.Contact_Name?.id ?? deal.Contact_Name ?? '',
+			projectId: bestMatch.projectId,
+			dealId: dealId ? String(dealId) : undefined,
+			dealName: dealName ?? undefined,
+			stage,
+			matchSource: 'name_match' as const
+		});
+		usedProjectIds.add(bestMatch.projectId);
+	}
+
+	clientProjectLinksCache.set(cacheKey, { fetchedAt: Date.now(), links: allLinks });
+	return allLinks;
 }
 
-/**
- * Create a Zoho Projects milestone for a project.
- */
-export async function createZohoMilestone(data: {
-	projectId: string;
-	name: string;
-	end_date: string;
-	status?: string;
-	flag?: string;
-}): Promise<{ id: string; name: string }> {
-	const { projectId, ...milestoneData } = data;
-	try {
-		const payload = await projectsApiCall(`/projects/${projectId}/phases`, {
-			method: 'POST',
-			body: JSON.stringify(milestoneData)
-		});
-		const milestone = payload?.id
-			? payload
-			: Array.isArray(payload?.milestones)
-				? payload.milestones[0]
-				: null;
-		if (!milestone?.id || !milestone?.name) {
-			throw new Error('response missing created milestone');
-		}
-		return { id: String(milestone.id), name: String(milestone.name) };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Zoho Projects create milestone failed: ${message}`);
+export async function getProjectsForClient(
+	accessToken: string,
+	zohoContactId: string | null | undefined,
+	email?: string | null,
+	options?: { signal?: AbortSignal }
+) {
+	const links = await getProjectLinksForClient(accessToken, zohoContactId, email, options);
+	if (links.length === 0) return [];
+
+	const projectIds = links.map((l) => l.projectId);
+	const allProjects = await getProjectCatalog(accessToken);
+
+	const projectMap = new Map<string, any>();
+	for (const p of allProjects) {
+		const pid = getProjectId(p);
+		if (pid) projectMap.set(pid, p);
 	}
+
+	return projectIds
+		.map((id) => projectMap.get(id))
+		.filter(Boolean);
 }
 
-/**
- * Create a Zoho Projects task list for a project.
- */
-export async function createZohoTaskList(data: {
-	projectId: string;
-	name: string;
-	milestone_id?: string;
-}): Promise<{ id: string; name: string }> {
-	const { projectId, ...taskListData } = data;
-	try {
-		const payload = await projectsApiCall(`/projects/${projectId}/tasklists`, {
-			method: 'POST',
-			body: JSON.stringify(taskListData)
-		});
-		const taskList = payload?.id
-			? payload
-			: Array.isArray(payload?.tasklists)
-				? payload.tasklists[0]
-				: null;
-		if (!taskList?.id || !taskList?.name) {
-			throw new Error('response missing created task list');
-		}
-		return { id: String(taskList.id), name: String(taskList.name) };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Zoho Projects create task list failed: ${message}`);
-	}
+export async function isProjectMemberForClient(
+	accessToken: string,
+	zohoContactId: string | null | undefined,
+	email: string
+) {
+	const allProjects = await getProjectCatalog(accessToken);
+	const allProjectIds = allProjects.map((p: any) => getProjectId(p)).filter(Boolean) as string[];
+
+	const memberProjectIds = await getMembershipProjectIdsForEmail(
+		accessToken,
+		email,
+		allProjectIds
+	);
+
+	return memberProjectIds.length > 0;
 }
 
-/**
- * Create a Zoho Projects task.
- */
-export async function createZohoTask(data: {
+export type ZohoProjectTask = {
+	taskId: string;
+	taskName: string;
+	status: string;
 	projectId: string;
 	tasklistId: string;
-	name: string;
-	description?: string;
-	due_date?: string;
-	status?: string;
-}): Promise<{ id: string; name: string }> {
-	const { projectId, tasklistId, ...taskData } = data;
-	try {
-		const payload = await projectsApiCall(`/projects/${projectId}/tasklists/${tasklistId}/tasks`, {
-			method: 'POST',
-			body: JSON.stringify(taskData)
-		});
-		const task = payload?.id
-			? payload
-			: Array.isArray(payload?.tasks)
-				? payload.tasks[0]
-				: null;
-		if (!task?.id || !task?.name) {
-			throw new Error('response missing created task');
+	tasklistName: string;
+	projectName: string;
+	isCompleted: boolean;
+	createdTime?: string;
+	modifiedTime?: string;
+	dueDate?: string;
+};
+
+export type ZohoProjectTaskSummary = {
+	totalCount: number;
+	completedCount: number;
+	inProgressCount: number;
+	notStartedCount: number;
+};
+
+async function getTasksForProject(
+	accessToken: string,
+	projectId: string,
+	projectName: string
+): Promise<ZohoProjectTask[]> {
+	const tasklists = await getTasklists(accessToken, projectId);
+	const allTasks: ZohoProjectTask[] = [];
+
+	for (const tasklist of tasklists.slice(0, MAX_TASKLIST_TASK_LOOKUPS)) {
+		const tasklistId = String(tasklist?.id ?? '');
+		const tasklistName = typeof tasklist?.name === 'string' ? tasklist.name : '';
+		if (!tasklistId) continue;
+
+		try {
+			const tasks = await getTasksForTasklist(accessToken, projectId, tasklistId);
+			for (const task of tasks) {
+				const taskId = String(task?.id ?? '');
+				const taskName = typeof task?.name === 'string' ? task.name : '';
+				const statusName =
+					typeof task?.status?.name === 'string'
+						? task.status.name
+						: typeof task?.status === 'string'
+							? task.status
+							: 'Open';
+				const isCompleted = statusName.toLowerCase().includes('complete') || task?.completed === true;
+
+				allTasks.push({
+					taskId,
+					taskName,
+					status: statusName,
+					projectId,
+					tasklistId,
+					tasklistName,
+					projectName,
+					isCompleted,
+					createdTime: typeof task?.created_time === 'string' ? task.created_time : undefined,
+					modifiedTime: typeof task?.modified_time === 'string' ? task.modified_time : undefined,
+					dueDate: typeof task?.end_date === 'string' ? task.end_date : undefined
+				});
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('getTasksForProject: failed to fetch tasks for tasklist', {
+				projectId,
+				tasklistId,
+				error: message
+			});
 		}
-		return { id: String(task.id), name: String(task.name) };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Zoho Projects create task failed: ${message}`);
 	}
+
+	return allTasks;
 }
 
-/**
- * Update a Zoho Projects task status.
- */
-export async function updateZohoTaskStatus(data: {
-	projectId: string;
-	taskId: string;
-	status: string;
-}): Promise<{ id: string; name: string; status: string }> {
-	const { projectId, taskId, status } = data;
-	try {
-		const payload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`, {
-			method: 'PUT',
-			body: JSON.stringify({ status })
-		});
-		const task = payload?.id
-			? payload
-			: Array.isArray(payload?.tasks)
-				? payload.tasks[0]
-				: null;
-		if (!task?.id || !task?.name) {
-			throw new Error('response missing updated task');
-		}
-		return {
-			id: String(task.id),
-			name: String(task.name || ''),
-			status: String(task.status?.name || task.custom_status || task.status || status)
-		};
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(`Zoho Projects update task status failed: ${message}`);
+export async function getTasksForClient(
+	accessToken: string,
+	zohoContactId: string | null | undefined,
+	email?: string | null
+): Promise<ZohoProjectTask[]> {
+	const links = await getProjectLinksForClient(accessToken, zohoContactId, email);
+	if (links.length === 0) return [];
+
+	const allProjects = await getProjectCatalog(accessToken);
+	const projectMap = new Map<string, any>();
+	for (const p of allProjects) {
+		const pid = getProjectId(p);
+		if (pid) projectMap.set(pid, p);
 	}
+
+	const allTasks: ZohoProjectTask[] = [];
+	for (const link of links) {
+		const project = projectMap.get(link.projectId);
+		const projectName = getProjectName(project) ?? link.projectId;
+		try {
+			const tasks = await getTasksForProject(accessToken, link.projectId, projectName);
+			allTasks.push(...tasks);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('getTasksForClient: failed to fetch tasks for project', {
+				projectId: link.projectId,
+				error: message
+			});
+		}
+	}
+
+	return allTasks;
 }
 
-/**
- * Pause async execution for a number of milliseconds.
- */
-export function sleep(ms: number): Promise<void> {
+export async function getTaskSummaryForClient(
+	accessToken: string,
+	zohoContactId: string | null | undefined,
+	email?: string | null
+): Promise<ZohoProjectTaskSummary> {
+	const tasks = await getTasksForClient(accessToken, zohoContactId, email);
+
+	let completedCount = 0;
+	let inProgressCount = 0;
+	let notStartedCount = 0;
+
+	for (const task of tasks) {
+		if (task.isCompleted) {
+			completedCount += 1;
+		} else {
+			const status = task.status.toLowerCase();
+			if (status.includes('progress') || status.includes('active') || status.includes('started')) {
+				inProgressCount += 1;
+			} else {
+				notStartedCount += 1;
+			}
+		}
+	}
+
+	return {
+		totalCount: tasks.length,
+		completedCount,
+		inProgressCount,
+		notStartedCount
+	};
+}
+
+export async function getProjectsWithTasksForClient(
+	accessToken: string,
+	zohoContactId: string | null | undefined,
+	email?: string | null
+) {
+	const links = await getProjectLinksForClient(accessToken, zohoContactId, email);
+	if (links.length === 0) return [];
+
+	const allProjects = await getProjectCatalog(accessToken);
+	const projectMap = new Map<string, any>();
+	for (const p of allProjects) {
+		const pid = getProjectId(p);
+		if (pid) projectMap.set(pid, p);
+	}
+
+	const results: Array<{
+		project: any;
+		tasks: ZohoProjectTask[];
+		link: ContactProjectLink;
+	}> = [];
+
+	for (const link of links) {
+		const project = projectMap.get(link.projectId);
+		const projectName = getProjectName(project) ?? link.projectId;
+		try {
+			const tasks = await getTasksForProject(accessToken, link.projectId, projectName);
+			results.push({ project, tasks, link });
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('getProjectsWithTasksForClient: failed to fetch tasks for project', {
+				projectId: link.projectId,
+				error: message
+			});
+			results.push({ project, tasks: [], link });
+		}
+	}
+
+	return results;
+}
+
+export async function rehydrateDeal(accessToken: string, dealId: string, extraFields?: string[]) {
+	const fieldsList = [
+		...CRM_DEAL_REHYDRATE_BASE_FIELDS,
+		...(extraFields || [])
+	].join(',');
+	const payload = await zohoApiCall(accessToken, `/Deals/${encodeURIComponent(dealId)}?fields=${fieldsList}`);
+	const records = pickCrmArray(payload);
+	return records[0] ?? null;
+}
+
+function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
