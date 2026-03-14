@@ -2891,57 +2891,62 @@ export async function updateZohoTaskStatus(
 ): Promise<{ id: string; name: string; status: string }> {
 	try {
 		// v3 API requires status.id — fetch available statuses first
-		const statusMap: Record<string, { type: string; pct: number }> = {
-			open: { type: 'open', pct: 0 },
-			in_progress: { type: 'in progress', pct: 50 },
-			completed: { type: 'closed', pct: 100 }
+		const statusMap: Record<string, { types: string[]; pct: number }> = {
+			open: { types: ['open'], pct: 0 },
+			in_progress: { types: ['inprogress', 'in progress'], pct: 50 },
+			completed: { types: ['completed', 'closed'], pct: 100 }
 		};
 		const normalizedKey = status.toLowerCase().replace(/\s+/g, '_');
 		const mapped = statusMap[normalizedKey];
 
-		let statusPayload: any;
+		// Fetch available statuses — v3 endpoint is /projects/{id}/status
+		let statusPayload: any = null;
+		let statusFetchError: string | null = null;
 		try {
-			statusPayload = await projectsApiCall(`/projects/${projectId}/statuses`);
-		} catch {
-			try {
-				statusPayload = await projectsApiCall(`/projects/${projectId}/status`);
-			} catch {
-				statusPayload = null;
-			}
+			statusPayload = await projectsApiCall(`/projects/${projectId}/status`);
+			console.log('[updateZohoTaskStatus] status endpoint response keys:', JSON.stringify(statusPayload ? Object.keys(statusPayload) : null));
+		} catch (err) {
+			statusFetchError = err instanceof Error ? err.message : String(err);
+			console.warn('[updateZohoTaskStatus] /status fetch failed:', statusFetchError);
 		}
 
-		const statuses: any[] = Array.isArray(statusPayload?.statuses)
-			? statusPayload.statuses
-			: Array.isArray(statusPayload)
-				? statusPayload
-				: [];
+		// v3 wraps in "status" key (array), not "statuses"
+		const statuses: any[] = Array.isArray(statusPayload?.status)
+			? statusPayload.status
+			: Array.isArray(statusPayload?.statuses)
+				? statusPayload.statuses
+				: Array.isArray(statusPayload)
+					? statusPayload
+					: [];
+
+		console.log(`[updateZohoTaskStatus] found ${statuses.length} statuses:`, JSON.stringify(statuses.map((s: any) => ({ id: s.id, name: s.name, type: s.type }))));
 
 		let matchedStatusId: string | null = null;
-		const targetName = mapped ? normalizedKey.replace(/_/g, ' ') : status.toLowerCase();
-		const targetType = mapped?.type || null;
 
-		for (const s of statuses) {
-			const sName = (s?.name || '').toLowerCase();
-			const sType = (s?.type || '').toLowerCase();
-			if (sType && targetType && sType === targetType) {
-				matchedStatusId = String(s.id);
-				break;
-			}
-			if (sName === targetName || sName === status.toLowerCase()) {
-				matchedStatusId = String(s.id);
-				break;
+		// Match by type first (most reliable)
+		if (mapped) {
+			for (const s of statuses) {
+				const sType = (s?.type || '').toLowerCase().replace(/\s+/g, '');
+				if (mapped.types.some(t => t.replace(/\s+/g, '') === sType)) {
+					matchedStatusId = String(s.id);
+					console.log(`[updateZohoTaskStatus] matched by type: ${sType} -> id ${matchedStatusId}`);
+					break;
+				}
 			}
 		}
 
+		// Match by name
 		if (!matchedStatusId) {
 			const nameVariations = [
-				status,
-				status.replace(/_/g, ' '),
-			].map(n => n.toLowerCase());
+				status.toLowerCase(),
+				normalizedKey.replace(/_/g, ' '),
+				...(mapped ? ['open', 'in progress', 'completed'].filter((_, i) => Object.keys(statusMap)[i] === normalizedKey) : [])
+			];
 			for (const s of statuses) {
 				const sName = (s?.name || '').toLowerCase();
 				if (nameVariations.includes(sName)) {
 					matchedStatusId = String(s.id);
+					console.log(`[updateZohoTaskStatus] matched by name: ${sName} -> id ${matchedStatusId}`);
 					break;
 				}
 			}
@@ -2951,8 +2956,18 @@ export async function updateZohoTaskStatus(
 		if (matchedStatusId) {
 			body.status = { id: matchedStatusId };
 		} else {
-			console.warn(`[updateZohoTaskStatus] Could not find status ID for "${status}" among ${statuses.length} statuses: ${JSON.stringify(statuses.map((s: any) => ({ id: s.id, name: s.name, type: s.type })))}`);
-			body.status = { name: mapped ? status.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : status };
+			// If we couldn't fetch statuses at all, try a different approach:
+			// GET the task itself to see what status IDs look like
+			console.warn(`[updateZohoTaskStatus] No status ID found. statusFetchError=${statusFetchError}, statusCount=${statuses.length}. Attempting to read task to discover status IDs.`);
+			try {
+				const taskPayload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`);
+				const taskData = taskPayload?.id ? taskPayload : (Array.isArray(taskPayload?.tasks) ? taskPayload.tasks[0] : null);
+				console.log('[updateZohoTaskStatus] current task status:', JSON.stringify(taskData?.status));
+				// If we got the task, we at least know one valid status ID format
+			} catch (taskErr) {
+				console.warn('[updateZohoTaskStatus] task GET also failed:', taskErr instanceof Error ? taskErr.message : String(taskErr));
+			}
+			throw new Error(`Could not resolve status ID for "${status}". Status endpoint returned ${statuses.length} statuses. Fetch error: ${statusFetchError || 'none'}`);
 		}
 
 		if (mapped) {
@@ -2961,7 +2976,7 @@ export async function updateZohoTaskStatus(
 			body.percent_complete = percentComplete;
 		}
 
-		console.log('[updateZohoTaskStatus] body:', JSON.stringify(body));
+		console.log('[updateZohoTaskStatus] PATCH body:', JSON.stringify(body));
 
 		const payload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`, {
 			method: 'PATCH',
@@ -2981,7 +2996,6 @@ export async function updateZohoTaskStatus(
 		throw new Error(`Zoho Projects update task status failed: ${message}`);
 	}
 }
-
 /**
  * Pause async execution for a number of milliseconds.
  */
