@@ -119,9 +119,7 @@ export async function generateProject(
 		});
 
 		const dealName = await getDealDisplayName(dealId);
-		const projectName = dealName !== dealId
-			? `${dealName} - ${scope.project_type}`
-			: `${dealId} - ${scope.project_type}`;
+		const projectName = dealName !== dealId ? dealName : dealId;
 
 		project = await createZohoProject({
 			name: projectName,

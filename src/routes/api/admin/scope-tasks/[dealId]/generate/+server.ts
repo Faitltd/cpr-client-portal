@@ -154,7 +154,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 				console.error('Failed to fetch deal name, using dealId:', err);
 			}
 
-			const projectName = `${dealDisplayName} - Scope Builder`;
+			const projectName = dealDisplayName;
 			console.log('[generate] Creating new project:', projectName);
 
 			project = await createZohoProject({
