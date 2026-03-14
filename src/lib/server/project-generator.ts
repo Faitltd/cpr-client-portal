@@ -19,12 +19,16 @@ import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 async function getDealDisplayName(dealId: string): Promise<string> {
 	try {
 		const tokens = await getZohoTokens();
-		if (!tokens) return dealId;
+		if (!tokens) {
+			console.warn('[getDealDisplayName] No Zoho tokens found');
+			return dealId;
+		}
 
 		let accessToken = tokens.access_token;
 		let apiDomain = tokens.api_domain ?? undefined;
 
 		if (new Date(tokens.expires_at) < new Date()) {
+			console.log('[getDealDisplayName] Token expired, refreshing...');
 			const refreshed = await refreshAccessToken(tokens.refresh_token);
 			accessToken = refreshed.access_token;
 			apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
@@ -38,9 +42,15 @@ async function getDealDisplayName(dealId: string): Promise<string> {
 			});
 		}
 
+		console.log('[getDealDisplayName] Fetching deal', dealId, 'apiDomain:', apiDomain);
 		const deal = await zohoApiCall(accessToken, '/Deals/' + dealId, { method: 'GET' }, apiDomain);
 		const record = deal?.data?.[0];
-		if (!record) return dealId;
+		if (!record) {
+			console.warn('[getDealDisplayName] No record in CRM response:', JSON.stringify(deal).substring(0, 300));
+			return dealId;
+		}
+
+		console.log('[getDealDisplayName] Deal_Name:', JSON.stringify(record.Deal_Name), 'Contact_Name:', JSON.stringify(record.Contact_Name));
 
 		// Try Deal_Name (may be string or lookup object)
 		const rawName = record.Deal_Name;
@@ -52,9 +62,10 @@ async function getDealDisplayName(dealId: string): Promise<string> {
 		if (typeof contact === 'string' && contact.trim()) return contact.trim();
 		if (contact?.name) return contact.name;
 
+		console.warn('[getDealDisplayName] Could not extract name from deal record. Keys:', Object.keys(record).join(', '));
 		return dealId;
 	} catch (err) {
-		console.warn('Failed to fetch deal name from CRM, using dealId:', err);
+		console.error('[getDealDisplayName] Failed:', err);
 		return dealId;
 	}
 }
