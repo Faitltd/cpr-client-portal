@@ -2890,20 +2890,79 @@ export async function updateZohoTaskStatus(
 	percentComplete?: number
 ): Promise<{ id: string; name: string; status: string }> {
 	try {
-		const body: Record<string, any> = {};
-		const statusMap: Record<string, { name: string; pct: number }> = {
-			open: { name: 'Open', pct: 0 },
-			in_progress: { name: 'In Progress', pct: 50 },
-			completed: { name: 'Completed', pct: 100 }
+		// v3 API requires status.id — fetch available statuses first
+		const statusMap: Record<string, { type: string; pct: number }> = {
+			open: { type: 'open', pct: 0 },
+			in_progress: { type: 'in progress', pct: 50 },
+			completed: { type: 'closed', pct: 100 }
 		};
-		const mapped = statusMap[status.toLowerCase().replace(/\s+/g, '_')];
-		if (mapped) {
-			body.custom_status = mapped.name;
-			body.percent_complete = percentComplete ?? mapped.pct;
-		} else {
-			body.custom_status = status;
-			if (percentComplete !== undefined) body.percent_complete = percentComplete;
+		const normalizedKey = status.toLowerCase().replace(/\s+/g, '_');
+		const mapped = statusMap[normalizedKey];
+
+		let statusPayload: any;
+		try {
+			statusPayload = await projectsApiCall(`/projects/${projectId}/statuses`);
+		} catch {
+			try {
+				statusPayload = await projectsApiCall(`/projects/${projectId}/status`);
+			} catch {
+				statusPayload = null;
+			}
 		}
+
+		const statuses: any[] = Array.isArray(statusPayload?.statuses)
+			? statusPayload.statuses
+			: Array.isArray(statusPayload)
+				? statusPayload
+				: [];
+
+		let matchedStatusId: string | null = null;
+		const targetName = mapped ? normalizedKey.replace(/_/g, ' ') : status.toLowerCase();
+		const targetType = mapped?.type || null;
+
+		for (const s of statuses) {
+			const sName = (s?.name || '').toLowerCase();
+			const sType = (s?.type || '').toLowerCase();
+			if (sType && targetType && sType === targetType) {
+				matchedStatusId = String(s.id);
+				break;
+			}
+			if (sName === targetName || sName === status.toLowerCase()) {
+				matchedStatusId = String(s.id);
+				break;
+			}
+		}
+
+		if (!matchedStatusId) {
+			const nameVariations = [
+				status,
+				status.replace(/_/g, ' '),
+			].map(n => n.toLowerCase());
+			for (const s of statuses) {
+				const sName = (s?.name || '').toLowerCase();
+				if (nameVariations.includes(sName)) {
+					matchedStatusId = String(s.id);
+					break;
+				}
+			}
+		}
+
+		const body: Record<string, any> = {};
+		if (matchedStatusId) {
+			body.status = { id: matchedStatusId };
+		} else {
+			console.warn(`[updateZohoTaskStatus] Could not find status ID for "${status}" among ${statuses.length} statuses: ${JSON.stringify(statuses.map((s: any) => ({ id: s.id, name: s.name, type: s.type })))}`);
+			body.status = { name: mapped ? status.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : status };
+		}
+
+		if (mapped) {
+			body.percent_complete = percentComplete ?? mapped.pct;
+		} else if (percentComplete !== undefined) {
+			body.percent_complete = percentComplete;
+		}
+
+		console.log('[updateZohoTaskStatus] body:', JSON.stringify(body));
+
 		const payload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`, {
 			method: 'PATCH',
 			body: JSON.stringify(body)
