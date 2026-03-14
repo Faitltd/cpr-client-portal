@@ -2890,85 +2890,87 @@ export async function updateZohoTaskStatus(
 	percentComplete?: number
 ): Promise<{ id: string; name: string; status: string }> {
 	try {
-		// v3 API requires status.id — fetch available statuses first
-		const statusMap: Record<string, { types: string[]; pct: number }> = {
-			open: { types: ['open'], pct: 0 },
-			in_progress: { types: ['inprogress', 'in progress'], pct: 50 },
-			completed: { types: ['completed', 'closed'], pct: 100 }
+		// v3 API requires status.id — discover IDs from existing task data
+		// (the /status endpoint requires ZohoProjects.status.READ scope which may not be granted)
+		const statusMap: Record<string, { names: string[]; types: string[]; pct: number }> = {
+			open: { names: ['open'], types: ['open'], pct: 0 },
+			in_progress: { names: ['in progress'], types: ['inprogress', 'in progress'], pct: 50 },
+			completed: { names: ['completed', 'closed', 'done'], types: ['completed', 'closed'], pct: 100 }
 		};
 		const normalizedKey = status.toLowerCase().replace(/\s+/g, '_');
 		const mapped = statusMap[normalizedKey];
 
-		// Fetch available statuses — v3 endpoint is /projects/{id}/status
-		let statusPayload: any = null;
-		let statusFetchError: string | null = null;
+		// Strategy: GET all tasks in this project to discover available status IDs
+		let discoveredStatuses: Map<string, { id: string; name: string }> = new Map();
 		try {
-			statusPayload = await projectsApiCall(`/projects/${projectId}/status`);
-			console.log('[updateZohoTaskStatus] status endpoint response keys:', JSON.stringify(statusPayload ? Object.keys(statusPayload) : null));
+			const tasksPayload = await projectsApiCall(`/projects/${projectId}/tasks`);
+			const tasks: any[] = Array.isArray(tasksPayload?.tasks) ? tasksPayload.tasks : Array.isArray(tasksPayload) ? tasksPayload : [];
+			for (const t of tasks) {
+				const s = t?.status;
+				if (s?.id && s?.name) {
+					const key = s.name.toLowerCase();
+					if (!discoveredStatuses.has(key)) {
+						discoveredStatuses.set(key, { id: String(s.id), name: String(s.name) });
+					}
+				}
+			}
+			console.log(`[updateZohoTaskStatus] discovered ${discoveredStatuses.size} statuses from ${tasks.length} tasks:`, JSON.stringify(Array.from(discoveredStatuses.entries())));
 		} catch (err) {
-			statusFetchError = err instanceof Error ? err.message : String(err);
-			console.warn('[updateZohoTaskStatus] /status fetch failed:', statusFetchError);
+			console.warn('[updateZohoTaskStatus] failed to list tasks for status discovery:', err instanceof Error ? err.message : String(err));
 		}
 
-		// v3 wraps in "status" key (array), not "statuses"
-		const statuses: any[] = Array.isArray(statusPayload?.status)
-			? statusPayload.status
-			: Array.isArray(statusPayload?.statuses)
-				? statusPayload.statuses
-				: Array.isArray(statusPayload)
-					? statusPayload
-					: [];
-
-		console.log(`[updateZohoTaskStatus] found ${statuses.length} statuses:`, JSON.stringify(statuses.map((s: any) => ({ id: s.id, name: s.name, type: s.type }))));
-
-		let matchedStatusId: string | null = null;
-
-		// Match by type first (most reliable)
-		if (mapped) {
-			for (const s of statuses) {
-				const sType = (s?.type || '').toLowerCase().replace(/\s+/g, '');
-				if (mapped.types.some(t => t.replace(/\s+/g, '') === sType)) {
-					matchedStatusId = String(s.id);
-					console.log(`[updateZohoTaskStatus] matched by type: ${sType} -> id ${matchedStatusId}`);
-					break;
-				}
-			}
-		}
-
-		// Match by name
-		if (!matchedStatusId) {
-			const nameVariations = [
-				status.toLowerCase(),
-				normalizedKey.replace(/_/g, ' '),
-				...(mapped ? ['open', 'in progress', 'completed'].filter((_, i) => Object.keys(statusMap)[i] === normalizedKey) : [])
-			];
-			for (const s of statuses) {
-				const sName = (s?.name || '').toLowerCase();
-				if (nameVariations.includes(sName)) {
-					matchedStatusId = String(s.id);
-					console.log(`[updateZohoTaskStatus] matched by name: ${sName} -> id ${matchedStatusId}`);
-					break;
-				}
-			}
-		}
-
-		const body: Record<string, any> = {};
-		if (matchedStatusId) {
-			body.status = { id: matchedStatusId };
-		} else {
-			// If we couldn't fetch statuses at all, try a different approach:
-			// GET the task itself to see what status IDs look like
-			console.warn(`[updateZohoTaskStatus] No status ID found. statusFetchError=${statusFetchError}, statusCount=${statuses.length}. Attempting to read task to discover status IDs.`);
+		// If tasks didn't reveal all statuses, also GET the specific task
+		if (discoveredStatuses.size === 0) {
 			try {
 				const taskPayload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`);
 				const taskData = taskPayload?.id ? taskPayload : (Array.isArray(taskPayload?.tasks) ? taskPayload.tasks[0] : null);
-				console.log('[updateZohoTaskStatus] current task status:', JSON.stringify(taskData?.status));
-				// If we got the task, we at least know one valid status ID format
-			} catch (taskErr) {
-				console.warn('[updateZohoTaskStatus] task GET also failed:', taskErr instanceof Error ? taskErr.message : String(taskErr));
+				if (taskData?.status?.id && taskData?.status?.name) {
+					const key = taskData.status.name.toLowerCase();
+					discoveredStatuses.set(key, { id: String(taskData.status.id), name: String(taskData.status.name) });
+					console.log('[updateZohoTaskStatus] discovered status from task GET:', JSON.stringify(taskData.status));
+				}
+			} catch (err) {
+				console.warn('[updateZohoTaskStatus] task GET failed:', err instanceof Error ? err.message : String(err));
 			}
-			throw new Error(`Could not resolve status ID for "${status}". Status endpoint returned ${statuses.length} statuses. Fetch error: ${statusFetchError || 'none'}`);
 		}
+
+		let matchedStatusId: string | null = null;
+
+		// Match by name
+		if (mapped) {
+			for (const targetName of mapped.names) {
+				const found = discoveredStatuses.get(targetName);
+				if (found) {
+					matchedStatusId = found.id;
+					console.log(`[updateZohoTaskStatus] matched "${targetName}" -> id ${matchedStatusId}`);
+					break;
+				}
+			}
+		}
+		if (!matchedStatusId) {
+			const found = discoveredStatuses.get(status.toLowerCase()) || discoveredStatuses.get(normalizedKey.replace(/_/g, ' '));
+			if (found) {
+				matchedStatusId = found.id;
+				console.log(`[updateZohoTaskStatus] matched by direct name -> id ${matchedStatusId}`);
+			}
+		}
+
+		// If we still don't have a match but we found some statuses, try fuzzy matching
+		if (!matchedStatusId && discoveredStatuses.size > 0) {
+			for (const [key, val] of discoveredStatuses) {
+				if (mapped && mapped.types.some(t => key.includes(t.replace(/\s+/g, '')))) {
+					matchedStatusId = val.id;
+					console.log(`[updateZohoTaskStatus] fuzzy matched "${key}" -> id ${matchedStatusId}`);
+					break;
+				}
+			}
+		}
+
+		if (!matchedStatusId) {
+			throw new Error(`Could not resolve status ID for "${status}". Discovered statuses: ${JSON.stringify(Array.from(discoveredStatuses.entries()))}`);
+		}
+
+		const body: Record<string, any> = { status: { id: matchedStatusId } };
 
 		if (mapped) {
 			body.percent_complete = percentComplete ?? mapped.pct;
