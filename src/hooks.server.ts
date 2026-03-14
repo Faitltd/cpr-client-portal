@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit';
 
 const DEFAULT_CANONICAL_URL = 'https://portal.homecpr.pro';
 const DEFAULT_LEGACY_HOSTS = ['cpr-client-portal.onrender.com'];
@@ -45,5 +45,27 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return Response.redirect(redirectUrl.toString(), 308);
 	}
 
-	return resolve(event);
+	try {
+		return await resolve(event);
+	} catch (err) {
+		// If an API route throws an unhandled error, return JSON instead of HTML error page.
+		// SvelteKit may render its HTML error page for unexpected throws, which causes
+		// 'Unexpected token <' errors on the client when it tries to JSON.parse the response.
+		if (event.url.pathname.startsWith('/api/')) {
+			console.error(`[hooks] Unhandled API error on ${event.url.pathname}:`, err);
+			const message = err instanceof Error ? err.message : 'Internal server error';
+			return new Response(JSON.stringify({ message }), {
+				status: 500,
+				headers: { 'Content-Type': 'application/json' }
+			});
+		}
+		throw err;
+	}
+};
+
+/** Ensure unexpected errors always produce JSON for API routes. */
+export const handleError: HandleServerError = ({ error, event }) => {
+	console.error(`[handleError] ${event.url.pathname}:`, error);
+	const message = error instanceof Error ? error.message : 'Internal server error';
+	return { message };
 };
