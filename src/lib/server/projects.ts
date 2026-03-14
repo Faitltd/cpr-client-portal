@@ -1686,55 +1686,62 @@ export async function projectsApiCall(endpoint: string, options: RequestInit = {
 			if (projectId) routeAttemptCount += 1;
 
 			const url = `${base}/api/v3/portal/${portalId}${endpoint}`;
-			const response = await fetchProjectsApiWithTimeout(
-				url,
-				{
-					...options,
-					headers: {
-						Authorization: `Zoho-oauthtoken ${accessToken}`,
-						'Content-Type': 'application/json',
-						...options.headers
-					}
-				},
-				`${endpoint} (${base} portal ${portalId})`
-			);
+			try {
+				const response = await fetchProjectsApiWithTimeout(
+					url,
+					{
+						...options,
+						headers: {
+							Authorization: `Zoho-oauthtoken ${accessToken}`,
+							'Content-Type': 'application/json',
+							...options.headers
+						}
+					},
+					`${endpoint} (${base} portal ${portalId})`
+				);
 
-			if (response.status === 204) {
-				cacheProjectsApiBase(base);
-				discoveredPortalIdCache = { portalId, base, fetchedAt: Date.now() };
-				if (projectId) cacheProjectRoute(projectId, base, portalId);
-				return {};
-			}
-
-			if (response.status === 429) {
-				const text = await response.text().catch(() => '');
-				log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
-					status: 429,
-					endpoint,
-					base,
-					portalId,
-					response: text
-				});
-				throw new Error(`Zoho Projects API error 429: ${text}`);
-			}
-
-			if (response.ok) {
-				const payload = await response.json().catch(() => ({}));
-				const projects = Array.isArray(payload?.projects) ? payload.projects : [];
-
-				if (isProjectsListEndpoint && projects.length === 0) {
-					if (firstEmptyProjectsPayload === null) firstEmptyProjectsPayload = payload;
-					continue;
+				if (response.status === 204) {
+					cacheProjectsApiBase(base);
+					discoveredPortalIdCache = { portalId, base, fetchedAt: Date.now() };
+					if (projectId) cacheProjectRoute(projectId, base, portalId);
+					return {};
 				}
 
-				cacheProjectsApiBase(base);
-				discoveredPortalIdCache = { portalId, base, fetchedAt: Date.now() };
-				if (projectId) cacheProjectRoute(projectId, base, portalId);
-				return payload;
-			}
+				if (response.status === 429) {
+					const text = await response.text().catch(() => '');
+					log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
+						status: 429,
+						endpoint,
+						base,
+						portalId,
+						response: text
+					});
+					throw new Error(`Zoho Projects API error 429: ${text}`);
+				}
 
-			const text = await response.text().catch(() => '');
-			errors.push(`${base} portal ${portalId} -> ${response.status}: ${text}`);
+				if (response.ok) {
+					const payload = await response.json().catch(() => ({}));
+					const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+
+					if (isProjectsListEndpoint && projects.length === 0) {
+						if (firstEmptyProjectsPayload === null) firstEmptyProjectsPayload = payload;
+						continue;
+					}
+
+					cacheProjectsApiBase(base);
+					discoveredPortalIdCache = { portalId, base, fetchedAt: Date.now() };
+					if (projectId) cacheProjectRoute(projectId, base, portalId);
+					return payload;
+				}
+
+				const text = await response.text().catch(() => '');
+				errors.push(`${base} portal ${portalId} -> ${response.status}: ${text}`);
+			} catch (fetchErr) {
+				const fetchMessage = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+				// Re-throw rate-limit and timeout errors immediately
+				if (fetchMessage.includes('429') || fetchMessage.includes('timeout')) throw fetchErr;
+				errors.push(`${base} portal ${portalId} -> network: ${fetchMessage}`);
+			}
 		}
 	}
 
@@ -2722,10 +2729,10 @@ export async function createZohoProject(data: {
 	end_date?: string;
 }): Promise<{ id: string; name: string }> {
 	try {
-		console.log('[createZohoProject] calling /projects/ with body:', JSON.stringify({ projects: [data] }).substring(0, 500));
-		const payload = await projectsApiCall('/projects/', {
+		console.log('[createZohoProject] calling /projects with body:', JSON.stringify(data).substring(0, 500));
+		const payload = await projectsApiCall('/projects', {
 			method: 'POST',
-			body: JSON.stringify({ projects: [data] })
+			body: JSON.stringify(data)
 		});
 		console.log('[createZohoProject] response payload:', JSON.stringify(payload).substring(0, 500));
 		const project = payload?.id ? payload : (Array.isArray(payload?.projects) ? payload.projects[0] : null);
