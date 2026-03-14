@@ -2849,9 +2849,19 @@ export async function createZohoTask(
 		const body: Record<string, any> = { name: data.name };
 		if (data.description) body.description = data.description;
 		if (data.tasklist_id) body.tasklist = { id: data.tasklist_id };
-		// Zoho v3 tasks accept dates as YYYY-MM-DD (ISO 8601)
-		if (data.start_date) body.start_date = data.start_date;
-		if (data.end_date) body.end_date = data.end_date;
+		// Zoho v3 tasks require MM-DD-YYYY format (same as phases)
+		if (data.start_date && /^\d{4}-\d{2}-\d{2}$/.test(data.start_date)) {
+			const [y, m, d] = data.start_date.split('-');
+			body.start_date = `${m}-${d}-${y}`;
+		} else if (data.start_date) {
+			body.start_date = data.start_date;
+		}
+		if (data.end_date && /^\d{4}-\d{2}-\d{2}$/.test(data.end_date)) {
+			const [y, m, d] = data.end_date.split('-');
+			body.end_date = `${m}-${d}-${y}`;
+		} else if (data.end_date) {
+			body.end_date = data.end_date;
+		}
 		if (data.priority) body.priority = data.priority;
 		console.log('[createZohoTask] body:', JSON.stringify(body));
 		const payload = await projectsApiCall(`/projects/${projectId}/tasks`, {
