@@ -99,13 +99,13 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		}
 
 		try {
-			// Check if deal already has a linked Zoho project
+			// Fetch deal name from CRM for proper project naming
 			if (logId) await updateGenerationLog(logId, {
 				status: 'creating_project',
-				last_completed_step: 'checking_existing_project'
+				last_completed_step: 'fetching_deal_name'
 			});
 
-			let existingProjectId: string | null = null;
+			let dealDisplayName = dealId;
 			try {
 				const tokens = await getZohoTokens();
 				if (tokens) {
@@ -135,31 +135,37 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 					);
 
 					const deal = dealResult?.data?.[0];
-					if (deal?.Zoho_Projects_ID) {
-						existingProjectId = String(deal.Zoho_Projects_ID);
+					console.log('[generate] Deal_Name:', JSON.stringify(deal?.Deal_Name), 'Contact_Name:', JSON.stringify(deal?.Contact_Name));
+					const rawName = deal?.Deal_Name;
+					if (typeof rawName === 'string' && rawName.trim()) {
+						dealDisplayName = rawName.trim();
+					} else if (rawName?.name) {
+						dealDisplayName = rawName.name;
+					} else {
+						const contact = deal?.Contact_Name;
+						if (typeof contact === 'string' && contact.trim()) {
+							dealDisplayName = contact.trim();
+						} else if (contact?.name) {
+							dealDisplayName = contact.name;
+						}
 					}
 				}
 			} catch (err) {
-				console.error('Failed to check existing project, will create new:', err);
+				console.error('Failed to fetch deal name, using dealId:', err);
 			}
 
-			if (existingProjectId) {
-				project = { id: existingProjectId, name: dealId + ' - Scope Builder' };
-				if (logId) await updateGenerationLog(logId, {
-					zoho_project_id: project.id,
-					last_completed_step: 'project:existing:' + project.id
-				});
-			} else {
-				project = await createZohoProject({
-					name: dealId + ' - Scope Builder',
-					description: 'Generated from scope builder'
-				});
+			const projectName = `${dealDisplayName} - Scope Builder`;
+			console.log('[generate] Creating new project:', projectName);
 
-				if (logId) await updateGenerationLog(logId, {
-					zoho_project_id: project.id,
-					last_completed_step: 'project:' + project.name
-				});
-			}
+			project = await createZohoProject({
+				name: projectName,
+				description: 'Generated from scope builder'
+			});
+
+			if (logId) await updateGenerationLog(logId, {
+				zoho_project_id: project.id,
+				last_completed_step: 'project:' + project.name
+			});
 
 			await sleep(200);
 
@@ -302,25 +308,29 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			}
 
 			// Create client approvals for tasks requiring decisions
-			for (const task of scopeTasks) {
-				if (!task.requires_client_decision) continue;
+			try {
+				for (const task of scopeTasks) {
+					if (!task.requires_client_decision) continue;
 
-				const dates = taskDates.get(task.id);
-				await createApproval({
-					deal_id: dealId,
-					title: 'Decision needed: ' + task.task_name,
-					description: task.description,
-					category: 'general',
-					assigned_to: 'client',
-					status: 'pending',
-					priority: 'normal',
-					due_date: dates?.start || null,
-					created_by: 'scope-builder'
-				});
+					const dates = taskDates.get(task.id);
+					await createApproval({
+						deal_id: dealId,
+						title: 'Decision needed: ' + task.task_name,
+						description: task.description,
+						category: 'general',
+						assigned_to: 'client',
+						status: 'pending',
+						priority: 'normal',
+						due_date: dates?.start || null,
+						created_by: 'scope-builder'
+					});
 
-				if (logId) await updateGenerationLog(logId, {
-					last_completed_step: 'approval:' + task.task_name
-				});
+					if (logId) await updateGenerationLog(logId, {
+						last_completed_step: 'approval:' + task.task_name
+					});
+				}
+			} catch (err) {
+				console.error('Failed to create approvals, continuing:', err);
 			}
 
 			if (logId) await updateGenerationLog(logId, {
