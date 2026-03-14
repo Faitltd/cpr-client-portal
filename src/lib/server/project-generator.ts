@@ -12,6 +12,53 @@ import { createZohoPhase, createZohoProject, createZohoTask, createZohoTasklist,
 import { mapScopeToTasks } from '$lib/server/scope-mapper';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
+/**
+ * Fetch the deal name from Zoho CRM for use as the project name.
+ * Falls back to the dealId if the CRM call fails.
+ */
+async function getDealDisplayName(dealId: string): Promise<string> {
+	try {
+		const tokens = await getZohoTokens();
+		if (!tokens) return dealId;
+
+		let accessToken = tokens.access_token;
+		let apiDomain = tokens.api_domain ?? undefined;
+
+		if (new Date(tokens.expires_at) < new Date()) {
+			const refreshed = await refreshAccessToken(tokens.refresh_token);
+			accessToken = refreshed.access_token;
+			apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
+			await upsertZohoTokens({
+				user_id: tokens.user_id,
+				access_token: refreshed.access_token,
+				refresh_token: refreshed.refresh_token,
+				expires_at: new Date(refreshed.expires_at).toISOString(),
+				scope: tokens.scope,
+				api_domain: apiDomain || null
+			});
+		}
+
+		const deal = await zohoApiCall(accessToken, '/Deals/' + dealId, { method: 'GET' }, apiDomain);
+		const record = deal?.data?.[0];
+		if (!record) return dealId;
+
+		// Try Deal_Name (may be string or lookup object)
+		const rawName = record.Deal_Name;
+		if (typeof rawName === 'string' && rawName.trim()) return rawName.trim();
+		if (rawName?.name) return rawName.name;
+
+		// Fall back to Contact_Name
+		const contact = record.Contact_Name;
+		if (typeof contact === 'string' && contact.trim()) return contact.trim();
+		if (contact?.name) return contact.name;
+
+		return dealId;
+	} catch (err) {
+		console.warn('Failed to fetch deal name from CRM, using dealId:', err);
+		return dealId;
+	}
+}
+
 export interface GenerationResult {
 	success: boolean;
 	zohoProjectId: string | null;
@@ -60,8 +107,13 @@ export async function generateProject(
 			last_completed_step: 'starting_project_creation'
 		});
 
+		const dealName = await getDealDisplayName(dealId);
+		const projectName = dealName !== dealId
+			? `${dealName} - ${scope.project_type}`
+			: `${dealId} - ${scope.project_type}`;
+
 		project = await createZohoProject({
-			name: dealId + ' - ' + scope.project_type,
+			name: projectName,
 			description: 'Auto-generated from scope definition'
 		});
 
