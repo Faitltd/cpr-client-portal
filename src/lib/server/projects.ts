@@ -3031,8 +3031,6 @@ export async function updateZohoTaskStatus(
 		throw new Error(`Zoho Projects update task status failed: ${message}`);
 	}
 }
-	}
-}
 /**
  * Pause async execution for a number of milliseconds.
  */
