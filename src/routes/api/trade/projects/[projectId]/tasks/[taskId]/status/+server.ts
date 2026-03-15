@@ -5,7 +5,7 @@ import { getTradePartnerDeals } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { parseZohoProjectIds, updateZohoTaskStatus } from '$lib/server/projects';
 
-const VALID_STATUSES = new Set(['open', 'in_progress', 'completed']);
+const VALID_STATUSES = new Set(['not_started', 'in_progress', 'completed']);
 
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
@@ -37,7 +37,7 @@ export const PUT: RequestHandler = async ({ cookies, params, request }) => {
 	}
 	if (!VALID_STATUSES.has(status)) {
 		return json(
-			{ error: 'Invalid status. Must be one of: open, in_progress, completed' },
+			{ error: 'Invalid status. Must be one of: not_started, in_progress, completed' },
 			{ status: 400 }
 		);
 	}
