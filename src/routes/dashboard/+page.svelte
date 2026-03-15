@@ -17,6 +17,16 @@
 		enabled: boolean;
 	}
 
+	interface EmailTimelineItem {
+		id: string;
+		date: string;
+		direction: 'inbound' | 'outbound';
+		subject: string;
+		summary: string | null;
+		source: 'sent_email' | 'comms_log';
+		status?: string;
+	}
+
 	let projects: any[] = [];
 	let invoices: any[] = [];
 	let loading = true;
@@ -28,6 +38,9 @@
 	let activityError = '';
 	let emailPrefs: EmailPref[] = [];
 	let emailPrefsLoading = true;
+	let emailTimeline: EmailTimelineItem[] = [];
+	let emailTimelineLoading = true;
+	let emailTimelineError = '';
 	const getErrorMessage = (payload: any, fallback: string) =>
 		payload?.error || payload?.message || fallback;
 	const readJson = async (res: Response) => res.json().catch(() => ({}));
@@ -118,6 +131,20 @@
 			})
 			.catch(() => {})
 			.finally(() => { emailPrefsLoading = false; });
+
+		fetch('/api/client/emails')
+			.then(async (res) => {
+				if (res.status === 401) return;
+				const payload = await readJson(res);
+				if (!res.ok) throw new Error(getErrorMessage(payload, 'Failed to load emails'));
+				emailTimeline = payload.data || [];
+			})
+			.catch((err) => {
+				emailTimelineError = err.message || 'Failed to load emails';
+			})
+			.finally(() => {
+				emailTimelineLoading = false;
+			});
 
 		fetch('/api/client/activity')
 			.then(async (res) => {
@@ -347,7 +374,7 @@
 			{/if}
 		</section>
 
-		<!-- Email Preferences -->
+		<!-- Email Updates Timeline -->
 		<section class="section">
 			<div class="section-header section-static">
 				<span class="section-header-left">
@@ -355,12 +382,37 @@
 					Email Updates
 				</span>
 			</div>
-			{#if emailPrefsLoading}
+			{#if emailTimelineLoading}
 				<p class="muted-text">Loading...</p>
-			{:else if emailPrefs.length === 0}
-				<p class="muted-text">No email update preferences configured for your projects yet.</p>
+			{:else if emailTimelineError}
+				<p class="muted-text error-text">{emailTimelineError}</p>
+			{:else if emailTimeline.length === 0}
+				<p class="muted-text">No email updates yet.</p>
 			{:else}
-				<div class="card-list">
+				<div class="email-timeline">
+					{#each emailTimeline as email (email.id)}
+						<div class="email-item email-{email.direction}">
+							<div class="email-item-top">
+								<div class="email-item-labels">
+									<span class="badge {email.direction === 'inbound' ? 'badge-inbound' : 'badge-outbound'}">
+										{email.direction === 'inbound' ? 'Received' : 'Sent'}
+									</span>
+								</div>
+								<span class="email-time">{formatRelativeTime(email.date)}</span>
+							</div>
+							<p class="email-subject">{email.subject}</p>
+							{#if email.summary}
+								<p class="email-summary">{email.summary}</p>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Email frequency preferences -->
+			{#if !emailPrefsLoading && emailPrefs.length > 0}
+				<div class="email-prefs-sub">
+					<span class="email-prefs-label">Update frequency</span>
 					{#each emailPrefs as pref (pref.id)}
 						<div class="email-pref-card">
 							<div class="email-pref-info">
@@ -764,15 +816,100 @@
 		flex: 1;
 	}
 
-	/* ── Email prefs ──────────────────────────────────── */
+	/* ── Email timeline ───────────────────────────────── */
+	.email-timeline {
+		display: grid;
+		gap: 0.6rem;
+		margin-top: 0.75rem;
+	}
+
+	.email-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0.65rem 0.85rem;
+		border-left: 3px solid transparent;
+		border-radius: 0 8px 8px 0;
+		background: #fafafa;
+	}
+
+	.email-outbound {
+		border-left-color: #3b82f6;
+	}
+
+	.email-inbound {
+		border-left-color: #10b981;
+	}
+
+	.email-item-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.email-item-labels {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.badge-outbound {
+		background: #dbeafe;
+		color: #1d4ed8;
+	}
+
+	.badge-inbound {
+		background: #d1fae5;
+		color: #065f46;
+	}
+
+	.email-time {
+		color: #9ca3af;
+		font-size: 0.75rem;
+	}
+
+	.email-subject {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #111827;
+		line-height: 1.35;
+	}
+
+	.email-summary {
+		margin: 0;
+		font-size: 0.8rem;
+		color: #6b7280;
+		line-height: 1.4;
+	}
+
+	/* ── Email prefs (sub-section) ────────────────────── */
+	.email-prefs-sub {
+		margin-top: 1rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid #e5e7eb;
+		display: grid;
+		gap: 0.5rem;
+	}
+
+	.email-prefs-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		font-weight: 600;
+		color: #9ca3af;
+	}
+
 	.email-pref-card {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.75rem;
-		padding: 0.85rem 1rem;
+		padding: 0.65rem 0.85rem;
 		border: 1px solid #e5e7eb;
-		border-radius: 12px;
+		border-radius: 10px;
 		background: #fff;
 		flex-wrap: wrap;
 	}
@@ -786,20 +923,20 @@
 
 	.email-pref-deal {
 		font-weight: 700;
-		font-size: 0.85rem;
+		font-size: 0.8rem;
 		color: #111827;
 	}
 
 	.email-pref-email {
 		color: #9ca3af;
-		font-size: 0.75rem;
+		font-size: 0.7rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
 	.email-pref-card select {
-		padding: 0.5rem 0.75rem;
+		padding: 0.45rem 0.65rem;
 		border-radius: 8px;
 		border: 1px solid #d1d5db;
 		min-height: 44px;
