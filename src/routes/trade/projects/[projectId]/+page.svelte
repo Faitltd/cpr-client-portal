@@ -81,9 +81,9 @@
 		task?.percent_complete ?? task?.percent_completed ?? task?.completed_percent ?? null;
 
 	const TASK_STATUSES = [
-		{ value: 'open', label: 'Open' },
-		{ value: 'in_progress', label: 'In Progress' },
-		{ value: 'completed', label: 'Completed' }
+		{ value: 'not_started', label: 'Not Started (0%)' },
+		{ value: 'in_progress', label: 'In Progress (50%)' },
+		{ value: 'completed', label: 'Completed (100%)' }
 	];
 
 	let updatingTaskIds = $state(new Set<string>());
@@ -91,10 +91,17 @@
 
 	const normalizeStatus = (raw: string): string => {
 		const lower = raw.toLowerCase().replace(/\s+/g, '_');
-		if (lower === 'open' || lower === 'not_started') return 'open';
-		if (lower === 'in_progress' || lower === 'in progress') return 'in_progress';
-		if (lower === 'completed' || lower === 'closed' || lower === 'done') return 'completed';
-		return lower;
+		if (lower === 'open' || lower === 'not_started') return 'not_started';
+		if (
+			lower === 'in_progress' ||
+			lower === '25%' ||
+			lower === '50%' ||
+			lower === '75%' ||
+			lower === 'in_review' ||
+			lower === 'approval_needed'
+		) return 'in_progress';
+		if (lower === 'completed' || lower === 'closed' || lower === 'done' || lower === 'complete') return 'completed';
+		return 'not_started';
 	};
 
 	const getTaskStatusValue = (task: any): string => {
@@ -142,6 +149,9 @@
 			if (!res.ok) {
 				throw new Error(payload?.error || `Failed to update (${res.status})`);
 			}
+			// Success — invalidate cache and re-fetch from Zoho so UI reflects real state
+			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
+			await fetchDetail(true);
 		} catch (err) {
 			// Revert optimistic update
 			task.status = prevStatus;
@@ -500,7 +510,7 @@
 		cursor: not-allowed;
 	}
 
-	.status-open {
+	.status-not_started {
 		border-color: #d1d5db;
 		background: #f9fafb;
 	}
