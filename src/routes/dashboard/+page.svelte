@@ -161,32 +161,32 @@
 </script>
 
 <div class="dashboard">
-	<header>
-		<div class="header-row">
-			<div>
-				<h1>My Projects</h1>
-				<p>View and manage your renovation projects</p>
-			</div>
-		</div>
+	<header class="page-header">
+		<h1>My Projects</h1>
+		<p class="page-subtitle">View and manage your renovation projects</p>
 	</header>
 
-	<section class="activity-section">
-		<div class="section-toggle section-static">Recent Activity</div>
+	<!-- Activity Section -->
+	<section class="section">
+		<div class="section-header section-static">
+			<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><path d="M10 6v4l3 2"/></svg>
+			Recent Activity
+		</div>
 		{#if activityLoading}
-			<p class="activity-muted">Loading...</p>
+			<p class="muted-text">Loading...</p>
 		{:else if activityError}
-			<p class="activity-muted">{activityError}</p>
+			<p class="muted-text">{activityError}</p>
 		{:else if activityItems.length === 0}
-			<p class="activity-muted">No recent activity.</p>
+			<p class="muted-text">No recent activity.</p>
 		{:else}
 			<div class="activity-list">
 				{#each activityItems as item, index (item.deal_id + item.date + item.type + index)}
 					<div class="activity-item activity-item-{item.type}">
 						<div class="activity-top">
 							<div class="activity-labels">
-								<span class="activity-type">{item.type === 'comm' ? 'Comm' : 'Update'}</span>
+								<span class="badge badge-muted">{item.type === 'comm' ? 'Comm' : 'Update'}</span>
 								{#if item.type === 'comm' && item.channel}
-									<span class="activity-channel">{item.channel}</span>
+									<span class="badge badge-channel">{item.channel}</span>
 								{/if}
 							</div>
 							<span class="activity-time">{formatRelativeTime(item.date)}</span>
@@ -201,89 +201,96 @@
 	</section>
 
 	{#if loading}
-		<div class="loading">Loading your projects...</div>
+		<div class="state-card">Loading your projects...</div>
 	{:else if error}
-		<div class="error">
+		<div class="state-card state-error">
 			<p>Error: {error}</p>
-			<a href="/auth/client">Please login again</a>
+			<a href="/auth/client" class="btn-primary">Please login again</a>
 		</div>
 	{:else if projects.length === 0}
-		<div class="empty">
-			<p>No projects found</p>
-		</div>
+		<div class="state-card">No projects found</div>
 	{:else}
-		<section class="projects-section">
-			<div class="projects-grid">
-				{#each projects as project}
-					<div class="project-card">
-						<div class="project-info">
-							<span class="stage-badge">{project.Stage || 'Unknown'}</span>
-							<h3>{project.Deal_Name || 'Untitled Project'}</h3>
-							<p class="project-meta">Next milestone: {project.Stage || 'Unknown'}</p>
-							<p class="date">Created: {new Date(project.Created_Time).toLocaleDateString()}</p>
-						</div>
-						<div class="project-actions">
-							{#if getProgressPhotosLink(project)}
-								<a
-									class="btn-view"
-									href={getProgressPhotosLink(project)}
-									target="_blank"
-									rel="noreferrer"
-								>
-									Progress Photos
-								</a>
-							{/if}
-							<a href="/project/{project.id}" class="btn-view">View Details</a>
-						</div>
+		<!-- Projects -->
+		<section class="section">
+			{#each projects as project}
+				<div class="project-card">
+					<div class="project-top">
+						<span class="stage-badge">{project.Stage || 'Unknown'}</span>
+						<span class="project-date">{new Date(project.Created_Time).toLocaleDateString()}</span>
 					</div>
-				{/each}
+					<h3 class="project-name">{project.Deal_Name || 'Untitled Project'}</h3>
+					<p class="project-meta">Next milestone: {project.Stage || 'Unknown'}</p>
+					<div class="project-actions">
+						{#if getProgressPhotosLink(project)}
+							<a class="btn-secondary" href={getProgressPhotosLink(project)} target="_blank" rel="noreferrer">
+								<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="2"/><path d="M18 14l-4-4-3 3-2-2-5 5"/></svg>
+								Photos
+							</a>
+						{/if}
+						<a href="/project/{project.id}" class="btn-primary">
+							<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
+							View Details
+						</a>
+					</div>
+				</div>
+			{/each}
+		</section>
+
+		<!-- Financial Summary -->
+		<section class="section">
+			<div class="summary-grid">
+				<div class="summary-card">
+					<span class="summary-label">Amount Paid</span>
+					<span class="summary-value">${amountPaid.toLocaleString()}</span>
+				</div>
+				<div class="summary-card">
+					<span class="summary-label">Remaining Balance</span>
+					<span class="summary-value">${invoiceTotals.balance.toLocaleString()}</span>
+				</div>
 			</div>
 		</section>
 
-		<section class="invoice-summary">
-			<div class="summary-card">
-				<p class="summary-label">Amount Paid</p>
-				<p class="summary-value">${amountPaid.toLocaleString()}</p>
-			</div>
-			<div class="summary-card">
-				<p class="summary-label">Remaining Balance</p>
-				<p class="summary-value">${invoiceTotals.balance.toLocaleString()}</p>
-			</div>
-		</section>
-
-		<section class="invoices-section">
-			<button class="section-toggle" type="button" on:click={() => (invoicesOpen = !invoicesOpen)}>
-				<span>Invoices</span>
+		<!-- Invoices -->
+		<section class="section">
+			<button class="section-header" type="button" on:click={() => (invoicesOpen = !invoicesOpen)}>
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="14" height="16" rx="2"/><path d="M7 6h6M7 10h6M7 14h4"/></svg>
+					Invoices
+				</span>
 				<span class="toggle-icon">{invoicesOpen ? '−' : '+'}</span>
 			</button>
 			{#if invoicesOpen}
 			{#if invoiceError}
-				<p class="invoice-error">{invoiceError}</p>
+				<p class="muted-text error-text">{invoiceError}</p>
 			{:else if regularInvoices.length === 0}
-				<p class="invoice-empty">No invoices found.</p>
+				<p class="muted-text">No invoices found.</p>
 			{:else}
-				<div class="invoice-list">
+				<div class="card-list">
 					{#each regularInvoices as invoice}
 						<div class="invoice-card">
-							<div>
-								<h3>{invoice.invoice_number || invoice.invoice_id}</h3>
-								<p class="invoice-meta">
-									Status: {invoice.status || 'Unknown'} • Date:
-									{formatInvoiceDate(invoice)}
-								</p>
+							<div class="invoice-info">
+								<h3 class="invoice-number">{invoice.invoice_number || invoice.invoice_id}</h3>
+								<div class="invoice-meta">
+									<span class="badge badge-muted">{invoice.status || 'Unknown'}</span>
+									<span class="meta-text">{formatInvoiceDate(invoice)}</span>
+								</div>
 							</div>
 							<div class="invoice-amounts">
-								<p>Total: ${Number(invoice.total || 0).toLocaleString()}</p>
-								<p>Balance: ${Number(invoice.balance || 0).toLocaleString()}</p>
+								<div class="amount-row">
+									<span class="amount-label">Total</span>
+									<span class="amount-value">${Number(invoice.total || 0).toLocaleString()}</span>
+								</div>
+								<div class="amount-row">
+									<span class="amount-label">Balance</span>
+									<span class="amount-value">${Number(invoice.balance || 0).toLocaleString()}</span>
+								</div>
+							</div>
+							<div class="invoice-actions">
 								{#if invoice.payment_url}
-									<a class="btn-view" href={invoice.payment_url} target="_blank" rel="noreferrer">
-										Pay
-									</a>
+									<a class="btn-primary" href={invoice.payment_url} target="_blank" rel="noreferrer">Pay Now</a>
 								{/if}
 								{#if invoice.invoice_url}
-									<a class="btn-secondary" href={invoice.invoice_url} target="_blank" rel="noreferrer">
-										View Invoice
-									</a>
+									<a class="btn-secondary" href={invoice.invoice_url} target="_blank" rel="noreferrer">View Invoice</a>
 								{/if}
 							</div>
 						</div>
@@ -293,35 +300,45 @@
 			{/if}
 		</section>
 
-		<section class="change-orders">
-			<div class="section-toggle section-static">Change Orders</div>
+		<!-- Change Orders -->
+		<section class="section">
+			<div class="section-header section-static">
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l6 6-10 10H2v-6L12 2z"/><path d="M9 5l6 6"/></svg>
+					Change Orders
+				</span>
+			</div>
 			{#if invoiceError}
-				<p class="invoice-error">{invoiceError}</p>
+				<p class="muted-text error-text">{invoiceError}</p>
 			{:else if changeOrders.length === 0}
-				<p class="invoice-empty">No change orders found.</p>
+				<p class="muted-text">No change orders found.</p>
 			{:else}
-				<div class="invoice-list">
+				<div class="card-list">
 					{#each changeOrders as invoice}
 						<div class="invoice-card">
-							<div>
-								<h3>{invoice.invoice_number || invoice.invoice_id}</h3>
-								<p class="invoice-meta">
-									Status: {invoice.status || 'Unknown'} • Date:
-									{formatInvoiceDate(invoice)}
-								</p>
+							<div class="invoice-info">
+								<h3 class="invoice-number">{invoice.invoice_number || invoice.invoice_id}</h3>
+								<div class="invoice-meta">
+									<span class="badge badge-muted">{invoice.status || 'Unknown'}</span>
+									<span class="meta-text">{formatInvoiceDate(invoice)}</span>
+								</div>
 							</div>
 							<div class="invoice-amounts">
-								<p>Total: ${Number(invoice.total || 0).toLocaleString()}</p>
-								<p>Balance: ${Number(invoice.balance || 0).toLocaleString()}</p>
+								<div class="amount-row">
+									<span class="amount-label">Total</span>
+									<span class="amount-value">${Number(invoice.total || 0).toLocaleString()}</span>
+								</div>
+								<div class="amount-row">
+									<span class="amount-label">Balance</span>
+									<span class="amount-value">${Number(invoice.balance || 0).toLocaleString()}</span>
+								</div>
+							</div>
+							<div class="invoice-actions">
 								{#if invoice.payment_url}
-									<a class="btn-view" href={invoice.payment_url} target="_blank" rel="noreferrer">
-										Pay
-									</a>
+									<a class="btn-primary" href={invoice.payment_url} target="_blank" rel="noreferrer">Pay Now</a>
 								{/if}
 								{#if invoice.invoice_url}
-									<a class="btn-secondary" href={invoice.invoice_url} target="_blank" rel="noreferrer">
-										View Invoice
-									</a>
+									<a class="btn-secondary" href={invoice.invoice_url} target="_blank" rel="noreferrer">View Invoice</a>
 								{/if}
 							</div>
 						</div>
@@ -330,16 +347,22 @@
 			{/if}
 		</section>
 
-		<section class="email-prefs-section">
-			<div class="section-toggle section-static">Email Updates</div>
+		<!-- Email Preferences -->
+		<section class="section">
+			<div class="section-header section-static">
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="16" height="12" rx="2"/><path d="M2 4l8 6 8-6"/></svg>
+					Email Updates
+				</span>
+			</div>
 			{#if emailPrefsLoading}
-				<p class="activity-muted">Loading...</p>
+				<p class="muted-text">Loading...</p>
 			{:else if emailPrefs.length === 0}
-				<p class="activity-muted">No email update preferences configured for your projects yet.</p>
+				<p class="muted-text">No email update preferences configured for your projects yet.</p>
 			{:else}
-				<div class="email-prefs-list">
+				<div class="card-list">
 					{#each emailPrefs as pref (pref.id)}
-						<div class="email-pref-item">
+						<div class="email-pref-card">
 							<div class="email-pref-info">
 								<span class="email-pref-deal">Project {pref.deal_id.slice(-6)}</span>
 								<span class="email-pref-email">{pref.client_email}</span>
@@ -361,171 +384,53 @@
 </div>
 
 <style>
+	/* ── Mobile-first base ────────────────────────────── */
 	.dashboard {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: 1rem;
 	}
 
-	header {
-		margin-bottom: 2rem;
+	.page-header {
+		margin-bottom: 1.25rem;
 	}
 
-	.header-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 1rem;
-	}
-
-	.loading, .error, .empty {
-		text-align: center;
-		padding: 3rem;
-		background: #f5f5f5;
-		border-radius: 8px;
-	}
-
-	.error {
-		color: #c00;
-	}
-
-	.projects-grid {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 1rem;
-	}
-
-	.project-card {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-		gap: 1.5rem;
-		padding: 1rem 1.25rem;
-		border: 1px solid #ddd;
-		border-radius: 8px;
-		background: white;
-	}
-
-	.project-card h3 {
-		margin-bottom: 0.5rem;
-		color: #1a1a1a;
-	}
-
-	.status, .date {
-		margin: 0.5rem 0;
-		color: #666;
-	}
-
-	.project-meta {
-		margin: 0.5rem 0;
-		color: #666;
-	}
-
-	.stage-badge {
-		display: inline-flex;
-		align-items: center;
-		background: #e0f2fe;
-		color: #0369a1;
-		border-radius: 999px;
-		padding: 0.25rem 0.65rem;
-		font-size: 0.8rem;
-		font-weight: 700;
-		margin-bottom: 0.25rem;
-	}
-
-	.project-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-	}
-
-	.btn-view {
-		display: inline-block;
-		margin-top: 1rem;
-		padding: 0.5rem 1rem;
-		background: #0066cc;
-		color: white;
-		text-decoration: none;
-		border-radius: 4px;
-		line-height: 1.2;
-	}
-
-	.btn-view:hover {
-		background: #0052a3;
-	}
-
-	.btn-secondary {
-		display: inline-block;
-		padding: 0.5rem 1rem;
-		background: #f5f5f5;
-		color: #1a1a1a;
-		text-decoration: none;
-		border-radius: 4px;
-		border: 1px solid #d0d0d0;
-		line-height: 1.2;
-	}
-
-	.btn-secondary:hover {
-		background: #e9e9e9;
-	}
-
-	.invoices-section {
-		margin-top: 3rem;
-	}
-
-	.change-orders {
-		margin-top: 2rem;
-	}
-
-	.invoice-summary {
-		margin-top: 2rem;
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 1rem;
-	}
-
-	.summary-card {
-		padding: 1rem 1.25rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 10px;
-		background: #f8fafc;
-	}
-
-	.summary-label {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.95rem;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-
-	.summary-value {
-		margin: 0.35rem 0 0;
-		font-size: 1.5rem;
-		font-weight: 700;
+	.page-header h1 {
+		font-size: 1.35rem;
+		font-weight: 800;
 		color: #111827;
+		margin: 0;
 	}
 
-	.section-toggle {
+	.page-subtitle {
+		color: #6b7280;
+		font-size: 0.85rem;
+		margin: 0.25rem 0 0;
+	}
+
+	/* ── Sections ─────────────────────────────────────── */
+	.section {
+		margin-bottom: 1.25rem;
+	}
+
+	.section-header {
 		width: 100%;
 		box-sizing: border-box;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.75rem 1rem;
+		padding: 0.7rem 0.85rem;
 		border: 1px solid #e5e7eb;
 		background: #f8fafc;
 		border-radius: 10px;
-		font-size: 1.25rem;
+		font-size: 0.95rem;
 		font-weight: 700;
 		cursor: pointer;
 		color: #111827;
+		-webkit-tap-highlight-color: transparent;
 	}
 
-	.section-toggle:hover {
-		color: #0f766e;
+	.section-header:hover {
 		background: #eef2f7;
 	}
 
@@ -534,68 +439,72 @@
 	}
 
 	.section-static:hover {
-		color: #111827;
 		background: #f8fafc;
 	}
 
+	.section-header-left {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.section-header-left svg {
+		flex-shrink: 0;
+		color: #6b7280;
+	}
+
 	.toggle-icon {
-		font-size: 1.4rem;
+		font-size: 1.25rem;
 		line-height: 1;
+		color: #9ca3af;
 	}
 
-	.invoice-list {
-		display: grid;
-		gap: 1rem;
+	/* ── State cards ──────────────────────────────────── */
+	.state-card {
+		text-align: center;
+		padding: 2rem 1rem;
+		background: #f5f5f5;
+		border-radius: 12px;
+		color: #6b7280;
+		font-size: 0.9rem;
 	}
 
-	.invoice-card {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 1rem;
-		padding: 1rem 1.5rem;
-		border: 1px solid #ddd;
-		border-radius: 8px;
-		background: #fff;
+	.state-error {
+		color: #dc2626;
+		background: #fef2f2;
 	}
 
-	.invoice-meta {
-		color: #666;
-		margin: 0.3rem 0 0;
+	/* ── Muted text ──────────────────────────────────── */
+	.muted-text {
+		color: #6b7280;
+		font-size: 0.85rem;
+		margin: 0.75rem 0 0;
+		padding-left: 0.25rem;
 	}
 
-	.invoice-amounts {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		flex-wrap: wrap;
-		justify-content: flex-end;
+	.error-text {
+		color: #dc2626;
 	}
 
-	.invoice-error {
-		color: #c00;
-	}
-
-	.activity-section {
-		margin-bottom: 2rem;
-	}
-
+	/* ── Activity ─────────────────────────────────────── */
 	.activity-list {
 		display: grid;
-		gap: 0.9rem;
-		margin-top: 1rem;
+		gap: 0.6rem;
+		margin-top: 0.75rem;
 	}
 
 	.activity-item {
 		display: flex;
 		flex-direction: column;
-		gap: 0.45rem;
-		padding: 0.25rem 0 0.25rem 1rem;
+		gap: 0.35rem;
+		padding: 0.5rem 0.75rem;
 		border-left: 3px solid transparent;
+		border-radius: 0 8px 8px 0;
+		background: #fafafa;
 	}
 
 	.activity-item-comm {
-		border-left-color: #0066cc;
+		border-left-color: #3b82f6;
 	}
 
 	.activity-item-daily_log {
@@ -606,152 +515,391 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
+		gap: 0.5rem;
 		flex-wrap: wrap;
 	}
 
 	.activity-labels {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.35rem;
 		flex-wrap: wrap;
 	}
 
-	.activity-type,
-	.activity-channel {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.2rem 0.55rem;
-		border-radius: 999px;
+	.activity-time {
+		color: #9ca3af;
 		font-size: 0.75rem;
-		font-weight: 700;
-	}
-
-	.activity-type {
-		background: #f3f4f6;
-		color: #111827;
-	}
-
-	.activity-channel {
-		background: #e5e7eb;
-		color: #374151;
-		text-transform: capitalize;
-	}
-
-	.activity-time,
-	.activity-muted {
-		color: #6b7280;
-		font-size: 0.9rem;
-	}
-
-	.activity-muted {
-		margin: 1rem 0 0;
 	}
 
 	.activity-summary {
 		margin: 0;
-		color: #111827;
-		line-height: 1.5;
+		color: #374151;
+		font-size: 0.85rem;
+		line-height: 1.45;
 	}
 
-	.email-prefs-section {
-		margin-top: 2rem;
-	}
-
-	.email-prefs-list {
-		display: grid;
-		gap: 0.75rem;
-		margin-top: 1rem;
-	}
-
-	.email-pref-item {
-		display: flex;
-		justify-content: space-between;
+	/* ── Badges ───────────────────────────────────────── */
+	.badge {
+		display: inline-flex;
 		align-items: center;
-		gap: 1rem;
-		padding: 1rem 1.25rem;
+		padding: 0.15rem 0.5rem;
+		border-radius: 999px;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+
+	.badge-muted {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
+	.badge-channel {
+		background: #e0e7ff;
+		color: #3730a3;
+		text-transform: capitalize;
+	}
+
+	/* ── Project cards ────────────────────────────────── */
+	.project-card {
+		padding: 1rem;
 		border: 1px solid #e5e7eb;
-		border-radius: 10px;
+		border-radius: 12px;
+		background: #fff;
+		margin-bottom: 0.75rem;
+	}
+
+	.project-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.stage-badge {
+		display: inline-flex;
+		align-items: center;
+		background: #e0f2fe;
+		color: #0369a1;
+		border-radius: 999px;
+		padding: 0.2rem 0.6rem;
+		font-size: 0.7rem;
+		font-weight: 700;
+	}
+
+	.project-date {
+		font-size: 0.75rem;
+		color: #9ca3af;
+	}
+
+	.project-name {
+		font-size: 1rem;
+		font-weight: 700;
+		color: #111827;
+		margin: 0 0 0.25rem;
+	}
+
+	.project-meta {
+		color: #6b7280;
+		font-size: 0.8rem;
+		margin: 0 0 0.75rem;
+	}
+
+	.project-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.project-actions .btn-primary,
+	.project-actions .btn-secondary {
+		flex: 1;
+	}
+
+	/* ── Buttons ──────────────────────────────────────── */
+	.btn-primary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		padding: 0.6rem 1rem;
+		background: #111827;
+		color: #fff;
+		text-decoration: none;
+		border-radius: 8px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		min-height: 44px;
+		-webkit-tap-highlight-color: transparent;
+		transition: background 0.15s;
+		border: none;
+		cursor: pointer;
+	}
+
+	.btn-primary:hover {
+		background: #1f2937;
+	}
+
+	.btn-secondary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		padding: 0.6rem 1rem;
+		background: #fff;
+		color: #374151;
+		text-decoration: none;
+		border-radius: 8px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		border: 1px solid #d1d5db;
+		min-height: 44px;
+		-webkit-tap-highlight-color: transparent;
+		transition: background 0.15s;
+		cursor: pointer;
+	}
+
+	.btn-secondary:hover {
+		background: #f9fafb;
+	}
+
+	/* ── Financial summary ────────────────────────────── */
+	.summary-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+	}
+
+	.summary-card {
+		padding: 0.85rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		background: #f8fafc;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.summary-label {
+		color: #6b7280;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		font-weight: 600;
+	}
+
+	.summary-value {
+		font-size: 1.15rem;
+		font-weight: 800;
+		color: #111827;
+	}
+
+	/* ── Card list / Invoice cards ────────────────────── */
+	.card-list {
+		display: grid;
+		gap: 0.6rem;
+		margin-top: 0.75rem;
+	}
+
+	.invoice-card {
+		padding: 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		background: #fff;
+	}
+
+	.invoice-info {
+		margin-bottom: 0.6rem;
+	}
+
+	.invoice-number {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #111827;
+		margin: 0 0 0.35rem;
+	}
+
+	.invoice-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.meta-text {
+		font-size: 0.75rem;
+		color: #9ca3af;
+	}
+
+	.invoice-amounts {
+		display: flex;
+		gap: 1rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.amount-row {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.amount-label {
+		font-size: 0.7rem;
+		color: #9ca3af;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.amount-value {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #111827;
+	}
+
+	.invoice-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.invoice-actions .btn-primary,
+	.invoice-actions .btn-secondary {
+		flex: 1;
+	}
+
+	/* ── Email prefs ──────────────────────────────────── */
+	.email-pref-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.85rem 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
 		background: #fff;
 		flex-wrap: wrap;
 	}
 
 	.email-pref-info {
 		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-		flex-wrap: wrap;
+		flex-direction: column;
+		gap: 0.15rem;
+		min-width: 0;
 	}
 
 	.email-pref-deal {
 		font-weight: 700;
+		font-size: 0.85rem;
 		color: #111827;
 	}
 
 	.email-pref-email {
-		color: #6b7280;
-		font-size: 0.9rem;
+		color: #9ca3af;
+		font-size: 0.75rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.email-pref-item select {
+	.email-pref-card select {
 		padding: 0.5rem 0.75rem;
-		border-radius: 6px;
+		border-radius: 8px;
 		border: 1px solid #d1d5db;
-		min-height: 40px;
-		font-size: 0.95rem;
+		min-height: 44px;
+		font-size: 0.85rem;
 		background: #fff;
+		color: #374151;
+		-webkit-tap-highlight-color: transparent;
+		flex-shrink: 0;
 	}
 
-	@media (max-width: 720px) {
+	/* ── Desktop ──────────────────────────────────────── */
+	@media (min-width: 640px) {
 		.dashboard {
-			padding: 1.5rem 1.25rem;
+			padding: 2rem;
 		}
 
-		.header-row {
-			flex-direction: column;
-			align-items: flex-start;
+		.page-header h1 {
+			font-size: 1.65rem;
+		}
+
+		.page-subtitle {
+			font-size: 0.9rem;
+		}
+
+		.section-header {
+			font-size: 1.1rem;
+			padding: 0.75rem 1rem;
+		}
+
+		.summary-value {
+			font-size: 1.4rem;
+		}
+
+		.summary-label {
+			font-size: 0.75rem;
 		}
 
 		.project-card {
-			grid-template-columns: 1fr;
-			align-items: start;
+			display: grid;
+			grid-template-columns: 1fr auto;
+			grid-template-rows: auto auto;
+			gap: 0.5rem 1.5rem;
+			align-items: center;
+			padding: 1.25rem;
+		}
+
+		.project-top {
+			grid-column: 1 / -1;
+			margin-bottom: 0;
+		}
+
+		.project-name {
+			font-size: 1.1rem;
+			grid-column: 1;
+		}
+
+		.project-meta {
+			grid-column: 1;
+			margin-bottom: 0;
 		}
 
 		.project-actions {
-			justify-content: flex-start;
+			grid-column: 2;
+			grid-row: 2 / 4;
+			flex-direction: column;
 		}
 
-		.btn-view {
-			margin-top: 0;
-			width: 100%;
-			text-align: center;
-			min-height: 44px;
-		}
-
-		.btn-secondary {
-			width: 100%;
-			text-align: center;
-			min-height: 44px;
+		.project-actions .btn-primary,
+		.project-actions .btn-secondary {
+			flex: none;
+			white-space: nowrap;
 		}
 
 		.invoice-card {
-			flex-direction: column;
-			align-items: flex-start;
+			display: grid;
+			grid-template-columns: 1fr auto auto;
+			align-items: center;
+			gap: 1rem;
+			padding: 1rem 1.25rem;
+		}
+
+		.invoice-info {
+			margin-bottom: 0;
 		}
 
 		.invoice-amounts {
-			justify-content: flex-start;
-			width: 100%;
+			margin-bottom: 0;
+			gap: 1.5rem;
 		}
 
-		.activity-item {
-			padding-left: 0.75rem;
-		}
-
-		.activity-top {
+		.invoice-actions {
 			flex-direction: column;
-			align-items: flex-start;
 			gap: 0.4rem;
+		}
+
+		.invoice-actions .btn-primary,
+		.invoice-actions .btn-secondary {
+			flex: none;
+			white-space: nowrap;
+			min-width: 110px;
 		}
 	}
 </style>
