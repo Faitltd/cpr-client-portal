@@ -2890,17 +2890,45 @@ export async function updateZohoTaskStatus(
 	percentComplete?: number
 ): Promise<{ id: string; name: string; status: string }> {
 	try {
-		// Map generic portal status intents to possible Zoho status names.
-		// Zoho portals can use custom names like "25%", "50%", "Complete", etc.
-		const statusMap: Record<string, { names: string[]; pct: number }> = {
-			open: { names: ['open'], pct: 0 },
-			in_progress: { names: ['in progress', 'inprogress', '25%'], pct: 50 },
-			completed: { names: ['completed', 'closed', 'done', 'complete'], pct: 100 }
+		// Map portal status intents to Zoho status names + known status IDs.
+		// The portal only exposes 3 statuses: Not Started (0%), In Progress (50%), Completed (100%).
+		// Hardcoded IDs from v2 tasklayouts discovery (portal 868682386).
+		const statusMap: Record<string, { names: string[]; pct: number; hardcodedId?: string }> = {
+			not_started: { names: ['open', 'not started'], pct: 0, hardcodedId: '2382775000000016068' },
+			in_progress: { names: ['in progress', 'inprogress', '25%', '50%'], pct: 50, hardcodedId: '2382775000000606013' },
+			completed: { names: ['completed', 'closed', 'done', 'complete'], pct: 100, hardcodedId: '2382775000000606014' }
 		};
 		const normalizedKey = status.toLowerCase().replace(/\s+/g, '_');
 		const mapped = statusMap[normalizedKey];
 		const targetNames = mapped ? mapped.names : [status.toLowerCase(), normalizedKey.replace(/_/g, ' ')];
 		console.log(`[updateZohoTaskStatus] target status="${status}", normalizedKey="${normalizedKey}", targetNames=${JSON.stringify(targetNames)}`);
+
+		// ── Fast path: use hardcoded status ID if available ──────────────
+		if (mapped?.hardcodedId) {
+			try {
+				const body: Record<string, any> = {
+					status: { id: mapped.hardcodedId },
+					percent_complete: percentComplete ?? mapped.pct
+				};
+				console.log(`[updateZohoTaskStatus] FAST PATH: PATCH with hardcoded id=${mapped.hardcodedId}, pct=${body.percent_complete}`);
+				const payload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`, {
+					method: 'PATCH',
+					body: JSON.stringify(body)
+				});
+				const task = payload?.id ? payload : (Array.isArray(payload?.tasks) ? payload.tasks[0] : null);
+				if (task?.id) {
+					console.log('[updateZohoTaskStatus] FAST PATH succeeded');
+					return {
+						id: String(task.id),
+						name: String(task.name || ''),
+						status: String(task.status?.name || task.custom_status || task.status || status)
+					};
+				}
+				console.warn('[updateZohoTaskStatus] FAST PATH response missing task, falling through to discovery');
+			} catch (fastErr) {
+				console.warn('[updateZohoTaskStatus] FAST PATH failed, falling through to discovery:', fastErr instanceof Error ? fastErr.message : String(fastErr));
+			}
+		}
 
 		// ── Helper: extract statuses from any tasklayouts response shape ──
 		function extractStatusesFromLayoutPayload(payload: any): Array<{ id: string; name: string }> {
