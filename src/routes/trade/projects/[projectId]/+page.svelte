@@ -149,9 +149,9 @@
 			if (!res.ok) {
 				throw new Error(payload?.error || `Failed to update (${res.status})`);
 			}
-			// Success — invalidate cache and re-fetch from Zoho so UI reflects real state
+			// Success — invalidate caches and re-fetch from Zoho so UI reflects real state
 			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
-			await fetchDetail(true);
+			await fetchDetail(true, true);
 		} catch (err) {
 			// Revert optimistic update
 			task.status = prevStatus;
@@ -199,11 +199,12 @@
 		}
 	}
 
-	async function fetchDetail(isRefresh: boolean) {
+	async function fetchDetail(isRefresh: boolean, bustCache = false) {
 		if (isRefresh) refreshing = true;
 		try {
 			const projectId = $page.params.projectId;
-			const res = await fetch(`/api/trade/projects/${projectId}`);
+			const qs = bustCache ? '?fresh' : '';
+			const res = await fetch(`/api/trade/projects/${projectId}${qs}`);
 			if (!res.ok) {
 				if (res.status === 401) {
 					window.location.href = '/auth/trade';
