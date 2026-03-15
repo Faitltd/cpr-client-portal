@@ -353,30 +353,37 @@
 </script>
 
 <div class="dashboard">
-	<header>
-		<h1>Trade Partner Dashboard</h1>
-		<p>Welcome {tradePartner.name || tradePartner.email}</p>
+	<header class="dash-header">
+		<div>
+			<h1>Dashboard</h1>
+			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
+		</div>
 	</header>
 
+	<div class="quick-actions">
+		<button
+			class="action-card action-primary"
+			type="button"
+			on:click={() => { showUpdateForm = !showUpdateForm; formSuccess = ''; }}
+		>
+			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="18" height="18" rx="4"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/></svg>
+			{showUpdateForm ? 'Close Form' : 'Field Update'}
+		</button>
+		<a class="action-card" href="/trade/daily-log">
+			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="16" height="18" rx="2"/><path d="M8 7h6M8 11h6M8 15h4"/></svg>
+			Daily Log
+		</a>
+		<a class="action-card" href={getProgressPhotosHref(selectedDeal)}>
+			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="18" height="16" rx="3"/><circle cx="8" cy="9" r="2"/><path d="M20 15l-5-5-3 3-2-2-6 6"/></svg>
+			Photos
+		</a>
+		<a class="action-card" href="/trade/report-issue">
+			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 2l9 18H2L11 2z"/><path d="M11 9v4"/><circle cx="11" cy="15.5" r="0.5" fill="currentColor"/></svg>
+			Report Issue
+		</a>
+	</div>
+
 	<div class="field-update card">
-		<div class="field-update-actions">
-			<button
-				class="field-update-button"
-				type="button"
-				on:click={() => { showUpdateForm = !showUpdateForm; formSuccess = ''; }}
-			>
-				{showUpdateForm ? 'Close Form' : 'Submit Field Update'}
-			</button>
-			<a class="field-update-secondary" href="/trade/projects">
-				Projects
-			</a>
-			<a class="field-update-secondary" href="/trade/daily-log">
-				Daily Log
-			</a>
-			<a class="field-update-secondary" href={getProgressPhotosHref(selectedDeal)}>
-				Progress Photos
-			</a>
-		</div>
 
 		{#if formSuccess && !showUpdateForm}
 			<p class="form-success">{formSuccess}</p>
@@ -574,76 +581,89 @@
 	.dashboard {
 		max-width: 900px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: 1.25rem;
 	}
 
-	header {
-		margin-bottom: 2rem;
+	.dash-header {
+		margin-bottom: 1.25rem;
+	}
+
+	.dash-header h1 {
+		margin: 0 0 0.15rem;
+		font-size: 1.5rem;
+	}
+
+	.dash-welcome {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.9rem;
+	}
+
+	/* ── Quick actions grid ──────────────────────── */
+	.quick-actions {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 0.75rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.action-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1.1rem 0.75rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		background: #fff;
+		color: #374151;
+		text-decoration: none;
+		font-weight: 600;
+		font-size: 0.85rem;
+		cursor: pointer;
+		min-height: 80px;
+		-webkit-tap-highlight-color: transparent;
+		transition: background 0.15s, border-color 0.15s;
+		font-family: inherit;
+	}
+
+	.action-card:hover {
+		background: #f9fafb;
+		border-color: #d1d5db;
+	}
+
+	.action-card:active {
+		background: #f3f4f6;
+	}
+
+	.action-primary {
+		background: #0066cc;
+		color: #fff;
+		border-color: #0066cc;
+	}
+
+	.action-primary:hover {
+		background: #0052a3;
+		border-color: #0052a3;
+	}
+
+	.action-primary:active {
+		background: #004080;
 	}
 
 	.card {
-		border: 1px solid #e0e0e0;
-		border-radius: 8px;
-		padding: 1.5rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		padding: 1.25rem;
 		background: #fff;
 	}
 
 	.field-update {
-		margin-bottom: 1.5rem;
+		margin-bottom: 1.25rem;
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
-	}
-
-	.field-update-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-	}
-
-	.field-update-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: #0066cc;
-		color: #fff;
-		text-decoration: none;
-		font-weight: 700;
-		border-radius: 10px;
-		padding: 0.85rem 1.25rem;
-		min-height: 44px;
-		width: fit-content;
-		max-width: 100%;
-		box-sizing: border-box;
-		border: none;
-		cursor: pointer;
-		font-size: 1rem;
-	}
-
-	.field-update-button:hover {
-		background: #0052a3;
-	}
-
-	.field-update-secondary {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: #f9fafb;
-		color: #111827;
-		text-decoration: none;
-		font-weight: 700;
-		border-radius: 10px;
-		padding: 0.85rem 1.25rem;
-		min-height: 44px;
-		width: fit-content;
-		max-width: 100%;
-		box-sizing: border-box;
-		border: 1px solid #d1d5db;
-	}
-
-	.field-update-secondary:hover {
-		background: #f3f4f6;
-		border-color: #cbd5e1;
 	}
 
 	.update-form {
@@ -993,31 +1013,17 @@
 		font-size: 0.85rem;
 	}
 
-	@media (max-width: 720px) {
+	@media (min-width: 640px) {
 		.dashboard {
-			padding: 1.5rem 1.25rem;
+			padding: 2rem;
 		}
 
-		.field-updates-header {
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.field-update-button {
-			width: 100%;
-		}
-
-		.field-update-actions a {
-			width: 100%;
+		.quick-actions {
+			grid-template-columns: repeat(4, 1fr);
 		}
 
 		.card {
-			padding: 1.25rem;
+			padding: 1.5rem;
 		}
-
-		.details-grid {
-			grid-template-columns: 1fr;
-		}
-
 	}
 </style>
