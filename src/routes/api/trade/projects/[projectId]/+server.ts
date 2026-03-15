@@ -13,6 +13,11 @@ import {
 const projectTasksCache = new Map<string, { fetchedAt: number; tasks: any[] }>();
 const PROJECT_TASKS_CACHE_TTL_MS = 2 * 60 * 1000;
 
+/** Invalidate the server-side task cache for a project so the next fetch returns fresh data. */
+export function invalidateProjectTasksCache(projectId: string) {
+	projectTasksCache.delete(projectId);
+}
+
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) return date.toISOString();
@@ -56,7 +61,7 @@ const getDealLabel = (deal: any) =>
 
 // GET /api/trade/projects/:projectId
 // Returns Zoho Project detail (tasks + activities) for an authorized trade partner.
-export const GET: RequestHandler = async ({ cookies, params }) => {
+export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	const sessionToken = cookies.get('trade_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
 
@@ -165,6 +170,8 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	}
 
 	const taskCountHint = getTaskCountHint(project);
+	const bustCache = url.searchParams.has('fresh');
+	if (bustCache) projectTasksCache.delete(projectId);
 	const cachedTasks = projectTasksCache.get(projectId);
 	const useTaskCache = cachedTasks && Date.now() - cachedTasks.fetchedAt < PROJECT_TASKS_CACHE_TTL_MS;
 
