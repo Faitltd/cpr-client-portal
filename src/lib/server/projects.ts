@@ -2890,10 +2890,12 @@ export async function updateZohoTaskStatus(
 	percentComplete?: number
 ): Promise<{ id: string; name: string; status: string }> {
 	try {
+		// Map generic portal status intents to possible Zoho status names.
+		// Zoho portals can use custom names like "25%", "50%", "Complete", etc.
 		const statusMap: Record<string, { names: string[]; pct: number }> = {
 			open: { names: ['open'], pct: 0 },
-			in_progress: { names: ['in progress', 'inprogress'], pct: 50 },
-			completed: { names: ['completed', 'closed', 'done'], pct: 100 }
+			in_progress: { names: ['in progress', 'inprogress', '25%'], pct: 50 },
+			completed: { names: ['completed', 'closed', 'done', 'complete'], pct: 100 }
 		};
 		const normalizedKey = status.toLowerCase().replace(/\s+/g, '_');
 		const mapped = statusMap[normalizedKey];
@@ -3065,8 +3067,34 @@ export async function updateZohoTaskStatus(
 		for (const s of allStatuses) {
 			if (targetNames.includes(s.name.toLowerCase())) {
 				matchedStatusId = s.id;
-				console.log(`[updateZohoTaskStatus] matched "${s.name}" -> id ${matchedStatusId}`);
+				console.log(`[updateZohoTaskStatus] exact match "${s.name}" -> id ${matchedStatusId}`);
 				break;
+			}
+		}
+
+		// Fuzzy match: if no exact match, pick the best semantic match.
+		// For "in_progress": pick the first status after Open (first work-started status).
+		// For "completed": pick the last status before hold/cancelled statuses, or one named like "complete/done/closed".
+		if (!matchedStatusId && allStatuses.length > 1 && mapped) {
+			const holdNames = ['on hold', 'delayed', 'cancelled', 'canceled', 'blocked', 'deferred'];
+			const nonOpen = allStatuses.filter(s => s.name.toLowerCase() !== 'open' && !holdNames.includes(s.name.toLowerCase()));
+			if (normalizedKey === 'in_progress' && nonOpen.length > 0) {
+				// Pick the first non-open, non-hold status (typically "25%" or first progress step)
+				matchedStatusId = nonOpen[0].id;
+				console.log(`[updateZohoTaskStatus] fuzzy match for in_progress: "${nonOpen[0].name}" -> id ${matchedStatusId}`);
+			} else if (normalizedKey === 'completed') {
+				// Look for something completion-like, or fall back to last non-hold status
+				const completionLike = nonOpen.find(s =>
+					/complete|done|finish|closed|100%/i.test(s.name)
+				);
+				if (completionLike) {
+					matchedStatusId = completionLike.id;
+					console.log(`[updateZohoTaskStatus] fuzzy match for completed: "${completionLike.name}" -> id ${matchedStatusId}`);
+				} else if (nonOpen.length > 0) {
+					// Last non-hold status is usually the final progression step
+					matchedStatusId = nonOpen[nonOpen.length - 1].id;
+					console.log(`[updateZohoTaskStatus] fuzzy match for completed (last non-hold): "${nonOpen[nonOpen.length - 1].name}" -> id ${matchedStatusId}`);
+				}
 			}
 		}
 
@@ -3119,8 +3147,11 @@ export async function updateZohoTaskStatus(
 
 			for (const v2Base of v2Bases) {
 				const v2UpdateUrl = `${v2Base}/restapi/portal/${portalId}/projects/${projectId}/tasks/${taskId}/`;
+				// Zoho v2 custom_status expects the status ID (numeric), not the name.
+				// If we have any discovered statuses, try the best-match ID; otherwise use name.
+				const v2StatusValue = matchedStatusId || statusName;
 				const v2Body = new URLSearchParams();
-				v2Body.append('custom_status', statusName);
+				v2Body.append('custom_status', v2StatusValue);
 				if (mapped) v2Body.append('percent_complete', String(percentComplete ?? mapped.pct));
 
 				console.log(`[updateZohoTaskStatus] v2 POST ${v2UpdateUrl} body: ${v2Body.toString()}`);
