@@ -13,11 +13,6 @@ import {
 const projectTasksCache = new Map<string, { fetchedAt: number; tasks: any[] }>();
 const PROJECT_TASKS_CACHE_TTL_MS = 2 * 60 * 1000;
 
-/** Invalidate the server-side task cache for a project so the next fetch returns fresh data. */
-export function invalidateProjectTasksCache(projectId: string) {
-	projectTasksCache.delete(projectId);
-}
-
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) return date.toISOString();
