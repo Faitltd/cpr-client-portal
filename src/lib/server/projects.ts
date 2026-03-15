@@ -2899,54 +2899,80 @@ export async function updateZohoTaskStatus(
 		const mapped = statusMap[normalizedKey];
 		const targetNames = mapped ? mapped.names : [status.toLowerCase(), normalizedKey.replace(/_/g, ' ')];
 
-		// Strategy 1: GET task layouts to find all status definitions
+		// ── Discover all available statuses ──────────────────────────────
 		let allStatuses: Array<{ id: string; name: string }> = [];
+
+		// Strategy 1 (PRIMARY): v2 REST tasklayouts → returns status_details
+		// This is the endpoint Zoho's own Deluge custom functions use.
+		// URL: /restapi/portal/{portalId}/projects/{projectId}/tasklayouts
+		// Only requires ZohoProjects.tasks.ALL scope (which we have).
 		try {
-			const layoutPayload = await projectsApiCall(`/projects/${projectId}/tasklayouts`);
-			console.log('[updateZohoTaskStatus] tasklayouts response keys:', JSON.stringify(layoutPayload ? Object.keys(layoutPayload) : null));
+			const accessToken = await getValidAccessToken();
+			const base = getPreferredProjectsApiBase();
+			const portalId = await resolvePortalId(accessToken);
+			if (!portalId) throw new Error('could not resolve portalId');
 
-			// v2 format: layoutPayload.status_details
-			// v3 format: may vary — check multiple keys
-			const statusDetails = layoutPayload?.status_details
-				|| layoutPayload?.statuses
-				|| layoutPayload?.status
-				|| [];
-			const statusArr = Array.isArray(statusDetails) ? statusDetails : [];
-			for (const s of statusArr) {
-				if (s?.id && s?.name) {
-					allStatuses.push({ id: String(s.id), name: String(s.name) });
-				}
-			}
-			console.log(`[updateZohoTaskStatus] from tasklayouts: ${allStatuses.length} statuses:`, JSON.stringify(allStatuses));
-		} catch (layoutErr) {
-			console.warn('[updateZohoTaskStatus] tasklayouts failed:', layoutErr instanceof Error ? layoutErr.message : String(layoutErr));
-		}
+			// Try both projectsapi.zoho.{tld} and projects.zoho.{tld} since
+			// v2 REST endpoints may be served from either subdomain.
+			const v2Bases = [base, base.replace('projectsapi.', 'projects.')];
+			const uniqueV2Bases = [...new Set(v2Bases)];
 
-		// Strategy 2: If tasklayouts didn't work, try v3 settings fields-configuration
-		if (allStatuses.length === 0) {
-			try {
-				const fieldsPayload = await projectsApiCall(`/settings/fields-configuration?module=tasks`);
-				console.log('[updateZohoTaskStatus] fields-configuration keys:', JSON.stringify(fieldsPayload ? Object.keys(fieldsPayload) : null));
-				// Look for a status field in the layout
-				const fields = Array.isArray(fieldsPayload?.fields) ? fieldsPayload.fields : Array.isArray(fieldsPayload) ? fieldsPayload : [];
-				for (const f of fields) {
-					if (f?.api_name === 'status' || f?.field_name === 'status' || (f?.display_name || '').toLowerCase() === 'status') {
-						const options = f?.pick_list_values || f?.options || f?.allowed_values || [];
-						for (const opt of (Array.isArray(options) ? options : [])) {
-							if (opt?.id && opt?.name) {
-								allStatuses.push({ id: String(opt.id), name: String(opt.name) });
+			for (const v2Base of uniqueV2Bases) {
+				if (allStatuses.length > 0) break;
+				const v2Url = `${v2Base}/restapi/portal/${portalId}/projects/${projectId}/tasklayouts`;
+				console.log(`[updateZohoTaskStatus] fetching v2 tasklayouts: ${v2Url}`);
+				try {
+					const layoutResp = await fetchProjectsApiWithTimeout(
+						v2Url,
+						{ headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } },
+						`v2 tasklayouts (${v2Base})`
+					);
+
+					if (layoutResp.ok) {
+						const layoutPayload = await layoutResp.json().catch(() => null);
+						console.log(`[updateZohoTaskStatus] v2 tasklayouts (${v2Base}) keys:`, JSON.stringify(layoutPayload ? Object.keys(layoutPayload) : null));
+
+						// v2 returns: { ..., status_details: [ { id, name, type, color_code, ... }, ... ] }
+						const statusDetails = layoutPayload?.status_details
+							|| layoutPayload?.statuses
+							|| layoutPayload?.status
+							|| [];
+						const statusArr = Array.isArray(statusDetails) ? statusDetails : [];
+						for (const s of statusArr) {
+							if (s?.id && s?.name) {
+								allStatuses.push({ id: String(s.id), name: String(s.name) });
 							}
 						}
-						console.log(`[updateZohoTaskStatus] from fields-config status field: ${allStatuses.length} statuses:`, JSON.stringify(allStatuses));
-						break;
+						console.log(`[updateZohoTaskStatus] v2 tasklayouts (${v2Base}) found ${allStatuses.length} statuses:`, JSON.stringify(allStatuses));
+					} else {
+						const errText = await layoutResp.text().catch(() => '');
+						console.warn(`[updateZohoTaskStatus] v2 tasklayouts (${v2Base}) ${layoutResp.status}: ${errText}`);
+					}
+				} catch (innerErr) {
+					console.warn(`[updateZohoTaskStatus] v2 tasklayouts (${v2Base}) error:`, innerErr instanceof Error ? innerErr.message : String(innerErr));
+				}
+			}
+		} catch (layoutErr) {
+			console.warn('[updateZohoTaskStatus] v2 tasklayouts failed:', layoutErr instanceof Error ? layoutErr.message : String(layoutErr));
+		}
+
+		// Strategy 2: v3 /projects/{id}/status (needs ZohoProjects.status.READ scope)
+		if (allStatuses.length === 0) {
+			try {
+				const statusPayload = await projectsApiCall(`/projects/${projectId}/status`);
+				const statusArr = Array.isArray(statusPayload?.status) ? statusPayload.status : [];
+				for (const s of statusArr) {
+					if (s?.id && s?.name) {
+						allStatuses.push({ id: String(s.id), name: String(s.name) });
 					}
 				}
-			} catch (fieldsErr) {
-				console.warn('[updateZohoTaskStatus] fields-configuration failed:', fieldsErr instanceof Error ? fieldsErr.message : String(fieldsErr));
+				console.log(`[updateZohoTaskStatus] v3 /status found ${allStatuses.length} statuses:`, JSON.stringify(allStatuses));
+			} catch (statusErr) {
+				console.warn('[updateZohoTaskStatus] v3 /status failed:', statusErr instanceof Error ? statusErr.message : String(statusErr));
 			}
 		}
 
-		// Strategy 3: Discover from existing tasks in the project
+		// Strategy 3: Discover from existing tasks in the project (only finds statuses currently in use)
 		if (allStatuses.length === 0) {
 			try {
 				const tasksPayload = await projectsApiCall(`/projects/${projectId}/tasks`);
@@ -2959,14 +2985,13 @@ export async function updateZohoTaskStatus(
 						allStatuses.push({ id: String(s.id), name: String(s.name) });
 					}
 				}
-				console.log(`[updateZohoTaskStatus] from tasks: ${allStatuses.length} statuses`);
+				console.log(`[updateZohoTaskStatus] from task scan: ${allStatuses.length} statuses:`, JSON.stringify(allStatuses));
 			} catch (tasksErr) {
-				console.warn('[updateZohoTaskStatus] tasks list failed:', tasksErr instanceof Error ? tasksErr.message : String(tasksErr));
+				console.warn('[updateZohoTaskStatus] task scan failed:', tasksErr instanceof Error ? tasksErr.message : String(tasksErr));
 			}
 		}
 
-		// Strategy 4: If we only found one status (e.g. Open) and need another,
-		// try to derive IDs. Zoho default statuses often have sequential IDs.
+		// ── Match the target status ──────────────────────────────────────
 		let matchedStatusId: string | null = null;
 		for (const s of allStatuses) {
 			if (targetNames.includes(s.name.toLowerCase())) {
@@ -2976,23 +3001,27 @@ export async function updateZohoTaskStatus(
 			}
 		}
 
-		// If no match but we have at least one status, try getting task to read its status,
-		// then try updating with custom_status (ID-based, which may work in v3 too)
-		if (!matchedStatusId && allStatuses.length > 0) {
-			// Try the v2-compatible custom_status approach with the status name
-			// Some Zoho accounts accept custom_status with the status name
-			console.log(`[updateZohoTaskStatus] trying custom_status with name as last resort`);
-			const statusName = mapped ? normalizedKey.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : status;
-			const body: Record<string, any> = { custom_status: statusName };
-			if (mapped) body.percent_complete = percentComplete ?? mapped.pct;
-			console.log('[updateZohoTaskStatus] PATCH body (custom_status fallback):', JSON.stringify(body));
+		// ── Update the task ──────────────────────────────────────────────
+
+		// If we found a status ID, use v3 PATCH with status.id (known to work)
+		if (matchedStatusId) {
+			const body: Record<string, any> = { status: { id: matchedStatusId } };
+			if (mapped) {
+				body.percent_complete = percentComplete ?? mapped.pct;
+			} else if (percentComplete !== undefined) {
+				body.percent_complete = percentComplete;
+			}
+
+			console.log('[updateZohoTaskStatus] PATCH body:', JSON.stringify(body));
 
 			const payload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`, {
 				method: 'PATCH',
 				body: JSON.stringify(body)
 			});
 			const task = payload?.id ? payload : (Array.isArray(payload?.tasks) ? payload.tasks[0] : null);
-			if (!task?.id) throw new Error('response missing updated task');
+			if (!task?.id) {
+				throw new Error('response missing updated task');
+			}
 			return {
 				id: String(task.id),
 				name: String(task.name || ''),
@@ -3000,27 +3029,68 @@ export async function updateZohoTaskStatus(
 			};
 		}
 
-		if (!matchedStatusId) {
-			throw new Error(`Could not resolve status ID for "${status}". Discovered statuses: ${JSON.stringify(allStatuses)}`);
+		// Fallback: use v2 POST with custom_status (status ID if we found any, or status name)
+		// Zoho v2 accepts custom_status with either the status ID or the display name.
+		const statusName = mapped
+			? normalizedKey.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+			: status;
+		console.log(`[updateZohoTaskStatus] no status ID matched; trying v2 custom_status with name "${statusName}"`);
+
+		try {
+			const accessToken = await getValidAccessToken();
+			const base = getPreferredProjectsApiBase();
+			const portalId = await resolvePortalId(accessToken);
+			if (!portalId) throw new Error('could not resolve portalId for v2 fallback');
+
+			const v2UpdateUrl = `${base}/restapi/portal/${portalId}/projects/${projectId}/tasks/${taskId}/`;
+			const v2Body = new URLSearchParams();
+			v2Body.append('custom_status', statusName);
+			if (mapped) v2Body.append('percent_complete', String(percentComplete ?? mapped.pct));
+
+			console.log(`[updateZohoTaskStatus] v2 POST ${v2UpdateUrl} body: ${v2Body.toString()}`);
+
+			const v2Resp = await fetchProjectsApiWithTimeout(
+				v2UpdateUrl,
+				{
+					method: 'POST',
+					headers: {
+						Authorization: `Zoho-oauthtoken ${accessToken}`,
+						'Content-Type': 'application/x-www-form-urlencoded'
+					},
+					body: v2Body.toString()
+				},
+				'v2 task update'
+			);
+
+			if (v2Resp.ok) {
+				const v2Payload = await v2Resp.json().catch(() => ({}));
+				const tasks = Array.isArray(v2Payload?.tasks) ? v2Payload.tasks : [];
+				const task = tasks[0] || v2Payload;
+				console.log('[updateZohoTaskStatus] v2 update succeeded');
+				return {
+					id: String(task?.id_string || task?.id || taskId),
+					name: String(task?.name || ''),
+					status: String(task?.status?.name || task?.custom_status || statusName)
+				};
+			}
+
+			const v2ErrText = await v2Resp.text().catch(() => '');
+			console.warn(`[updateZohoTaskStatus] v2 update ${v2Resp.status}: ${v2ErrText}`);
+		} catch (v2Err) {
+			console.warn('[updateZohoTaskStatus] v2 update fallback failed:', v2Err instanceof Error ? v2Err.message : String(v2Err));
 		}
 
-		const body: Record<string, any> = { status: { id: matchedStatusId } };
-		if (mapped) {
-			body.percent_complete = percentComplete ?? mapped.pct;
-		} else if (percentComplete !== undefined) {
-			body.percent_complete = percentComplete;
-		}
-
-		console.log('[updateZohoTaskStatus] PATCH body:', JSON.stringify(body));
+		// Last resort: v3 PATCH with custom_status name (may work on some accounts)
+		console.log(`[updateZohoTaskStatus] last resort: v3 PATCH custom_status "${statusName}"`);
+		const body: Record<string, any> = { custom_status: statusName };
+		if (mapped) body.percent_complete = percentComplete ?? mapped.pct;
 
 		const payload = await projectsApiCall(`/projects/${projectId}/tasks/${taskId}`, {
 			method: 'PATCH',
 			body: JSON.stringify(body)
 		});
 		const task = payload?.id ? payload : (Array.isArray(payload?.tasks) ? payload.tasks[0] : null);
-		if (!task?.id) {
-			throw new Error('response missing updated task');
-		}
+		if (!task?.id) throw new Error(`Could not update status to "${status}". Discovered statuses: ${JSON.stringify(allStatuses)}`);
 		return {
 			id: String(task.id),
 			name: String(task.name || ''),
