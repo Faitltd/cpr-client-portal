@@ -153,17 +153,13 @@
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
 						Projects
 					</a>
-					<a class="drawer-item" class:active={isActive('/trade/daily-log', pathname)} href="/trade/daily-log">
+					<a class="drawer-item" class:active={isActive('/trade/field-update', pathname)} href="/trade/field-update">
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="14" height="16" rx="2"/><path d="M7 6h6M7 10h6M7 14h4"/></svg>
-						Daily Log
+						Field Update
 					</a>
 					<a class="drawer-item" class:active={isActive('/trade/photos', pathname)} href="/trade/photos">
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="2"/><path d="M18 14l-4-4-3 3-2-2-5 5"/></svg>
 						Photos
-					</a>
-					<a class="drawer-item" class:active={isActive('/trade/report-issue', pathname)} href="/trade/report-issue">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2l8 16H2L10 2z"/><path d="M10 8v4"/><circle cx="10" cy="14" r="0.5" fill="currentColor"/></svg>
-						Report Issue
 					</a>
 				{/if}
 			</div>
