@@ -139,6 +139,10 @@
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
 						Project
 					</a>
+					<a class="drawer-item" class:active={isActive('/decisions', pathname)} href="/decisions">
+						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
+						Decisions
+					</a>
 				{/if}
 				{#if isTradePortal && hasTradeSession}
 					<a class="drawer-item" class:active={isActive('/trade/dashboard', pathname)} href="/trade/dashboard">
