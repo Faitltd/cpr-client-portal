@@ -6,10 +6,8 @@
 	let project: any = null;
 	let documents: any[] = [];
 	let notes: any[] = [];
-	let contracts: any[] = [];
 	let loading = true;
 	let error = '';
-	let contractError = '';
 	let wifiInput = '';
 	let doorCodeInput = '';
 	let updateMessage = '';
@@ -52,12 +50,11 @@
 			doorCodeInput = project?.Garage_Code || '';
 
 			if (contractsRes.ok) {
-				const contractsData = await contractsRes.json();
-				contracts = contractsData.data || [];
+				const signRequests = (await contractsRes.json()).data || [];
 
 				// Add completed/signed Zoho Sign documents to the documents list
 				// so they appear in the Documents section with working PDF download links
-				for (const c of contracts) {
+				for (const c of signRequests) {
 					if (c.id && /complete|signed/i.test(c.status || '')) {
 						documents = [
 							...documents,
@@ -70,8 +67,6 @@
 						];
 					}
 				}
-			} else if (contractsRes.status !== 401) {
-				contractError = 'Failed to fetch contracts';
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
@@ -199,56 +194,6 @@
 				<div class="description">
 					<h3>Description</h3>
 					<p>{project.Description}</p>
-				</div>
-			{/if}
-		</section>
-
-		<section class="contracts">
-			<h2>Contracts</h2>
-			{#if contractError}
-				<p class="section-error">{contractError}</p>
-			{:else if contracts.length === 0}
-				<p class="section-empty">No contracts found.</p>
-			{:else}
-				<div class="contract-list">
-					{#each contracts as contract}
-						<div class="contract-card">
-							<div>
-								<h3>{contract.name}</h3>
-								<p class="contract-meta">Status: {contract.status || 'Unknown'}</p>
-							</div>
-							<div class="contract-actions">
-								{#if contract.can_sign}
-									<a class="btn-view" href={`/contracts/${contract.id}/sign`} target="_blank" rel="noopener">
-										Sign
-									</a>
-								{/if}
-								{#if /complete|signed/i.test(contract.status || '')}
-									<a
-										class="btn-secondary"
-										href={`/api/sign/requests/${contract.id}/pdf`}
-										target="_blank"
-										rel="noopener"
-									>
-										View PDF
-									</a>
-								{:else if contract.view_url}
-									<a
-										class="btn-secondary"
-										href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`}
-										target="_blank"
-										rel="noopener"
-									>
-										View
-									</a>
-								{:else}
-									<a class="btn-secondary" href={`/contracts/${contract.id}/view`} target="_blank" rel="noopener">
-										View
-									</a>
-								{/if}
-							</div>
-						</div>
-					{/each}
 				</div>
 			{/if}
 		</section>
@@ -390,39 +335,6 @@
 		margin: 0;
 	}
 
-	.contract-list {
-		display: grid;
-		gap: 1rem;
-	}
-
-	.contract-card {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 1rem;
-		padding: 1rem 1.5rem;
-		border: 1px solid #ddd;
-		border-radius: 8px;
-		background: #fff;
-	}
-
-	.contract-meta {
-		color: #666;
-		margin: 0.3rem 0 0;
-	}
-
-	.contract-actions {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-	}
-
-	.section-error {
-		color: #c00;
-	}
-
 	.btn-view {
 		display: inline-block;
 		padding: 0.5rem 1rem;
@@ -435,21 +347,6 @@
 
 	.btn-view:hover {
 		background: #0052a3;
-	}
-
-	.btn-secondary {
-		display: inline-block;
-		padding: 0.5rem 1rem;
-		background: #f5f5f5;
-		color: #1a1a1a;
-		text-decoration: none;
-		border-radius: 4px;
-		border: 1px solid #d0d0d0;
-		min-height: 44px;
-	}
-
-	.btn-secondary:hover {
-		background: #e9e9e9;
 	}
 
 	.documents ul {
@@ -530,18 +427,7 @@
 			gap: 1.25rem;
 		}
 
-		.contract-card {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-
-		.contract-actions {
-			justify-content: flex-start;
-			width: 100%;
-		}
-
-		.btn-view,
-		.btn-secondary {
+		.btn-view {
 			width: 100%;
 			text-align: center;
 		}
