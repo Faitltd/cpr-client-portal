@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getClientDashboardContext } from '$lib/server/client-dashboard';
-import { supabase, getCommsForDeal } from '$lib/server/db';
+import { crmApiCall } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
 interface EmailTimelineItem {
@@ -9,8 +9,9 @@ interface EmailTimelineItem {
 	direction: 'inbound' | 'outbound';
 	subject: string;
 	summary: string | null;
-	source: 'sent_email' | 'comms_log';
-	status?: string;
+	from_name: string | null;
+	from_email: string | null;
+	to: string[];
 }
 
 export const GET: RequestHandler = async ({ cookies }) => {
@@ -20,76 +21,71 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		const context = await getClientDashboardContext(sessionToken);
 		if (!context) return json({ error: 'Unauthorized' }, { status: 401 });
 
-		const clientEmail = context.session.client.email;
+		const clientEmail = (context.session.client.email || '').toLowerCase();
 		const dealIds = context.deals.map((d: any) => String(d?.id || '').trim()).filter(Boolean);
 
 		if (dealIds.length === 0) {
 			return json({ data: [] });
 		}
 
-		// Fetch sent emails from the automated update system
-		const { data: sentEmails, error: sentError } = await supabase
-			.from('sent_emails')
-			.select('*')
-			.eq('client_email', clientEmail)
-			.in('deal_id', dealIds)
-			.in('status', ['sent', 'delivered'])
-			.order('created_at', { ascending: false })
-			.limit(50);
+		// Fetch emails from Zoho CRM for each deal
+		const allEmails: EmailTimelineItem[] = [];
 
-		if (sentError) {
-			console.error('sent_emails query error:', sentError.message);
-		}
+		for (const dealId of dealIds) {
+			try {
+				let hasMore = true;
+				let index: string | undefined;
 
-		// Fetch email comms from the comms log (both directions)
-		const commsResults = await Promise.all(
-			dealIds.map(async (dealId) => {
-				try {
-					const comms = await getCommsForDeal(dealId);
-					return comms.filter((c) => c.channel === 'email');
-				} catch {
-					return [];
+				// Paginate through up to 30 emails per deal (3 pages of 10)
+				let pages = 0;
+				while (hasMore && pages < 3) {
+					const params = index ? `?index=${encodeURIComponent(index)}` : '';
+					const response = await crmApiCall(`/Deals/${dealId}/Emails${params}`);
+					const emails = Array.isArray(response?.Emails) ? response.Emails : [];
+
+					for (const email of emails) {
+						const fromEmail = (email.from?.email || '').toLowerCase();
+						const toEmails: string[] = Array.isArray(email.to)
+							? email.to.map((t: any) => (t.email || '').toLowerCase())
+							: [];
+
+						// Determine direction based on whether client is sender or recipient
+						const isSentByClient = fromEmail === clientEmail;
+						const direction: 'inbound' | 'outbound' = isSentByClient ? 'outbound' : 'inbound';
+
+						allEmails.push({
+							id: email.message_id || `zoho-${dealId}-${emails.indexOf(email)}`,
+							date: email.time || '',
+							direction,
+							subject: email.subject || '(No subject)',
+							summary: email.summary || null,
+							from_name: email.from?.user_name || null,
+							from_email: email.from?.email || null,
+							to: toEmails
+						});
+					}
+
+					hasMore = response?.info?.more_records === true;
+					index = response?.info?.next_index;
+					pages++;
 				}
-			})
-		);
-		const emailComms = commsResults.flat();
-
-		// Merge into a unified timeline
-		const timeline: EmailTimelineItem[] = [];
-
-		// Add sent emails (outbound automated updates)
-		if (sentEmails) {
-			for (const email of sentEmails) {
-				timeline.push({
-					id: `sent-${email.id}`,
-					date: email.created_at,
-					direction: 'outbound',
-					subject: email.subject || 'Project Update',
-					summary: null,
-					source: 'sent_email',
-					status: email.status
-				});
+			} catch (err) {
+				// Log but don't fail — some deals may not have email access
+				const msg = err instanceof Error ? err.message : String(err);
+				console.error(`Failed to fetch emails for deal ${dealId}:`, msg);
 			}
 		}
 
-		// Add comms log entries (can be inbound or outbound)
-		for (const comm of emailComms) {
-			timeline.push({
-				id: `comm-${comm.id}`,
-				date: comm.created_at,
-				direction: comm.direction || 'outbound',
-				subject: comm.subject || 'Email',
-				summary: comm.summary,
-				source: 'comms_log'
-			});
-		}
+		// Sort newest first
+		allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-		// Deduplicate: if a sent_email and comms_log entry are within 5 min with same deal_id
-		// and similar subject, keep the comms_log entry (it has more detail)
-		const deduped = deduplicateTimeline(timeline);
-
-		// Sort chronologically (newest first)
-		deduped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+		// Deduplicate by message_id (same email might be on multiple deals)
+		const seen = new Set<string>();
+		const deduped = allEmails.filter((e) => {
+			if (seen.has(e.id)) return false;
+			seen.add(e.id);
+			return true;
+		});
 
 		return json({ data: deduped.slice(0, 50) });
 	} catch (err) {
@@ -98,45 +94,3 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		return json({ error }, { status: 500 });
 	}
 };
-
-function deduplicateTimeline(items: EmailTimelineItem[]): EmailTimelineItem[] {
-	const result: EmailTimelineItem[] = [];
-	const sentEmailsByDate = new Map<string, EmailTimelineItem>();
-	const commsByDate = new Map<string, EmailTimelineItem>();
-
-	for (const item of items) {
-		if (item.source === 'sent_email') {
-			sentEmailsByDate.set(item.date, item);
-		} else {
-			commsByDate.set(item.date, item);
-		}
-	}
-
-	// For each comms_log entry, check if there's a matching sent_email within 5 minutes
-	const matchedSentIds = new Set<string>();
-
-	for (const comm of items.filter((i) => i.source === 'comms_log')) {
-		const commTime = new Date(comm.date).getTime();
-		let matched = false;
-
-		for (const sent of items.filter((i) => i.source === 'sent_email')) {
-			const sentTime = new Date(sent.date).getTime();
-			if (Math.abs(commTime - sentTime) < 5 * 60 * 1000) {
-				matchedSentIds.add(sent.id);
-				matched = true;
-				break;
-			}
-		}
-
-		result.push(comm);
-	}
-
-	// Add sent_emails that weren't matched
-	for (const item of items.filter((i) => i.source === 'sent_email')) {
-		if (!matchedSentIds.has(item.id)) {
-			result.push(item);
-		}
-	}
-
-	return result;
-}
