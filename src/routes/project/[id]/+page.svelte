@@ -30,10 +30,7 @@
 
 	onMount(async () => {
 		try {
-			const [projectRes, contractsRes] = await Promise.all([
-				fetch(`/api/project/${projectId}`),
-				fetch('/api/sign/requests')
-			]);
+			const projectRes = await fetch(`/api/project/${projectId}`);
 			if (!projectRes.ok) {
 				if (projectRes.status === 403) {
 					error = 'You do not have permission to view this project';
@@ -48,26 +45,6 @@
 			notes = data.notes;
 			wifiInput = project?.WiFi || '';
 			doorCodeInput = project?.Garage_Code || '';
-
-			if (contractsRes.ok) {
-				const signRequests = (await contractsRes.json()).data || [];
-
-				// Add completed/signed Zoho Sign documents to the documents list
-				// so they appear in the Documents section with working PDF download links
-				for (const c of signRequests) {
-					if (c.id && /complete|signed/i.test(c.status || '')) {
-						documents = [
-							...documents,
-							{
-								id: c.id,
-								File_Name: `${c.name || 'Signed Document'}.pdf`,
-								Created_Time: c.created_time || new Date().toISOString(),
-								_source: 'sign'
-							}
-						];
-					}
-				}
-			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -204,11 +181,7 @@
 				<ul>
 					{#each documents as doc}
 						<li>
-							{#if doc._source === 'sign'}
-							<a href={`/api/sign/requests/${doc.id}/pdf`} target="_blank">{doc.File_Name}</a>
-						{:else}
 							<a href={`/api/project/${projectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank">{doc.File_Name}</a>
-						{/if}
 							<span class="date">{new Date(doc.Created_Time).toLocaleDateString()}</span>
 						</li>
 					{/each}
