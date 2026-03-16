@@ -1,11 +1,31 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
+	import { onDestroy, onMount } from 'svelte';
 
 	const year = new Date().getFullYear();
 	$: pathname = $page.url.pathname;
 	$: if (pathname) drawerOpen = false;
 
 	let drawerOpen = false;
+
+	const handleKeydown = (e: KeyboardEvent) => {
+		if (e.key === 'Escape' && drawerOpen) {
+			drawerOpen = false;
+		}
+	};
+
+	onMount(() => {
+		if (browser) {
+			window.addEventListener('keydown', handleKeydown);
+		}
+	});
+
+	onDestroy(() => {
+		if (browser) {
+			window.removeEventListener('keydown', handleKeydown);
+		}
+	});
 
 	const isActive = (href: string) => {
 		if (href === '/admin' && pathname === '/admin') return true;
@@ -71,7 +91,7 @@
 			<button
 				class="hamburger"
 				type="button"
-				aria-label="Open menu"
+				aria-label={drawerOpen ? 'Close menu' : 'Open menu'}
 				aria-expanded={drawerOpen}
 				on:click={() => (drawerOpen = !drawerOpen)}
 			>
@@ -86,29 +106,19 @@
 					{/if}
 				</svg>
 			</button>
-
-			<!-- Desktop: condensed horizontal nav for most-used items -->
-			<nav class="admin-nav-desktop">
-				<a class="nav-item" class:active={isActive('/admin')} href="/admin">Dashboard</a>
-				<a class="nav-item" class:active={isActive('/admin/zprojects')} href="/admin/zprojects">Projects</a>
-				<a class="nav-item" class:active={isActive('/admin/approvals')} href="/admin/approvals">Approvals</a>
-				<a class="nav-item" class:active={isActive('/admin/comms')} href="/admin/comms">Comms</a>
-				<a class="nav-item" class:active={isActive('/admin/daily-logs')} href="/admin/daily-logs">Logs</a>
-
-				<div class="nav-more-wrap">
-					<button class="nav-item nav-more-btn" type="button" on:click={() => (drawerOpen = !drawerOpen)}>
-						More
-						<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5.5l4 4 4-4"/></svg>
-					</button>
-				</div>
-
-				<a class="nav-item nav-logout" href="/admin/logout">Log out</a>
-			</nav>
 		</div>
 	</header>
 
 	<!-- Slide-out drawer for all nav items -->
 	<nav class="drawer" class:open={drawerOpen} aria-label="Admin navigation">
+		<div class="drawer-close-row">
+			<button class="drawer-close" type="button" aria-label="Close menu" on:click={() => (drawerOpen = false)}>
+				<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+					<line x1="5" y1="5" x2="15" y2="15" />
+					<line x1="5" y1="15" x2="15" y2="5" />
+				</svg>
+			</button>
+		</div>
 		{#each navGroups as group, gi}
 			{#if gi > 0}
 				<div class="drawer-divider"></div>
@@ -194,54 +204,6 @@
 
 	.hamburger:hover {
 		background: #f3f4f6;
-	}
-
-	/* ── Desktop nav ─────────────────────────────────── */
-	.admin-nav-desktop {
-		display: none;
-		align-items: center;
-		gap: 0.2rem;
-	}
-
-	.nav-item {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.3rem;
-		padding: 0.4rem 0.7rem;
-		border-radius: 8px;
-		text-decoration: none;
-		color: #4b5563;
-		font-size: 0.875rem;
-		font-weight: 500;
-		transition: background 0.15s, color 0.15s;
-		min-height: 36px;
-		border: none;
-		background: none;
-		cursor: pointer;
-	}
-
-	.nav-item:hover {
-		background: #f3f4f6;
-		color: #111827;
-	}
-
-	.nav-item.active {
-		background: #f0f0f0;
-		color: #111827;
-		font-weight: 600;
-	}
-
-	.nav-logout {
-		color: #9ca3af;
-	}
-
-	.nav-more-wrap {
-		position: relative;
-	}
-
-	.nav-more-btn {
-		font-family: inherit;
-		font-size: 0.875rem;
 	}
 
 	/* ── Drawer ──────────────────────────────────────── */
@@ -351,18 +313,36 @@
 		font-size: 0.8rem;
 	}
 
+	/* ── Drawer close button ────────────────────────── */
+	.drawer-close-row {
+		display: flex;
+		justify-content: flex-end;
+		padding: 0 0.5rem 0.25rem;
+	}
+
+	.drawer-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border: none;
+		background: transparent;
+		color: #6b7280;
+		cursor: pointer;
+		border-radius: 10px;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.drawer-close:hover {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
 	/* ── Desktop breakpoint ──────────────────────────── */
 	@media (min-width: 768px) {
 		.admin-header-inner {
 			padding: 0 2rem;
-		}
-
-		.admin-nav-desktop {
-			display: flex;
-		}
-
-		.hamburger {
-			display: none;
 		}
 
 		.admin-footer-inner {
