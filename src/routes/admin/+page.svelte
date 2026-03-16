@@ -68,18 +68,18 @@
 		<p class="error-text">{error}</p>
 	{:else if data}
 		<div class="metrics-grid">
-			<a class="card metric-card" href="/admin/health">
+			<div class="card metric-card">
 				<span class="metric-value">{data.active_projects}</span>
 				<span class="metric-label">Active Projects</span>
-			</a>
-			<a class="card metric-card metric-warning" href="/admin/approvals">
+			</div>
+			<div class="card metric-card metric-warning">
 				<span class="metric-value">{data.pending_approvals}</span>
 				<span class="metric-label">Pending Approvals</span>
-			</a>
-			<a class="card metric-card metric-danger" href="/admin/field-issues">
+			</div>
+			<div class="card metric-card metric-danger">
 				<span class="metric-value">{data.open_issues}</span>
 				<span class="metric-label">Open Issues</span>
-			</a>
+			</div>
 		</div>
 
 		<div class="two-col">
@@ -133,20 +133,6 @@
 			</div>
 		</div>
 
-		<div class="card section-card">
-			<h2>Quick Actions</h2>
-			<div class="actions-grid">
-				<a class="action-btn" href="/admin/health">Project Health</a>
-				<a class="action-btn" href="/admin/approvals">Approvals</a>
-				<a class="action-btn" href="/admin/field-issues">Field Issues</a>
-				<a class="action-btn" href="/admin/daily-logs">Daily Logs</a>
-				<a class="action-btn" href="/admin/comms">Communications</a>
-				<a class="action-btn" href="/admin/procurement">Procurement</a>
-				<a class="action-btn" href="/admin/change-orders">Change Orders</a>
-				<a class="action-btn" href="/admin/clients">Clients</a>
-				<a class="action-btn" href="/admin/email-updates">Email Updates</a>
-			</div>
-		</div>
 	{/if}
 </div>
 
@@ -188,14 +174,6 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 0.35rem;
-		text-decoration: none;
-		cursor: pointer;
-		transition: box-shadow 0.15s, border-color 0.15s;
-	}
-
-	.metric-card:hover {
-		border-color: #0066cc;
-		box-shadow: 0 2px 8px rgba(0, 102, 204, 0.12);
 	}
 
 	.metric-warning .metric-value {
@@ -325,35 +303,6 @@
 		text-decoration: underline;
 	}
 
-	.actions-grid {
-		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
-		gap: 0.75rem;
-	}
-
-	.action-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.65rem 1rem;
-		border: 1px solid #d0d0d0;
-		border-radius: 999px;
-		background: #fff;
-		color: #1a1a1a;
-		min-height: 44px;
-		font-size: 0.88rem;
-		text-decoration: none;
-		text-align: center;
-		white-space: nowrap;
-		transition: background 0.1s;
-	}
-
-	.action-btn:hover {
-		background: #f3f4f6;
-		border-color: #0066cc;
-		color: #0066cc;
-	}
-
 	.muted {
 		color: #6b7280;
 		font-size: 0.85rem;
@@ -378,8 +327,5 @@
 			grid-template-columns: 1fr;
 		}
 
-		.actions-grid {
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-		}
 	}
 </style>

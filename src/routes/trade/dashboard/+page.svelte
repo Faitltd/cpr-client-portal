@@ -2,13 +2,6 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { formatCrmRichText } from '$lib/html';
-	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
-	import { createDraft, type DraftHandle } from '$lib/stores/draftStore';
-
-	type FieldUpdateDraft = {
-		formUpdateType: string;
-		formNote: string;
-	};
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -144,12 +137,6 @@
 		return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 	};
 
-	const getProgressPhotosHref = (deal: any) => {
-		const dealId = String(deal?.id || '').trim();
-		if (!dealId) return '/trade/photos';
-		return `/api/trade/deals/${encodeURIComponent(dealId)}/progress-photos`;
-	};
-
 	const formatUpdateTimestamp = (value: string | null) => {
 		if (!value) return '—';
 		const date = new Date(value);
@@ -222,134 +209,7 @@
 
 	onDestroy(() => {
 		fieldUpdatesController?.abort();
-		draft?.cancelPending();
 	});
-
-	// --- Field Update Form ---
-	const UPDATE_TYPES = [
-		{ value: 'progress', label: 'Progress Update' },
-		{ value: 'issue', label: 'Issue' },
-		{ value: 'material_delivery', label: 'Material Delivery' },
-		{ value: 'inspection', label: 'Inspection' },
-		{ value: 'weather_delay', label: 'Weather Delay' },
-		{ value: 'schedule_change', label: 'Schedule Change' },
-		{ value: 'completed_work', label: 'Completed Work' },
-		{ value: 'other', label: 'Other' }
-	];
-
-	let showUpdateForm = false;
-	let formUpdateType = 'progress';
-	let formNote = '';
-	let formPhotos: { id: string; url: string; name: string }[] = [];
-	let formSubmitting = false;
-	let formError = '';
-	let formSuccess = '';
-	let photoUploadRef: PhotoUpload;
-
-	// Draft saving
-	let draft: DraftHandle<FieldUpdateDraft> | null = null;
-	let draftStatus: 'idle' | 'saving' | 'saved' = 'idle';
-	let draftRestorable = false;
-	let draftSavedAt = 0;
-
-	const getDraftData = (): FieldUpdateDraft => ({ formUpdateType, formNote });
-
-	const isDraftEmpty = (d: FieldUpdateDraft) =>
-		!d.formNote.trim() && d.formUpdateType === 'progress';
-
-	const restoreDraft = (d: FieldUpdateDraft) => {
-		formUpdateType = d.formUpdateType;
-		formNote = d.formNote;
-		showUpdateForm = true;
-		draftRestorable = false;
-	};
-
-	const dismissDraft = () => {
-		draftRestorable = false;
-		draft?.clear();
-	};
-
-	const initDraft = (dealId: string) => {
-		draft?.cancelPending();
-		draftStatus = 'idle';
-		draftRestorable = false;
-		draft = createDraft<FieldUpdateDraft>(`draft_field_update_${dealId}`, isDraftEmpty);
-		const saved = draft.load();
-		if (saved) {
-			draftRestorable = true;
-			draftSavedAt = saved.savedAt;
-		}
-	};
-
-	$: if (browser && selectedDealId) initDraft(selectedDealId);
-
-	$: if (browser && draft && !draftRestorable && showUpdateForm) {
-		const data = getDraftData();
-		if (!isDraftEmpty(data)) {
-			draftStatus = 'saving';
-			draft.scheduleSave(data);
-			setTimeout(() => { draftStatus = 'saved'; }, 2100);
-		} else {
-			draft.clear();
-			draftStatus = 'idle';
-		}
-	}
-
-	const resetForm = () => {
-		formUpdateType = 'progress';
-		formNote = '';
-		formPhotos = [];
-		formError = '';
-		formSuccess = '';
-		photoUploadRef?.reset();
-	};
-
-	const submitFieldUpdate = async () => {
-		formError = '';
-		formSuccess = '';
-
-		if (!selectedDealId) {
-			formError = 'No deal selected.';
-			return;
-		}
-
-		formSubmitting = true;
-		try {
-			const photoIds = photoUploadRef?.getPhotoIds() || [];
-			const res = await fetch('/api/trade/field-updates', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					deal_id: selectedDealId,
-					update_type: formUpdateType,
-					note: formNote.trim() || null,
-					photo_ids: photoIds.length > 0 ? photoIds : null
-				})
-			});
-
-			if (res.status === 401) {
-				formError = 'Session expired. Please login again.';
-				return;
-			}
-
-			const payload = await res.json().catch(() => ({}));
-			if (!res.ok) {
-				formError = payload?.error || `Failed to submit (${res.status})`;
-				return;
-			}
-
-			formSuccess = 'Field update submitted successfully!';
-			draft?.clear();
-			draftStatus = 'idle';
-			resetForm();
-			showUpdateForm = false;
-			loadFieldUpdates(selectedDealId);
-		} catch (err) {
-			formError = err instanceof Error ? err.message : 'Failed to submit field update';
-		} finally {
-			formSubmitting = false;
-		}
-	};
 </script>
 
 <div class="dashboard">
@@ -359,98 +219,6 @@
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
 	</header>
-
-	<div class="quick-actions">
-		<button
-			class="action-card action-primary"
-			type="button"
-			on:click={() => { showUpdateForm = !showUpdateForm; formSuccess = ''; }}
-		>
-			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="18" height="18" rx="4"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/></svg>
-			{showUpdateForm ? 'Close Form' : 'Field Update'}
-		</button>
-		<a class="action-card" href="/trade/daily-log">
-			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="16" height="18" rx="2"/><path d="M8 7h6M8 11h6M8 15h4"/></svg>
-			Daily Log
-		</a>
-		<a class="action-card" href={getProgressPhotosHref(selectedDeal)}>
-			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="18" height="16" rx="3"/><circle cx="8" cy="9" r="2"/><path d="M20 15l-5-5-3 3-2-2-6 6"/></svg>
-			Photos
-		</a>
-		<a class="action-card" href="/trade/report-issue">
-			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 2l9 18H2L11 2z"/><path d="M11 9v4"/><circle cx="11" cy="15.5" r="0.5" fill="currentColor"/></svg>
-			Report Issue
-		</a>
-	</div>
-
-	<div class="field-update card">
-
-		{#if formSuccess && !showUpdateForm}
-			<p class="form-success">{formSuccess}</p>
-		{/if}
-
-		{#if draftRestorable && !showUpdateForm}
-			<div class="draft-banner">
-				<span>Draft saved {new Date(draftSavedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>
-				<div class="draft-banner-actions">
-					<button type="button" class="draft-restore-btn" on:click={() => { const saved = draft?.load(); if (saved) restoreDraft(saved.data); }}>Restore</button>
-					<button type="button" class="draft-dismiss-btn" on:click={dismissDraft}>Dismiss</button>
-				</div>
-			</div>
-		{/if}
-
-		{#if showUpdateForm}
-			<form class="update-form" on:submit|preventDefault={submitFieldUpdate}>
-				<div class="form-field">
-					<label for="update-type">Update Type</label>
-					<select id="update-type" bind:value={formUpdateType}>
-						{#each UPDATE_TYPES as opt}
-							<option value={opt.value}>{opt.label}</option>
-						{/each}
-					</select>
-				</div>
-
-				<div class="form-field">
-					<label for="update-note">Note</label>
-					<textarea
-						id="update-note"
-						bind:value={formNote}
-						rows="4"
-						placeholder="Describe the update..."
-					></textarea>
-				</div>
-
-				<div class="form-field">
-					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label>Photos</label>
-					<PhotoUpload bind:this={photoUploadRef} maxFiles={5} />
-				</div>
-
-				{#if formError}
-					<p class="form-error">{formError}</p>
-				{/if}
-
-				<div class="form-actions">
-					<button class="form-submit" type="submit" disabled={formSubmitting}>
-						{formSubmitting ? 'Submitting...' : 'Submit Update'}
-					</button>
-					<button
-						class="form-cancel"
-						type="button"
-						on:click={() => { showUpdateForm = false; resetForm(); }}
-						disabled={formSubmitting}
-					>
-						Cancel
-					</button>
-					{#if draftStatus === 'saving'}
-						<span class="draft-indicator">Saving…</span>
-					{:else if draftStatus === 'saved'}
-						<span class="draft-indicator">Draft saved</span>
-					{/if}
-				</div>
-			</form>
-		{/if}
-	</div>
 
 	{#if data?.warning}
 		<div class="card warning">{data.warning}</div>
@@ -599,169 +367,11 @@
 		font-size: 0.9rem;
 	}
 
-	/* ── Quick actions grid ──────────────────────── */
-	.quick-actions {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 0.75rem;
-		margin-bottom: 1.25rem;
-	}
-
-	.action-card {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 1.1rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		background: #fff;
-		color: #374151;
-		text-decoration: none;
-		font-weight: 600;
-		font-size: 0.85rem;
-		cursor: pointer;
-		min-height: 80px;
-		-webkit-tap-highlight-color: transparent;
-		transition: background 0.15s, border-color 0.15s;
-		font-family: inherit;
-	}
-
-	.action-card:hover {
-		background: #f9fafb;
-		border-color: #d1d5db;
-	}
-
-	.action-card:active {
-		background: #f3f4f6;
-	}
-
-	.action-primary {
-		background: #0066cc;
-		color: #fff;
-		border-color: #0066cc;
-	}
-
-	.action-primary:hover {
-		background: #0052a3;
-		border-color: #0052a3;
-	}
-
-	.action-primary:active {
-		background: #004080;
-	}
-
 	.card {
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		padding: 1.25rem;
 		background: #fff;
-	}
-
-	.field-update {
-		margin-bottom: 1.25rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.update-form {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		border-top: 1px solid #e5e7eb;
-		padding-top: 1rem;
-	}
-
-	.form-field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-	}
-
-	.form-field label {
-		font-weight: 600;
-		font-size: 0.95rem;
-		color: #374151;
-	}
-
-	.form-field select,
-	.form-field textarea {
-		padding: 0.6rem 0.75rem;
-		border-radius: 6px;
-		border: 1px solid #d1d5db;
-		font-size: 1rem;
-		width: 100%;
-		min-height: 44px;
-		box-sizing: border-box;
-	}
-
-	.form-field textarea {
-		resize: vertical;
-		min-height: 100px;
-	}
-
-	.form-error {
-		margin: 0;
-		color: #b91c1c;
-		font-size: 0.95rem;
-	}
-
-	.form-success {
-		margin: 0;
-		color: #15803d;
-		font-weight: 600;
-		font-size: 0.95rem;
-	}
-
-	.form-actions {
-		display: flex;
-		gap: 0.75rem;
-		flex-wrap: wrap;
-	}
-
-	.form-submit {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: #0066cc;
-		color: #fff;
-		border: none;
-		font-weight: 700;
-		border-radius: 10px;
-		padding: 0.75rem 1.25rem;
-		min-height: 44px;
-		cursor: pointer;
-		font-size: 1rem;
-	}
-
-	.form-submit:hover:not(:disabled) {
-		background: #0052a3;
-	}
-
-	.form-submit:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.form-cancel {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: #fff;
-		color: #111827;
-		border: 1px solid #d1d5db;
-		font-weight: 700;
-		border-radius: 10px;
-		padding: 0.75rem 1.25rem;
-		min-height: 44px;
-		cursor: pointer;
-		font-size: 1rem;
-	}
-
-	.form-cancel:hover:not(:disabled) {
-		background: #f3f4f6;
 	}
 
 	.warning {
@@ -958,68 +568,9 @@
 		color: #1e40af;
 	}
 
-	.draft-banner {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 0.75rem;
-		flex-wrap: wrap;
-		padding: 0.85rem 1rem;
-		background: #eff6ff;
-		border: 1px solid #bfdbfe;
-		border-radius: 8px;
-		color: #1e40af;
-		font-size: 0.9rem;
-		margin-bottom: 1.25rem;
-	}
-
-	.draft-banner-actions {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.draft-restore-btn {
-		background: #2563eb;
-		color: #fff;
-		border: none;
-		border-radius: 6px;
-		padding: 0.4rem 0.85rem;
-		font-weight: 600;
-		font-size: 0.85rem;
-		cursor: pointer;
-	}
-
-	.draft-restore-btn:hover {
-		background: #1d4ed8;
-	}
-
-	.draft-dismiss-btn {
-		background: transparent;
-		color: #1e40af;
-		border: 1px solid #93c5fd;
-		border-radius: 6px;
-		padding: 0.4rem 0.85rem;
-		font-weight: 600;
-		font-size: 0.85rem;
-		cursor: pointer;
-	}
-
-	.draft-dismiss-btn:hover {
-		background: #dbeafe;
-	}
-
-	.draft-indicator {
-		color: #9ca3af;
-		font-size: 0.85rem;
-	}
-
 	@media (min-width: 640px) {
 		.dashboard {
 			padding: 2rem;
-		}
-
-		.quick-actions {
-			grid-template-columns: repeat(4, 1fr);
 		}
 
 		.card {

@@ -54,7 +54,6 @@
 			<h1>Client Passwords</h1>
 			<p>New client logins default to email as username and phone number as password.</p>
 		</div>
-		<a class="logout" href="/admin/logout">Logout</a>
 	</header>
 
 	<div class="actions">
@@ -179,19 +178,6 @@
 		flex-wrap: wrap;
 	}
 
-	.logout {
-		text-decoration: none;
-		color: #1a1a1a;
-		border: 1px solid #ddd;
-		padding: 0.35rem 0.8rem;
-		border-radius: 999px;
-		background: #fff;
-		min-height: 44px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
 	.card {
 		border: 1px solid #e0e0e0;
 		border-radius: 8px;
@@ -314,10 +300,6 @@
 		header {
 			flex-direction: column;
 			align-items: stretch;
-		}
-
-		.logout {
-			width: 100%;
 		}
 
 		.card {

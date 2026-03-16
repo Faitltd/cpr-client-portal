@@ -121,9 +121,9 @@
 </script>
 
 <div class="project-detail">
-	<nav>
+	<div class="back-nav">
 		<a href="/dashboard">← Back to Projects</a>
-	</nav>
+	</div>
 
 	{#if loading}
 		<div class="loading">Loading project details...</div>
@@ -295,11 +295,11 @@
 		padding: 2rem;
 	}
 
-	nav {
+	.back-nav {
 		margin-bottom: 2rem;
 	}
 
-	nav a {
+	.back-nav a {
 		color: #0066cc;
 		text-decoration: none;
 	}
@@ -517,7 +517,7 @@
 			padding: 1.5rem 1.25rem;
 		}
 
-		nav {
+		.back-nav {
 			margin-bottom: 1.25rem;
 		}
 

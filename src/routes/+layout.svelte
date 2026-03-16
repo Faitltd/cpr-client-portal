@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 
 	$: pathname = $page.url.pathname;
 	$: showClientNav =
@@ -17,6 +17,18 @@
 	let appBg: HTMLDivElement | null = null;
 	let cleanupFade: (() => void) | null = null;
 	let drawerOpen = false;
+
+	const handleKeydown = (e: KeyboardEvent) => {
+		if (e.key === 'Escape' && drawerOpen) {
+			drawerOpen = false;
+		}
+	};
+
+	onMount(() => {
+		if (browser) {
+			window.addEventListener('keydown', handleKeydown);
+		}
+	});
 
 	const startFade = () => {
 		if (!appBg || !browser) return () => {};
@@ -56,7 +68,12 @@
 		cleanupFade = startFade();
 	}
 
-	onDestroy(() => cleanupFade?.());
+	onDestroy(() => {
+		cleanupFade?.();
+		if (browser) {
+			window.removeEventListener('keydown', handleKeydown);
+		}
+	});
 
 	const isActive = (href: string, current: string) => {
 		if (href === '/trade/projects' && current.startsWith('/trade/projects')) return true;
@@ -82,24 +99,10 @@
 					<span>CPR</span>
 				</a>
 
-				<nav class="portal-nav-desktop">
-					{#if hasPortalSession && !isTradePortal}
-						<a class="nav-item" class:active={isActive('/dashboard', pathname)} href="/dashboard">Finances</a>
-						<a class="nav-item" class:active={isActive('/zprojects', pathname)} href="/zprojects">Project</a>
-					{/if}
-					{#if isTradePortal && hasTradeSession}
-						<a class="nav-item" class:active={isActive('/trade/dashboard', pathname)} href="/trade/dashboard">Dashboard</a>
-						<a class="nav-item" class:active={isActive('/trade/projects', pathname)} href="/trade/projects">Projects</a>
-						<a class="nav-item" class:active={isActive('/trade/daily-log', pathname)} href="/trade/daily-log">Daily Log</a>
-					{/if}
-					<a class="nav-item" class:active={isActive(accountHref, pathname)} href={accountHref}>Account</a>
-					<a class="nav-item nav-logout" href="/api/logout?next=/">Log out</a>
-				</nav>
-
 				<button
 					class="hamburger"
 					type="button"
-					aria-label="Open menu"
+					aria-label={drawerOpen ? 'Close menu' : 'Open menu'}
 					aria-expanded={drawerOpen}
 					on:click={() => (drawerOpen = !drawerOpen)}
 				>
@@ -118,6 +121,14 @@
 		</header>
 
 		<nav class="drawer" class:open={drawerOpen} aria-label="Main navigation">
+			<div class="drawer-close-row">
+				<button class="drawer-close" type="button" aria-label="Close menu" on:click={() => (drawerOpen = false)}>
+					<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+						<line x1="5" y1="5" x2="15" y2="15" />
+						<line x1="5" y1="15" x2="15" y2="5" />
+					</svg>
+				</button>
+			</div>
 			<div class="drawer-section">
 				{#if hasPortalSession && !isTradePortal}
 					<a class="drawer-item" class:active={isActive('/dashboard', pathname)} href="/dashboard">
@@ -127,6 +138,10 @@
 					<a class="drawer-item" class:active={isActive('/zprojects', pathname)} href="/zprojects">
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
 						Project
+					</a>
+					<a class="drawer-item" class:active={isActive('/decisions', pathname)} href="/decisions">
+						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
+						Decisions
 					</a>
 				{/if}
 				{#if isTradePortal && hasTradeSession}
@@ -138,17 +153,13 @@
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
 						Projects
 					</a>
-					<a class="drawer-item" class:active={isActive('/trade/daily-log', pathname)} href="/trade/daily-log">
+					<a class="drawer-item" class:active={isActive('/trade/field-update', pathname)} href="/trade/field-update">
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="14" height="16" rx="2"/><path d="M7 6h6M7 10h6M7 14h4"/></svg>
-						Daily Log
+						Field Update
 					</a>
 					<a class="drawer-item" class:active={isActive('/trade/photos', pathname)} href="/trade/photos">
 						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="2"/><path d="M18 14l-4-4-3 3-2-2-5 5"/></svg>
 						Photos
-					</a>
-					<a class="drawer-item" class:active={isActive('/trade/report-issue', pathname)} href="/trade/report-issue">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2l8 16H2L10 2z"/><path d="M10 8v4"/><circle cx="10" cy="14" r="0.5" fill="currentColor"/></svg>
-						Report Issue
 					</a>
 				{/if}
 			</div>
@@ -222,45 +233,6 @@
 		text-decoration: none;
 		color: #111827;
 		letter-spacing: -0.01em;
-	}
-
-	/* ── Desktop nav ──────────────────────────────────── */
-	.portal-nav-desktop {
-		display: none;
-		align-items: center;
-		gap: 0.25rem;
-	}
-
-	.nav-item {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.45rem 0.85rem;
-		border-radius: 8px;
-		text-decoration: none;
-		color: #4b5563;
-		font-size: 0.9rem;
-		font-weight: 500;
-		transition: background 0.15s, color 0.15s;
-		min-height: 36px;
-	}
-
-	.nav-item:hover {
-		background: #f3f4f6;
-		color: #111827;
-	}
-
-	.nav-item.active {
-		background: #f0f0f0;
-		color: #111827;
-		font-weight: 600;
-	}
-
-	.nav-logout {
-		color: #9ca3af;
-	}
-
-	.nav-logout:hover {
-		color: #6b7280;
 	}
 
 	/* ── Hamburger ──────────────────────────────────────── */
@@ -374,6 +346,32 @@
 		color: #9ca3af;
 	}
 
+	/* ── Drawer close button ───────────────────────────── */
+	.drawer-close-row {
+		display: flex;
+		justify-content: flex-end;
+		padding: 0 0.5rem 0.25rem;
+	}
+
+	.drawer-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border: none;
+		background: transparent;
+		color: #6b7280;
+		cursor: pointer;
+		border-radius: 10px;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.drawer-close:hover {
+		background: #f3f4f6;
+		color: #374151;
+	}
+
 	/* ── Global form resets ─────────────────────────────── */
 	:global(input),
 	:global(select),
@@ -386,19 +384,6 @@
 	@media (min-width: 768px) {
 		.portal-header-inner {
 			padding: 0 2rem;
-		}
-
-		.portal-nav-desktop {
-			display: flex;
-		}
-
-		.hamburger {
-			display: none;
-		}
-
-		.drawer,
-		.drawer-backdrop {
-			display: none;
 		}
 	}
 </style>
