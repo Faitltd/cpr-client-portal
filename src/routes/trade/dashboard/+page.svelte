@@ -137,12 +137,6 @@
 		return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 	};
 
-	const getProgressPhotosHref = (deal: any) => {
-		const dealId = String(deal?.id || '').trim();
-		if (!dealId) return '/trade/photos';
-		return `/api/trade/deals/${encodeURIComponent(dealId)}/progress-photos`;
-	};
-
 	const formatUpdateTimestamp = (value: string | null) => {
 		if (!value) return '—';
 		const date = new Date(value);
@@ -225,17 +219,6 @@
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
 	</header>
-
-	<div class="quick-actions">
-		<a class="action-card action-primary" href="/trade/field-update">
-			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="18" height="18" rx="4"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/></svg>
-			Field Update
-		</a>
-		<a class="action-card" href={getProgressPhotosHref(selectedDeal)}>
-			<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="18" height="16" rx="3"/><circle cx="8" cy="9" r="2"/><path d="M20 15l-5-5-3 3-2-2-6 6"/></svg>
-			Photos
-		</a>
-	</div>
 
 	{#if data?.warning}
 		<div class="card warning">{data.warning}</div>
@@ -382,59 +365,6 @@
 		margin: 0;
 		color: #6b7280;
 		font-size: 0.9rem;
-	}
-
-	/* ── Quick actions grid ──────────────────────── */
-	.quick-actions {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 0.75rem;
-		margin-bottom: 1.25rem;
-	}
-
-	.action-card {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 1.1rem 0.75rem;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		background: #fff;
-		color: #374151;
-		text-decoration: none;
-		font-weight: 600;
-		font-size: 0.85rem;
-		cursor: pointer;
-		min-height: 80px;
-		-webkit-tap-highlight-color: transparent;
-		transition: background 0.15s, border-color 0.15s;
-		font-family: inherit;
-	}
-
-	.action-card:hover {
-		background: #f9fafb;
-		border-color: #d1d5db;
-	}
-
-	.action-card:active {
-		background: #f3f4f6;
-	}
-
-	.action-primary {
-		background: #0066cc;
-		color: #fff;
-		border-color: #0066cc;
-	}
-
-	.action-primary:hover {
-		background: #0052a3;
-		border-color: #0052a3;
-	}
-
-	.action-primary:active {
-		background: #004080;
 	}
 
 	.card {
@@ -641,10 +571,6 @@
 	@media (min-width: 640px) {
 		.dashboard {
 			padding: 2rem;
-		}
-
-		.quick-actions {
-			grid-template-columns: repeat(2, 1fr);
 		}
 
 		.card {
