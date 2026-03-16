@@ -66,7 +66,8 @@
 				{ href: '/admin/task-library', label: 'Task Library', icon: 'layers' },
 				{ href: '/admin/scope', label: 'Scope', icon: 'target' },
 				{ href: '/admin/folder-cache', label: 'Folder Cache', icon: 'database' },
-				{ href: '/admin/api-cache', label: 'API Cache', icon: 'server' }
+				{ href: '/admin/api-cache', label: 'API Cache', icon: 'server' },
+				{ href: '/admin/connected', label: 'Connected', icon: 'link' }
 			]
 		}
 	];

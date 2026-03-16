@@ -42,9 +42,9 @@
 </script>
 
 <div class="contract-sign">
-	<nav>
+	<div class="back-nav">
 		<a href="/dashboard">← Back to Dashboard</a>
-	</nav>
+	</div>
 
 	<header>
 		<h1>{name || 'Contract'}</h1>
@@ -79,11 +79,11 @@
 		padding: 2rem;
 	}
 
-	nav {
+	.back-nav {
 		margin-bottom: 1.5rem;
 	}
 
-	nav a {
+	.back-nav a {
 		color: #0066cc;
 		text-decoration: none;
 	}
