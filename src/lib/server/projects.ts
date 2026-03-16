@@ -1641,6 +1641,16 @@ async function getValidAccessToken(): Promise<string> {
 	}
 }
 
+/**
+ * Public wrapper for Zoho CRM REST API calls.
+ * Handles token refresh automatically.
+ * Endpoint example: '/Deals/12345/Emails'
+ */
+export async function crmApiCall(endpoint: string, options: RequestInit = {}) {
+	const accessToken = await getValidAccessToken();
+	return zohoApiCall(accessToken, endpoint, options);
+}
+
 // Generic Zoho Projects API fetch wrapper.
 // Base pattern: https://projectsapi.zoho.com/api/v3/portal/{portal_id}/...
 export async function projectsApiCall(endpoint: string, options: RequestInit = {}) {
