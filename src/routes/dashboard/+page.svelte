@@ -23,8 +23,9 @@
 		direction: 'inbound' | 'outbound';
 		subject: string;
 		summary: string | null;
-		source: 'sent_email' | 'comms_log';
-		status?: string;
+		from_name: string | null;
+		from_email: string | null;
+		to: string[];
 	}
 
 	let projects: any[] = [];
@@ -397,6 +398,9 @@
 									<span class="badge {email.direction === 'inbound' ? 'badge-inbound' : 'badge-outbound'}">
 										{email.direction === 'inbound' ? 'Received' : 'Sent'}
 									</span>
+									{#if email.from_name}
+										<span class="email-from">{email.from_name}</span>
+									{/if}
 								</div>
 								<span class="email-time">{formatRelativeTime(email.date)}</span>
 							</div>
@@ -863,6 +867,12 @@
 	.badge-inbound {
 		background: #d1fae5;
 		color: #065f46;
+	}
+
+	.email-from {
+		font-size: 0.75rem;
+		color: #6b7280;
+		font-weight: 500;
 	}
 
 	.email-time {
