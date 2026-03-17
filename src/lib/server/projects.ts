@@ -1719,6 +1719,11 @@ export async function projectsApiCall(endpoint: string, options: RequestInit = {
 					return {};
 				}
 
+				if (response.status === 410) {
+					const text = await response.text().catch(() => '');
+					throw Object.assign(new Error(`Zoho Projects resource trashed (410): ${text}`), { code: 'RESOURCE_TRASHED' });
+				}
+
 				if (response.status === 429) {
 					const text = await response.text().catch(() => '');
 					log.warn('Zoho Projects API rate limit exceeded (429). Zoho may block requests for ~30 minutes.', {
@@ -1750,8 +1755,9 @@ export async function projectsApiCall(endpoint: string, options: RequestInit = {
 				errors.push(`${base} portal ${portalId} -> ${response.status}: ${text}`);
 			} catch (fetchErr) {
 				const fetchMessage = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-				// Re-throw rate-limit and timeout errors immediately
+				// Re-throw rate-limit, timeout, and trashed-resource errors immediately
 				if (fetchMessage.includes('429') || fetchMessage.includes('timeout')) throw fetchErr;
+				if ((fetchErr as any)?.code === 'RESOURCE_TRASHED') throw fetchErr;
 				errors.push(`${base} portal ${portalId} -> network: ${fetchMessage}`);
 			}
 		}
@@ -1874,6 +1880,7 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 				if (result.hadSuccess) hadSuccessfulTaskFetch = true;
 				if (result.tasks.length > 0) return result.tasks;
 			} catch (err) {
+				if ((err as any)?.code === 'RESOURCE_TRASHED') return [];
 				lastError = err;
 			}
 		}
@@ -1894,6 +1901,7 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 				return result.tasks;
 			}
 		} catch (err) {
+			if ((err as any)?.code === 'RESOURCE_TRASHED') return [];
 			lastError = err;
 		}
 	}
@@ -1936,6 +1944,7 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 	}
 
 	if (!hadSuccessfulTaskFetch && lastError) {
+		if ((lastError as any)?.code === 'RESOURCE_TRASHED') return [];
 		throw lastError;
 	}
 	return [];
