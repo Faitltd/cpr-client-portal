@@ -7,7 +7,8 @@ import {
 	parseZohoProjectIds,
 	getProject,
 	getAllProjectTasks,
-	getAllProjectActivities
+	getAllProjectActivities,
+	getDealTaskSummaries
 } from '$lib/server/projects';
 
 const projectTasksCache = new Map<string, { fetchedAt: number; tasks: any[] }>();
@@ -114,10 +115,19 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		throw error(500, 'Failed to verify authorization');
 	}
 
-	// If this is a CRM deal ID (not a Zoho project ID), return deal info directly
+	// If this is a CRM deal ID (not a Zoho project ID), return deal info with CRM tasks
 	if (!authorizedProjectIds.has(projectId)) {
 		const deal = authorizedDealMap!.get(projectId);
 		if (!deal) throw error(403, 'Not authorized for this project');
+
+		let crmTasks: any[] = [];
+		try {
+			const summaries = await getDealTaskSummaries([projectId], { concurrency: 1, previewLimit: 200 });
+			crmTasks = summaries.get(projectId)?.preview ?? [];
+		} catch {
+			// non-fatal — return empty tasks rather than failing
+		}
+
 		return json({
 			project: {
 				id: projectId,
@@ -128,7 +138,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 				end_date: deal.Closing_Date || null,
 				source: 'crm_deal'
 			},
-			tasks: [],
+			tasks: crmTasks,
 			activities: []
 		});
 	}

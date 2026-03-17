@@ -18,6 +18,7 @@
 		if (paramId && deals.find((d) => d.id === paramId)) {
 			selectedDealId = paramId;
 		}
+		loadProjectsList();
 	});
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
 
@@ -145,7 +146,114 @@
 		return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 	};
 
-	// Per-deal cache so switching back to a project shows data immediately
+	// ── Types ────────────────────────────────────────────────
+	type ProjectTask = {
+		id: string;
+		name: string;
+		status: string;
+		assignee: string;
+		percent: number | null;
+	};
+
+	// ── Project list (for mapping deals → projects) ───────────
+	const PROJECTS_LIST_CACHE_KEY = 'cpr:trade:projects:list';
+	let projectsList: any[] = [];
+	let projectsListLoaded = false;
+	let pendingTasksDealId: string | null = null;
+
+	const loadProjectsList = async () => {
+		try {
+			const raw = sessionStorage.getItem(PROJECTS_LIST_CACHE_KEY);
+			if (raw) {
+				const cached = JSON.parse(raw);
+				if (Array.isArray(cached?.projects)) {
+					projectsList = cached.projects;
+					projectsListLoaded = true;
+				}
+			}
+		} catch { /* ignore */ }
+
+		try {
+			const res = await fetch('/api/trade/projects');
+			if (res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				projectsList = payload.projects || [];
+				projectsListLoaded = true;
+				try { sessionStorage.setItem(PROJECTS_LIST_CACHE_KEY, JSON.stringify({ projects: projectsList, ts: Date.now() })); } catch { /* ignore */ }
+			}
+		} catch { /* non-fatal */ }
+
+		if (pendingTasksDealId) {
+			const id = pendingTasksDealId;
+			pendingTasksDealId = null;
+			loadTasks(id);
+		}
+	};
+
+	// ── Tasks ─────────────────────────────────────────────────
+	const tasksCache = new Map<string, ProjectTask[]>();
+	let tasks: ProjectTask[] = [];
+	let tasksLoading = false;
+	let tasksError = '';
+	let lastTasksDealId = '';
+
+	const normalizeTaskStatus = (raw: any): string => {
+		const str = (typeof raw === 'string' ? raw : raw?.name ?? '').toLowerCase().replace(/\s+/g, '_');
+		if (!str || str === 'open' || str === 'not_started') return 'not_started';
+		if (str === 'completed' || str === 'closed' || str === 'done' || str === 'complete') return 'completed';
+		return 'in_progress';
+	};
+
+	const normalizeTask = (t: any): ProjectTask => ({
+		id: String(t?.id || t?.id_string || ''),
+		name: t?.name ?? t?.task_name ?? 'Untitled task',
+		status: normalizeTaskStatus(t?.status ?? t?.task_status ?? ''),
+		assignee: t?.owner?.name ?? t?.assignee?.name ?? t?.person_responsible ?? '—',
+		percent: t?.percent_complete ?? t?.percent_completed ?? null
+	});
+
+	const loadTasks = async (dealId: string) => {
+		if (!dealId) return;
+		tasks = tasksCache.get(dealId) ?? [];
+		tasksLoading = true;
+		tasksError = '';
+
+		const project = projectsList.find((p: any) => p.deal_id === dealId || p.id === dealId);
+
+		try {
+			// CRM deals carry a task_preview in the list; use it immediately while fetching full list
+			if (project?.source === 'crm_deal' && Array.isArray(project?.task_preview) && project.task_preview.length > 0) {
+				const preview = project.task_preview.map(normalizeTask);
+				tasksCache.set(dealId, preview);
+				if (dealId === selectedDealId) tasks = preview;
+			}
+
+			const projectId = project?.id || dealId;
+			const res = await fetch(`/api/trade/projects/${encodeURIComponent(projectId)}`);
+			if (res.status === 401) throw new Error('Please login again');
+			if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
+			const payload = await res.json().catch(() => ({}));
+			const fresh = (payload?.tasks ?? []).map(normalizeTask);
+			tasksCache.set(dealId, fresh);
+			if (dealId === selectedDealId) tasks = fresh;
+		} catch (err) {
+			tasksError = err instanceof Error ? err.message : 'Failed to load tasks';
+			if (!tasksCache.has(dealId)) tasks = [];
+		} finally {
+			tasksLoading = false;
+		}
+	};
+
+	$: if (browser && selectedDealId && selectedDealId !== lastTasksDealId) {
+		lastTasksDealId = selectedDealId;
+		if (projectsListLoaded) {
+			loadTasks(selectedDealId);
+		} else {
+			pendingTasksDealId = selectedDealId;
+		}
+	}
+
+	// ── Per-deal cache so switching back to a project shows data immediately
 	const fieldUpdatesCache = new Map<string, FieldUpdate[]>();
 
 	let fieldUpdates: FieldUpdate[] = [];
@@ -155,6 +263,7 @@
 	let fieldUpdatesController: AbortController | null = null;
 
 	// Collapsible state — collapsed by default
+	let tasksOpen = false;
 	let fieldUpdatesOpen = false;
 	let photosOpen = false;
 
@@ -319,6 +428,61 @@
 						{/if}
 					</div>
 				</div>
+			</div>
+
+			<!-- Tasks collapsible -->
+			<div class="card collapsible-card">
+				<button
+					class="collapsible-toggle"
+					type="button"
+					on:click={() => (tasksOpen = !tasksOpen)}
+					aria-expanded={tasksOpen}
+				>
+					<span class="collapsible-title">
+						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<path d="M4 5h12M4 10h8M4 15h10"/>
+							<circle cx="17" cy="10" r="3"/>
+						</svg>
+						Tasks
+						{#if !tasksLoading && tasks.length > 0}
+							<span class="count-badge">{tasks.length}</span>
+						{/if}
+					</span>
+					<svg class="chevron" class:rotated={tasksOpen} width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+						<path d="M5 8l5 5 5-5"/>
+					</svg>
+				</button>
+
+				{#if tasksOpen}
+					<div class="collapsible-body">
+						{#if tasksLoading && tasks.length === 0}
+							<p class="muted">Loading tasks...</p>
+						{:else if tasksError && tasks.length === 0}
+							<div class="field-updates-error">
+								<p class="error-text">{tasksError}</p>
+								<button class="retry" type="button" on:click={() => loadTasks(selectedDealId)}>Retry</button>
+							</div>
+						{:else if tasks.length === 0}
+							<p class="muted">No tasks found for this project.</p>
+						{:else}
+							<div class="task-list">
+								{#each tasks as task (task.id)}
+									<div class="task-row">
+										<div class="task-info">
+											<p class="task-name">{task.name}</p>
+											{#if task.assignee && task.assignee !== '—'}
+												<p class="task-assignee">{task.assignee}</p>
+											{/if}
+										</div>
+										<span class="task-status task-status-{task.status}">
+											{task.status === 'not_started' ? 'Not Started' : task.status === 'completed' ? 'Completed' : 'In Progress'}
+										</span>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
 			</div>
 
 			<!-- Field Updates collapsible -->
@@ -780,6 +944,73 @@
 
 	.file-link:hover {
 		color: #1e40af;
+	}
+
+	/* Tasks */
+	.task-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+
+	.task-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		background: #fff;
+	}
+
+	.task-info {
+		min-width: 0;
+		flex: 1;
+	}
+
+	.task-name {
+		margin: 0;
+		font-weight: 600;
+		font-size: 0.9rem;
+		line-height: 1.3;
+	}
+
+	.task-assignee {
+		margin: 0.15rem 0 0;
+		font-size: 0.8rem;
+		color: #6b7280;
+	}
+
+	.task-status {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		white-space: nowrap;
+		flex-shrink: 0;
+		border: 1px solid transparent;
+	}
+
+	.task-status-not_started {
+		background: #f3f4f6;
+		color: #6b7280;
+		border-color: #e5e7eb;
+	}
+
+	.task-status-in_progress {
+		background: #eff6ff;
+		color: #1d4ed8;
+		border-color: #93c5fd;
+	}
+
+	.task-status-completed {
+		background: #f0fdf4;
+		color: #15803d;
+		border-color: #86efac;
 	}
 
 	@media (min-width: 640px) {
