@@ -318,7 +318,7 @@ export const POST: RequestHandler = async ({ params, cookies, request }) => {
 		const savedTasks = await bulkUpsertScopeTasks(params.dealId, tasksToInsert);
 
 		// Merge phase_order back from tasksToInsert (column may not exist in DB yet)
-		const phaseOrderById = new Map(tasksToInsert.map((t) => [t.id, t.phase_order]));
+		const phaseOrderById = new Map<string, number>(tasksToInsert.map((t) => [t.id, t.phase_order]));
 		const tasksWithPhaseOrder = savedTasks.map((t) => ({
 			...t,
 			phase_order: t.phase_order ?? phaseOrderById.get(t.id) ?? 0
