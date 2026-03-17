@@ -104,6 +104,7 @@
 	};
 
 	$: designFiles = normalizeDesignFiles(selectedDeal?.File_Upload);
+
 	const getDealLabel = (deal: any) => {
 		return (
 			deal?.Deal_Name ||
@@ -149,6 +150,10 @@
 	let fieldUpdatesError = '';
 	let lastFieldUpdatesDealId = '';
 	let fieldUpdatesController: AbortController | null = null;
+
+	// Collapsible state
+	let fieldUpdatesOpen = true;
+	let photosOpen = true;
 
 	const loadFieldUpdates = async (dealId: string) => {
 		if (!dealId) return;
@@ -207,6 +212,15 @@
 		loadFieldUpdates(selectedDealId);
 	}
 
+	// Collect all photos across field updates for the Photos section
+	$: allPhotos = fieldUpdates.flatMap((u) =>
+		(u.photos || []).map((p) => ({ ...p, updateType: u.type, date: u.createdAt || u.updatedAt }))
+	);
+
+	$: fieldUpdateUrl = selectedDealId
+		? `/trade/field-update?deal=${encodeURIComponent(selectedDealId)}`
+		: '/trade/field-update';
+
 	onDestroy(() => {
 		fieldUpdatesController?.abort();
 	});
@@ -214,10 +228,17 @@
 
 <div class="dashboard">
 	<header class="dash-header">
-		<div>
+		<div class="dash-header-text">
 			<h1>Dashboard</h1>
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
+		<a class="field-update-btn" href={fieldUpdateUrl}>
+			<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<rect x="3" y="2" width="14" height="16" rx="2"/>
+				<path d="M7 6h6M7 10h6M7 14h4"/>
+			</svg>
+			Submit Field Update
+		</a>
 	</header>
 
 	{#if data?.warning}
@@ -228,7 +249,7 @@
 		</div>
 	{:else}
 		<div class="trade-selector card">
-			<label for="trade-deal">Select Deal</label>
+			<label for="trade-deal">Select Project</label>
 			<select id="trade-deal" bind:value={selectedDealId}>
 				{#each deals as deal}
 					<option value={deal.id}>
@@ -272,8 +293,6 @@
 						<p class="scope-text">{formatCrmRichText(selectedDeal.Refined_SOW) || 'Not available'}</p>
 					</div>
 					<div class="notes">
-					</div>
-					<div class="notes">
 						<h4>Designs</h4>
 						{#if designFiles.length > 0}
 							<ul class="file-list">
@@ -294,50 +313,131 @@
 				</div>
 			</div>
 
-			<div class="card field-updates-card">
-				<div class="field-updates-header">
-					<h3>Field Updates</h3>
-				</div>
+			<!-- Field Updates collapsible -->
+			<div class="card collapsible-card">
+				<button
+					class="collapsible-toggle"
+					type="button"
+					on:click={() => (fieldUpdatesOpen = !fieldUpdatesOpen)}
+					aria-expanded={fieldUpdatesOpen}
+				>
+					<span class="collapsible-title">
+						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<rect x="3" y="2" width="14" height="16" rx="2"/>
+							<path d="M7 6h6M7 10h6M7 14h4"/>
+						</svg>
+						Field Updates
+						{#if !fieldUpdatesLoading && fieldUpdates.length > 0}
+							<span class="count-badge">{fieldUpdates.length}</span>
+						{/if}
+					</span>
+					<svg
+						class="chevron"
+						class:rotated={fieldUpdatesOpen}
+						width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+						aria-hidden="true"
+					>
+						<path d="M5 8l5 5 5-5"/>
+					</svg>
+				</button>
 
-				{#if fieldUpdatesLoading}
-					<p class="muted">Loading field updates...</p>
-				{:else if fieldUpdatesError}
-					<div class="field-updates-error">
-						<p class="error-text">{fieldUpdatesError}</p>
-						<button class="retry" type="button" on:click={() => loadFieldUpdates(selectedDealId)}>
-							Retry
-						</button>
+				{#if fieldUpdatesOpen}
+					<div class="collapsible-body">
+						{#if fieldUpdatesLoading}
+							<p class="muted">Loading field updates...</p>
+						{:else if fieldUpdatesError}
+							<div class="field-updates-error">
+								<p class="error-text">{fieldUpdatesError}</p>
+								<button class="retry" type="button" on:click={() => loadFieldUpdates(selectedDealId)}>
+									Retry
+								</button>
+							</div>
+						{:else if fieldUpdates.length === 0}
+							<p class="muted">No field updates submitted for this project yet.</p>
+						{:else}
+							<div class="updates">
+								{#each fieldUpdates as update (update.id)}
+									<article class="update">
+										<div class="update-meta">
+											{#if update.type}
+												<span class="badge">{update.type}</span>
+											{/if}
+											<span class="update-date">
+												{formatUpdateTimestamp(update.createdAt || update.updatedAt)}
+											</span>
+										</div>
+
+										{#if update.body}
+											<p class="update-body">{update.body}</p>
+										{/if}
+
+										{#if update.photos?.length}
+											<div class="update-photos">
+												{#each update.photos as photo (photo.url)}
+													<a class="photo" href={photo.url} target="_blank" rel="noreferrer">
+														<img src={photo.url} alt={photo.name} loading="lazy" />
+													</a>
+												{/each}
+											</div>
+										{/if}
+									</article>
+								{/each}
+							</div>
+						{/if}
 					</div>
-				{:else if fieldUpdates.length === 0}
-					<p class="muted">No field updates submitted for this deal yet.</p>
-				{:else}
-					<div class="updates">
-						{#each fieldUpdates as update (update.id)}
-							<article class="update">
-								<div class="update-meta">
-									{#if update.type}
-										<span class="badge">{update.type}</span>
-									{/if}
-									<span class="update-date">
-										{formatUpdateTimestamp(update.createdAt || update.updatedAt)}
-									</span>
-								</div>
+				{/if}
+			</div>
 
-								{#if update.body}
-									<p class="update-body">{update.body}</p>
-								{/if}
+			<!-- Photos collapsible -->
+			<div class="card collapsible-card">
+				<button
+					class="collapsible-toggle"
+					type="button"
+					on:click={() => (photosOpen = !photosOpen)}
+					aria-expanded={photosOpen}
+				>
+					<span class="collapsible-title">
+						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<rect x="2" y="3" width="16" height="14" rx="2"/>
+							<circle cx="7" cy="8" r="2"/>
+							<path d="M18 14l-4-4-3 3-2-2-5 5"/>
+						</svg>
+						Photos
+						{#if !fieldUpdatesLoading && allPhotos.length > 0}
+							<span class="count-badge">{allPhotos.length}</span>
+						{/if}
+					</span>
+					<svg
+						class="chevron"
+						class:rotated={photosOpen}
+						width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+						aria-hidden="true"
+					>
+						<path d="M5 8l5 5 5-5"/>
+					</svg>
+				</button>
 
-								{#if update.photos?.length}
-									<div class="update-photos">
-										{#each update.photos as photo (photo.url)}
-											<a class="photo" href={photo.url} target="_blank" rel="noreferrer">
-												<img src={photo.url} alt={photo.name} loading="lazy" />
-											</a>
-										{/each}
-									</div>
-								{/if}
-							</article>
-						{/each}
+				{#if photosOpen}
+					<div class="collapsible-body">
+						{#if fieldUpdatesLoading}
+							<p class="muted">Loading photos...</p>
+						{:else if allPhotos.length === 0}
+							<p class="muted">No photos submitted for this project yet.</p>
+						{:else}
+							<div class="photos-grid">
+								{#each allPhotos as photo (photo.url)}
+									<a class="photo" href={photo.url} target="_blank" rel="noreferrer">
+										<img src={photo.url} alt={photo.name} loading="lazy" />
+									</a>
+								{/each}
+							</div>
+						{/if}
+						<a class="view-all-photos" href="/trade/photos">
+							View all photos
+							<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+								<path d="M5 10h10M11 6l4 4-4 4"/>
+							</svg>
+						</a>
 					</div>
 				{/if}
 			</div>
@@ -353,10 +453,15 @@
 	}
 
 	.dash-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
 		margin-bottom: 1.25rem;
 	}
 
-	.dash-header h1 {
+	.dash-header-text h1 {
 		margin: 0 0 0.15rem;
 		font-size: 1.5rem;
 	}
@@ -367,11 +472,33 @@
 		font-size: 0.9rem;
 	}
 
+	.field-update-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: #111827;
+		color: #fff;
+		text-decoration: none;
+		font-weight: 700;
+		font-size: 0.95rem;
+		padding: 0.65rem 1.1rem;
+		border-radius: 10px;
+		min-height: 44px;
+		white-space: nowrap;
+		transition: background 0.15s;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.field-update-btn:hover {
+		background: #1f2937;
+	}
+
 	.card {
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		padding: 1.25rem;
 		background: #fff;
+		margin-bottom: 1rem;
 	}
 
 	.warning {
@@ -381,7 +508,6 @@
 	}
 
 	.trade-selector {
-		margin-bottom: 1.5rem;
 		display: grid;
 		gap: 0.5rem;
 	}
@@ -397,26 +523,79 @@
 
 	.deal-details h3 {
 		margin-top: 0;
+		margin-bottom: 0;
 	}
 
-	.field-updates-card {
-		margin-top: 1.5rem;
+	/* Collapsible cards */
+	.collapsible-card {
+		padding: 0;
+		overflow: hidden;
 	}
 
-	.field-updates-header {
+	.collapsible-toggle {
+		width: 100%;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
-		margin-bottom: 1rem;
+		gap: 0.75rem;
+		background: none;
+		border: none;
+		padding: 1.1rem 1.25rem;
+		cursor: pointer;
+		text-align: left;
+		-webkit-tap-highlight-color: transparent;
+		border-radius: 12px;
 	}
 
-	.field-updates-header h3 {
-		margin: 0;
+	.collapsible-toggle:hover {
+		background: #f9fafb;
 	}
 
+	.collapsible-title {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		font-size: 1rem;
+		font-weight: 700;
+		color: #111827;
+	}
+
+	.collapsible-title svg {
+		color: #6b7280;
+		flex-shrink: 0;
+	}
+
+	.count-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #e5e7eb;
+		color: #374151;
+		font-size: 0.75rem;
+		font-weight: 700;
+		border-radius: 999px;
+		padding: 0.1rem 0.5rem;
+		min-width: 1.4rem;
+	}
+
+	.chevron {
+		color: #9ca3af;
+		flex-shrink: 0;
+		transition: transform 0.2s ease;
+	}
+
+	.chevron.rotated {
+		transform: rotate(180deg);
+	}
+
+	.collapsible-body {
+		padding: 0 1.25rem 1.25rem;
+		border-top: 1px solid #f3f4f6;
+	}
+
+	/* Field updates */
 	.muted {
-		margin: 0;
+		margin: 0.75rem 0 0;
 		color: #6b7280;
 	}
 
@@ -431,6 +610,7 @@
 		justify-content: space-between;
 		gap: 1rem;
 		flex-wrap: wrap;
+		padding-top: 0.75rem;
 	}
 
 	.retry {
@@ -451,6 +631,7 @@
 	.updates {
 		display: grid;
 		gap: 1rem;
+		margin-top: 0.75rem;
 	}
 
 	.update {
@@ -493,8 +674,16 @@
 
 	.update-photos {
 		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+		gap: 0.6rem;
+	}
+
+	/* Photos grid */
+	.photos-grid {
+		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
 		gap: 0.75rem;
+		margin-top: 0.75rem;
 	}
 
 	.photo {
@@ -512,6 +701,23 @@
 		object-fit: cover;
 	}
 
+	.view-all-photos {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin-top: 1rem;
+		color: #1d4ed8;
+		font-size: 0.9rem;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.view-all-photos:hover {
+		color: #1e40af;
+		text-decoration: underline;
+	}
+
+	/* Deal details */
 	.details-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -575,6 +781,14 @@
 
 		.card {
 			padding: 1.5rem;
+		}
+
+		.collapsible-toggle {
+			padding: 1.25rem 1.5rem;
+		}
+
+		.collapsible-body {
+			padding: 0 1.5rem 1.5rem;
 		}
 	}
 </style>

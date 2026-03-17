@@ -86,7 +86,7 @@
 <div class="app-bg" bind:this={appBg}>
 	{#if showClientNav}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		{#if drawerOpen}
+		{#if !isTradePortal && drawerOpen}
 			<div class="drawer-backdrop" on:click={() => (drawerOpen = false)} role="presentation"></div>
 		{/if}
 		<header class="portal-header">
@@ -99,82 +99,74 @@
 					<span>CPR</span>
 				</a>
 
-				<button
-					class="hamburger"
-					type="button"
-					aria-label={drawerOpen ? 'Close menu' : 'Open menu'}
-					aria-expanded={drawerOpen}
-					on:click={() => (drawerOpen = !drawerOpen)}
-				>
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-						{#if drawerOpen}
-							<line x1="6" y1="6" x2="18" y2="18" />
-							<line x1="6" y1="18" x2="18" y2="6" />
-						{:else}
-							<line x1="3" y1="7" x2="21" y2="7" />
-							<line x1="3" y1="12" x2="21" y2="12" />
-							<line x1="3" y1="17" x2="21" y2="17" />
-						{/if}
-					</svg>
-				</button>
+				{#if isTradePortal && hasTradeSession}
+					<nav class="trade-nav" aria-label="Trade navigation">
+						<a class="trade-nav-item" class:active={isActive('/trade/projects', pathname)} href="/trade/projects">Projects</a>
+						<a class="trade-nav-item" class:active={isActive(accountHref, pathname)} href={accountHref}>Account</a>
+						<a class="trade-nav-item trade-nav-logout" href="/api/logout?next=/">Log out</a>
+					</nav>
+				{:else}
+					<button
+						class="hamburger"
+						type="button"
+						aria-label={drawerOpen ? 'Close menu' : 'Open menu'}
+						aria-expanded={drawerOpen}
+						on:click={() => (drawerOpen = !drawerOpen)}
+					>
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+							{#if drawerOpen}
+								<line x1="6" y1="6" x2="18" y2="18" />
+								<line x1="6" y1="18" x2="18" y2="6" />
+							{:else}
+								<line x1="3" y1="7" x2="21" y2="7" />
+								<line x1="3" y1="12" x2="21" y2="12" />
+								<line x1="3" y1="17" x2="21" y2="17" />
+							{/if}
+						</svg>
+					</button>
+				{/if}
 			</div>
 		</header>
 
-		<nav class="drawer" class:open={drawerOpen} aria-label="Main navigation">
-			<div class="drawer-close-row">
-				<button class="drawer-close" type="button" aria-label="Close menu" on:click={() => (drawerOpen = false)}>
-					<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-						<line x1="5" y1="5" x2="15" y2="15" />
-						<line x1="5" y1="15" x2="15" y2="5" />
-					</svg>
-				</button>
-			</div>
-			<div class="drawer-section">
-				{#if hasPortalSession && !isTradePortal}
-					<a class="drawer-item" class:active={isActive('/dashboard', pathname)} href="/dashboard">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M2 8h16"/><path d="M8 8v10"/></svg>
-						Finances
+		{#if !isTradePortal}
+			<nav class="drawer" class:open={drawerOpen} aria-label="Main navigation">
+				<div class="drawer-close-row">
+					<button class="drawer-close" type="button" aria-label="Close menu" on:click={() => (drawerOpen = false)}>
+						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+							<line x1="5" y1="5" x2="15" y2="15" />
+							<line x1="5" y1="15" x2="15" y2="5" />
+						</svg>
+					</button>
+				</div>
+				<div class="drawer-section">
+					{#if hasPortalSession}
+						<a class="drawer-item" class:active={isActive('/dashboard', pathname)} href="/dashboard">
+							<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M2 8h16"/><path d="M8 8v10"/></svg>
+							Finances
+						</a>
+						<a class="drawer-item" class:active={isActive('/zprojects', pathname)} href="/zprojects">
+							<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
+							Project
+						</a>
+						<a class="drawer-item" class:active={isActive('/decisions', pathname)} href="/decisions">
+							<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
+							Decisions
+						</a>
+					{/if}
+				</div>
+				<div class="drawer-divider"></div>
+				<div class="drawer-section">
+					<a class="drawer-item" class:active={isActive(accountHref, pathname)} href={accountHref}>
+						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="7" r="4"/><path d="M3 18c0-3.3 3.1-6 7-6s7 2.7 7 6"/></svg>
+						Account
 					</a>
-					<a class="drawer-item" class:active={isActive('/zprojects', pathname)} href="/zprojects">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
-						Project
+					<a class="drawer-item drawer-logout" href="/api/logout?next=/">
+						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 17H4a1 1 0 01-1-1V4a1 1 0 011-1h3M13 14l4-4-4-4M17 10H7"/></svg>
+						Log out
 					</a>
-					<a class="drawer-item" class:active={isActive('/decisions', pathname)} href="/decisions">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
-						Decisions
-					</a>
-				{/if}
-				{#if isTradePortal && hasTradeSession}
-					<a class="drawer-item" class:active={isActive('/trade/dashboard', pathname)} href="/trade/dashboard">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M2 8h16"/><path d="M8 8v10"/></svg>
-						Dashboard
-					</a>
-					<a class="drawer-item" class:active={isActive('/trade/projects', pathname)} href="/trade/projects">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
-						Projects
-					</a>
-					<a class="drawer-item" class:active={isActive('/trade/field-update', pathname)} href="/trade/field-update">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="14" height="16" rx="2"/><path d="M7 6h6M7 10h6M7 14h4"/></svg>
-						Field Update
-					</a>
-					<a class="drawer-item" class:active={isActive('/trade/photos', pathname)} href="/trade/photos">
-						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="2"/><path d="M18 14l-4-4-3 3-2-2-5 5"/></svg>
-						Photos
-					</a>
-				{/if}
-			</div>
-			<div class="drawer-divider"></div>
-			<div class="drawer-section">
-				<a class="drawer-item" class:active={isActive(accountHref, pathname)} href={accountHref}>
-					<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="7" r="4"/><path d="M3 18c0-3.3 3.1-6 7-6s7 2.7 7 6"/></svg>
-					Account
-				</a>
-				<a class="drawer-item drawer-logout" href="/api/logout?next=/">
-					<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 17H4a1 1 0 01-1-1V4a1 1 0 011-1h3M13 14l4-4-4-4M17 10H7"/></svg>
-					Log out
-				</a>
-			</div>
-		</nav>
+				</div>
+			</nav>
+		{/if}
 	{/if}
 	<div class="app-content">
 		<slot />
@@ -233,6 +225,42 @@
 		text-decoration: none;
 		color: #111827;
 		letter-spacing: -0.01em;
+	}
+
+	/* ── Trade portal inline nav ───────────────────────── */
+	.trade-nav {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.trade-nav-item {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.45rem 0.75rem;
+		border-radius: 8px;
+		text-decoration: none;
+		color: #374151;
+		font-size: 0.9rem;
+		font-weight: 500;
+		min-height: 40px;
+		white-space: nowrap;
+		transition: background 0.15s;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.trade-nav-item:hover {
+		background: #f3f4f6;
+	}
+
+	.trade-nav-item.active {
+		background: #f0f0f0;
+		color: #111827;
+		font-weight: 600;
+	}
+
+	.trade-nav-logout {
+		color: #9ca3af;
 	}
 
 	/* ── Hamburger ──────────────────────────────────────── */
