@@ -145,6 +145,9 @@
 		return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 	};
 
+	// Per-deal cache so switching back to a project shows data immediately
+	const fieldUpdatesCache = new Map<string, FieldUpdate[]>();
+
 	let fieldUpdates: FieldUpdate[] = [];
 	let fieldUpdatesLoading = false;
 	let fieldUpdatesError = '';
@@ -159,7 +162,8 @@
 		if (!dealId) return;
 		fieldUpdatesController?.abort();
 		fieldUpdatesController = new AbortController();
-		fieldUpdates = [];
+		// Restore cached data immediately; fetch will update it in the background
+		fieldUpdates = fieldUpdatesCache.get(dealId) ?? [];
 		fieldUpdatesLoading = true;
 		fieldUpdatesError = '';
 		let didTimeout = false;
@@ -191,17 +195,20 @@
 				);
 			}
 			const payload = await res.json().catch(() => ({}));
-			fieldUpdates = Array.isArray(payload?.data) ? payload.data : [];
+			const fresh = Array.isArray(payload?.data) ? payload.data : [];
+			fieldUpdatesCache.set(dealId, fresh);
+			// Only update the display if we're still on the same deal
+			if (dealId === selectedDealId) fieldUpdates = fresh;
 		} catch (err) {
 			if (err instanceof Error && err.name === 'AbortError') {
 				if (didTimeout) {
 					fieldUpdatesError = 'Field updates request timed out. Please retry.';
-					fieldUpdates = [];
+					if (!fieldUpdatesCache.has(dealId)) fieldUpdates = [];
 				}
 				return;
 			}
 			fieldUpdatesError = err instanceof Error ? err.message : 'Failed to fetch field updates';
-			fieldUpdates = [];
+			if (!fieldUpdatesCache.has(dealId)) fieldUpdates = [];
 		} finally {
 			clearTimeout(timeoutId);
 			fieldUpdatesLoading = false;
