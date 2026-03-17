@@ -553,7 +553,7 @@ function getDealProjectNameCandidates(deal: any) {
 	return Array.from(names);
 }
 
-function getDealProjectIdsForLinking(deal: any) {
+export function getDealProjectIdsForLinking(deal: any) {
 	const projectIds = new Set<string>();
 	if (!deal || typeof deal !== 'object') return [] as string[];
 	const knownFieldApiNames = getKnownDealProjectFieldApiNames();

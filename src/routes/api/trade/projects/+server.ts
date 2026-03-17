@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTradePartnerDeals, isTradeActiveStage } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { parseZohoProjectIds, getProject, getDealTaskSummaries } from '$lib/server/projects';
+import { getDealProjectIdsForLinking, getProject, getDealTaskSummaries } from '$lib/server/projects';
 
 const MAX_CONCURRENCY = 3;
 const PROJECT_TASK_PREVIEW_LIMIT = 4;
@@ -156,7 +156,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	const linkedDealIds = new Set<string>();
 
 	for (const deal of deals) {
-		const ids = parseZohoProjectIds(deal?.Zoho_Projects_ID);
+		const ids = getDealProjectIdsForLinking(deal);
 		if (ids.length === 0) continue;
 		const dealId = deal?.id ? String(deal.id) : null;
 		const dealName = getDealLabel(deal);

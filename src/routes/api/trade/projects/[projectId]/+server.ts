@@ -4,7 +4,7 @@ import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
 import {
-	parseZohoProjectIds,
+	getDealProjectIdsForLinking,
 	getProject,
 	getAllProjectTasks,
 	getAllProjectActivities
@@ -77,7 +77,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			// Authorize by CRM deal ID (for fallback cards)
 			if (deal?.id) authorizedDealMap.set(String(deal.id), deal);
 			// Authorize by linked Zoho project IDs
-			const ids = parseZohoProjectIds(deal?.Zoho_Projects_ID);
+			const ids = getDealProjectIdsForLinking(deal);
 			for (const id of ids) {
 				authorizedProjectIds.add(id);
 				if (id === projectId) {
