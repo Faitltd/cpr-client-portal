@@ -154,9 +154,9 @@
 	let lastFieldUpdatesDealId = '';
 	let fieldUpdatesController: AbortController | null = null;
 
-	// Collapsible state
-	let fieldUpdatesOpen = true;
-	let photosOpen = true;
+	// Collapsible state — collapsed by default
+	let fieldUpdatesOpen = false;
+	let photosOpen = false;
 
 	const loadFieldUpdates = async (dealId: string) => {
 		if (!dealId) return;
