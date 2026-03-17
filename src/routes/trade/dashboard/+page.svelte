@@ -236,15 +236,25 @@
 
 	const loadTasks = async (dealId: string) => {
 		if (!dealId) return;
-		tasks = tasksCache.get(dealId) ?? [];
-		tasksLoading = true;
-		tasksError = '';
 		updatingTaskIds = new Set();
 		taskStatusErrors = new Map();
 
 		const project = projectsList.find((p: any) => p.deal_id === dealId || p.id === dealId);
-		const projectId = project?.id || dealId;
-		const isCrm = project?.source === 'crm_deal';
+		const isCrm = !project || project?.source === 'crm_deal';
+
+		// Only Zoho Projects have tasks — CRM-only deals show nothing
+		if (isCrm) {
+			tasks = [];
+			selectedProjectId = '';
+			isZohoProject = false;
+			return;
+		}
+
+		tasks = tasksCache.get(dealId) ?? [];
+		tasksLoading = true;
+		tasksError = '';
+
+		const projectId = project.id;
 
 		try {
 			const res = await fetch(`/api/trade/projects/${encodeURIComponent(projectId)}`);
@@ -256,7 +266,7 @@
 			if (dealId === selectedDealId) {
 				tasks = fresh;
 				selectedProjectId = projectId;
-				isZohoProject = !isCrm;
+				isZohoProject = true;
 			}
 		} catch (err) {
 			tasksError = err instanceof Error ? err.message : 'Failed to load tasks';
