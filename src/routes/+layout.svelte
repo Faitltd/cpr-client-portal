@@ -101,7 +101,6 @@
 
 				{#if isTradePortal && hasTradeSession}
 					<nav class="trade-nav" aria-label="Trade navigation">
-						<a class="trade-nav-item" class:active={isActive('/trade/projects', pathname)} href="/trade/projects">Projects</a>
 						<a class="trade-nav-item" class:active={isActive(accountHref, pathname)} href={accountHref}>Account</a>
 						<a class="trade-nav-item trade-nav-logout" href="/api/logout?next=/">Log out</a>
 					</nav>

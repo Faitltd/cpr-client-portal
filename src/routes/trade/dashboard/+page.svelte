@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
-	import { formatCrmRichText } from '$lib/html';
+	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -146,16 +146,7 @@
 		return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 	};
 
-	// ── Types ────────────────────────────────────────────────
-	type ProjectTask = {
-		id: string;
-		name: string;
-		status: string;
-		assignee: string;
-		percent: number | null;
-	};
-
-	// ── Project list (for mapping deals → projects) ───────────
+	// ── Project list (for mapping deals → Zoho project IDs) ─────
 	const PROJECTS_LIST_CACHE_KEY = 'cpr:trade:projects:list';
 	let projectsList: any[] = [];
 	let projectsListLoaded = false;
@@ -191,56 +182,127 @@
 	};
 
 	// ── Tasks ─────────────────────────────────────────────────
-	const tasksCache = new Map<string, ProjectTask[]>();
-	let tasks: ProjectTask[] = [];
+	const TASK_STATUSES = [
+		{ value: 'not_started', label: 'Not Started' },
+		{ value: 'in_progress',  label: 'In Progress'  },
+		{ value: 'completed',    label: 'Completed'    }
+	];
+
+	// Per-deal raw task cache
+	const tasksCache = new Map<string, any[]>();
+	let tasks: any[] = [];
 	let tasksLoading = false;
 	let tasksError = '';
 	let lastTasksDealId = '';
+	// Track which project ID owns the current tasks (needed for status update URL)
+	let selectedProjectId = '';
+	let isZohoProject = false; // false = CRM deal only, status updates disabled
 
-	const normalizeTaskStatus = (raw: any): string => {
-		const str = (typeof raw === 'string' ? raw : raw?.name ?? '').toLowerCase().replace(/\s+/g, '_');
-		if (!str || str === 'open' || str === 'not_started') return 'not_started';
-		if (str === 'completed' || str === 'closed' || str === 'done' || str === 'complete') return 'completed';
+	let updatingTaskIds = new Set<string>();
+	let taskStatusErrors = new Map<string, string>();
+
+	const getTaskStatus = (task: any): string => {
+		const v = task?.status ?? task?.task_status ?? '';
+		return typeof v === 'string' ? v : v?.name ?? '';
+	};
+
+	const normalizeStatus = (raw: string): string => {
+		const s = raw.toLowerCase().replace(/\s+/g, '_');
+		if (!s || s === 'open' || s === 'not_started') return 'not_started';
+		if (s === 'completed' || s === 'closed' || s === 'done' || s === 'complete') return 'completed';
 		return 'in_progress';
 	};
 
-	const normalizeTask = (t: any): ProjectTask => ({
-		id: String(t?.id || t?.id_string || ''),
-		name: t?.name ?? t?.task_name ?? 'Untitled task',
-		status: normalizeTaskStatus(t?.status ?? t?.task_status ?? ''),
-		assignee: t?.owner?.name ?? t?.assignee?.name ?? t?.person_responsible ?? '—',
-		percent: t?.percent_complete ?? t?.percent_completed ?? null
-	});
+	const getTaskStatusValue = (task: any) => normalizeStatus(getTaskStatus(task));
+
+	const getTaskName  = (t: any) => t?.name ?? t?.task_name ?? 'Untitled task';
+	const getTaskAssignee = (t: any) =>
+		t?.owner?.name ?? t?.assignee?.name ?? t?.person_responsible ?? t?.user_name ?? null;
+
+	$: taskGroups = (() => {
+		const groups = new Map<string, any[]>();
+		for (const task of tasks) {
+			const name =
+				task?.tasklist?.name ??
+				task?.tasklist_name ??
+				task?.tasklist?.task_list_name ??
+				'Tasks';
+			const list = groups.get(name) ?? [];
+			list.push(task);
+			groups.set(name, list);
+		}
+		return Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
+	})();
 
 	const loadTasks = async (dealId: string) => {
 		if (!dealId) return;
 		tasks = tasksCache.get(dealId) ?? [];
 		tasksLoading = true;
 		tasksError = '';
+		updatingTaskIds = new Set();
+		taskStatusErrors = new Map();
 
 		const project = projectsList.find((p: any) => p.deal_id === dealId || p.id === dealId);
+		const projectId = project?.id || dealId;
+		const isCrm = project?.source === 'crm_deal';
 
 		try {
-			// CRM deals carry a task_preview in the list; use it immediately while fetching full list
-			if (project?.source === 'crm_deal' && Array.isArray(project?.task_preview) && project.task_preview.length > 0) {
-				const preview = project.task_preview.map(normalizeTask);
-				tasksCache.set(dealId, preview);
-				if (dealId === selectedDealId) tasks = preview;
-			}
-
-			const projectId = project?.id || dealId;
 			const res = await fetch(`/api/trade/projects/${encodeURIComponent(projectId)}`);
 			if (res.status === 401) throw new Error('Please login again');
 			if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
 			const payload = await res.json().catch(() => ({}));
-			const fresh = (payload?.tasks ?? []).map(normalizeTask);
+			const fresh: any[] = payload?.tasks ?? [];
 			tasksCache.set(dealId, fresh);
-			if (dealId === selectedDealId) tasks = fresh;
+			if (dealId === selectedDealId) {
+				tasks = fresh;
+				selectedProjectId = projectId;
+				isZohoProject = !isCrm;
+			}
 		} catch (err) {
 			tasksError = err instanceof Error ? err.message : 'Failed to load tasks';
 			if (!tasksCache.has(dealId)) tasks = [];
 		} finally {
 			tasksLoading = false;
+		}
+	};
+
+	const updateTaskStatus = async (task: any, newStatus: string) => {
+		if (!isZohoProject || !selectedProjectId) return;
+		const taskId = String(task?.id || task?.id_string || '');
+		if (!taskId) return;
+
+		const prevStatus = task?.status;
+		const prevTaskStatus = task?.task_status;
+
+		updatingTaskIds = new Set([...updatingTaskIds, taskId]);
+		taskStatusErrors = new Map(taskStatusErrors);
+		taskStatusErrors.delete(taskId);
+
+		// Optimistic update
+		const label = TASK_STATUSES.find((s) => s.value === newStatus)?.label ?? newStatus;
+		task.status = typeof task.status === 'object' ? { ...task.status, name: label } : label;
+		tasks = [...tasks];
+
+		try {
+			const res = await fetch(
+				`/api/trade/projects/${encodeURIComponent(selectedProjectId)}/tasks/${encodeURIComponent(taskId)}/status`,
+				{ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) }
+			);
+			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(payload?.error || `Failed to update (${res.status})`);
+			// Invalidate cache and re-fetch for real state
+			tasksCache.delete(selectedDealId);
+			await loadTasks(selectedDealId);
+		} catch (err) {
+			task.status = prevStatus;
+			task.task_status = prevTaskStatus;
+			tasks = [...tasks];
+			taskStatusErrors = new Map(taskStatusErrors);
+			taskStatusErrors.set(taskId, err instanceof Error ? err.message : 'Update failed');
+		} finally {
+			updatingTaskIds = new Set([...updatingTaskIds]);
+			updatingTaskIds.delete(taskId);
 		}
 	};
 
@@ -465,21 +527,43 @@
 						{:else if tasks.length === 0}
 							<p class="muted">No tasks found for this project.</p>
 						{:else}
-							<div class="task-list">
-								{#each tasks as task (task.id)}
-									<div class="task-row">
-										<div class="task-info">
-											<p class="task-name">{task.name}</p>
-											{#if task.assignee && task.assignee !== '—'}
-												<p class="task-assignee">{task.assignee}</p>
+							{#each taskGroups as group}
+								{#if taskGroups.length > 1}
+									<p class="task-group-name">{group.name}</p>
+								{/if}
+								<div class="task-list">
+									{#each group.items as task}
+										{@const tid = String(task?.id || task?.id_string || '')}
+										<div class="task-row">
+											<div class="task-info">
+												<p class="task-name">{decodeHtmlEntities(getTaskName(task))}</p>
+												{#if getTaskAssignee(task)}
+													<p class="task-assignee">{getTaskAssignee(task)}</p>
+												{/if}
+												{#if taskStatusErrors.has(tid)}
+													<p class="task-error">{taskStatusErrors.get(tid)}</p>
+												{/if}
+											</div>
+											{#if isZohoProject}
+												<select
+													class="task-status-select task-status-{getTaskStatusValue(task)}"
+													value={getTaskStatusValue(task)}
+													disabled={updatingTaskIds.has(tid)}
+													on:change={(e) => updateTaskStatus(task, e.currentTarget.value)}
+												>
+													{#each TASK_STATUSES as opt}
+														<option value={opt.value}>{opt.label}</option>
+													{/each}
+												</select>
+											{:else}
+												<span class="task-status-badge task-status-{getTaskStatusValue(task)}">
+													{TASK_STATUSES.find(s => s.value === getTaskStatusValue(task))?.label ?? getTaskStatus(task)}
+												</span>
 											{/if}
 										</div>
-										<span class="task-status task-status-{task.status}">
-											{task.status === 'not_started' ? 'Not Started' : task.status === 'completed' ? 'Completed' : 'In Progress'}
-										</span>
-									</div>
-								{/each}
-							</div>
+									{/each}
+								</div>
+							{/each}
 						{/if}
 					</div>
 				{/if}
@@ -947,11 +1031,20 @@
 	}
 
 	/* Tasks */
+	.task-group-name {
+		margin: 0.85rem 0 0.4rem;
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
 	.task-list {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
-		margin-top: 0.75rem;
+		margin-top: 0.5rem;
 	}
 
 	.task-row {
@@ -983,7 +1076,35 @@
 		color: #6b7280;
 	}
 
-	.task-status {
+	.task-error {
+		margin: 0.2rem 0 0;
+		font-size: 0.8rem;
+		color: #b91c1c;
+	}
+
+	/* Status select (Zoho projects — editable) */
+	.task-status-select {
+		appearance: auto;
+		padding: 0.4rem 0.6rem;
+		border-radius: 8px;
+		font-weight: 600;
+		font-size: 0.82rem;
+		min-height: 36px;
+		border: 1px solid #d1d5db;
+		background: #fff;
+		color: #111827;
+		cursor: pointer;
+		flex-shrink: 0;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.task-status-select:disabled { opacity: 0.6; cursor: not-allowed; }
+	.task-status-select.task-status-not_started { border-color: #d1d5db; background: #f9fafb; }
+	.task-status-select.task-status-in_progress  { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+	.task-status-select.task-status-completed    { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+
+	/* Status badge (CRM deals — read-only) */
+	.task-status-badge {
 		display: inline-flex;
 		align-items: center;
 		padding: 0.2rem 0.6rem;
@@ -995,23 +1116,9 @@
 		border: 1px solid transparent;
 	}
 
-	.task-status-not_started {
-		background: #f3f4f6;
-		color: #6b7280;
-		border-color: #e5e7eb;
-	}
-
-	.task-status-in_progress {
-		background: #eff6ff;
-		color: #1d4ed8;
-		border-color: #93c5fd;
-	}
-
-	.task-status-completed {
-		background: #f0fdf4;
-		color: #15803d;
-		border-color: #86efac;
-	}
+	.task-status-badge.task-status-not_started { background: #f3f4f6; color: #6b7280;  border-color: #e5e7eb; }
+	.task-status-badge.task-status-in_progress  { background: #eff6ff; color: #1d4ed8; border-color: #93c5fd; }
+	.task-status-badge.task-status-completed    { background: #f0fdf4; color: #15803d; border-color: #86efac; }
 
 	@media (min-width: 640px) {
 		.dashboard {
