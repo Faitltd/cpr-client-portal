@@ -96,7 +96,20 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
   // If this is a CRM deal ID (not a Zoho project ID), return deal info with no tasks
   if (!authorizedProjectIds.has(projectId)) {
     const deal = authorizedDealMap!.get(projectId);
-    if (!deal) throw error(403, 'Not authorized for this project');
+    if (!deal) {
+      console.error(`[trade/projects/${projectId}] 403: not in authorizedProjectIds or dealMap`, {
+        projectId,
+        authorizedProjectIds: Array.from(authorizedProjectIds),
+        dealIds: Array.from(authorizedDealMap!.keys()),
+        dealProjectFields: Array.from(authorizedDealMap!.values()).map((d: any) => ({
+          id: d?.id,
+          name: d?.Deal_Name,
+          Project_ID: d?.Project_ID,
+          Zoho_Projects_ID: d?.Zoho_Projects_ID
+        }))
+      });
+      throw error(403, 'Not authorized for this project');
+    }
     return json({
       project: {
         id: projectId,
