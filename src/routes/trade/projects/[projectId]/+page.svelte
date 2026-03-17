@@ -211,7 +211,11 @@
 					return;
 				}
 				if (res.status === 403) {
-					error = 'Not authorized';
+					// Cached project ID may be stale (e.g. CRM updated with a new project ID).
+					// Clear caches and redirect to the project list to pick up fresh IDs.
+					try { sessionStorage.removeItem('cpr:trade:projects:list'); } catch { /* ignore */ }
+					try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
+					window.location.href = '/trade/projects';
 					return;
 				}
 				const detail = await res.text().catch(() => '');
