@@ -3255,3 +3255,40 @@ export async function updateZohoTaskStatus(
 export function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+
+/**
+ * Match an array of deals to Zoho Projects by name when Zoho_Projects_ID is not populated.
+ * Returns a Map from dealId to matched projectId.
+ */
+export async function matchDealsToProjectsByName(
+  deals: any[]
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (!deals || deals.length === 0) return result;
+
+  try {
+    const projects = await getProjectCatalogForMatching();
+    if (!projects || projects.length === 0) return result;
+
+    const activeProjects = projects.filter((p: any) => !isProjectLikelyArchived(p));
+    const usedProjectIds = new Set<string>();
+
+    for (const deal of deals) {
+      const dealId = deal?.id ? String(deal.id) : null;
+      if (!dealId) continue;
+
+      const match = findBestProjectMatchForDeal(deal, activeProjects, usedProjectIds)
+        || findBestProjectMatchForDeal(deal, projects, usedProjectIds);
+      if (!match) continue;
+
+      usedProjectIds.add(match.projectId);
+      result.set(dealId, match.projectId);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn('matchDealsToProjectsByName failed', { error: message });
+  }
+
+  return result;
+}
