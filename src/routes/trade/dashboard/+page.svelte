@@ -1098,11 +1098,13 @@
 	/* Status select (Zoho projects — editable) */
 	.task-status-select {
 		appearance: auto;
-		padding: 0.4rem 0.6rem;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.82rem;
-		min-height: 36px;
+		padding: 0.25rem 0.4rem;
+		border-radius: 6px;
+		font-weight: 500;
+		font-size: 0.75rem;
+		min-height: 28px;
+		max-width: 110px;
+		width: 110px;
 		border: 1px solid #d1d5db;
 		background: #fff;
 		color: #111827;
