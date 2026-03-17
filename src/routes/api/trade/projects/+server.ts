@@ -157,9 +157,10 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 	for (const deal of deals) {
 		const ids = getDealProjectIdsForLinking(deal);
-		if (ids.length === 0) continue;
 		const dealId = deal?.id ? String(deal.id) : null;
 		const dealName = getDealLabel(deal);
+		console.log(`[trade/projects] deal="${dealName}" id=${dealId} raw_Zoho_Projects_ID=${JSON.stringify(deal?.Zoho_Projects_ID)} resolved_ids=${JSON.stringify(ids)}`);
+		if (ids.length === 0) continue;
 		const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
 		for (const projectId of ids) {
 			if (byProjectId.has(projectId)) continue;
@@ -225,15 +226,17 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			const link = byProjectId.get(projectId)!;
 			const response = await getProject(projectId);
 			const project = normalizeProjectResponse(response);
+			console.log(`[trade/projects] getProject(${projectId}) -> ${project ? `ok name="${project.name}"` : 'null response'}`);
 			return project
 				? {
 						...normalizeForList(project, 'zprojects'),
 						deal_id: link.dealId
 					}
 				: null;
-		} catch {
+		} catch (err) {
 			// Fallback to mapped CRM data if Zoho project fetch fails
 			const link = byProjectId.get(projectId)!;
+			console.error(`[trade/projects] getProject(${projectId}) failed:`, err instanceof Error ? err.message : String(err));
 			return {
 				id: projectId,
 				deal_id: link.dealId,

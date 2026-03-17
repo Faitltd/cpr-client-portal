@@ -116,8 +116,9 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	let projectPayload: any = null;
 	try {
 		projectPayload = await getProject(projectId);
+		console.log(`[trade/projects/${projectId}] getProject ok`);
 	} catch (projectErr) {
-		console.error('Failed to fetch Zoho Projects project detail:', projectErr);
+		console.error(`[trade/projects/${projectId}] getProject failed:`, projectErr instanceof Error ? projectErr.message : String(projectErr));
 		// Don't bail — still try to fetch tasks directly
 	}
 
@@ -139,6 +140,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	let tasksLoadError: string | null = null;
 	if (tasksResult.status === 'fulfilled' && Array.isArray(tasksResult.value)) {
 		tasks = tasksResult.value;
+		console.log(`[trade/projects/${projectId}] getAllProjectTasks -> ${tasks.length} tasks`);
 		if (!useTaskCache && tasks.length > 0) {
 			projectTasksCache.set(projectId, { fetchedAt: Date.now(), tasks });
 		}
