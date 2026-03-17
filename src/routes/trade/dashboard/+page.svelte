@@ -234,7 +234,7 @@
 		return Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
 	})();
 
-	const loadTasks = async (dealId: string) => {
+	const loadTasks = async (dealId: string, bustCache = false) => {
 		if (!dealId) return;
 		updatingTaskIds = new Set();
 		taskStatusErrors = new Map();
@@ -255,9 +255,10 @@
 		tasksError = '';
 
 		const projectId = project.id;
+		const qs = bustCache ? '?fresh' : '';
 
 		try {
-			const res = await fetch(`/api/trade/projects/${encodeURIComponent(projectId)}`);
+			const res = await fetch(`/api/trade/projects/${encodeURIComponent(projectId)}${qs}`);
 			if (res.status === 401) throw new Error('Please login again');
 			if (res.status === 403) {
 				// The cached project list may have a stale project ID. Wipe the cache,
@@ -336,9 +337,9 @@
 			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
 			const payload = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(payload?.error || `Failed to update (${res.status})`);
-			// Invalidate cache and re-fetch for real state
+			// Invalidate cache and re-fetch for real state (bust server-side 2-min cache)
 			tasksCache.delete(selectedDealId);
-			await loadTasks(selectedDealId);
+			await loadTasks(selectedDealId, true);
 		} catch (err) {
 			task.status = prevStatus;
 			task.task_status = prevTaskStatus;
