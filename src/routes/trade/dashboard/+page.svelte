@@ -259,6 +259,38 @@
 		try {
 			const res = await fetch(`/api/trade/projects/${encodeURIComponent(projectId)}`);
 			if (res.status === 401) throw new Error('Please login again');
+			if (res.status === 403) {
+				// The cached project list may have a stale project ID. Wipe the cache,
+				// re-fetch the project list, and retry once with the fresh ID.
+				try { sessionStorage.removeItem(PROJECTS_LIST_CACHE_KEY); } catch { /* ignore */ }
+				const freshRes = await fetch('/api/trade/projects');
+				if (freshRes.ok) {
+					const freshPayload = await freshRes.json().catch(() => ({}));
+					projectsList = freshPayload.projects || [];
+					try { sessionStorage.setItem(PROJECTS_LIST_CACHE_KEY, JSON.stringify({ projects: projectsList, ts: Date.now() })); } catch { /* ignore */ }
+					const freshProject = projectsList.find((p: any) => p.deal_id === dealId || p.id === dealId);
+					const freshProjectId = freshProject?.id;
+					if (freshProjectId && freshProjectId !== projectId) {
+						// Retry with the updated project ID
+						const retryRes = await fetch(`/api/trade/projects/${encodeURIComponent(freshProjectId)}`);
+						if (retryRes.ok) {
+							const retryPayload = await retryRes.json().catch(() => ({}));
+							const fresh: any[] = retryPayload?.tasks ?? [];
+							tasksCache.set(dealId, fresh);
+							if (dealId === selectedDealId) {
+								tasks = fresh;
+								selectedProjectId = freshProjectId;
+								isZohoProject = true;
+								if (fresh.length === 0 && retryPayload?.tasksError) {
+									tasksError = `Could not load tasks: ${retryPayload.tasksError}`;
+								}
+							}
+							return;
+						}
+					}
+				}
+				throw new Error('Failed to load tasks (403)');
+			}
 			if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
 			const payload = await res.json().catch(() => ({}));
 			const fresh: any[] = payload?.tasks ?? [];
