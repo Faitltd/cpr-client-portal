@@ -24,7 +24,7 @@ import { normalizeClientPhonePassword } from '$lib/server/client-password';
 import { hashPassword } from '$lib/server/password';
 import type { Actions, PageServerLoad } from './$types';
 
-const PROJECT_AUDIT_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Project_ID', 'Modified_Time'].join(',');
+const PROJECT_AUDIT_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Project_ID', 'Zoho_Projects_ID', 'Modified_Time'].join(',');
 
 async function mapWithConcurrency<T, R>(
 	items: T[],
@@ -371,7 +371,7 @@ export const actions: Actions = {
 					const stageKey = stage || '(missing)';
 					stageCounts.set(stageKey, (stageCounts.get(stageKey) || 0) + 1);
 
-					const parsedProjectIds = parseZohoProjectIds(deal?.Project_ID);
+					const parsedProjectIds = parseZohoProjectIds(deal?.Project_ID ?? deal?.Zoho_Projects_ID);
 					if (parsedProjectIds.length > 0) {
 						for (const projectId of parsedProjectIds) {
 							mappedProjectIdSet.add(projectId);

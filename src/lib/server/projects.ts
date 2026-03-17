@@ -43,7 +43,8 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Modified_Time',
 	'Closing_Date',
 	'Contact_Name',
-	'Project_ID'
+	'Project_ID',
+	'Zoho_Projects_ID'
 ].join(',');
 const CRM_DEAL_REHYDRATE_BASE_FIELDS = [
 	'Deal_Name',
@@ -52,7 +53,8 @@ const CRM_DEAL_REHYDRATE_BASE_FIELDS = [
 	'Modified_Time',
 	'Closing_Date',
 	'Contact_Name',
-	'Project_ID'
+	'Project_ID',
+	'Zoho_Projects_ID'
 ];
 const DEAL_PROJECT_FIELD_CACHE_TTL_MS = 60 * 60 * 1000;
 

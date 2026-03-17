@@ -6,7 +6,7 @@ import { getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getProject, parseZohoProjectIds } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 
-const AUDIT_DEAL_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Project_ID', 'Modified_Time'].join(',');
+const AUDIT_DEAL_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Project_ID', 'Zoho_Projects_ID', 'Modified_Time'].join(',');
 
 async function mapWithConcurrency<T, R>(
 	items: T[],
@@ -111,7 +111,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			const stageKey = stage || '(missing)';
 			stageCounts.set(stageKey, (stageCounts.get(stageKey) || 0) + 1);
 
-			const ids = parseZohoProjectIds(deal?.Project_ID);
+			const ids = parseZohoProjectIds(deal?.Project_ID ?? deal?.Zoho_Projects_ID);
 			if (ids.length > 0) {
 				for (const projectId of ids) {
 					mappedProjectIdSet.add(projectId);
