@@ -159,6 +159,7 @@
 		if (!dealId) return;
 		fieldUpdatesController?.abort();
 		fieldUpdatesController = new AbortController();
+		fieldUpdates = [];
 		fieldUpdatesLoading = true;
 		fieldUpdatesError = '';
 		let didTimeout = false;
