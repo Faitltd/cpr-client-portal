@@ -246,7 +246,7 @@ export async function generateProject(
 					'/Deals/' + dealId,
 					{
 						method: 'PUT',
-						body: JSON.stringify({ data: [{ Zoho_Projects_ID: project.id }] })
+						body: JSON.stringify({ data: [{ Project_ID: project.id }] })
 					},
 					apiDomain
 				);

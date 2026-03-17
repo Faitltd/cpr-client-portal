@@ -18,7 +18,7 @@ const BASE_DEAL_FIELDS = [
 	'Zip_Code'
 ];
 
-const DETAIL_DEAL_FIELDS = ['Garage_Code', 'WiFi', 'Refined_SOW', 'File_Upload', 'Progress_Photos', 'Zoho_Projects_ID'];
+const DETAIL_DEAL_FIELDS = ['Garage_Code', 'WiFi', 'Refined_SOW', 'File_Upload', 'Progress_Photos', 'Project_ID'];
 
 export type LoadTradePageContextOptions = {
 	includeDetailFields?: boolean;

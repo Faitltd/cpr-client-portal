@@ -13,7 +13,7 @@ import { getProjectTasks, parseZohoProjectIds } from '$lib/server/projects';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import type { RequestHandler } from './$types';
 
-const DEAL_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Zoho_Projects_ID', 'Deal_Amount'].join(',');
+const DEAL_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Project_ID', 'Deal_Amount'].join(',');
 const DEAL_LIMIT = 20;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -201,7 +201,7 @@ async function computeProjectHealth(deal: any): Promise<HealthProject> {
 
 	const signals: HealthSignals = {
 		schedule: await withSignalFallback(dealId, 'schedule', async () => {
-			const projectId = parseZohoProjectIds(deal?.Zoho_Projects_ID)[0];
+			const projectId = parseZohoProjectIds(deal?.Project_ID)[0];
 			if (!projectId) return 100;
 
 			const response = await getProjectTasks(projectId, {

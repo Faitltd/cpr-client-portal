@@ -343,7 +343,7 @@ function toUnmappedDealProjects(
 		seen.add(dealId);
 		if (linkedDealIds.has(dealId)) continue;
 
-		const projectIds = parseZohoProjectIds(deal?.Zoho_Projects_ID);
+		const projectIds = parseZohoProjectIds(deal?.Project_ID);
 		if (projectIds.length > 0) continue;
 
 		const taskCountFromMap = taskCountsByDealId.get(dealId);

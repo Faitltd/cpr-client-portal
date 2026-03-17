@@ -102,7 +102,7 @@ function normalizeScopeTokens(rawScope: string | null | undefined) {
 
 function extractProjectIdsFromDealRecord(deal: any, candidateFieldApiNames: string[]) {
 	const ids = new Set<string>();
-	const fieldNames = Array.from(new Set(['Zoho_Projects_ID', ...candidateFieldApiNames]));
+	const fieldNames = Array.from(new Set(['Project_ID', ...candidateFieldApiNames]));
 	for (const fieldName of fieldNames) {
 		const value = deal?.[fieldName];
 		for (const id of parseZohoProjectIds(value)) {
@@ -212,8 +212,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		)
 	);
 
-	if (!candidateFieldApiNames.includes('Zoho_Projects_ID')) {
-		candidateFieldApiNames.push('Zoho_Projects_ID');
+	if (!candidateFieldApiNames.includes('Project_ID')) {
+		candidateFieldApiNames.push('Project_ID');
 	}
 
 	const requestedFields = Array.from(new Set([...BASE_DEAL_FIELDS, ...candidateFieldApiNames]));

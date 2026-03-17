@@ -47,7 +47,7 @@ const DEAL_FIELDS = [
 	'Progress_Photos',
 	'Client_Portal_Folder',
 	'Portal_Trade_Partners',
-	'Zoho_Projects_ID'
+	'Project_ID'
 ].join(',');
 
 const CONTACT_FIELDS = [

@@ -153,7 +153,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
   for (const deal of deals) {
     const ids = getDealProjectIdsForLinking(deal);
     const dealId = deal?.id ? String(deal.id) : null;
-    debugDealInfo.push({ dealName: getDealLabel(deal), dealId, rawProjectsId: deal?.Zoho_Projects_ID, resolvedIds: ids });
+    debugDealInfo.push({ dealName: getDealLabel(deal), dealId, rawProjectsId: deal?.Project_ID, resolvedIds: ids });
     if (ids.length === 0 || !dealId) continue;
     const dealName = getDealLabel(deal);
     const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;

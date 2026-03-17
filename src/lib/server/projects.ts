@@ -43,7 +43,7 @@ const CRM_DEAL_EMAIL_FALLBACK_FIELDS = [
 	'Modified_Time',
 	'Closing_Date',
 	'Contact_Name',
-	'Zoho_Projects_ID'
+	'Project_ID'
 ].join(',');
 const CRM_DEAL_REHYDRATE_BASE_FIELDS = [
 	'Deal_Name',
@@ -52,7 +52,7 @@ const CRM_DEAL_REHYDRATE_BASE_FIELDS = [
 	'Modified_Time',
 	'Closing_Date',
 	'Contact_Name',
-	'Zoho_Projects_ID'
+	'Project_ID'
 ];
 const DEAL_PROJECT_FIELD_CACHE_TTL_MS = 60 * 60 * 1000;
 
@@ -503,7 +503,7 @@ function getDealName(deal: any) {
 }
 
 function getKnownDealProjectFieldApiNames() {
-	const names = new Set<string>(['Zoho_Projects_ID']);
+	const names = new Set<string>(['Project_ID', 'Zoho_Projects_ID']);
 	const cached = dealProjectFieldApiNamesCache?.apiNames || [];
 	for (const apiName of cached) {
 		const normalized = normalizeDealFieldApiName(apiName);
@@ -714,7 +714,7 @@ async function getDealProjectFieldApiNames(accessToken: string) {
 		return dealProjectFieldApiNamesCache.apiNames;
 	}
 
-	const defaults = ['Zoho_Projects_ID'];
+	const defaults = ['Project_ID', 'Zoho_Projects_ID'];
 	const discovered: string[] = [];
 	try {
 		const payload = await zohoApiCall(accessToken, '/settings/fields?module=Deals');

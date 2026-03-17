@@ -24,7 +24,7 @@ import { normalizeClientPhonePassword } from '$lib/server/client-password';
 import { hashPassword } from '$lib/server/password';
 import type { Actions, PageServerLoad } from './$types';
 
-const PROJECT_AUDIT_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Zoho_Projects_ID', 'Modified_Time'].join(',');
+const PROJECT_AUDIT_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Project_ID', 'Modified_Time'].join(',');
 
 async function mapWithConcurrency<T, R>(
 	items: T[],
@@ -261,56 +261,62 @@ export const actions: Actions = {
 	},
 		syncTradePartners: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
-		const tokens = await getZohoTokens();
-		if (!tokens) {
-			return fail(500, { message: 'Zoho is not connected yet.' });
-		}
-
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-				scope: tokens.scope
-			});
-		}
-
-		let synced = 0;
-		let errors = 0;
-		const { partners, stats } = await listTradePartnersWithStats(accessToken);
-		for (const partner of partners) {
-			try {
-				await upsertTradePartner(partner);
-				synced += 1;
-			} catch (err) {
-				errors += 1;
-				console.error('Failed to sync trade partner', partner.email, err);
+		try {
+			const tokens = await getZohoTokens();
+			if (!tokens) {
+				return fail(500, { message: 'Zoho is not connected yet.' });
 			}
-		}
 
-		const totalRecords = stats.reduce((sum, stat) => sum + stat.totalRecords, 0);
-		const missingEmail = stats.reduce((sum, stat) => sum + stat.missingEmail, 0);
-		const recovered = stats.reduce((sum, stat) => sum + (stat.recovered || 0), 0);
-		const moduleSummary =
-			stats.length > 1
-				? ` Modules: ${stats.map((stat) => `${stat.moduleName}=${stat.totalRecords}`).join(', ')}.`
-				: stats.length === 1
-					? ` Module: ${stats[0].moduleName}.`
-					: '';
-		const baseMessage = errors
-			? `Synced ${synced} trade partners. ${errors} failed.`
-			: `Synced ${synced} trade partners.`;
-		const message =
-			stats.length > 0
-				? `${baseMessage} Zoho returned ${totalRecords} records. Missing email: ${missingEmail}. Recovered: ${recovered}.${moduleSummary}`
-				: baseMessage;
+			let accessToken = tokens.access_token;
+			if (new Date(tokens.expires_at) < new Date()) {
+				const refreshed = await refreshAccessToken(tokens.refresh_token);
+				accessToken = refreshed.access_token;
+				await upsertZohoTokens({
+					user_id: tokens.user_id,
+					access_token: refreshed.access_token,
+					refresh_token: refreshed.refresh_token,
+					expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
+					scope: tokens.scope
+				});
+			}
+
+			let synced = 0;
+			let errors = 0;
+			const { partners, stats } = await listTradePartnersWithStats(accessToken);
+			for (const partner of partners) {
+				try {
+					await upsertTradePartner(partner);
+					synced += 1;
+				} catch (err) {
+					errors += 1;
+					console.error('Failed to sync trade partner', partner.email, err);
+				}
+			}
+
+			const totalRecords = stats.reduce((sum, stat) => sum + stat.totalRecords, 0);
+			const missingEmail = stats.reduce((sum, stat) => sum + stat.missingEmail, 0);
+			const recovered = stats.reduce((sum, stat) => sum + (stat.recovered || 0), 0);
+			const moduleSummary =
+				stats.length > 1
+					? ` Modules: ${stats.map((stat) => `${stat.moduleName}=${stat.totalRecords}`).join(', ')}.`
+					: stats.length === 1
+						? ` Module: ${stats[0].moduleName}.`
+						: '';
+			const baseMessage = errors
+				? `Synced ${synced} trade partners. ${errors} failed.`
+				: `Synced ${synced} trade partners.`;
+			const message =
+				stats.length > 0
+					? `${baseMessage} Zoho returned ${totalRecords} records. Missing email: ${missingEmail}. Recovered: ${recovered}.${moduleSummary}`
+					: baseMessage;
 
 			return { message };
-		},
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Unknown error';
+			console.error('Trade partner sync failed', err);
+			return fail(500, { message: `Trade partner sync failed: ${message}` });
+		}
+	},
 		auditProjects: async ({ cookies }) => {
 			requireAdmin(cookies.get('admin_session'));
 
@@ -365,7 +371,7 @@ export const actions: Actions = {
 					const stageKey = stage || '(missing)';
 					stageCounts.set(stageKey, (stageCounts.get(stageKey) || 0) + 1);
 
-					const parsedProjectIds = parseZohoProjectIds(deal?.Zoho_Projects_ID);
+					const parsedProjectIds = parseZohoProjectIds(deal?.Project_ID);
 					if (parsedProjectIds.length > 0) {
 						for (const projectId of parsedProjectIds) {
 							mappedProjectIdSet.add(projectId);

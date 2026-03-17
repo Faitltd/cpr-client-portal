@@ -64,7 +64,7 @@ export const PUT: RequestHandler = async ({ cookies, params, request }) => {
 		const dealList = await getTradePartnerDeals(accessToken);
 		authorizedProjectIds = new Set<string>();
 		for (const deal of dealList) {
-			const ids = parseZohoProjectIds(deal?.Zoho_Projects_ID);
+			const ids = parseZohoProjectIds(deal?.Project_ID);
 			for (const id of ids) authorizedProjectIds.add(id);
 		}
 	} catch (err) {
