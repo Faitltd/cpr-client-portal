@@ -108,7 +108,7 @@ const PORTAL_ACTIVE_DEAL_STAGES = new Set([
 ]);
 
 const TRADE_ACTIVE_DEAL_STAGES = new Set([
-	...PORTAL_ACTIVE_DEAL_STAGES,
+	'project created',
 	'project started'
 ]);
 
