@@ -145,24 +145,25 @@ export const GET: RequestHandler = async ({ cookies }) => {
     throw error(500, 'Failed to fetch projects');
   }
 
-  // Build project links from deals' Zoho_Projects_ID field
-  const byProjectId = new Map<string, { projectId: string; dealId: string | null; dealName: string | null; stage: string | null }>();
-  const linkedDealIds = new Set<string>();
+  // Build deal → project mapping. Keyed by dealId so multiple deals can
+  // link to the same Zoho project without one silently shadowing the other.
+  const dealToProject = new Map<string, { projectId: string; dealId: string; dealName: string | null; stage: string | null }>();
+  const debugDealInfo: Array<{ dealName: string | null; dealId: string | null; rawProjectsId: unknown; resolvedIds: string[] }> = [];
 
   for (const deal of deals) {
     const ids = getDealProjectIdsForLinking(deal);
     const dealId = deal?.id ? String(deal.id) : null;
-
-    if (ids.length === 0) continue;
-
+    debugDealInfo.push({ dealName: getDealLabel(deal), dealId, rawProjectsId: deal?.Zoho_Projects_ID, resolvedIds: ids });
+    if (ids.length === 0 || !dealId) continue;
     const dealName = getDealLabel(deal);
     const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
-    for (const projectId of ids) {
-      if (byProjectId.has(projectId)) continue;
-      byProjectId.set(projectId, { projectId, dealId, dealName, stage });
-      if (dealId) linkedDealIds.add(dealId);
+    // Use the first project ID linked to this deal
+    if (!dealToProject.has(dealId)) {
+      dealToProject.set(dealId, { projectId: ids[0], dealId, dealName, stage });
     }
   }
+
+  const linkedDealIds = new Set(dealToProject.keys());
 
   // Fallback: match unmapped deals to Zoho Projects by deal name
   const unmappedForNameMatch = deals.filter((deal) => {
@@ -174,19 +175,22 @@ export const GET: RequestHandler = async ({ cookies }) => {
     try {
       const nameMatches = await matchDealsToProjectsByName(unmappedForNameMatch);
       for (const [dealId, projectId] of nameMatches.entries()) {
-        if (byProjectId.has(projectId)) continue;
         const deal = unmappedForNameMatch.find((d) => String(d.id) === dealId);
         const dealName = deal ? getDealLabel(deal) : null;
         const stage = typeof deal?.Stage === 'string' ? deal.Stage : null;
-        byProjectId.set(projectId, { projectId, dealId, dealName, stage });
-        linkedDealIds.add(dealId);
+        if (!dealToProject.has(dealId)) {
+          dealToProject.set(dealId, { projectId, dealId, dealName, stage });
+          linkedDealIds.add(dealId);
+        }
       }
     } catch {
       // non-fatal: name matching is best-effort
     }
   }
 
-  const projectIds = Array.from(byProjectId.keys());
+  // Unique project IDs to fetch (multiple deals may share a project)
+  const uniqueProjectIds = Array.from(new Set(Array.from(dealToProject.values()).map((l) => l.projectId)));
+  const projectIds = uniqueProjectIds;
 
   // Build CRM fallback cards for deals without linked Zoho Projects
   const unmappedDeals = deals.filter((deal) => {
@@ -234,40 +238,43 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
   // If no Zoho project IDs, return CRM deals only
   if (projectIds.length === 0) {
-    return json({ projects: crmProjects });
+    return json({ projects: crmProjects, _debug: debugDealInfo });
   }
 
-  // Fetch actual Zoho Projects
-  const fetched = await mapConcurrent(projectIds, MAX_CONCURRENCY, async (projectId) => {
+  // Fetch each unique Zoho Project once
+  const projectDataById = new Map<string, any>();
+  await mapConcurrent(projectIds, MAX_CONCURRENCY, async (projectId) => {
     try {
-      const link = byProjectId.get(projectId)!;
       const response = await getProject(projectId);
       const project = normalizeProjectResponse(response);
-      return project
-        ? { ...normalizeForList(project, 'zprojects'), deal_id: link.dealId }
-        : null;
-    } catch (err) {
-      // Fallback to mapped CRM data if Zoho project fetch fails
-      const link = byProjectId.get(projectId)!;
-      return {
-        id: projectId,
-        deal_id: link.dealId,
-        name: link.dealName || `Project ${projectId}`,
-        status: link.stage || 'Unknown',
-        start_date: null,
-        end_date: null,
-        task_count: 0,
-        task_completed_count: null,
-        task_preview: [],
-        source: 'crm'
-      };
+      if (project) projectDataById.set(projectId, normalizeForList(project, 'zprojects'));
+    } catch {
+      // Will fall back to CRM data below
     }
   });
 
-  const zohoProjects = fetched.filter(Boolean);
+  // Build one entry per deal (not per project) so each deal can find its tasks
+  const zohoProjects = Array.from(dealToProject.values()).map((link) => {
+    const projectData = projectDataById.get(link.projectId);
+    if (projectData) {
+      return { ...projectData, id: link.projectId, deal_id: link.dealId };
+    }
+    return {
+      id: link.projectId,
+      deal_id: link.dealId,
+      name: link.dealName || `Project ${link.projectId}`,
+      status: link.stage || 'Unknown',
+      start_date: null,
+      end_date: null,
+      task_count: 0,
+      task_completed_count: null,
+      task_preview: [],
+      source: 'crm'
+    };
+  });
 
   // Combine: Zoho Projects first, then any unlinked CRM deals
-  const seen = new Set(zohoProjects.map((p: any) => String(p.id)));
-  const remainingCrm = crmProjects.filter((p) => !seen.has(p.id));
-  return json({ projects: [...zohoProjects, ...remainingCrm] });
+  const linkedDealIdSet = new Set(zohoProjects.map((p) => p.deal_id));
+  const remainingCrm = crmProjects.filter((p) => !linkedDealIdSet.has(p.deal_id));
+  return json({ projects: [...zohoProjects, ...remainingCrm], _debug: debugDealInfo });
 };
