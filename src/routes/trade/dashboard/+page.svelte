@@ -267,6 +267,9 @@
 				tasks = fresh;
 				selectedProjectId = projectId;
 				isZohoProject = true;
+				if (fresh.length === 0 && payload?.tasksError) {
+					tasksError = `Could not load tasks: ${payload.tasksError}`;
+				}
 			}
 		} catch (err) {
 			tasksError = err instanceof Error ? err.message : 'Failed to load tasks';

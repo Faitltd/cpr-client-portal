@@ -30,26 +30,6 @@ function normalizeProjectResponse(payload: any) {
 	return payload;
 }
 
-function toCount(value: unknown): number | null {
-	if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.round(value);
-	if (typeof value === 'string') {
-		const n = Number(value.trim());
-		return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
-	}
-	return null;
-}
-
-function getTaskCountHint(project: any): number | null {
-	const direct = toCount(project?.task_count ?? project?.tasks_count ?? project?.task_total);
-	if (direct !== null) return direct;
-	const t = project?.tasks;
-	if (!t || typeof t !== 'object') return null;
-	const total = toCount(t.total_count ?? t.count ?? t.total);
-	if (total !== null) return total;
-	const open = toCount(t.open_count ?? t.open);
-	const closed = toCount(t.closed_count ?? t.closed);
-	return open === null && closed === null ? null : (open ?? 0) + (closed ?? 0);
-}
 
 const getDealLabel = (deal: any) =>
 	deal?.Deal_Name || deal?.Potential_Name || deal?.Name || deal?.name || null;
@@ -138,33 +118,11 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		projectPayload = await getProject(projectId);
 	} catch (projectErr) {
 		console.error('Failed to fetch Zoho Projects project detail:', projectErr);
-		return json({
-			project: {
-				id: projectId,
-				deal_id: fallbackLink?.dealId || null,
-				name: fallbackLink?.dealName || `Project ${projectId}`,
-				status: fallbackLink?.stage || 'Unknown'
-			},
-			tasks: [],
-			activities: []
-		});
+		// Don't bail — still try to fetch tasks directly
 	}
 
 	const project = normalizeProjectResponse(projectPayload);
-	if (!project) {
-		return json({
-			project: {
-				id: projectId,
-				deal_id: fallbackLink?.dealId || null,
-				name: fallbackLink?.dealName || `Project ${projectId}`,
-				status: fallbackLink?.stage || 'Unknown'
-			},
-			tasks: [],
-			activities: []
-		});
-	}
 
-	const taskCountHint = getTaskCountHint(project);
 	const bustCache = url.searchParams.has('fresh');
 	if (bustCache) projectTasksCache.delete(projectId);
 	const cachedTasks = projectTasksCache.get(projectId);
@@ -173,22 +131,21 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	const [tasksResult, activitiesResult] = await Promise.allSettled([
 		useTaskCache
 			? Promise.resolve(cachedTasks!.tasks)
-			: taskCountHint === 0
-				? Promise.resolve([])
-				: getAllProjectTasks(projectId, 100),
+			: getAllProjectTasks(projectId, 100),
 		getAllProjectActivities(projectId, 50)
 	]);
 
-	const tasks =
-		tasksResult.status === 'fulfilled' && Array.isArray(tasksResult.value) ? tasksResult.value : [];
-
-	if (
-		!useTaskCache &&
-		tasksResult.status === 'fulfilled' &&
-		Array.isArray(tasksResult.value) &&
-		tasksResult.value.length > 0
-	) {
-		projectTasksCache.set(projectId, { fetchedAt: Date.now(), tasks: tasksResult.value });
+	let tasks: any[] = [];
+	let tasksLoadError: string | null = null;
+	if (tasksResult.status === 'fulfilled' && Array.isArray(tasksResult.value)) {
+		tasks = tasksResult.value;
+		if (!useTaskCache && tasks.length > 0) {
+			projectTasksCache.set(projectId, { fetchedAt: Date.now(), tasks });
+		}
+	} else if (tasksResult.status === 'rejected') {
+		const msg = tasksResult.reason instanceof Error ? tasksResult.reason.message : String(tasksResult.reason);
+		console.error(`[trade/projects/${projectId}] getAllProjectTasks failed:`, msg);
+		tasksLoadError = msg;
 	}
 
 	const activities =
@@ -197,11 +154,16 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			: [];
 
 	return json({
-		project: {
-			...project,
-			deal_id: fallbackLink?.dealId || project?.deal_id || null
-		},
+		project: project
+			? { ...project, deal_id: fallbackLink?.dealId || project?.deal_id || null }
+			: {
+					id: projectId,
+					deal_id: fallbackLink?.dealId || null,
+					name: fallbackLink?.dealName || `Project ${projectId}`,
+					status: fallbackLink?.stage || 'Unknown'
+				},
 		tasks,
-		activities
+		activities,
+		...(tasksLoadError ? { tasksError: tasksLoadError } : {})
 	});
 };
