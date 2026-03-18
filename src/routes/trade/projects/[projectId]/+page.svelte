@@ -234,7 +234,8 @@
 		const hadCache = loadFromCache();
 		if (hadCache) {
 			loading = false;
-			fetchDetail(true);
+			// No background re-fetch — cache is busted on successful task update,
+			// so the next visit will load fresh data from the server.
 		} else {
 			fetchDetail(false);
 		}
