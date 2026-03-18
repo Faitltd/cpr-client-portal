@@ -42,6 +42,44 @@
 	let decisionsOpen = false;
 	let accountOpen = false;
 
+	// Contracts / Documents / Access Info
+	let contracts: any[] = [];
+	let contractsLoading = true;
+	let contractError = '';
+	let contractsOpen = true;
+	let documents: any[] = [];
+	let documentsLoading = true;
+	let documentsOpen = true;
+	let accessProjectId = '';
+	let wifiInput = '';
+	let doorCodeInput = '';
+	let accessMessage = '';
+	let accessError = '';
+	let accessUpdating = false;
+	let accessOpen = true;
+
+	const submitAccessInfo = async () => {
+		accessMessage = '';
+		accessError = '';
+		const wifi = wifiInput.trim();
+		const doorCode = doorCodeInput.trim();
+		if (!wifi || !doorCode) { accessError = 'WiFi and door code are required.'; return; }
+		if (wifi.length > 200) { accessError = 'WiFi must be 200 characters or less.'; return; }
+		if (doorCode.length > 100) { accessError = 'Door code must be 100 characters or less.'; return; }
+		accessUpdating = true;
+		try {
+			const res = await fetch(`/api/project/${accessProjectId}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ wifi, garageCode: doorCode })
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) { accessError = payload?.message || 'Failed to update.'; return; }
+			accessMessage = payload?.message || 'Access info updated.';
+		} catch { accessError = 'Failed to update access info.'; }
+		finally { accessUpdating = false; }
+	};
+
 	// Account — password reset
 	let pwNew = '';
 	let pwConfirm = '';
@@ -193,9 +231,10 @@
 			});
 
 		try {
-			const [projectsRes, invoicesRes] = await Promise.all([
+			const [projectsRes, invoicesRes, contractsRes] = await Promise.all([
 				fetch('/api/projects'),
-				fetch('/api/invoices')
+				fetch('/api/invoices'),
+				fetch('/api/sign/requests')
 			]);
 
 			if (projectsRes.status === 401) {
@@ -211,6 +250,28 @@
 			} else if (invoicesRes.status !== 401) {
 				invoiceError = 'Failed to fetch invoices';
 			}
+
+			if (contractsRes.ok) {
+				const contractsData = await contractsRes.json();
+				contracts = contractsData.data || [];
+			} else if (contractsRes.status !== 401) {
+				contractError = 'Failed to fetch contracts';
+			}
+			contractsLoading = false;
+
+			// Fetch project detail (documents + access info) using first project
+			if (projects.length > 0) {
+				const pid = projects[0].id;
+				accessProjectId = pid;
+				const detailRes = await fetch(`/api/project/${pid}`);
+				if (detailRes.ok) {
+					const detail = await detailRes.json();
+					wifiInput = detail.deal?.WiFi || '';
+					doorCodeInput = detail.deal?.Garage_Code || '';
+					documents = detail.documents || [];
+				}
+			}
+			documentsLoading = false;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -497,6 +558,100 @@
 			{/if}
 		</section>
 {/if}
+
+	<!-- Contracts -->
+	<section class="section">
+		<button class="section-header" type="button" on:click={() => (contractsOpen = !contractsOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="1" width="14" height="18" rx="2"/><path d="M7 5h6M7 9h6M7 13h4"/></svg>
+				Contracts
+			</span>
+			<span class="toggle-icon">{contractsOpen ? '−' : '+'}</span>
+		</button>
+		{#if contractsOpen}
+			{#if contractsLoading}
+				<p class="muted-text">Loading...</p>
+			{:else if contractError}
+				<p class="muted-text error-text">{contractError}</p>
+			{:else if contracts.length === 0}
+				<p class="muted-text">No contracts found.</p>
+			{:else}
+				<div class="card-list">
+					{#each contracts as contract}
+						<div class="contract-card">
+							<div class="contract-info">
+								<h3 class="contract-name">{contract.name}</h3>
+								<span class="badge badge-muted">{contract.status || 'Unknown'}</span>
+							</div>
+							<div class="contract-actions">
+								{#if contract.can_sign}
+									<a class="btn-primary" href={`/contracts/${contract.id}/sign`} target="_blank" rel="noopener">Sign</a>
+								{/if}
+								{#if /complete|signed/i.test(contract.status || '')}
+									<a class="btn-secondary" href={`/api/sign/requests/${contract.id}/pdf`} target="_blank" rel="noopener">View PDF</a>
+								{:else if contract.view_url}
+									<a class="btn-secondary" href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`} target="_blank" rel="noopener">View</a>
+								{:else}
+									<a class="btn-secondary" href={`/contracts/${contract.id}/view`} target="_blank" rel="noopener">View</a>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+	</section>
+
+	<!-- Documents -->
+	<section class="section">
+		<button class="section-header" type="button" on:click={() => (documentsOpen = !documentsOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h8l5 5v11a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M12 2v5h5"/></svg>
+				Documents
+			</span>
+			<span class="toggle-icon">{documentsOpen ? '−' : '+'}</span>
+		</button>
+		{#if documentsOpen}
+			{#if documentsLoading}
+				<p class="muted-text">Loading...</p>
+			{:else if documents.length === 0}
+				<p class="muted-text">No documents found.</p>
+			{:else}
+				<div class="doc-list">
+					{#each documents as doc}
+						<div class="doc-item">
+							<a href={`/api/project/${accessProjectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank" class="doc-link">{doc.File_Name}</a>
+							<span class="meta-text">{new Date(doc.Created_Time).toLocaleDateString()}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+	</section>
+
+	<!-- Access Info -->
+	<section class="section">
+		<button class="section-header" type="button" on:click={() => (accessOpen = !accessOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="11" r="4"/><path d="M12 7l6 6M15 7h3v3"/></svg>
+				Update Access Info
+			</span>
+			<span class="toggle-icon">{accessOpen ? '−' : '+'}</span>
+		</button>
+		{#if accessOpen}
+			<div class="access-body">
+				<label class="access-label" for="dash-wifi">WiFi</label>
+				<input id="dash-wifi" class="access-input" type="text" bind:value={wifiInput} placeholder="WiFi details" />
+				<label class="access-label" for="dash-door">Door Code</label>
+				<input id="dash-door" class="access-input" type="text" bind:value={doorCodeInput} placeholder="Door code" />
+				<button class="access-btn" type="button" on:click={submitAccessInfo} disabled={accessUpdating || !accessProjectId}>
+					{accessUpdating ? 'Saving…' : 'Save Access Info'}
+				</button>
+				{#if accessMessage}<p class="access-msg-ok">{accessMessage}</p>{/if}
+				{#if accessError}<p class="access-msg-err">{accessError}</p>{/if}
+			</div>
+		{/if}
+	</section>
 
 	<!-- Decisions -->
 	<section class="section">
@@ -1054,6 +1209,128 @@
 		color: #374151;
 		-webkit-tap-highlight-color: transparent;
 		flex-shrink: 0;
+	}
+
+	/* ── Contracts ────────────────────────────────────── */
+	.contract-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		padding: 0.85rem 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		background: #fff;
+	}
+
+	.contract-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+
+	.contract-name {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #111827;
+		margin: 0;
+	}
+
+	.contract-actions {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		flex-shrink: 0;
+	}
+
+	/* ── Documents ─────────────────────────────────────── */
+	.doc-list {
+		display: grid;
+		gap: 0.4rem;
+		margin-top: 0.75rem;
+	}
+
+	.doc-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.65rem 0.85rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		background: #fff;
+	}
+
+	.doc-link {
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #1d4ed8;
+		text-decoration: none;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.doc-link:hover {
+		text-decoration: underline;
+	}
+
+	/* ── Access Info ───────────────────────────────────── */
+	.access-body {
+		padding: 1rem 0.25rem 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		max-width: 520px;
+	}
+
+	.access-label {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #374151;
+		margin-top: 0.5rem;
+	}
+
+	.access-input {
+		padding: 0.65rem 0.75rem;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 0.9rem;
+		min-height: 44px;
+		background: #fff;
+	}
+
+	.access-btn {
+		margin-top: 0.75rem;
+		padding: 0.65rem 1rem;
+		background: #111827;
+		color: #fff;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		min-height: 44px;
+		align-self: flex-start;
+	}
+
+	.access-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.access-msg-ok {
+		font-size: 0.82rem;
+		color: #166534;
+		margin: 0.25rem 0 0;
+	}
+
+	.access-msg-err {
+		font-size: 0.82rem;
+		color: #b91c1c;
+		margin: 0.25rem 0 0;
 	}
 
 	/* ── Coming soon ──────────────────────────────────── */
