@@ -9,7 +9,6 @@
 		!pathname.startsWith('/admin') &&
 		!pathname.startsWith('/auth');
 	$: isTradePortal = pathname.startsWith('/trade');
-	$: hasPortalSession = Boolean($page.data?.hasPortalSession);
 	$: hasTradeSession = Boolean($page.data?.hasTradeSession);
 	$: accountHref = isTradePortal ? '/trade/account' : '/account';
 
@@ -84,15 +83,7 @@
 						<a class="trade-nav-item trade-nav-logout" href="/api/logout?next=/">Log out</a>
 					</nav>
 				{:else}
-					<nav class="client-nav" aria-label="Client navigation">
-						{#if hasPortalSession}
-							<a class="client-nav-item" class:active={isActive('/dashboard', pathname)} href="/dashboard">Finances</a>
-							<a class="client-nav-item" class:active={isActive('/zprojects', pathname)} href="/zprojects">Project</a>
-							<span class="client-nav-item client-nav-disabled">Decisions</span>
-						{/if}
-						<a class="client-nav-item" class:active={isActive(accountHref, pathname)} href={accountHref}>Account</a>
-						<a class="client-nav-item client-nav-logout" href="/api/logout?next=/">Log out</a>
-					</nav>
+					<a class="header-logout" href="/api/logout?next=/">Log out</a>
 				{/if}
 			</div>
 		</header>
@@ -192,47 +183,19 @@
 		color: #9ca3af;
 	}
 
-	/* ── Client inline nav ──────────────────────────────── */
-	.client-nav {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-		flex-wrap: wrap;
-	}
-
-	.client-nav-item {
-		display: inline-flex;
-		align-items: center;
+	/* ── Header logout link (client portal) ─────────────── */
+	.header-logout {
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #9ca3af;
+		text-decoration: none;
 		padding: 0.45rem 0.75rem;
 		border-radius: 8px;
-		text-decoration: none;
+		transition: color 0.15s;
+	}
+
+	.header-logout:hover {
 		color: #374151;
-		font-size: 0.9rem;
-		font-weight: 500;
-		min-height: 40px;
-		white-space: nowrap;
-		transition: background 0.15s;
-		-webkit-tap-highlight-color: transparent;
-	}
-
-	.client-nav-item:hover {
-		background: #f3f4f6;
-	}
-
-	.client-nav-item.active {
-		background: #f0f0f0;
-		color: #111827;
-		font-weight: 600;
-	}
-
-	.client-nav-logout {
-		color: #9ca3af;
-	}
-
-	.client-nav-disabled {
-		color: #d1d5db;
-		cursor: default;
-		pointer-events: none;
 	}
 
 	/* ── Global form resets ─────────────────────────────── */

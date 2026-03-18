@@ -39,6 +39,32 @@
 	let invoicesOpen = true;
 	let changeOrdersOpen = true;
 	let emailUpdatesOpen = true;
+	let decisionsOpen = false;
+	let accountOpen = false;
+
+	// Account — password reset
+	let pwNew = '';
+	let pwConfirm = '';
+	let pwMessage = '';
+	let pwLoading = false;
+
+	const submitPassword = async () => {
+		pwMessage = '';
+		if (pwNew.length < 8) { pwMessage = 'Password must be at least 8 characters.'; return; }
+		if (pwNew !== pwConfirm) { pwMessage = 'Passwords do not match.'; return; }
+		pwLoading = true;
+		try {
+			const res = await fetch('/account/password', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ password: pwNew })
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (res.ok) { pwMessage = payload.message || 'Password updated.'; pwNew = ''; pwConfirm = ''; }
+			else { pwMessage = payload.message || 'Unable to update password.'; }
+		} catch { pwMessage = 'Unable to update password.'; }
+		finally { pwLoading = false; }
+	};
 	let activityItems: ActivityItem[] = [];
 	let activityLoading = true;
 	let activityError = '';
@@ -470,7 +496,52 @@
 			{/if}
 			{/if}
 		</section>
-	{/if}
+	<!-- Decisions -->
+	<section class="section">
+		<button class="section-header" type="button" on:click={() => (decisionsOpen = !decisionsOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
+				Decisions
+			</span>
+			<span class="toggle-icon">{decisionsOpen ? '−' : '+'}</span>
+		</button>
+		{#if decisionsOpen}
+			<p class="muted-text coming-soon">Coming soon.</p>
+		{/if}
+	</section>
+
+	<!-- Account -->
+	<section class="section">
+		<button class="section-header" type="button" on:click={() => (accountOpen = !accountOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="7" r="4"/><path d="M3 18c0-3.3 3.1-6 7-6s7 2.7 7 6"/></svg>
+				Account
+			</span>
+			<span class="toggle-icon">{accountOpen ? '−' : '+'}</span>
+		</button>
+		{#if accountOpen}
+			<div class="account-body">
+				<h3 class="account-subhead">Set Password</h3>
+				<label class="account-label" for="pw-new">New Password</label>
+				<input id="pw-new" class="account-input" type="password" bind:value={pwNew} />
+				<label class="account-label" for="pw-confirm">Confirm Password</label>
+				<input id="pw-confirm" class="account-input" type="password" bind:value={pwConfirm} />
+				<button
+					class="account-btn"
+					type="button"
+					on:click={submitPassword}
+					disabled={pwLoading || !pwNew || !pwConfirm}
+				>
+					{pwLoading ? 'Updating…' : 'Update Password'}
+				</button>
+				{#if pwMessage}
+					<p class="account-message">{pwMessage}</p>
+				{/if}
+				<div class="account-divider"></div>
+				<a class="account-logout" href="/api/logout?next=/">Log out</a>
+			</div>
+		{/if}
+	</section>
 </div>
 
 <style>
@@ -981,6 +1052,85 @@
 		color: #374151;
 		-webkit-tap-highlight-color: transparent;
 		flex-shrink: 0;
+	}
+
+	/* ── Coming soon ──────────────────────────────────── */
+	.coming-soon {
+		font-style: italic;
+	}
+
+	/* ── Account section ──────────────────────────────── */
+	.account-body {
+		padding: 1rem 0.25rem 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.account-subhead {
+		font-size: 0.9rem;
+		font-weight: 700;
+		color: #111827;
+		margin: 0 0 0.5rem;
+	}
+
+	.account-label {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #374151;
+		margin-top: 0.5rem;
+	}
+
+	.account-input {
+		padding: 0.65rem 0.75rem;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 0.9rem;
+		min-height: 44px;
+		background: #fff;
+	}
+
+	.account-btn {
+		margin-top: 0.75rem;
+		padding: 0.65rem 1rem;
+		background: #111827;
+		color: #fff;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		min-height: 44px;
+	}
+
+	.account-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.account-message {
+		font-size: 0.82rem;
+		color: #374151;
+		margin: 0.25rem 0 0;
+	}
+
+	.account-divider {
+		height: 1px;
+		background: #e5e7eb;
+		margin: 0.75rem 0;
+	}
+
+	.account-logout {
+		display: inline-flex;
+		align-items: center;
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #9ca3af;
+		text-decoration: none;
+	}
+
+	.account-logout:hover {
+		color: #374151;
 	}
 
 	/* ── Desktop ──────────────────────────────────────── */
