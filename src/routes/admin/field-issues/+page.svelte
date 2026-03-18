@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { selectedDealId } from '$lib/stores/dealContext';
+	import DealSelector from '$lib/components/DealSelector.svelte';
 
 	interface FieldIssue {
 		id: string;
@@ -32,7 +31,6 @@
 		{ value: 'resolved', label: 'Resolved' }
 	];
 
-	let dealIdInput = '';
 	let loadedDealId = '';
 	let issues: FieldIssue[] = [];
 	let loading = false;
@@ -51,20 +49,9 @@
 		}))
 		.filter((group) => group.items.length > 0);
 
-	onMount(() => {
-		const stored = $selectedDealId;
-		if (stored) {
-			dealIdInput = stored;
-			loadedDealId = stored;
-			fetchIssues();
-		}
-	});
-
-	async function loadDeal() {
-		const id = dealIdInput.trim();
+	async function loadDeal(id: string) {
 		if (!id) return;
 		loadedDealId = id;
-		selectedDealId.set(id);
 		actionError = '';
 		await fetchIssues();
 	}
@@ -123,27 +110,7 @@
 <div class="container">
 	<h1>Field Issues</h1>
 
-	<div class="card loader-card">
-		<label class="field-label" for="deal-id-input">Deal ID</label>
-		<div class="loader-row">
-			<input
-				id="deal-id-input"
-				class="input"
-				type="text"
-				placeholder="Enter Zoho Deal ID"
-				bind:value={dealIdInput}
-				on:keydown={(e) => e.key === 'Enter' && loadDeal()}
-			/>
-			<button class="btn btn-primary" on:click={loadDeal} disabled={!dealIdInput.trim()}>
-				Load Issues
-			</button>
-		</div>
-		{#if loadedDealId}
-			<p class="muted" style="margin: 0.5rem 0 0;">
-				Showing: <strong>{loadedDealId}</strong>
-			</p>
-		{/if}
-	</div>
+	<DealSelector on:select={(e) => loadDeal(e.detail.id)} />
 
 	{#if loadedDealId}
 		<div class="card filter-card">

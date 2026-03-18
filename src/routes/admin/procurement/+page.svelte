@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { selectedDealId } from '$lib/stores/dealContext';
+	import DealSelector from '$lib/components/DealSelector.svelte';
 
 	interface ProcurementItem {
 		id: string;
@@ -42,7 +41,6 @@
 		{ value: 'installed', label: 'Installed' }
 	];
 
-	let dealIdInput = '';
 	let loadedDealId = '';
 	let items: ProcurementItem[] = [];
 	let loading = false;
@@ -65,20 +63,9 @@
 	$: filteredItems =
 		statusFilter === 'all' ? items : items.filter((item) => item.status === statusFilter);
 
-	onMount(() => {
-		const stored = $selectedDealId;
-		if (stored) {
-			dealIdInput = stored;
-			loadedDealId = stored;
-			fetchItems();
-		}
-	});
-
-	async function loadDeal() {
-		const id = dealIdInput.trim();
+	async function loadDeal(id: string) {
 		if (!id) return;
 		loadedDealId = id;
-		selectedDealId.set(id);
 		actionError = '';
 		await fetchItems();
 	}
@@ -230,27 +217,7 @@
 	<a class="back-link" href="/admin/clients">← Back to Clients</a>
 	<h1>Procurement</h1>
 
-	<div class="card loader-card">
-		<label class="field-label" for="deal-id-input">Deal ID</label>
-		<div class="loader-row">
-			<input
-				id="deal-id-input"
-				class="input"
-				type="text"
-				placeholder="Enter Zoho Deal ID"
-				bind:value={dealIdInput}
-				on:keydown={(e) => e.key === 'Enter' && loadDeal()}
-			/>
-			<button class="btn btn-primary" type="button" on:click={loadDeal} disabled={!dealIdInput.trim()}>
-				Load
-			</button>
-		</div>
-		{#if loadedDealId}
-			<p class="muted" style="margin: 0.5rem 0 0;">
-				Showing: <strong>{loadedDealId}</strong>
-			</p>
-		{/if}
-	</div>
+	<DealSelector on:select={(e) => loadDeal(e.detail.id)} />
 
 	{#if loadedDealId}
 		<details class="card create-card" open>

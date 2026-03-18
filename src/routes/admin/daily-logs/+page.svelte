@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { selectedDealId } from '$lib/stores/dealContext';
+	import DealSelector from '$lib/components/DealSelector.svelte';
 
 	interface DailyLog {
 		id: string;
@@ -23,8 +22,6 @@
 		logs: DailyLog[];
 	}
 
-	// Deal loader
-	let dealIdInput = '';
 	let loadedDealId = '';
 
 	// Data
@@ -38,20 +35,9 @@
 	$: weatherDelays = logs.filter((l) => l.weather_delay).length;
 	$: logsWithIssues = logs.filter((l) => l.issues_encountered?.trim()).length;
 
-	onMount(() => {
-		const stored = $selectedDealId;
-		if (stored) {
-			dealIdInput = stored;
-			loadedDealId = stored;
-			fetchLogs();
-		}
-	});
-
-	async function loadDeal() {
-		const id = dealIdInput.trim();
+	async function loadDeal(id: string) {
 		if (!id) return;
 		loadedDealId = id;
-		selectedDealId.set(id);
 		await fetchLogs();
 	}
 
@@ -114,28 +100,7 @@
 <div class="container">
 	<h1>Daily Logs</h1>
 
-	<!-- Deal ID loader -->
-	<div class="card loader-card">
-		<label class="field-label" for="deal-id-input">Deal ID</label>
-		<div class="loader-row">
-			<input
-				id="deal-id-input"
-				class="input"
-				type="text"
-				placeholder="Enter Zoho Deal ID"
-				bind:value={dealIdInput}
-				on:keydown={(e) => e.key === 'Enter' && loadDeal()}
-			/>
-			<button class="btn btn-primary" on:click={loadDeal} disabled={!dealIdInput.trim()}>
-				Load
-			</button>
-		</div>
-		{#if loadedDealId}
-			<p class="muted" style="margin: 0.5rem 0 0;">
-				Showing: <strong>{loadedDealId}</strong>
-			</p>
-		{/if}
-	</div>
+	<DealSelector on:select={(e) => loadDeal(e.detail.id)} />
 
 	{#if loadedDealId}
 		{#if loading}
@@ -246,74 +211,6 @@
 		border-radius: 8px;
 		padding: 1.5rem;
 		background: #fff;
-	}
-
-	.loader-card {
-		margin-bottom: 2rem;
-	}
-
-	.loader-row {
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-	}
-
-	.field-label {
-		font-size: 0.88rem;
-		font-weight: 600;
-		color: #374151;
-		display: block;
-		margin-bottom: 0.35rem;
-	}
-
-	.input {
-		border: 1px solid #d1d5db;
-		border-radius: 999px;
-		padding: 0.5rem 1rem;
-		font-size: 0.93rem;
-		min-height: 44px;
-		flex: 1;
-		min-width: 0;
-		box-sizing: border-box;
-	}
-
-	.input:focus {
-		outline: 2px solid #0066cc;
-		outline-offset: 1px;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.5rem 1.1rem;
-		border: 1px solid #d0d0d0;
-		border-radius: 999px;
-		background: #fff;
-		color: #1a1a1a;
-		min-height: 44px;
-		cursor: pointer;
-		font-size: 0.93rem;
-		white-space: nowrap;
-	}
-
-	.btn:hover:not(:disabled) {
-		background: #f3f4f6;
-	}
-
-	.btn:disabled {
-		opacity: 0.55;
-		cursor: not-allowed;
-	}
-
-	.btn-primary {
-		background: #0066cc;
-		border-color: #0066cc;
-		color: #fff;
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		background: #0055aa;
 	}
 
 	/* Stats */
@@ -506,11 +403,6 @@
 	@media (max-width: 720px) {
 		.container {
 			padding: 1.5rem 1.25rem;
-		}
-
-		.loader-row {
-			flex-direction: column;
-			align-items: stretch;
 		}
 
 		.stats-row {

@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { selectedDealId } from '$lib/stores/dealContext';
+	import DealSelector from '$lib/components/DealSelector.svelte';
 
 	interface CommsLogEntry {
 		id: string;
@@ -14,8 +13,6 @@
 		created_at: string;
 	}
 
-	// Deal loader
-	let dealIdInput = '';
 	let loadedDealId = '';
 
 	// Timeline data
@@ -34,20 +31,9 @@
 	let submitError = '';
 	let submitSuccess = false;
 
-	onMount(() => {
-		const stored = $selectedDealId;
-		if (stored) {
-			dealIdInput = stored;
-			loadedDealId = stored;
-			fetchEntries();
-		}
-	});
-
-	async function loadDeal() {
-		const id = dealIdInput.trim();
+	async function loadDeal(id: string) {
 		if (!id) return;
 		loadedDealId = id;
-		selectedDealId.set(id);
 		submitSuccess = false;
 		await fetchEntries();
 	}
@@ -134,28 +120,7 @@
 <div class="container">
 	<h1>Communications Log</h1>
 
-	<!-- Deal ID loader -->
-	<div class="card loader-card">
-		<label class="field-label" for="deal-id-input">Deal ID</label>
-		<div class="loader-row">
-			<input
-				id="deal-id-input"
-				class="input"
-				type="text"
-				placeholder="Enter Zoho Deal ID"
-				bind:value={dealIdInput}
-				on:keydown={(e) => e.key === 'Enter' && loadDeal()}
-			/>
-			<button class="btn btn-primary" on:click={loadDeal} disabled={!dealIdInput.trim()}>
-				Load
-			</button>
-		</div>
-		{#if loadedDealId}
-			<p class="muted" style="margin: 0.5rem 0 0;">
-				Showing: <strong>{loadedDealId}</strong>
-			</p>
-		{/if}
-	</div>
+	<DealSelector on:select={(e) => loadDeal(e.detail.id)} />
 
 	{#if loadedDealId}
 		<!-- Log new communication -->
@@ -331,16 +296,6 @@
 		border-radius: 8px;
 		padding: 1.5rem;
 		background: #fff;
-	}
-
-	.loader-card {
-		margin-bottom: 2rem;
-	}
-
-	.loader-row {
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
 	}
 
 	/* Form fields */
@@ -645,11 +600,6 @@
 	@media (max-width: 720px) {
 		.container {
 			padding: 1.5rem 1.25rem;
-		}
-
-		.loader-row {
-			flex-direction: column;
-			align-items: stretch;
 		}
 
 		.field-row {

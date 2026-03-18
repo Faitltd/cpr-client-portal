@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { selectedDealId } from '$lib/stores/dealContext';
+	import DealSelector from '$lib/components/DealSelector.svelte';
 
 	interface Approval {
 		id: string;
@@ -20,8 +18,6 @@
 		updated_at: string;
 	}
 
-	// Deal loader
-	let dealIdInput = '';
 	let loadedDealId = '';
 
 	// Data
@@ -50,20 +46,9 @@
 	let createError = '';
 	let createSuccess = false;
 
-	onMount(() => {
-		const stored = $selectedDealId;
-		if (stored) {
-			dealIdInput = stored;
-			loadedDealId = stored;
-			Promise.all([fetchPending(), fetchAll()]);
-		}
-	});
-
-	async function loadDeal() {
-		const id = dealIdInput.trim();
+	async function loadDeal(id: string) {
 		if (!id) return;
 		loadedDealId = id;
-		selectedDealId.set(id);
 		createSuccess = false;
 		await Promise.all([fetchPending(), fetchAll()]);
 	}
@@ -201,28 +186,7 @@
 <div class="container">
 	<h1>Approvals Queue</h1>
 
-	<!-- Deal ID loader -->
-	<div class="card loader-card">
-		<label class="field-label" for="deal-id-input">Deal ID</label>
-		<div class="loader-row">
-			<input
-				id="deal-id-input"
-				class="input"
-				type="text"
-				placeholder="Enter Zoho Deal ID"
-				bind:value={dealIdInput}
-				on:keydown={(e) => e.key === 'Enter' && loadDeal()}
-			/>
-			<button class="btn btn-primary" on:click={loadDeal} disabled={!dealIdInput.trim()}>
-				Load
-			</button>
-		</div>
-		{#if loadedDealId}
-			<p class="muted" style="margin: 0.5rem 0 0;">
-				Showing: <strong>{loadedDealId}</strong>
-			</p>
-		{/if}
-	</div>
+	<DealSelector on:select={(e) => loadDeal(e.detail.id)} />
 
 	{#if loadedDealId}
 		<!-- Pending approvals -->
