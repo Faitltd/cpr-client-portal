@@ -33,18 +33,18 @@
 	let loading = true;
 	let error = '';
 	let invoiceError = '';
-	let activityOpen = true;
-	let projectsOpen = true;
+	let activityOpen = false;
+	let projectsOpen = false;
 	let financialOpen = true;
 	let invoicesOpen = true;
-	let changeOrdersOpen = true;
-	let emailUpdatesOpen = true;
+	let changeOrdersOpen = false;
+	let emailUpdatesOpen = false;
 	let decisionsOpen = false;
 	let accountOpen = false;
 
 	// Photos / Project Overview
-	let photosOpen = true;
-	let overviewOpen = true;
+	let photosOpen = false;
+	let overviewOpen = false;
 	let projectDetail: any = null;
 	let projectNotes: any[] = [];
 
@@ -52,17 +52,17 @@
 	let contracts: any[] = [];
 	let contractsLoading = true;
 	let contractError = '';
-	let contractsOpen = true;
+	let contractsOpen = false;
 	let documents: any[] = [];
 	let documentsLoading = true;
-	let documentsOpen = true;
+	let documentsOpen = false;
 	let accessProjectId = '';
 	let wifiInput = '';
 	let doorCodeInput = '';
 	let accessMessage = '';
 	let accessError = '';
 	let accessUpdating = false;
-	let accessOpen = true;
+	let accessOpen = false;
 
 	const submitAccessInfo = async () => {
 		accessMessage = '';
