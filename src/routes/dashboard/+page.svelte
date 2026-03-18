@@ -496,6 +496,8 @@
 			{/if}
 			{/if}
 		</section>
+{/if}
+
 	<!-- Decisions -->
 	<section class="section">
 		<button class="section-header" type="button" on:click={() => (decisionsOpen = !decisionsOpen)}>
