@@ -12,7 +12,10 @@
 				</svg>
 				<span>Admin</span>
 			</a>
+			<div class="header-actions">
+			<a class="client-admin-btn" href="/admin/clients">Client Admin</a>
 			<a class="logout-link" href="/admin/logout">Log out</a>
+		</div>
 		</div>
 	</header>
 
@@ -63,6 +66,27 @@
 		text-decoration: none;
 		color: #111827;
 		letter-spacing: -0.01em;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.client-admin-btn {
+		font-size: 0.82rem;
+		font-weight: 600;
+		color: #fff;
+		background: #111827;
+		text-decoration: none;
+		padding: 0.35rem 0.85rem;
+		border-radius: 6px;
+		white-space: nowrap;
+	}
+
+	.client-admin-btn:hover {
+		background: #374151;
 	}
 
 	.logout-link {

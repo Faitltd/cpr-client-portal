@@ -66,9 +66,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 				maxAge: getAdminSessionMaxAge()
 			});
 			if (expectsJson) {
-				return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
+				return json({ message: 'Login successful.', redirect: '/admin', role: 'admin' });
 			}
-			throw redirect(303, '/admin/clients');
+			throw redirect(303, '/admin');
 		}
 		if (expectsJson) {
 			return json({ message: 'Invalid email or password.' }, { status: 401 });
@@ -151,9 +151,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			maxAge: getAdminSessionMaxAge()
 		});
 		if (expectsJson) {
-			return json({ message: 'Login successful.', redirect: '/admin/clients', role: 'admin' });
+			return json({ message: 'Login successful.', redirect: '/admin', role: 'admin' });
 		}
-		throw redirect(303, '/admin/clients');
+		throw redirect(303, '/admin');
 	}
 
 	if (expectsJson) {

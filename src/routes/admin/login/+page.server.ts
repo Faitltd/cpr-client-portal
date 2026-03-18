@@ -8,7 +8,7 @@ const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	if (isValidAdminSession(cookies.get('admin_session'))) {
-		throw redirect(302, '/admin/clients');
+		throw redirect(302, '/admin');
 	}
 
 	return {
@@ -37,6 +37,6 @@ export const actions: Actions = {
 			maxAge: getAdminSessionMaxAge()
 		});
 
-		throw redirect(302, '/admin/clients');
+		throw redirect(302, '/admin');
 	}
 };
