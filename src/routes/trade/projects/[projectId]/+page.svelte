@@ -116,18 +116,18 @@
 		const prevStatus = task?.status;
 		const prevTaskStatus = task?.task_status;
 
-		updatingTaskIds = new Set([...updatingTaskIds, taskId]);
-		taskStatusErrors = new Map([...taskStatusErrors]);
-		taskStatusErrors.delete(taskId);
-
-		// Optimistic update
+		// Mutate task proxy in-place — only this task's reactive reads update
 		const label = TASK_STATUSES.find((s) => s.value === newStatus)?.label || newStatus;
 		if (task.status && typeof task.status === 'object') {
 			task.status = { ...task.status, name: label };
 		} else {
 			task.status = label;
 		}
-		tasks = [...tasks];
+		task.task_status = label;
+
+		// In-place Set/Map mutations — no new references, no broad re-renders
+		updatingTaskIds.add(taskId);
+		taskStatusErrors.delete(taskId);
 
 		try {
 			const projectId = $page.params.projectId;
@@ -149,18 +149,13 @@
 			if (!res.ok) {
 				throw new Error(payload?.error || `Failed to update (${res.status})`);
 			}
-			// Success — invalidate cache so next visit fetches fresh data, but keep the
-			// optimistic update in place so the screen doesn't jump or refresh.
 			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
 		} catch (err) {
-			// Revert optimistic update
+			// Revert in-place
 			task.status = prevStatus;
 			task.task_status = prevTaskStatus;
-			tasks = [...tasks];
-			taskStatusErrors = new Map([...taskStatusErrors]);
 			taskStatusErrors.set(taskId, err instanceof Error ? err.message : 'Update failed');
 		} finally {
-			updatingTaskIds = new Set([...updatingTaskIds]);
 			updatingTaskIds.delete(taskId);
 		}
 	}
