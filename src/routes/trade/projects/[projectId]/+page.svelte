@@ -236,7 +236,8 @@
 		const hadCache = loadFromCache();
 		if (hadCache) {
 			loading = false;
-			fetchDetail(true);
+			// Cache is valid — no background re-fetch. Cache is cleared on successful
+			// task updates so the next visit loads fresh data from Zoho.
 		} else {
 			fetchDetail(false);
 		}
