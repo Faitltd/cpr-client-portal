@@ -57,6 +57,44 @@
 		if (!value) return '—';
 		return value.length > max ? value.slice(0, max) + '…' : value;
 	}
+
+	const navGroups = [
+		{
+			label: 'Overview',
+			items: [
+				{ href: '/admin/health', label: 'Health', desc: 'System status' },
+			]
+		},
+		{
+			label: 'Operations',
+			items: [
+				{ href: '/admin/zprojects', label: 'Projects', desc: 'Zoho project list' },
+				{ href: '/admin/approvals', label: 'Approvals', desc: 'Pending client decisions' },
+				{ href: '/admin/change-orders', label: 'Change Orders', desc: 'Scope changes' },
+				{ href: '/admin/procurement', label: 'Procurement', desc: 'Materials & orders' },
+				{ href: '/admin/daily-logs', label: 'Daily Logs', desc: 'Field activity' },
+				{ href: '/admin/field-issues', label: 'Issues', desc: 'Open field issues' }
+			]
+		},
+		{
+			label: 'Communication',
+			items: [
+				{ href: '/admin/comms', label: 'Comms', desc: 'Message history' },
+				{ href: '/admin/email-updates', label: 'Email Updates', desc: 'Send client emails' },
+				{ href: '/admin/clients', label: 'Clients', desc: 'Client accounts' }
+			]
+		},
+		{
+			label: 'Configuration',
+			items: [
+				{ href: '/admin/task-library', label: 'Task Library', desc: 'Task templates' },
+				{ href: '/admin/scope', label: 'Scope', desc: 'Project scopes' },
+				{ href: '/admin/folder-cache', label: 'Folder Cache', desc: 'Cached folders' },
+				{ href: '/admin/api-cache', label: 'API Cache', desc: 'Cached API data' },
+				{ href: '/admin/connected', label: 'Connected', desc: 'Integrations' }
+			]
+		}
+	];
 </script>
 
 <div class="container">
@@ -81,7 +119,23 @@
 				<span class="metric-label">Open Issues</span>
 			</div>
 		</div>
+	{/if}
 
+	{#each navGroups as group}
+		<div class="nav-section">
+			<h2 class="nav-section-label">{group.label}</h2>
+			<div class="nav-cards">
+				{#each group.items as item}
+					<a class="nav-card" href={item.href}>
+						<span class="nav-card-label">{item.label}</span>
+						<span class="nav-card-desc">{item.desc}</span>
+					</a>
+				{/each}
+			</div>
+		</div>
+	{/each}
+
+	{#if data}
 		<div class="two-col">
 			<div class="card section-card">
 				<h2>Recent Daily Logs</h2>
@@ -132,7 +186,6 @@
 				{/if}
 			</div>
 		</div>
-
 	{/if}
 </div>
 
@@ -162,6 +215,7 @@
 		background: #fff;
 	}
 
+	/* ── Metrics ─────────────────────────────────────── */
 	.metrics-grid {
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -176,13 +230,8 @@
 		gap: 0.35rem;
 	}
 
-	.metric-warning .metric-value {
-		color: #b45309;
-	}
-
-	.metric-danger .metric-value {
-		color: #b91c1c;
-	}
+	.metric-warning .metric-value { color: #b45309; }
+	.metric-danger .metric-value  { color: #b91c1c; }
 
 	.metric-value {
 		font-size: 2rem;
@@ -199,11 +248,61 @@
 		letter-spacing: 0.04em;
 	}
 
+	/* ── Nav cards ───────────────────────────────────── */
+	.nav-section {
+		margin-bottom: 1.75rem;
+	}
+
+	.nav-section-label {
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #9ca3af;
+		margin: 0 0 0.6rem;
+	}
+
+	.nav-cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+		gap: 0.6rem;
+	}
+
+	.nav-card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		padding: 0.75rem 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		background: #fff;
+		text-decoration: none;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+
+	.nav-card:hover {
+		border-color: #d1d5db;
+		box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+	}
+
+	.nav-card-label {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.nav-card-desc {
+		font-size: 0.75rem;
+		color: #9ca3af;
+	}
+
+	/* ── Activity ────────────────────────────────────── */
 	.two-col {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 1rem;
 		margin-bottom: 2rem;
+		margin-top: 2rem;
 	}
 
 	.section-card {
@@ -280,15 +379,8 @@
 		letter-spacing: 0.04em;
 	}
 
-	.badge-direction {
-		background: #dbeafe;
-		color: #1d4ed8;
-	}
-
-	.badge-channel {
-		background: #f3f4f6;
-		color: #374151;
-	}
+	.badge-direction { background: #dbeafe; color: #1d4ed8; }
+	.badge-channel   { background: #f3f4f6; color: #374151; }
 
 	.view-all {
 		display: inline-block;
@@ -299,9 +391,7 @@
 		font-weight: 500;
 	}
 
-	.view-all:hover {
-		text-decoration: underline;
-	}
+	.view-all:hover { text-decoration: underline; }
 
 	.muted {
 		color: #6b7280;
@@ -320,12 +410,15 @@
 		}
 
 		.metrics-grid {
-			grid-template-columns: 1fr;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+		}
+
+		.nav-cards {
+			grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
 		}
 
 		.two-col {
 			grid-template-columns: 1fr;
 		}
-
 	}
 </style>
