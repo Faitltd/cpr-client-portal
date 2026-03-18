@@ -13,7 +13,7 @@
 	let tasks = $state<ZTask[]>([]);
 	let activities = $state<ZActivity[]>([]);
 	let loading = $state(true);
-	let refreshing = $state(false);
+
 	let error = $state('');
 
 	const formatDate = (value: any) => {
@@ -149,9 +149,9 @@
 			if (!res.ok) {
 				throw new Error(payload?.error || `Failed to update (${res.status})`);
 			}
-			// Success — invalidate caches and re-fetch from Zoho so UI reflects real state
+			// Success — invalidate cache so next visit fetches fresh data, but keep the
+			// optimistic update in place so the screen doesn't jump or refresh.
 			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
-			await fetchDetail(true, true);
 		} catch (err) {
 			// Revert optimistic update
 			task.status = prevStatus;
@@ -200,7 +200,6 @@
 	}
 
 	async function fetchDetail(isRefresh: boolean, bustCache = false) {
-		if (isRefresh) refreshing = true;
 		try {
 			const projectId = $page.params.projectId;
 			const qs = bustCache ? '?fresh' : '';
@@ -233,7 +232,6 @@
 			}
 		} finally {
 			loading = false;
-			refreshing = false;
 		}
 	}
 
@@ -257,9 +255,6 @@
 			<a href="/trade/projects">Back to Projects</a>
 		</div>
 	{:else if project}
-		{#if refreshing}
-			<div class="refreshing">Updating...</div>
-		{/if}
 		<header class="header">
 			<a class="back" href="/trade/projects">← Projects</a>
 			<div class="title-row">
