@@ -42,6 +42,12 @@
 	let decisionsOpen = false;
 	let accountOpen = false;
 
+	// Photos / Project Overview
+	let photosOpen = true;
+	let overviewOpen = true;
+	let projectDetail: any = null;
+	let projectNotes: any[] = [];
+
 	// Contracts / Documents / Access Info
 	let contracts: any[] = [];
 	let contractsLoading = true;
@@ -266,6 +272,8 @@
 				const detailRes = await fetch(`/api/project/${pid}`);
 				if (detailRes.ok) {
 					const detail = await detailRes.json();
+					projectDetail = detail.deal || null;
+					projectNotes = detail.notes || [];
 					wifiInput = detail.deal?.WiFi || '';
 					doorCodeInput = detail.deal?.Garage_Code || '';
 					documents = detail.documents || [];
@@ -353,20 +361,40 @@
 					</div>
 					<h3 class="project-name">{project.Deal_Name || 'Untitled Project'}</h3>
 					<p class="project-meta">Next milestone: {project.Stage || 'Unknown'}</p>
-					<div class="project-actions">
-						{#if getProgressPhotosLink(project)}
-							<a class="btn-secondary" href={getProgressPhotosLink(project)} target="_blank" rel="noreferrer">
-								<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="2"/><path d="M18 14l-4-4-3 3-2-2-5 5"/></svg>
-								Photos
-							</a>
-						{/if}
-						<a href="/project/{project.id}" class="btn-primary">
-							<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
-							View Details
-						</a>
-					</div>
 				</div>
 			{/each}
+			{/if}
+		</section>
+
+		<!-- Photos -->
+		<section class="section">
+			<button class="section-header" type="button" on:click={() => (photosOpen = !photosOpen)}>
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="2"/><path d="M18 14l-4-4-3 3-2-2-5 5"/></svg>
+					Progress Photos
+				</span>
+				<span class="toggle-icon">{photosOpen ? '−' : '+'}</span>
+			</button>
+			{#if photosOpen}
+				{@const photoLinks = projects.filter(p => getProgressPhotosLink(p))}
+				{#if photoLinks.length === 0}
+					<p class="muted-text">No photos available.</p>
+				{:else}
+					<div class="doc-list">
+						{#each photoLinks as project}
+							{@const link = getProgressPhotosLink(project)}
+							<div class="doc-item">
+								<span class="doc-link-label">{project.Deal_Name || 'Project'}</span>
+								<a
+									href={link}
+									class="btn-secondary btn-sm"
+									target={link.startsWith('http') ? '_blank' : undefined}
+									rel={link.startsWith('http') ? 'noreferrer' : undefined}
+								>View Photos</a>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			{/if}
 		</section>
 
@@ -653,6 +681,59 @@
 		{/if}
 	</section>
 
+	<!-- Project Overview -->
+	<section class="section">
+		<button class="section-header" type="button" on:click={() => (overviewOpen = !overviewOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
+				Project Overview
+			</span>
+			<span class="toggle-icon">{overviewOpen ? '−' : '+'}</span>
+		</button>
+		{#if overviewOpen}
+			{#if !projectDetail}
+				<p class="muted-text">Loading...</p>
+			{:else}
+				<div class="overview-grid">
+					<div class="overview-item">
+						<span class="overview-label">Closing Date</span>
+						<span class="overview-value">{projectDetail.Closing_Date ? new Date(projectDetail.Closing_Date).toLocaleDateString() : 'TBD'}</span>
+					</div>
+					<div class="overview-item">
+						<span class="overview-label">Project Manager</span>
+						<span class="overview-value">{projectDetail.Owner?.name || 'Not assigned'}</span>
+					</div>
+					{#if projectDetail.Refined_SOW}
+						<div class="overview-item overview-item-full">
+							<span class="overview-label">Scope</span>
+							<p class="overview-text">{projectDetail.Refined_SOW}</p>
+						</div>
+					{/if}
+					{#if projectDetail.Description}
+						<div class="overview-item overview-item-full">
+							<span class="overview-label">Description</span>
+							<p class="overview-text">{projectDetail.Description}</p>
+						</div>
+					{/if}
+				</div>
+				{#if projectNotes.length > 0}
+					<div class="notes-list">
+						<span class="overview-label">Project Timeline</span>
+						{#each projectNotes as note}
+							<div class="note-card">
+								<div class="note-meta">
+									<span class="note-date">{new Date(note.Created_Time).toLocaleDateString()}</span>
+									{#if note.Owner?.name}<span class="note-author">— {note.Owner.name}</span>{/if}
+								</div>
+								<p class="note-content">{note.Note_Content}</p>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+		{/if}
+	</section>
+
 	<!-- Decisions -->
 	<section class="section">
 		<button class="section-header" type="button" on:click={() => (decisionsOpen = !decisionsOpen)}>
@@ -913,16 +994,6 @@
 		color: #6b7280;
 		font-size: 0.8rem;
 		margin: 0 0 0.75rem;
-	}
-
-	.project-actions {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.project-actions .btn-primary,
-	.project-actions .btn-secondary {
-		flex: 1;
 	}
 
 	/* ── Buttons ──────────────────────────────────────── */
@@ -1209,6 +1280,106 @@
 		color: #374151;
 		-webkit-tap-highlight-color: transparent;
 		flex-shrink: 0;
+	}
+
+	/* ── Photos ───────────────────────────────────────── */
+	.doc-link-label {
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #111827;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.btn-sm {
+		padding: 0.4rem 0.85rem;
+		font-size: 0.8rem;
+		min-height: 36px;
+		flex-shrink: 0;
+	}
+
+	/* ── Project Overview ──────────────────────────────── */
+	.overview-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		margin-top: 0.75rem;
+	}
+
+	.overview-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		padding: 0.65rem 0.85rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		background: #f8fafc;
+	}
+
+	.overview-item-full {
+		grid-column: 1 / -1;
+	}
+
+	.overview-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		font-weight: 600;
+		color: #9ca3af;
+	}
+
+	.overview-value {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.overview-text {
+		margin: 0.25rem 0 0;
+		font-size: 0.85rem;
+		color: #374151;
+		line-height: 1.5;
+		white-space: pre-wrap;
+	}
+
+	.notes-list {
+		margin-top: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+
+	.note-card {
+		padding: 0.75rem 1rem;
+		border-left: 3px solid #3b82f6;
+		border-radius: 0 8px 8px 0;
+		background: #f8fafc;
+	}
+
+	.note-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.35rem;
+	}
+
+	.note-date {
+		font-size: 0.75rem;
+		color: #9ca3af;
+	}
+
+	.note-author {
+		font-size: 0.75rem;
+		color: #6b7280;
+		font-style: italic;
+	}
+
+	.note-content {
+		margin: 0;
+		font-size: 0.85rem;
+		color: #374151;
+		line-height: 1.45;
 	}
 
 	/* ── Contracts ────────────────────────────────────── */
