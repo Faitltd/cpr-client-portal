@@ -88,7 +88,7 @@
 						{#if hasPortalSession}
 							<a class="client-nav-item" class:active={isActive('/dashboard', pathname)} href="/dashboard">Finances</a>
 							<a class="client-nav-item" class:active={isActive('/zprojects', pathname)} href="/zprojects">Project</a>
-							<a class="client-nav-item" class:active={isActive('/decisions', pathname)} href="/decisions">Decisions</a>
+							<span class="client-nav-item client-nav-disabled">Decisions</span>
 						{/if}
 						<a class="client-nav-item" class:active={isActive(accountHref, pathname)} href={accountHref}>Account</a>
 						<a class="client-nav-item client-nav-logout" href="/api/logout?next=/">Log out</a>
@@ -227,6 +227,12 @@
 
 	.client-nav-logout {
 		color: #9ca3af;
+	}
+
+	.client-nav-disabled {
+		color: #d1d5db;
+		cursor: default;
+		pointer-events: none;
 	}
 
 	/* ── Global form resets ─────────────────────────────── */
