@@ -123,7 +123,8 @@ export async function generateProject(
 
 		project = await createZohoProject({
 			name: projectName,
-			description: 'Auto-generated from scope definition'
+			description: 'Auto-generated from scope definition',
+			crm_deal_id: dealId
 		});
 
 		if (logId) await updateGenerationLog(logId, {

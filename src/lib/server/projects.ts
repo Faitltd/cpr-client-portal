@@ -2748,6 +2748,7 @@ export async function createZohoProject(data: {
 	description?: string;
 	start_date?: string;
 	end_date?: string;
+	crm_deal_id?: string;
 }): Promise<{ id: string; name: string }> {
 	try {
 		console.log('[createZohoProject] calling /projects with body:', JSON.stringify(data).substring(0, 500));
