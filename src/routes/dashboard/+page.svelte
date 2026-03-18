@@ -33,7 +33,12 @@
 	let loading = true;
 	let error = '';
 	let invoiceError = '';
+	let activityOpen = true;
+	let projectsOpen = true;
+	let financialOpen = true;
 	let invoicesOpen = true;
+	let changeOrdersOpen = true;
+	let emailUpdatesOpen = true;
 	let activityItems: ActivityItem[] = [];
 	let activityLoading = true;
 	let activityError = '';
@@ -196,35 +201,40 @@
 
 	<!-- Activity Section -->
 	<section class="section">
-		<div class="section-header section-static">
-			<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><path d="M10 6v4l3 2"/></svg>
-			Recent Activity
-		</div>
-		{#if activityLoading}
-			<p class="muted-text">Loading...</p>
-		{:else if activityError}
-			<p class="muted-text">{activityError}</p>
-		{:else if activityItems.length === 0}
-			<p class="muted-text">No recent activity.</p>
-		{:else}
-			<div class="activity-list">
-				{#each activityItems as item, index (item.deal_id + item.date + item.type + index)}
-					<div class="activity-item activity-item-{item.type}">
-						<div class="activity-top">
-							<div class="activity-labels">
-								<span class="badge badge-muted">{item.type === 'comm' ? 'Comm' : 'Update'}</span>
-								{#if item.type === 'comm' && item.channel}
-									<span class="badge badge-channel">{item.channel}</span>
-								{/if}
+		<button class="section-header" type="button" on:click={() => (activityOpen = !activityOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><path d="M10 6v4l3 2"/></svg>
+				Recent Activity
+			</span>
+			<span class="toggle-icon">{activityOpen ? '−' : '+'}</span>
+		</button>
+		{#if activityOpen}
+			{#if activityLoading}
+				<p class="muted-text">Loading...</p>
+			{:else if activityError}
+				<p class="muted-text">{activityError}</p>
+			{:else if activityItems.length === 0}
+				<p class="muted-text">No recent activity.</p>
+			{:else}
+				<div class="activity-list">
+					{#each activityItems as item, index (item.deal_id + item.date + item.type + index)}
+						<div class="activity-item activity-item-{item.type}">
+							<div class="activity-top">
+								<div class="activity-labels">
+									<span class="badge badge-muted">{item.type === 'comm' ? 'Comm' : 'Update'}</span>
+									{#if item.type === 'comm' && item.channel}
+										<span class="badge badge-channel">{item.channel}</span>
+									{/if}
+								</div>
+								<span class="activity-time">{formatRelativeTime(item.date)}</span>
 							</div>
-							<span class="activity-time">{formatRelativeTime(item.date)}</span>
+							<p class="activity-summary">
+								{item.summary || (item.type === 'comm' ? 'Communication logged.' : 'Daily update submitted.')}
+							</p>
 						</div>
-						<p class="activity-summary">
-							{item.summary || (item.type === 'comm' ? 'Communication logged.' : 'Daily update submitted.')}
-						</p>
-					</div>
-				{/each}
-			</div>
+					{/each}
+				</div>
+			{/if}
 		{/if}
 	</section>
 
@@ -240,6 +250,14 @@
 	{:else}
 		<!-- Projects -->
 		<section class="section">
+			<button class="section-header" type="button" on:click={() => (projectsOpen = !projectsOpen)}>
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M2 8h16"/><path d="M8 8v10"/></svg>
+					Projects
+				</span>
+				<span class="toggle-icon">{projectsOpen ? '−' : '+'}</span>
+			</button>
+			{#if projectsOpen}
 			{#each projects as project}
 				<div class="project-card">
 					<div class="project-top">
@@ -262,10 +280,19 @@
 					</div>
 				</div>
 			{/each}
+			{/if}
 		</section>
 
 		<!-- Financial Summary -->
 		<section class="section">
+			<button class="section-header" type="button" on:click={() => (financialOpen = !financialOpen)}>
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v2M10 16v2M2 10h2M16 10h2"/><circle cx="10" cy="10" r="5"/></svg>
+					Financial Summary
+				</span>
+				<span class="toggle-icon">{financialOpen ? '−' : '+'}</span>
+			</button>
+			{#if financialOpen}
 			<div class="summary-grid">
 				<div class="summary-card">
 					<span class="summary-label">Amount Paid</span>
@@ -276,6 +303,7 @@
 					<span class="summary-value">${invoiceTotals.balance.toLocaleString()}</span>
 				</div>
 			</div>
+			{/if}
 		</section>
 
 		<!-- Invoices -->
@@ -330,12 +358,14 @@
 
 		<!-- Change Orders -->
 		<section class="section">
-			<div class="section-header section-static">
+			<button class="section-header" type="button" on:click={() => (changeOrdersOpen = !changeOrdersOpen)}>
 				<span class="section-header-left">
 					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l6 6-10 10H2v-6L12 2z"/><path d="M9 5l6 6"/></svg>
 					Change Orders
 				</span>
-			</div>
+				<span class="toggle-icon">{changeOrdersOpen ? '−' : '+'}</span>
+			</button>
+			{#if changeOrdersOpen}
 			{#if invoiceError}
 				<p class="muted-text error-text">{invoiceError}</p>
 			{:else if changeOrders.length === 0}
@@ -373,16 +403,19 @@
 					{/each}
 				</div>
 			{/if}
+			{/if}
 		</section>
 
 		<!-- Email Updates Timeline -->
 		<section class="section">
-			<div class="section-header section-static">
+			<button class="section-header" type="button" on:click={() => (emailUpdatesOpen = !emailUpdatesOpen)}>
 				<span class="section-header-left">
 					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="16" height="12" rx="2"/><path d="M2 4l8 6 8-6"/></svg>
 					Email Updates
 				</span>
-			</div>
+				<span class="toggle-icon">{emailUpdatesOpen ? '−' : '+'}</span>
+			</button>
+			{#if emailUpdatesOpen}
 			{#if emailTimelineLoading}
 				<p class="muted-text">Loading...</p>
 			{:else if emailTimelineError}
@@ -434,6 +467,7 @@
 						</div>
 					{/each}
 				</div>
+			{/if}
 			{/if}
 		</section>
 	{/if}
@@ -488,14 +522,6 @@
 
 	.section-header:hover {
 		background: #eef2f7;
-	}
-
-	.section-static {
-		cursor: default;
-	}
-
-	.section-static:hover {
-		background: #f8fafc;
 	}
 
 	.section-header-left {
