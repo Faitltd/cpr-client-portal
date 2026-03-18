@@ -86,6 +86,9 @@
 		{ value: 'completed', label: 'Completed (100%)' }
 	];
 
+	let tasksOpen = $state(false);
+	let activityOpen = $state(false);
+
 	let updatingTaskIds = $state(new Set<string>());
 	let taskStatusErrors = $state(new Map<string, string>());
 
@@ -234,8 +237,8 @@
 		const hadCache = loadFromCache();
 		if (hadCache) {
 			loading = false;
-			// No background re-fetch — cache is busted on successful task update,
-			// so the next visit will load fresh data from the server.
+			// Refresh in background — section is collapsed so user won't see the swap
+			fetchDetail(true);
 		} else {
 			fetchDetail(false);
 		}
@@ -269,57 +272,67 @@
 		</header>
 
 		<section class="section">
-			<h2>Tasks</h2>
-			{#if tasks.length === 0}
-				<p class="section-empty">{project?.source === 'crm_deal' ? 'No Zoho project linked to this deal yet.' : 'No tasks found.'}</p>
-			{:else}
-				{#each taskGroups as group}
-					<h3 class="group-title">{group.name}</h3>
-					<div class="card-list">
-						{#each group.items as task}
-							{@const tid = String(task?.id || task?.id_string || '')}
-							<div class="card-row">
-								<div class="card-info">
-									<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
-									<p class="card-assignee">{getTaskAssignee(task)}</p>
-									{#if taskStatusErrors.has(tid)}
-										<p class="task-error">{taskStatusErrors.get(tid)}</p>
+			<button class="section-toggle" onclick={() => (tasksOpen = !tasksOpen)}>
+				<span>Tasks</span>
+				<span class="chevron" class:open={tasksOpen}>▾</span>
+			</button>
+			{#if tasksOpen}
+				{#if tasks.length === 0}
+					<p class="section-empty">{project?.source === 'crm_deal' ? 'No Zoho project linked to this deal yet.' : 'No tasks found.'}</p>
+				{:else}
+					{#each taskGroups as group}
+						<h3 class="group-title">{group.name}</h3>
+						<div class="card-list">
+							{#each group.items as task}
+								{@const tid = String(task?.id || task?.id_string || '')}
+								<div class="card-row">
+									<div class="card-info">
+										<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
+										<p class="card-assignee">{getTaskAssignee(task)}</p>
+										{#if taskStatusErrors.has(tid)}
+											<p class="task-error">{taskStatusErrors.get(tid)}</p>
+										{/if}
+									</div>
+									{#if project?.source === 'crm_deal'}
+										<span class="badge">{getTaskStatus(task)}</span>
+									{:else}
+										<select
+											class="status-select status-{getTaskStatusValue(task)}"
+											value={getTaskStatusValue(task)}
+											disabled={updatingTaskIds.has(tid)}
+											onchange={(e) => updateTaskStatus(task, e.currentTarget.value)}
+										>
+											{#each TASK_STATUSES as opt}
+												<option value={opt.value}>{opt.label}</option>
+											{/each}
+										</select>
 									{/if}
 								</div>
-								{#if project?.source === 'crm_deal'}
-									<span class="badge">{getTaskStatus(task)}</span>
-								{:else}
-									<select
-										class="status-select status-{getTaskStatusValue(task)}"
-										value={getTaskStatusValue(task)}
-										disabled={updatingTaskIds.has(tid)}
-										onchange={(e) => updateTaskStatus(task, e.currentTarget.value)}
-									>
-										{#each TASK_STATUSES as opt}
-											<option value={opt.value}>{opt.label}</option>
-										{/each}
-									</select>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/each}
+							{/each}
+						</div>
+					{/each}
+				{/if}
 			{/if}
 		</section>
 
 		<section class="section">
-			<h2>Recent Activity</h2>
-			{#if activities.length === 0}
-				<p class="section-empty">No activity found.</p>
-			{:else}
-				<div class="activity">
-					{#each activities as activity}
-						<div class="activity-item">
-							<p class="activity-text">{decodeHtmlEntities(getActivityText(activity))}</p>
-							<p class="activity-when">{formatDateTime(getActivityWhen(activity))}</p>
-						</div>
-					{/each}
-				</div>
+			<button class="section-toggle" onclick={() => (activityOpen = !activityOpen)}>
+				<span>Recent Activity</span>
+				<span class="chevron" class:open={activityOpen}>▾</span>
+			</button>
+			{#if activityOpen}
+				{#if activities.length === 0}
+					<p class="section-empty">No activity found.</p>
+				{:else}
+					<div class="activity">
+						{#each activities as activity}
+							<div class="activity-item">
+								<p class="activity-text">{decodeHtmlEntities(getActivityText(activity))}</p>
+								<p class="activity-when">{formatDateTime(getActivityWhen(activity))}</p>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			{/if}
 		</section>
 	{/if}
@@ -444,9 +457,32 @@
 		margin-bottom: 2rem;
 	}
 
-	.section h2 {
+	.section-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		background: none;
+		border: none;
+		border-bottom: 1px solid #e5e7eb;
+		padding: 0.6rem 0;
+		margin-bottom: 0.75rem;
 		font-size: 1.1rem;
-		margin: 0 0 0.75rem;
+		font-weight: 600;
+		color: #111827;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.chevron {
+		font-size: 1rem;
+		transition: transform 0.2s;
+		display: inline-block;
+		transform: rotate(-90deg);
+	}
+
+	.chevron.open {
+		transform: rotate(0deg);
 	}
 
 	.section-empty {
