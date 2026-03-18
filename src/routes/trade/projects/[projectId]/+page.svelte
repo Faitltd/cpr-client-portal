@@ -88,6 +88,10 @@
 
 	let updatingTaskIds = $state(new Set<string>());
 	let taskStatusErrors = $state(new Map<string, string>());
+	// Overlay map of taskId → normalized status for optimistic updates.
+	// Keeping this separate means tasks/taskGroups never change, so the
+	// {#each} loops never re-render when a status is toggled.
+	let taskStatusOverrides = $state(new Map<string, string>());
 
 	const normalizeStatus = (raw: string): string => {
 		const lower = raw.toLowerCase().replace(/\s+/g, '_');
@@ -109,25 +113,23 @@
 		return normalizeStatus(raw);
 	};
 
+	// Returns the status to display — overlay takes precedence over server data.
+	const getDisplayStatus = (task: any): string => {
+		const tid = String(task?.id || task?.id_string || '');
+		return taskStatusOverrides.get(tid) ?? getTaskStatusValue(task);
+	};
+
 	async function updateTaskStatus(task: any, newStatus: string) {
 		const taskId = String(task?.id || task?.id_string || '');
 		if (!taskId || !project) return;
 
-		const prevStatus = task?.status;
-		const prevTaskStatus = task?.task_status;
+		const prevStatus = getDisplayStatus(task);
 
+		// Optimistic update — only the overlay map changes, tasks/taskGroups stay stable.
+		taskStatusOverrides = new Map([...taskStatusOverrides, [taskId, newStatus]]);
 		updatingTaskIds = new Set([...updatingTaskIds, taskId]);
-		taskStatusErrors = new Map([...taskStatusErrors]);
+		taskStatusErrors = new Map(taskStatusErrors);
 		taskStatusErrors.delete(taskId);
-
-		// Optimistic update
-		const label = TASK_STATUSES.find((s) => s.value === newStatus)?.label || newStatus;
-		if (task.status && typeof task.status === 'object') {
-			task.status = { ...task.status, name: label };
-		} else {
-			task.status = label;
-		}
-		tasks = [...tasks];
 
 		try {
 			const projectId = $page.params.projectId;
@@ -149,16 +151,11 @@
 			if (!res.ok) {
 				throw new Error(payload?.error || `Failed to update (${res.status})`);
 			}
-			// Success — invalidate cache so next visit fetches fresh data, but keep the
-			// optimistic update in place so the screen doesn't jump or refresh.
 			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
 		} catch (err) {
-			// Revert optimistic update
-			task.status = prevStatus;
-			task.task_status = prevTaskStatus;
-			tasks = [...tasks];
-			taskStatusErrors = new Map([...taskStatusErrors]);
-			taskStatusErrors.set(taskId, err instanceof Error ? err.message : 'Update failed');
+			// Revert overlay to previous status.
+			taskStatusOverrides = new Map([...taskStatusOverrides, [taskId, prevStatus]]);
+			taskStatusErrors = new Map([...taskStatusErrors, [taskId, err instanceof Error ? err.message : 'Update failed']]);
 		} finally {
 			updatingTaskIds = new Set([...updatingTaskIds]);
 			updatingTaskIds.delete(taskId);
@@ -294,8 +291,8 @@
 									<span class="badge">{getTaskStatus(task)}</span>
 								{:else}
 									<select
-										class="status-select status-{getTaskStatusValue(task)}"
-										value={getTaskStatusValue(task)}
+										class="status-select status-{getDisplayStatus(task)}"
+										value={getDisplayStatus(task)}
 										disabled={updatingTaskIds.has(tid)}
 										onchange={(e) => updateTaskStatus(task, e.currentTarget.value)}
 									>
