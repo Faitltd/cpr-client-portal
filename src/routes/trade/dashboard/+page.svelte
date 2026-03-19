@@ -321,27 +321,38 @@
 		if (taskSubmitting || !isZohoProject || !selectedProjectId) return;
 		const updates = Object.entries(pendingChanges).map(([taskId, status]) => ({ taskId, status }));
 		if (!updates.length) { taskSubmitMessage = 'No changes to submit.'; return; }
+
 		taskSubmitting = true;
 		taskSubmitMessage = '';
-		try {
-			const res = await fetch(`/api/trade/projects/${encodeURIComponent(selectedProjectId)}/tasks/batch-status`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ updates })
-			});
-			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
-			const payload = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(payload?.error || `Failed (${res.status})`);
-			const results: Array<{ taskId: string; ok: boolean }> = payload.results ?? [];
-			const ok = results.filter(r => r.ok).length;
-			const fail = results.filter(r => !r.ok).length;
-			taskSubmitMessage = fail === 0 ? `✓ ${ok} task${ok !== 1 ? 's' : ''} updated` : `✗ ${fail} failed, ${ok} updated`;
-			if (fail === 0) { pendingChanges = {}; tasksCache.delete(selectedDealId); setTimeout(() => { taskSubmitMessage = ''; }, 4000); }
-		} catch (err) {
-			taskSubmitMessage = err instanceof Error ? err.message : 'Submit failed';
-		} finally {
-			taskSubmitting = false;
+
+		// Use the proven single-task endpoint for each change, all in parallel
+		const settled = await Promise.allSettled(
+			updates.map(({ taskId, status }) =>
+				fetch(`/api/trade/projects/${encodeURIComponent(selectedProjectId)}/tasks/${encodeURIComponent(taskId)}/status`, {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ status })
+				}).then(async (res) => {
+					if (res.status === 401) { window.location.href = '/auth/trade'; }
+					if (!res.ok) {
+						const payload = await res.json().catch(() => ({}));
+						throw new Error(payload?.error || `Failed (${res.status})`);
+					}
+				})
+			)
+		);
+
+		const ok = settled.filter(r => r.status === 'fulfilled').length;
+		const fail = settled.filter(r => r.status === 'rejected').length;
+		taskSubmitMessage = fail === 0
+			? `✓ ${ok} task${ok !== 1 ? 's' : ''} updated`
+			: `✗ ${fail} failed, ${ok} updated`;
+		if (fail === 0) {
+			pendingChanges = {};
+			tasksCache.delete(selectedDealId);
+			setTimeout(() => { taskSubmitMessage = ''; }, 4000);
 		}
+		taskSubmitting = false;
 	};
 
 	const updateTaskStatus = async (task: any, newStatus: string) => {
