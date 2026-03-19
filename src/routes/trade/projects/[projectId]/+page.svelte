@@ -366,8 +366,13 @@
 												<span class="task-ok">✓</span>
 											{:else if taskResults.has(tid) && !taskResults.get(tid)?.ok}
 												<span class="task-err" title={taskResults.get(tid)?.error || 'Failed'}>✗</span>
-											{:else if isPending}
-												<button class="btn-task-submit" type="button" onclick={() => submitTask(task)}>Save</button>
+											{:else}
+												<button
+													class="btn-task-submit"
+													type="button"
+													disabled={!isPending}
+													onclick={() => submitTask(task)}
+												>Save</button>
 											{/if}
 										</div>
 									{/if}
@@ -672,8 +677,13 @@
 		transition: background 0.15s;
 	}
 
-	.btn-task-submit:hover {
+	.btn-task-submit:hover:not(:disabled) {
 		background: #1f2937;
+	}
+
+	.btn-task-submit:disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
 	}
 
 	.task-saving {
