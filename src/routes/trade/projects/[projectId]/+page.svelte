@@ -275,6 +275,17 @@
 			{/if}
 			<div class="header-actions">
 				<a class="btn-secondary" href={getProgressPhotosHref(project)}>Progress Photos</a>
+				{#if project?.source !== 'crm_deal'}
+					<a class="btn-secondary" href="/trade/field-update{project?.deal_id ? `?deal=${encodeURIComponent(project.deal_id)}` : ''}">Field Update</a>
+					<button
+						class="btn-submit"
+						type="button"
+						disabled={changedCount === 0 || submitting}
+						onclick={submitChanges}
+					>
+						{submitting ? 'Saving...' : changedCount > 0 ? `Submit Changes (${changedCount})` : 'Submit Changes'}
+					</button>
+				{/if}
 			</div>
 		</header>
 
@@ -317,24 +328,16 @@
 						</div>
 					{/each}
 
-					<!-- Form submit footer -->
-					<div class="form-footer">
-						{#if submitResult}
+					<!-- Submit result message -->
+					{#if submitResult}
+						<div class="submit-result">
 							{#if submitResult.fail === 0}
 								<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
 							{:else}
 								<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
 							{/if}
-						{/if}
-						<button
-							class="btn-submit"
-							type="button"
-							disabled={changedCount === 0 || submitting}
-							onclick={submitChanges}
-						>
-							{submitting ? 'Saving...' : changedCount > 0 ? `Submit Changes (${changedCount})` : 'Submit Changes'}
-						</button>
-					</div>
+						</div>
+					{/if}
 				{/if}
 			{/if}
 		</section>
@@ -591,32 +594,16 @@
 		color: #15803d;
 	}
 
-	/* ── Form submit footer ── */
-	.form-footer {
-		position: sticky;
-		bottom: 0;
-		z-index: 10;
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		margin-top: 1.25rem;
-		padding: 1rem;
-		background: #fff;
-		border-top: 2px solid #e5e7eb;
-		border-radius: 0 0 12px 12px;
-		flex-wrap: wrap;
-		box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
-	}
-
+	/* ── Header submit button ── */
 	.btn-submit {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 48px;
-		padding: 0.6rem 1.5rem;
+		min-height: 44px;
+		padding: 0.6rem 1.25rem;
 		border-radius: 10px;
 		font-weight: 700;
-		font-size: 0.95rem;
+		font-size: 0.88rem;
 		background: #111827;
 		color: #fff;
 		border: none;
@@ -632,6 +619,16 @@
 	.btn-submit:disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+
+	/* ── Submit result message ── */
+	.submit-result {
+		margin-top: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		border-radius: 8px;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		display: inline-block;
 	}
 
 	.result-ok {
