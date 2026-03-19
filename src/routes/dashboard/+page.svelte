@@ -267,8 +267,6 @@
 				const detailRes = await fetch(`/api/project/${pid}`);
 				if (detailRes.ok) {
 					const detail = await detailRes.json();
-					projectDetail = detail.deal || null;
-					projectNotes = detail.notes || [];
 					wifiInput = detail.deal?.WiFi || '';
 					doorCodeInput = detail.deal?.Garage_Code || '';
 					documents = detail.documents || [];
