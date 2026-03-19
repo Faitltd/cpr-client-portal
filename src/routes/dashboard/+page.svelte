@@ -1,14 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	interface ActivityItem {
-		type: 'comm' | 'daily_log';
-		date: string;
-		summary: string | null;
-		channel?: string;
-		deal_id: string;
-	}
-
 	interface EmailPref {
 		id: string;
 		deal_id: string;
@@ -33,7 +25,6 @@
 	let loading = true;
 	let error = '';
 	let invoiceError = '';
-	let activityOpen = false;
 	let financialOpen = true;
 	let invoicesOpen = true;
 	let changeOrdersOpen = false;
@@ -104,9 +95,6 @@
 		} catch { pwMessage = 'Unable to update password.'; }
 		finally { pwLoading = false; }
 	};
-	let activityItems: ActivityItem[] = [];
-	let activityLoading = true;
-	let activityError = '';
 	let emailPrefs: EmailPref[] = [];
 	let emailPrefsLoading = true;
 	let emailTimeline: EmailTimelineItem[] = [];
@@ -217,20 +205,6 @@
 				emailTimelineLoading = false;
 			});
 
-		fetch('/api/client/activity')
-			.then(async (res) => {
-				if (res.status === 401) return;
-				const payload = await readJson(res);
-				if (!res.ok) throw new Error(getErrorMessage(payload, 'Failed to load recent activity'));
-				activityItems = payload.data || [];
-			})
-			.catch((err) => {
-				activityError = err.message || 'Failed to load recent activity';
-			})
-			.finally(() => {
-				activityLoading = false;
-			});
-
 		try {
 			const [projectsRes, invoicesRes, contractsRes] = await Promise.all([
 				fetch('/api/projects'),
@@ -286,45 +260,6 @@
 		<h1>My Projects</h1>
 		<p class="page-subtitle">View and manage your renovation projects</p>
 	</header>
-
-	<!-- Activity Section -->
-	<section class="section">
-		<button class="section-header" type="button" on:click={() => (activityOpen = !activityOpen)}>
-			<span class="section-header-left">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><path d="M10 6v4l3 2"/></svg>
-				Recent Activity
-			</span>
-			<span class="toggle-icon">{activityOpen ? '−' : '+'}</span>
-		</button>
-		{#if activityOpen}
-			{#if activityLoading}
-				<p class="muted-text">Loading...</p>
-			{:else if activityError}
-				<p class="muted-text">{activityError}</p>
-			{:else if activityItems.length === 0}
-				<p class="muted-text">No recent activity.</p>
-			{:else}
-				<div class="activity-list">
-					{#each activityItems as item, index (item.deal_id + item.date + item.type + index)}
-						<div class="activity-item activity-item-{item.type}">
-							<div class="activity-top">
-								<div class="activity-labels">
-									<span class="badge badge-muted">{item.type === 'comm' ? 'Comm' : 'Update'}</span>
-									{#if item.type === 'comm' && item.channel}
-										<span class="badge badge-channel">{item.channel}</span>
-									{/if}
-								</div>
-								<span class="activity-time">{formatRelativeTime(item.date)}</span>
-							</div>
-							<p class="activity-summary">
-								{item.summary || (item.type === 'comm' ? 'Communication logged.' : 'Daily update submitted.')}
-							</p>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		{/if}
-	</section>
 
 	{#if loading}
 		<div class="state-card">Loading your projects...</div>
