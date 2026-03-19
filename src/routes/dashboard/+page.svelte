@@ -548,6 +548,20 @@
 		{/if}
 	</section>
 
+	<!-- Decisions -->
+	<section class="section">
+		<button class="section-header" type="button" on:click={() => (decisionsOpen = !decisionsOpen)}>
+			<span class="section-header-left">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
+				Decisions
+			</span>
+			<span class="toggle-icon">{decisionsOpen ? '−' : '+'}</span>
+		</button>
+		{#if decisionsOpen}
+			<p class="muted-text coming-soon">Coming soon.</p>
+		{/if}
+	</section>
+
 	<!-- Access Info -->
 	<section class="section">
 		<button class="section-header" type="button" on:click={() => (accessOpen = !accessOpen)}>
@@ -569,20 +583,6 @@
 				{#if accessMessage}<p class="access-msg-ok">{accessMessage}</p>{/if}
 				{#if accessError}<p class="access-msg-err">{accessError}</p>{/if}
 			</div>
-		{/if}
-	</section>
-
-	<!-- Decisions -->
-	<section class="section">
-		<button class="section-header" type="button" on:click={() => (decisionsOpen = !decisionsOpen)}>
-			<span class="section-header-left">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
-				Decisions
-			</span>
-			<span class="toggle-icon">{decisionsOpen ? '−' : '+'}</span>
-		</button>
-		{#if decisionsOpen}
-			<p class="muted-text coming-soon">Coming soon.</p>
 		{/if}
 	</section>
 
