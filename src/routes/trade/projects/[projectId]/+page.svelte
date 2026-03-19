@@ -330,25 +330,23 @@
 					{/each}
 				{/if}
 			{/if}
-			{#if project?.source !== 'crm_deal'}
-				<div class="submit-row">
-					<button
-						class="btn-submit"
-						type="button"
-						disabled={submitting}
-						onclick={submitChanges}
-					>
-						{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
-					</button>
-					{#if submitResult}
-						{#if submitResult.fail === 0}
-							<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
-						{:else}
-							<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
-						{/if}
+			<div class="submit-row">
+				<button
+					class="btn-submit"
+					type="button"
+					disabled={submitting}
+					onclick={submitChanges}
+				>
+					{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
+				</button>
+				{#if submitResult}
+					{#if submitResult.fail === 0}
+						<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
+					{:else}
+						<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
 					{/if}
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</section>
 
 		<section class="section">
