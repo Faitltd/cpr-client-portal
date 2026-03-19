@@ -202,6 +202,8 @@
 	let taskStatusErrors = new Map<string, string>();
 	let taskSubmitting = false;
 	let taskSubmitMessage = '';
+	// Original status values when tasks load — only submit changed ones
+	let taskOriginals: Record<string, string> = {};
 
 	const getTaskStatus = (task: any): string => {
 		const v = task?.status ?? task?.task_status ?? '';
@@ -282,6 +284,7 @@
 							tasksCache.set(dealId, fresh);
 							if (dealId === selectedDealId) {
 								tasks = fresh;
+								recordTaskOriginals(fresh);
 								selectedProjectId = freshProjectId;
 								isZohoProject = true;
 								if (fresh.length === 0 && retryPayload?.tasksError) {
@@ -300,6 +303,7 @@
 			tasksCache.set(dealId, fresh);
 			if (dealId === selectedDealId) {
 				tasks = fresh;
+				recordTaskOriginals(fresh);
 				selectedProjectId = projectId;
 				isZohoProject = true;
 				if (fresh.length === 0 && payload?.tasksError) {
@@ -314,6 +318,15 @@
 		}
 	};
 
+	const recordTaskOriginals = (taskList: any[]) => {
+		taskOriginals = {};
+		taskSubmitMessage = '';
+		for (const task of taskList) {
+			const tid = String(task?.id || task?.id_string || '');
+			if (tid) taskOriginals[tid] = getTaskStatusValue(task);
+		}
+	};
+
 	const submitTasks = async (e: Event) => {
 		e.preventDefault();
 		if (taskSubmitting || !isZohoProject || !selectedProjectId) return;
@@ -321,7 +334,9 @@
 		const data = new FormData(form);
 		const updates: Array<{ taskId: string; status: string }> = [];
 		for (const [taskId, status] of data.entries()) {
-			updates.push({ taskId, status: String(status) });
+			const s = String(status);
+			// Only submit tasks that actually changed
+			if (taskOriginals[taskId] !== s) updates.push({ taskId, status: s });
 		}
 		if (!updates.length) return;
 		taskSubmitting = true;
