@@ -253,7 +253,7 @@
 		if (hadCache) {
 			loading = false;
 			recordOriginals(tasks);
-			fetchDetail(true);
+			// No background fetch — Submit Changes busts the cache so next visit loads fresh.
 		} else {
 			fetchDetail(false);
 		}
