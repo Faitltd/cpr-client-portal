@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { decodeHtmlEntities } from '$lib/html';
 
@@ -89,11 +89,14 @@
 	let tasksOpen = $state(false);
 	let activityOpen = $state(false);
 
-	// Batch status tracking
+	// Batch status tracking with 5-second auto-submit
 	let pendingChanges = $state(new Map<string, string>());
 	let submitting = $state(false);
 	let submitResults = $state<{ taskId: string; taskName: string; ok: boolean; error?: string }[]>([]);
 	let showResults = $state(false);
+	let countdownSeconds = $state(0);
+	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
 	const pendingCount = $derived(pendingChanges.size);
 
@@ -124,6 +127,24 @@
 		return getTaskStatusValue(task);
 	};
 
+	function clearTimers() {
+		if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+		if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+		countdownSeconds = 0;
+	}
+
+	function startAutoSubmitTimer() {
+		clearTimers();
+		countdownSeconds = 5;
+		countdownInterval = setInterval(() => {
+			countdownSeconds = Math.max(0, countdownSeconds - 1);
+		}, 1000);
+		debounceTimer = setTimeout(() => {
+			clearTimers();
+			submitChanges();
+		}, 5000);
+	}
+
 	/** When a select changes, track it as a pending change (or remove if reverted to original) */
 	function onStatusChange(task: any, newStatus: string) {
 		const tid = String(task?.id || task?.id_string || '');
@@ -138,6 +159,13 @@
 		}
 		pendingChanges = next;
 		showResults = false;
+
+		// If there are pending changes, (re)start the 5s auto-submit countdown
+		if (pendingChanges.size > 0 && !submitting) {
+			startAutoSubmitTimer();
+		} else if (pendingChanges.size === 0) {
+			clearTimers();
+		}
 	}
 
 	/** Submit all pending changes to Zoho */
@@ -225,6 +253,7 @@
 	}
 
 	function clearPending() {
+		clearTimers();
 		pendingChanges = new Map();
 		showResults = false;
 		submitResults = [];
@@ -306,6 +335,10 @@
 		} else {
 			fetchDetail(false);
 		}
+	});
+
+	onDestroy(() => {
+		clearTimers();
 	});
 </script>
 
@@ -419,21 +452,19 @@
 </div>
 
 <!-- Sticky bottom bar for pending changes -->
-{#if pendingCount > 0}
+{#if pendingCount > 0 || submitting}
 	<div class="submit-bar">
 		<div class="submit-bar-inner">
 			<span class="submit-count">{pendingCount} task{pendingCount === 1 ? '' : 's'} changed</span>
 			<div class="submit-actions">
-				<button class="btn-cancel" type="button" onclick={clearPending} disabled={submitting}>
-					Cancel
-				</button>
-				<button class="btn-submit" type="button" onclick={submitChanges} disabled={submitting}>
-					{#if submitting}
-						Submitting...
-					{:else}
-						Submit Changes
-					{/if}
-				</button>
+				{#if submitting}
+					<span class="submit-status">Saving...</span>
+				{:else if countdownSeconds > 0}
+					<span class="submit-status">Saving in {countdownSeconds}s</span>
+					<button class="btn-cancel" type="button" onclick={clearPending}>Cancel</button>
+				{:else}
+					<button class="btn-cancel" type="button" onclick={clearPending}>Cancel</button>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -752,6 +783,12 @@
 		border-radius: 999px;
 	}
 
+	.submit-status {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #6b7280;
+	}
+
 	.submit-actions {
 		display: flex;
 		gap: 0.5rem;
@@ -782,31 +819,7 @@
 		cursor: not-allowed;
 	}
 
-	.btn-submit {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 44px;
-		padding: 0.5rem 1.25rem;
-		border-radius: 10px;
-		font-weight: 600;
-		font-size: 0.85rem;
-		background: #111827;
-		color: #fff;
-		border: none;
-		cursor: pointer;
-		-webkit-tap-highlight-color: transparent;
-		transition: background 0.15s;
-	}
 
-	.btn-submit:hover {
-		background: #1f2937;
-	}
-
-	.btn-submit:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
 
 	/* ── Activity ─────────────────────────────────────── */
 	.activity {
