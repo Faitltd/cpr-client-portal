@@ -85,18 +85,19 @@
 	let tasksOpen = $state(true);
 	let activityOpen = $state(false);
 
-	/* ── Form-style batch status updates ── */
-	// localStatuses holds the current selected value for each task (bound to selects)
-	let localStatuses = $state<Record<string, string>>({});
-	// originalStatuses holds what was last saved to Zoho (not reactive — just a reference)
-	let originalStatuses: Record<string, string> = {};
+	/*
+	 * Form approach: the browser owns select values. We never touch them after
+	 * initial render. On submit we read the DOM. This prevents any re-render
+	 * from resetting what the user has selected.
+	 */
 
+	// originalStatuses is plain JS — NOT $state — so Svelte never re-renders when it changes
+	const originalStatuses: Record<string, string> = {};
+
+	// Only these three values are reactive — they only affect the header button, not the task list
+	let pendingCount = $state(0);
 	let submitting = $state(false);
-	let submitResult = $state<{ ok: number; fail: number; errors: string[] } | null>(null);
-
-	const changedCount = $derived(
-		Object.entries(localStatuses).filter(([tid, val]) => val !== originalStatuses[tid]).length
-	);
+	let submitResult = $state<{ ok: number; fail: number } | null>(null);
 
 	const normalizeStatus = (raw: string): string => {
 		const lower = raw.toLowerCase().replace(/\s+/g, '_');
@@ -115,59 +116,68 @@
 
 	const getTaskStatusValue = (task: any): string => normalizeStatus(getTaskStatus(task));
 
-	function initStatuses(taskList: any[]) {
-		const local: Record<string, string> = {};
-		const orig: Record<string, string> = {};
+	// Called once after initial task load — records originals, never called again
+	function recordOriginals(taskList: any[]) {
 		for (const task of taskList) {
 			const tid = String(task?.id || task?.id_string || '');
-			if (!tid) continue;
-			const status = getTaskStatusValue(task);
-			local[tid] = status;
-			orig[tid] = status;
+			if (tid) originalStatuses[tid] = getTaskStatusValue(task);
 		}
-		localStatuses = local;
-		originalStatuses = orig;
+	}
+
+	// Count how many selects differ from their original value
+	function countPending() {
+		let count = 0;
+		const selects = document.querySelectorAll<HTMLSelectElement>('select[data-tid]');
+		for (const sel of selects) {
+			const tid = sel.dataset.tid!;
+			if (sel.value !== originalStatuses[tid]) count++;
+		}
+		pendingCount = count;
 	}
 
 	async function submitChanges() {
-		if (submitting || changedCount === 0) return;
+		if (submitting) return;
+
+		const toSubmit: Array<{ tid: string; status: string }> = [];
+		const selects = document.querySelectorAll<HTMLSelectElement>('select[data-tid]');
+		for (const sel of selects) {
+			const tid = sel.dataset.tid!;
+			const newStatus = sel.value;
+			if (newStatus && newStatus !== originalStatuses[tid]) {
+				toSubmit.push({ tid, status: newStatus });
+			}
+		}
+		if (toSubmit.length === 0) return;
+
 		submitting = true;
 		submitResult = null;
-
 		const projectId = $page.params.projectId;
-		const changed = Object.entries(localStatuses).filter(([tid, val]) => val !== originalStatuses[tid]);
-
-		let ok = 0;
-		let fail = 0;
-		const errors: string[] = [];
+		let ok = 0, fail = 0;
 
 		await Promise.allSettled(
-			changed.map(async ([tid, newStatus]) => {
+			toSubmit.map(async ({ tid, status }) => {
 				try {
 					const res = await fetch(`/api/trade/projects/${projectId}/tasks/${tid}/status`, {
 						method: 'PUT',
 						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ status: newStatus })
+						body: JSON.stringify({ status })
 					});
 					if (res.status === 401) { window.location.href = '/auth/trade'; return; }
 					const payload = await res.json().catch(() => ({}));
 					if (!res.ok) throw new Error(payload?.error || `Failed (${res.status})`);
-					originalStatuses[tid] = newStatus;
+					originalStatuses[tid] = status;
 					ok++;
-				} catch (err) {
+				} catch {
 					fail++;
-					errors.push(err instanceof Error ? err.message : 'Update failed');
 				}
 			})
 		);
 
 		submitting = false;
-		submitResult = { ok, fail, errors };
+		pendingCount = 0;
+		submitResult = { ok, fail };
 		try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
-
-		if (fail === 0) {
-			setTimeout(() => { submitResult = null; }, 4000);
-		}
+		if (fail === 0) setTimeout(() => { submitResult = null; }, 4000);
 	}
 
 	const getActivityText = (a: any) =>
@@ -190,18 +200,14 @@
 				activities = cached.activities || [];
 				return true;
 			}
-		} catch {
-			/* ignore */
-		}
+		} catch { /* ignore */ }
 		return false;
 	}
 
 	function saveToCache(data: { project: any; tasks: any[]; activities: any[] }) {
 		try {
 			sessionStorage.setItem(getCacheKey(), JSON.stringify({ ...data, ts: Date.now() }));
-		} catch {
-			/* storage full */
-		}
+		} catch { /* storage full */ }
 	}
 
 	async function fetchDetail(isRefresh: boolean, bustCache = false) {
@@ -210,10 +216,7 @@
 			const qs = bustCache ? '?fresh' : '';
 			const res = await fetch(`/api/trade/projects/${projectId}${qs}`);
 			if (!res.ok) {
-				if (res.status === 401) {
-					window.location.href = '/auth/trade';
-					return;
-				}
+				if (res.status === 401) { window.location.href = '/auth/trade'; return; }
 				if (res.status === 403) {
 					try { sessionStorage.removeItem('cpr:trade:projects:list'); } catch { /* ignore */ }
 					try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
@@ -225,12 +228,17 @@
 			}
 			const data = await res.json().catch(() => ({}));
 			project = data.project ?? null;
-			tasks = data.tasks || [];
 			activities = data.activities || [];
+
+			// Only update tasks on first load — background refresh must NOT overwrite
+			// the task list because that would re-render the selects and reset user edits
+			if (!isRefresh) {
+				tasks = data.tasks || [];
+				recordOriginals(tasks);
+			}
+
 			saveToCache({ project, tasks, activities });
 			error = '';
-			// Only initialize form statuses on first load, not background refresh
-			if (!isRefresh) initStatuses(tasks);
 		} catch (err) {
 			if (!isRefresh) {
 				error = err instanceof Error ? err.message : 'Unknown error';
@@ -244,7 +252,7 @@
 		const hadCache = loadFromCache();
 		if (hadCache) {
 			loading = false;
-			initStatuses(tasks);
+			recordOriginals(tasks);
 			fetchDetail(true);
 		} else {
 			fetchDetail(false);
@@ -280,13 +288,22 @@
 					<button
 						class="btn-submit"
 						type="button"
-						disabled={changedCount === 0 || submitting}
+						disabled={submitting}
 						onclick={submitChanges}
 					>
-						{submitting ? 'Saving...' : changedCount > 0 ? `Submit Changes (${changedCount})` : 'Submit Changes'}
+						{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
 					</button>
 				{/if}
 			</div>
+			{#if submitResult}
+				<p class="submit-result">
+					{#if submitResult.fail === 0}
+						<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
+					{:else}
+						<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
+					{/if}
+				</p>
+			{/if}
 		</header>
 
 		<section class="section">
@@ -303,9 +320,8 @@
 						<div class="card-list">
 							{#each group.items as task (task?.id || task?.id_string)}
 								{@const tid = String(task?.id || task?.id_string || '')}
-								{@const currentVal = localStatuses[tid] ?? getTaskStatusValue(task)}
-								{@const isChanged = localStatuses[tid] !== undefined && localStatuses[tid] !== originalStatuses[tid]}
-								<div class="card-row" class:card-pending={isChanged}>
+								{@const initVal = getTaskStatusValue(task)}
+								<div class="card-row">
 									<div class="card-info">
 										<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
 										<p class="card-assignee">{getTaskAssignee(task)}</p>
@@ -314,12 +330,13 @@
 										<span class="badge">{getTaskStatus(task)}</span>
 									{:else}
 										<select
-											class="status-select status-{currentVal}"
-											bind:value={localStatuses[tid]}
+											class="status-select status-{initVal}"
+											data-tid={tid}
 											disabled={submitting}
+											onchange={countPending}
 										>
 											{#each TASK_STATUSES as opt}
-												<option value={opt.value}>{opt.label}</option>
+												<option value={opt.value} selected={opt.value === initVal}>{opt.label}</option>
 											{/each}
 										</select>
 									{/if}
@@ -327,17 +344,6 @@
 							{/each}
 						</div>
 					{/each}
-
-					<!-- Submit result message -->
-					{#if submitResult}
-						<div class="submit-result">
-							{#if submitResult.fail === 0}
-								<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
-							{:else}
-								<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
-							{/if}
-						</div>
-					{/if}
 				{/if}
 			{/if}
 		</section>
@@ -449,6 +455,8 @@
 		margin-top: 0.75rem;
 		display: flex;
 		gap: 0.5rem;
+		flex-wrap: wrap;
+		align-items: center;
 	}
 
 	.btn-secondary {
@@ -471,6 +479,41 @@
 		background: #f3f4f6;
 		border-color: #d1d5db;
 	}
+
+	/* ── Submit Changes button ── */
+	.btn-submit {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 44px;
+		padding: 0.6rem 1.25rem;
+		border-radius: 10px;
+		font-weight: 700;
+		font-size: 0.88rem;
+		background: #111827;
+		color: #fff;
+		border: none;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
+		transition: background 0.15s;
+	}
+
+	.btn-submit:hover:not(:disabled) {
+		background: #1f2937;
+	}
+
+	.btn-submit:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.submit-result {
+		margin: 0.5rem 0 0;
+		font-size: 0.9rem;
+	}
+
+	.result-ok { color: #16a34a; font-weight: 600; }
+	.result-err { color: #dc2626; font-weight: 600; }
 
 	.section {
 		margin-bottom: 2rem;
@@ -522,7 +565,6 @@
 		gap: 0.6rem;
 	}
 
-	/* Mobile: task cards stack vertically with status below */
 	.card-row {
 		display: flex;
 		flex-direction: column;
@@ -532,12 +574,6 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		background: #fff;
-		transition: border-color 0.15s, box-shadow 0.15s;
-	}
-
-	.card-pending {
-		border-color: #f59e0b;
-		box-shadow: inset 3px 0 0 #f59e0b;
 	}
 
 	.card-info {
@@ -577,73 +613,11 @@
 		cursor: not-allowed;
 	}
 
-	.status-not_started {
-		border-color: #d1d5db;
-		background: #f9fafb;
-	}
+	.status-not_started { border-color: #d1d5db; background: #f9fafb; }
+	.status-in_progress { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+	.status-completed   { border-color: #86efac; background: #f0fdf4; color: #15803d; }
 
-	.status-in_progress {
-		border-color: #93c5fd;
-		background: #eff6ff;
-		color: #1d4ed8;
-	}
-
-	.status-completed {
-		border-color: #86efac;
-		background: #f0fdf4;
-		color: #15803d;
-	}
-
-	/* ── Header submit button ── */
-	.btn-submit {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 44px;
-		padding: 0.6rem 1.25rem;
-		border-radius: 10px;
-		font-weight: 700;
-		font-size: 0.88rem;
-		background: #111827;
-		color: #fff;
-		border: none;
-		cursor: pointer;
-		-webkit-tap-highlight-color: transparent;
-		transition: background 0.15s;
-	}
-
-	.btn-submit:hover:not(:disabled) {
-		background: #1f2937;
-	}
-
-	.btn-submit:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-
-	/* ── Submit result message ── */
-	.submit-result {
-		margin-top: 0.75rem;
-		padding: 0.5rem 0.75rem;
-		border-radius: 8px;
-		background: #f9fafb;
-		border: 1px solid #e5e7eb;
-		display: inline-block;
-	}
-
-	.result-ok {
-		color: #16a34a;
-		font-weight: 600;
-		font-size: 0.9rem;
-	}
-
-	.result-err {
-		color: #dc2626;
-		font-weight: 600;
-		font-size: 0.9rem;
-	}
-
-	/* ── Activity ─────────────────────────────────────── */
+	/* ── Activity ── */
 	.activity {
 		display: flex;
 		flex-direction: column;
@@ -671,13 +645,8 @@
 
 	/* Desktop */
 	@media (min-width: 640px) {
-		.project-detail {
-			padding: 2rem;
-		}
-
-		h1 {
-			font-size: 1.6rem;
-		}
+		.project-detail { padding: 2rem; }
+		h1 { font-size: 1.6rem; }
 
 		.card-row {
 			flex-direction: row;
@@ -687,9 +656,7 @@
 			padding: 1rem;
 		}
 
-		.card-info {
-			flex: 1;
-		}
+		.card-info { flex: 1; }
 
 		.status-select {
 			width: 180px;
