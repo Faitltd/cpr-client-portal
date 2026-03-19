@@ -88,11 +88,10 @@
 	let tasksOpen = $state(false);
 	let activityOpen = $state(false);
 
-	/* ── Form-style batch: track changes, submit on button press ── */
+	/* ── Per-task status changes with inline submit buttons ── */
 	let pendingChanges = $state(new Map<string, string>());
-	let submitting = $state(false);
-	let submitResults = $state<{ taskId: string; taskName: string; ok: boolean; error?: string }[]>([]);
-	let showResults = $state(false);
+	let submittingTasks = $state(new Set<string>());
+	let taskResults = $state(new Map<string, { ok: boolean; error?: string }>());
 
 	const pendingCount = $derived(pendingChanges.size);
 
@@ -122,7 +121,7 @@
 		return getTaskStatusValue(task);
 	};
 
-	/** Just record the change — nothing sends until Submit is pressed */
+	/** Just record the change locally — nothing sends until the task's Submit button is pressed */
 	function onStatusChange(task: any, newStatus: string) {
 		const tid = String(task?.id || task?.id_string || '');
 		if (!tid) return;
@@ -135,92 +134,90 @@
 			next.set(tid, newStatus);
 		}
 		pendingChanges = next;
-		showResults = false;
+
+		// Clear any previous result for this task
+		const r = new Map(taskResults);
+		r.delete(tid);
+		taskResults = r;
 	}
 
-	/** Submit all pending changes to Zoho — only called by the Submit button */
-	async function submitChanges() {
-		if (pendingChanges.size === 0 || submitting) return;
-		submitting = true;
-		showResults = false;
-		submitResults = [];
+	/** Submit a single task's status change to Zoho */
+	async function submitTask(task: any) {
+		const tid = String(task?.id || task?.id_string || '');
+		const newStatus = pendingChanges.get(tid);
+		if (!tid || !newStatus) return;
+		if (submittingTasks.has(tid)) return;
+
+		// Mark as submitting
+		submittingTasks = new Set([...submittingTasks, tid]);
 
 		const projectId = $page.params.projectId;
-		const entries = Array.from(pendingChanges.entries());
 
-		const taskMap = new Map<string, any>();
-		for (const task of tasks) {
-			const tid = String(task?.id || task?.id_string || '');
-			if (tid) taskMap.set(tid, task);
-		}
-
-		const results = await Promise.allSettled(
-			entries.map(async ([taskId, status]) => {
-				const res = await fetch(
-					`/api/trade/projects/${projectId}/tasks/${taskId}/status`,
-					{
-						method: 'PUT',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ status })
-					}
-				);
-
-				if (res.status === 401) {
-					window.location.href = '/auth/trade';
-					throw new Error('Session expired');
+		try {
+			const res = await fetch(
+				`/api/trade/projects/${projectId}/tasks/${tid}/status`,
+				{
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ status: newStatus })
 				}
+			);
 
-				const payload = await res.json().catch(() => ({}));
-				if (!res.ok) {
-					throw new Error(payload?.error || `Failed (${res.status})`);
-				}
-				return { taskId, status };
-			})
-		);
-
-		const succeeded: string[] = [];
-		const newResults: typeof submitResults = [];
-
-		for (let i = 0; i < results.length; i++) {
-			const result = results[i];
-			const [taskId] = entries[i];
-			const task = taskMap.get(taskId);
-			const taskName = task ? decodeHtmlEntities(getTaskName(task)) : taskId;
-
-			if (result.status === 'fulfilled') {
-				succeeded.push(taskId);
-				newResults.push({ taskId, taskName, ok: true });
-
-				if (task) {
-					const label = TASK_STATUSES.find((s) => s.value === entries[i][1])?.label || entries[i][1];
-					if (task.status && typeof task.status === 'object') {
-						task.status = { ...task.status, name: label };
-					} else {
-						task.status = label;
-					}
-					task.task_status = label;
-				}
-			} else {
-				const errMsg = result.reason instanceof Error ? result.reason.message : 'Update failed';
-				newResults.push({ taskId, taskName, ok: false, error: errMsg });
+			if (res.status === 401) {
+				window.location.href = '/auth/trade';
+				return;
 			}
+
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				throw new Error(payload?.error || `Failed (${res.status})`);
+			}
+
+			// Success — update task object in place and clear pending
+			const label = TASK_STATUSES.find((s) => s.value === newStatus)?.label || newStatus;
+			if (task.status && typeof task.status === 'object') {
+				task.status = { ...task.status, name: label };
+			} else {
+				task.status = label;
+			}
+			task.task_status = label;
+
+			const nextPending = new Map(pendingChanges);
+			nextPending.delete(tid);
+			pendingChanges = nextPending;
+
+			taskResults = new Map([...taskResults, [tid, { ok: true }]]);
+
+			// Auto-clear success indicator after 3s
+			setTimeout(() => {
+				const r = new Map(taskResults);
+				r.delete(tid);
+				taskResults = r;
+			}, 3000);
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : 'Update failed';
+			taskResults = new Map([...taskResults, [tid, { ok: false, error: errMsg }]]);
+		} finally {
+			const next = new Set(submittingTasks);
+			next.delete(tid);
+			submittingTasks = next;
+
+			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
 		}
-
-		const next = new Map(pendingChanges);
-		for (const id of succeeded) next.delete(id);
-		pendingChanges = next;
-
-		submitResults = newResults;
-		showResults = true;
-		submitting = false;
-
-		try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
 	}
 
-	function clearPending() {
-		pendingChanges = new Map();
-		showResults = false;
-		submitResults = [];
+	/** Submit ALL pending changes at once */
+	async function submitAllChanges() {
+		const taskMap = new Map<string, any>();
+		for (const t of tasks) {
+			const id = String(t?.id || t?.id_string || '');
+			if (id) taskMap.set(id, t);
+		}
+		const promises = Array.from(pendingChanges.keys()).map((tid) => {
+			const task = taskMap.get(tid);
+			if (task) return submitTask(task);
+		});
+		await Promise.allSettled(promises.filter(Boolean));
 	}
 
 	const getActivityText = (a: any) =>
@@ -352,61 +349,41 @@
 									{#if project?.source === 'crm_deal'}
 										<span class="badge">{getTaskStatus(task)}</span>
 									{:else}
-										<select
-											class="status-select status-{displayStatus}"
-											value={displayStatus}
-											disabled={submitting}
-											onchange={(e) => onStatusChange(task, e.currentTarget.value)}
-										>
-											{#each TASK_STATUSES as opt}
-												<option value={opt.value}>{opt.label}</option>
-											{/each}
-										</select>
+										<div class="task-controls">
+											<select
+												class="status-select status-{displayStatus}"
+												value={displayStatus}
+												disabled={submittingTasks.has(tid)}
+												onchange={(e) => onStatusChange(task, e.currentTarget.value)}
+											>
+												{#each TASK_STATUSES as opt}
+													<option value={opt.value}>{opt.label}</option>
+												{/each}
+											</select>
+											{#if submittingTasks.has(tid)}
+												<span class="task-saving">Saving...</span>
+											{:else if taskResults.get(tid)?.ok}
+												<span class="task-ok">✓</span>
+											{:else if taskResults.has(tid) && !taskResults.get(tid)?.ok}
+												<span class="task-err" title={taskResults.get(tid)?.error || 'Failed'}>✗</span>
+											{:else if isPending}
+												<button class="btn-task-submit" type="button" onclick={() => submitTask(task)}>Save</button>
+											{/if}
+										</div>
 									{/if}
 								</div>
 							{/each}
 						</div>
 					{/each}
 
-					<!-- Submit button — always visible when tasks section is open -->
-					<div class="submit-area">
-						{#if submitting}
-							<button class="btn-submit" type="button" disabled>
-								Submitting...
-							</button>
-						{:else}
-							<button
-								class="btn-submit"
-								type="button"
-								disabled={pendingCount === 0}
-								onclick={submitChanges}
-							>
-								Submit Changes{#if pendingCount > 0} ({pendingCount}){/if}
-							</button>
+						<!-- Submit All shortcut when 2+ tasks changed -->
+						{#if pendingCount > 1}
+							<div class="submit-all-area">
+								<button class="btn-submit-all" type="button" onclick={submitAllChanges}>
+									Submit All ({pendingCount})
+								</button>
+							</div>
 						{/if}
-						{#if pendingCount > 0 && !submitting}
-							<button class="btn-reset" type="button" onclick={clearPending}>
-								Reset
-							</button>
-						{/if}
-					</div>
-
-					<!-- Submit results -->
-					{#if showResults && submitResults.length > 0}
-						<div class="submit-results">
-							{#each submitResults as r (r.taskId)}
-								<p class="result-item" class:result-ok={r.ok} class:result-fail={!r.ok}>
-									{#if r.ok}
-										<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 10l3 3 7-7"/></svg>
-									{:else}
-										<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l8 8M14 6l-8 8"/></svg>
-									{/if}
-									<span class="result-name">{r.taskName}</span>
-									{#if !r.ok}<span class="result-error">{r.error}</span>{/if}
-								</p>
-							{/each}
-						</div>
-					{/if}
 				{/if}
 			{/if}
 		</section>
@@ -663,17 +640,80 @@
 		color: #15803d;
 	}
 
-	/* ── Submit area ─────────────────────────────────── */
-	.submit-area {
+	/* ── Inline task controls (dropdown + save button) ── */
+	.task-controls {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.5rem;
+		width: 100%;
+	}
+
+	.task-controls .status-select {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.btn-task-submit {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 44px;
+		padding: 0.5rem 1rem;
+		border-radius: 10px;
+		font-weight: 700;
+		font-size: 0.85rem;
+		background: #111827;
+		color: #fff;
+		border: none;
+		cursor: pointer;
+		white-space: nowrap;
+		flex-shrink: 0;
+		-webkit-tap-highlight-color: transparent;
+		transition: background 0.15s;
+	}
+
+	.btn-task-submit:hover {
+		background: #1f2937;
+	}
+
+	.task-saving {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #6b7280;
+		white-space: nowrap;
+		flex-shrink: 0;
+		min-width: 60px;
+		text-align: center;
+	}
+
+	.task-ok {
+		color: #16a34a;
+		font-size: 1.1rem;
+		font-weight: 700;
+		flex-shrink: 0;
+		min-width: 28px;
+		text-align: center;
+	}
+
+	.task-err {
+		color: #dc2626;
+		font-size: 1.1rem;
+		font-weight: 700;
+		flex-shrink: 0;
+		min-width: 28px;
+		text-align: center;
+		cursor: help;
+	}
+
+	/* ── Submit All area ── */
+	.submit-all-area {
 		margin-top: 1.25rem;
 		padding-top: 1rem;
 		border-top: 1px solid #e5e7eb;
+		display: flex;
 	}
 
-	.btn-submit {
+	.btn-submit-all {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -687,79 +727,11 @@
 		border: none;
 		cursor: pointer;
 		-webkit-tap-highlight-color: transparent;
-		transition: background 0.15s, opacity 0.15s;
+		transition: background 0.15s;
 	}
 
-	.btn-submit:hover:not(:disabled) {
+	.btn-submit-all:hover {
 		background: #1f2937;
-	}
-
-	.btn-submit:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-
-	.btn-reset {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 48px;
-		padding: 0.6rem 1rem;
-		border-radius: 10px;
-		font-weight: 600;
-		font-size: 0.88rem;
-		background: #fff;
-		color: #6b7280;
-		border: 1px solid #d1d5db;
-		cursor: pointer;
-		-webkit-tap-highlight-color: transparent;
-	}
-
-	.btn-reset:hover {
-		background: #f9fafb;
-	}
-
-	/* ── Submit results ─────────────────────────────────── */
-	.submit-results {
-		margin-top: 1rem;
-		padding: 0.75rem 1rem;
-		border-radius: 10px;
-		background: #f9fafb;
-		border: 1px solid #e5e7eb;
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-	}
-
-	.result-item {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin: 0;
-		font-size: 0.85rem;
-		line-height: 1.3;
-	}
-
-	.result-item svg {
-		flex-shrink: 0;
-	}
-
-	.result-ok svg {
-		color: #16a34a;
-	}
-
-	.result-fail svg {
-		color: #dc2626;
-	}
-
-	.result-name {
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.result-error {
-		color: #dc2626;
-		font-size: 0.8rem;
 	}
 
 	/* ── Activity ─────────────────────────────────────── */
@@ -810,12 +782,21 @@
 			flex: 1;
 		}
 
-		.status-select {
-			width: 180px;
+		.task-controls {
+			width: auto;
 			flex-shrink: 0;
+		}
+
+		.task-controls .status-select {
+			width: 180px;
 			border-radius: 999px;
 			min-height: 36px;
 			padding: 0.35rem 0.5rem;
+		}
+
+		.btn-task-submit {
+			min-height: 36px;
+			padding: 0.35rem 0.75rem;
 		}
 	}
 </style>
