@@ -285,25 +285,8 @@
 				<a class="btn-secondary" href={getProgressPhotosHref(project)}>Progress Photos</a>
 				{#if project?.source !== 'crm_deal'}
 					<a class="btn-secondary" href="/trade/field-update{project?.deal_id ? `?deal=${encodeURIComponent(project.deal_id)}` : ''}">Field Update</a>
-					<button
-						class="btn-submit"
-						type="button"
-						disabled={submitting}
-						onclick={submitChanges}
-					>
-						{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
-					</button>
 				{/if}
 			</div>
-			{#if submitResult}
-				<p class="submit-result">
-					{#if submitResult.fail === 0}
-						<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
-					{:else}
-						<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
-					{/if}
-				</p>
-			{/if}
 		</header>
 
 		<section class="section">
@@ -344,6 +327,25 @@
 							{/each}
 						</div>
 					{/each}
+				{/if}
+				{#if project?.source !== 'crm_deal'}
+					<div class="submit-row">
+						<button
+							class="btn-submit"
+							type="button"
+							disabled={submitting}
+							onclick={submitChanges}
+						>
+							{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
+						</button>
+						{#if submitResult}
+							{#if submitResult.fail === 0}
+								<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
+							{:else}
+								<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
+							{/if}
+						{/if}
+					</div>
 				{/if}
 			{/if}
 		</section>
@@ -481,6 +483,13 @@
 	}
 
 	/* ── Submit Changes button ── */
+	.submit-row {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-top: 1rem;
+	}
+
 	.btn-submit {
 		display: inline-flex;
 		align-items: center;
