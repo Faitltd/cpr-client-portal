@@ -34,7 +34,6 @@
 	let error = '';
 	let invoiceError = '';
 	let activityOpen = false;
-	let projectsOpen = false;
 	let financialOpen = true;
 	let invoicesOpen = true;
 	let changeOrdersOpen = false;
@@ -52,7 +51,6 @@
 	let contracts: any[] = [];
 	let contractsLoading = true;
 	let contractError = '';
-	let contractsOpen = false;
 	let documents: any[] = [];
 	let documentsLoading = true;
 	let documentsOpen = false;
@@ -343,29 +341,6 @@
 	{:else if projects.length === 0}
 		<div class="state-card">No projects found</div>
 	{:else}
-		<!-- Projects -->
-		<section class="section">
-			<button class="section-header" type="button" on:click={() => (projectsOpen = !projectsOpen)}>
-				<span class="section-header-left">
-					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M2 8h16"/><path d="M8 8v10"/></svg>
-					Projects
-				</span>
-				<span class="toggle-icon">{projectsOpen ? '−' : '+'}</span>
-			</button>
-			{#if projectsOpen}
-			{#each projects as project}
-				<div class="project-card">
-					<div class="project-top">
-						<span class="stage-badge">{project.Stage || 'Unknown'}</span>
-						<span class="project-date">{new Date(project.Created_Time).toLocaleDateString()}</span>
-					</div>
-					<h3 class="project-name">{project.Deal_Name || 'Untitled Project'}</h3>
-					<p class="project-meta">Next milestone: {project.Stage || 'Unknown'}</p>
-				</div>
-			{/each}
-			{/if}
-		</section>
-
 		<!-- Photos -->
 		<section class="section">
 			<button class="section-header" type="button" on:click={() => (photosOpen = !photosOpen)}>
@@ -587,49 +562,6 @@
 		</section>
 {/if}
 
-	<!-- Contracts -->
-	<section class="section">
-		<button class="section-header" type="button" on:click={() => (contractsOpen = !contractsOpen)}>
-			<span class="section-header-left">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="1" width="14" height="18" rx="2"/><path d="M7 5h6M7 9h6M7 13h4"/></svg>
-				Contracts
-			</span>
-			<span class="toggle-icon">{contractsOpen ? '−' : '+'}</span>
-		</button>
-		{#if contractsOpen}
-			{#if contractsLoading}
-				<p class="muted-text">Loading...</p>
-			{:else if contractError}
-				<p class="muted-text error-text">{contractError}</p>
-			{:else if contracts.length === 0}
-				<p class="muted-text">No contracts found.</p>
-			{:else}
-				<div class="card-list">
-					{#each contracts as contract}
-						<div class="contract-card">
-							<div class="contract-info">
-								<h3 class="contract-name">{contract.name}</h3>
-								<span class="badge badge-muted">{contract.status || 'Unknown'}</span>
-							</div>
-							<div class="contract-actions">
-								{#if contract.can_sign}
-									<a class="btn-primary" href={`/contracts/${contract.id}/sign`} target="_blank" rel="noopener">Sign</a>
-								{/if}
-								{#if /complete|signed/i.test(contract.status || '')}
-									<a class="btn-secondary" href={`/api/sign/requests/${contract.id}/pdf`} target="_blank" rel="noopener">View PDF</a>
-								{:else if contract.view_url}
-									<a class="btn-secondary" href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`} target="_blank" rel="noopener">View</a>
-								{:else}
-									<a class="btn-secondary" href={`/contracts/${contract.id}/view`} target="_blank" rel="noopener">View</a>
-								{/if}
-							</div>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		{/if}
-	</section>
-
 	<!-- Documents -->
 	<section class="section">
 		<button class="section-header" type="button" on:click={() => (documentsOpen = !documentsOpen)}>
@@ -640,19 +572,48 @@
 			<span class="toggle-icon">{documentsOpen ? '−' : '+'}</span>
 		</button>
 		{#if documentsOpen}
-			{#if documentsLoading}
+			{#if contractsLoading || documentsLoading}
 				<p class="muted-text">Loading...</p>
-			{:else if documents.length === 0}
-				<p class="muted-text">No documents found.</p>
 			{:else}
-				<div class="doc-list">
-					{#each documents as doc}
-						<div class="doc-item">
-							<a href={`/api/project/${accessProjectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank" class="doc-link">{doc.File_Name}</a>
-							<span class="meta-text">{new Date(doc.Created_Time).toLocaleDateString()}</span>
-						</div>
-					{/each}
-				</div>
+				{#if contractError}
+					<p class="muted-text error-text">{contractError}</p>
+				{:else if contracts.length > 0}
+					<div class="card-list">
+						{#each contracts as contract}
+							<div class="contract-card">
+								<div class="contract-info">
+									<h3 class="contract-name">{contract.name}</h3>
+									<span class="badge badge-muted">{contract.status || 'Unknown'}</span>
+								</div>
+								<div class="contract-actions">
+									{#if contract.can_sign}
+										<a class="btn-primary" href={`/contracts/${contract.id}/sign`} target="_blank" rel="noopener">Sign</a>
+									{/if}
+									{#if /complete|signed/i.test(contract.status || '')}
+										<a class="btn-secondary" href={`/api/sign/requests/${contract.id}/pdf`} target="_blank" rel="noopener">View PDF</a>
+									{:else if contract.view_url}
+										<a class="btn-secondary" href={`/contracts/${contract.id}/view?url=${encodeURIComponent(contract.view_url)}`} target="_blank" rel="noopener">View</a>
+									{:else}
+										<a class="btn-secondary" href={`/contracts/${contract.id}/view`} target="_blank" rel="noopener">View</a>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+				{#if documents.length > 0}
+					<div class="doc-list">
+						{#each documents as doc}
+							<div class="doc-item">
+								<a href={`/api/project/${accessProjectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank" class="doc-link">{doc.File_Name}</a>
+								<span class="meta-text">{new Date(doc.Created_Time).toLocaleDateString()}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+				{#if !contractError && contracts.length === 0 && documents.length === 0}
+					<p class="muted-text">No documents found.</p>
+				{/if}
 			{/if}
 		{/if}
 	</section>
