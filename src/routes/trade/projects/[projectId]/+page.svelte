@@ -377,10 +377,10 @@
 				{#if tasks.length === 0}
 					<p class="section-empty">{project?.source === 'crm_deal' ? 'No Zoho project linked to this deal yet.' : 'No tasks found.'}</p>
 				{:else}
-					{#each taskGroups as group}
+					{#each taskGroups as group (group.name)}
 						<h3 class="group-title">{group.name}</h3>
 						<div class="card-list">
-							{#each group.items as task}
+							{#each group.items as task (task?.id || task?.id_string)}
 								{@const tid = String(task?.id || task?.id_string || '')}
 								{@const displayStatus = getDisplayStatus(task)}
 								{@const isPending = pendingChanges.has(tid)}
