@@ -349,6 +349,7 @@
 		if (fail === 0) {
 			pendingChanges = {};
 			tasksCache.delete(selectedDealId);
+			await loadTasks(selectedDealId, true);
 			setTimeout(() => { taskSubmitMessage = ''; }, 4000);
 		}
 		taskSubmitting = false;
