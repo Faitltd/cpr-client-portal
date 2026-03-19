@@ -200,6 +200,8 @@
 
 	let updatingTaskIds = new Set<string>();
 	let taskStatusErrors = new Map<string, string>();
+	let taskSubmitting = false;
+	let taskSubmitMessage = '';
 
 	const getTaskStatus = (task: any): string => {
 		const v = task?.status ?? task?.task_status ?? '';
@@ -309,6 +311,41 @@
 			if (!tasksCache.has(dealId)) tasks = [];
 		} finally {
 			tasksLoading = false;
+		}
+	};
+
+	const submitTasks = async (e: Event) => {
+		e.preventDefault();
+		if (taskSubmitting || !isZohoProject || !selectedProjectId) return;
+		const form = e.currentTarget as HTMLFormElement;
+		const data = new FormData(form);
+		const updates: Array<{ taskId: string; status: string }> = [];
+		for (const [taskId, status] of data.entries()) {
+			updates.push({ taskId, status: String(status) });
+		}
+		if (!updates.length) return;
+		taskSubmitting = true;
+		taskSubmitMessage = '';
+		taskStatusErrors = new Map();
+		try {
+			const res = await fetch(`/api/trade/projects/${encodeURIComponent(selectedProjectId)}/tasks/batch-status`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ updates })
+			});
+			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(payload?.error || `Failed (${res.status})`);
+			const results: Array<{ taskId: string; ok: boolean; error?: string }> = payload.results ?? [];
+			const ok = results.filter(r => r.ok).length;
+			const fail = results.filter(r => !r.ok).length;
+			taskSubmitMessage = fail === 0 ? `✓ ${ok} task${ok !== 1 ? 's' : ''} updated` : `✗ ${fail} failed, ${ok} updated`;
+			tasksCache.delete(selectedDealId);
+			if (fail === 0) setTimeout(() => { taskSubmitMessage = ''; }, 4000);
+		} catch (err) {
+			taskSubmitMessage = err instanceof Error ? err.message : 'Submit failed';
+		} finally {
+			taskSubmitting = false;
 		}
 	};
 
@@ -561,6 +598,7 @@
 					</svg>
 				</button>
 
+				<form on:submit={submitTasks}>
 				{#if tasksOpen}
 					<div class="collapsible-body">
 						{#if tasksLoading && tasks.length === 0}
@@ -586,19 +624,15 @@
 												{#if getTaskAssignee(task)}
 													<p class="task-assignee">{getTaskAssignee(task)}</p>
 												{/if}
-												{#if taskStatusErrors.has(tid)}
-													<p class="task-error">{taskStatusErrors.get(tid)}</p>
-												{/if}
 											</div>
 											{#if isZohoProject}
 												<select
 													class="task-status-select task-status-{getTaskStatusValue(task)}"
-													value={getTaskStatusValue(task)}
-													disabled={updatingTaskIds.has(tid)}
-													on:change={(e) => updateTaskStatus(task, e.currentTarget.value)}
+													name={tid}
+													disabled={taskSubmitting}
 												>
 													{#each TASK_STATUSES as opt}
-														<option value={opt.value}>{opt.label}</option>
+														<option value={opt.value} selected={opt.value === getTaskStatusValue(task)}>{opt.label}</option>
 													{/each}
 												</select>
 											{:else}
@@ -613,6 +647,17 @@
 						{/if}
 					</div>
 				{/if}
+				{#if isZohoProject}
+					<div class="task-submit-row">
+						<button class="task-submit-btn" type="submit" disabled={taskSubmitting}>
+							{taskSubmitting ? 'Saving...' : 'Submit Changes'}
+						</button>
+						{#if taskSubmitMessage}
+							<span class={taskSubmitMessage.startsWith('✓') ? 'task-submit-ok' : 'task-submit-err'}>{taskSubmitMessage}</span>
+						{/if}
+					</div>
+				{/if}
+			</form>
 			</div>
 
 			<!-- Field Updates collapsible -->
@@ -1150,6 +1195,28 @@
 	.task-status-select.task-status-not_started { border-color: #d1d5db; background: #f9fafb; }
 	.task-status-select.task-status-in_progress  { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
 	.task-status-select.task-status-completed    { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+
+	.task-submit-row {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 0.75rem 1rem;
+		border-top: 1px solid #e5e7eb;
+	}
+	.task-submit-btn {
+		padding: 0.55rem 1.25rem;
+		border-radius: 8px;
+		font-weight: 700;
+		font-size: 0.88rem;
+		background: #111827;
+		color: #fff;
+		border: none;
+		cursor: pointer;
+		min-height: 40px;
+	}
+	.task-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.task-submit-ok { color: #16a34a; font-weight: 600; font-size: 0.9rem; }
+	.task-submit-err { color: #dc2626; font-weight: 600; font-size: 0.9rem; }
 
 	/* Status badge (CRM deals — read-only) */
 	.task-status-badge {
