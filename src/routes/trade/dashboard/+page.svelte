@@ -316,8 +316,7 @@
 		}
 	};
 
-	const submitTasks = async (e: Event) => {
-		e.preventDefault();
+	const submitTasks = async () => {
 		if (taskSubmitting || !isZohoProject || !selectedProjectId) return;
 		const updates = Object.entries(pendingChanges).map(([taskId, status]) => ({ taskId, status }));
 		if (!updates.length) { taskSubmitMessage = 'No changes to submit.'; return; }
@@ -604,7 +603,6 @@
 					</svg>
 				</button>
 
-				<form on:submit={submitTasks}>
 				{#if tasksOpen}
 					<div class="collapsible-body">
 						{#if tasksLoading && tasks.length === 0}
@@ -656,7 +654,7 @@
 				{/if}
 				{#if isZohoProject}
 					<div class="task-submit-row">
-						<button class="task-submit-btn" type="submit" disabled={taskSubmitting}>
+						<button class="task-submit-btn" type="button" on:click={submitTasks} disabled={taskSubmitting}>
 							{taskSubmitting ? 'Saving...' : 'Submit Changes'}
 						</button>
 						{#if taskSubmitMessage}
@@ -664,7 +662,6 @@
 						{/if}
 					</div>
 				{/if}
-			</form>
 			</div>
 
 			<!-- Field Updates collapsible -->
