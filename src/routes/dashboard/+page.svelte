@@ -41,11 +41,8 @@
 	let decisionsOpen = false;
 	let accountOpen = false;
 
-	// Photos / Project Overview
+	// Photos
 	let photosOpen = false;
-	let overviewOpen = false;
-	let projectDetail: any = null;
-	let projectNotes: any[] = [];
 
 	// Contracts / Documents / Access Info
 	let contracts: any[] = [];
@@ -639,59 +636,6 @@
 				{#if accessMessage}<p class="access-msg-ok">{accessMessage}</p>{/if}
 				{#if accessError}<p class="access-msg-err">{accessError}</p>{/if}
 			</div>
-		{/if}
-	</section>
-
-	<!-- Project Overview -->
-	<section class="section">
-		<button class="section-header" type="button" on:click={() => (overviewOpen = !overviewOpen)}>
-			<span class="section-header-left">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14M3 8h10M3 12h12M3 16h8"/></svg>
-				Project Overview
-			</span>
-			<span class="toggle-icon">{overviewOpen ? '−' : '+'}</span>
-		</button>
-		{#if overviewOpen}
-			{#if !projectDetail}
-				<p class="muted-text">Loading...</p>
-			{:else}
-				<div class="overview-grid">
-					<div class="overview-item">
-						<span class="overview-label">Closing Date</span>
-						<span class="overview-value">{projectDetail.Closing_Date ? new Date(projectDetail.Closing_Date).toLocaleDateString() : 'TBD'}</span>
-					</div>
-					<div class="overview-item">
-						<span class="overview-label">Project Manager</span>
-						<span class="overview-value">{projectDetail.Owner?.name || 'Not assigned'}</span>
-					</div>
-					{#if projectDetail.Refined_SOW}
-						<div class="overview-item overview-item-full">
-							<span class="overview-label">Scope</span>
-							<p class="overview-text">{projectDetail.Refined_SOW}</p>
-						</div>
-					{/if}
-					{#if projectDetail.Description}
-						<div class="overview-item overview-item-full">
-							<span class="overview-label">Description</span>
-							<p class="overview-text">{projectDetail.Description}</p>
-						</div>
-					{/if}
-				</div>
-				{#if projectNotes.length > 0}
-					<div class="notes-list">
-						<span class="overview-label">Project Timeline</span>
-						{#each projectNotes as note}
-							<div class="note-card">
-								<div class="note-meta">
-									<span class="note-date">{new Date(note.Created_Time).toLocaleDateString()}</span>
-									{#if note.Owner?.name}<span class="note-author">— {note.Owner.name}</span>{/if}
-								</div>
-								<p class="note-content">{note.Note_Content}</p>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			{/if}
 		{/if}
 	</section>
 
