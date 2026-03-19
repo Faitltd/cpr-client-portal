@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { decodeHtmlEntities } from '$lib/html';
 
@@ -76,7 +76,6 @@
 	const getTaskStatus = (task: any) => asText(task?.status ?? task?.task_status ?? null);
 	const getTaskAssignee = (task: any) =>
 		task?.owner?.name ?? task?.assignee?.name ?? task?.person_responsible ?? task?.user_name ?? '—';
-	const getTaskPriority = (task: any) => task?.priority ?? task?.task_priority ?? '—';
 	const getTaskPercent = (task: any) =>
 		task?.percent_complete ?? task?.percent_completed ?? task?.completed_percent ?? null;
 
@@ -89,14 +88,11 @@
 	let tasksOpen = $state(false);
 	let activityOpen = $state(false);
 
-	// Batch status tracking with 5-second auto-submit
+	/* ── Form-style batch: track changes, submit on button press ── */
 	let pendingChanges = $state(new Map<string, string>());
 	let submitting = $state(false);
 	let submitResults = $state<{ taskId: string; taskName: string; ok: boolean; error?: string }[]>([]);
 	let showResults = $state(false);
-	let countdownSeconds = $state(0);
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-	let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
 	const pendingCount = $derived(pendingChanges.size);
 
@@ -120,32 +116,13 @@
 		return normalizeStatus(raw);
 	};
 
-	/** Get the displayed status for a task — pending change overrides the server value */
 	const getDisplayStatus = (task: any): string => {
 		const tid = String(task?.id || task?.id_string || '');
 		if (pendingChanges.has(tid)) return pendingChanges.get(tid)!;
 		return getTaskStatusValue(task);
 	};
 
-	function clearTimers() {
-		if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
-		if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-		countdownSeconds = 0;
-	}
-
-	function startAutoSubmitTimer() {
-		clearTimers();
-		countdownSeconds = 5;
-		countdownInterval = setInterval(() => {
-			countdownSeconds = Math.max(0, countdownSeconds - 1);
-		}, 1000);
-		debounceTimer = setTimeout(() => {
-			clearTimers();
-			submitChanges();
-		}, 5000);
-	}
-
-	/** When a select changes, track it as a pending change (or remove if reverted to original) */
+	/** Just record the change — nothing sends until Submit is pressed */
 	function onStatusChange(task: any, newStatus: string) {
 		const tid = String(task?.id || task?.id_string || '');
 		if (!tid) return;
@@ -159,16 +136,9 @@
 		}
 		pendingChanges = next;
 		showResults = false;
-
-		// If there are pending changes, (re)start the 5s auto-submit countdown
-		if (pendingChanges.size > 0 && !submitting) {
-			startAutoSubmitTimer();
-		} else if (pendingChanges.size === 0) {
-			clearTimers();
-		}
 	}
 
-	/** Submit all pending changes to Zoho */
+	/** Submit all pending changes to Zoho — only called by the Submit button */
 	async function submitChanges() {
 		if (pendingChanges.size === 0 || submitting) return;
 		submitting = true;
@@ -178,14 +148,12 @@
 		const projectId = $page.params.projectId;
 		const entries = Array.from(pendingChanges.entries());
 
-		// Build a lookup for task names
 		const taskMap = new Map<string, any>();
 		for (const task of tasks) {
 			const tid = String(task?.id || task?.id_string || '');
 			if (tid) taskMap.set(tid, task);
 		}
 
-		// Fire all updates in parallel
 		const results = await Promise.allSettled(
 			entries.map(async ([taskId, status]) => {
 				const res = await fetch(
@@ -223,7 +191,6 @@
 				succeeded.push(taskId);
 				newResults.push({ taskId, taskName, ok: true });
 
-				// Update the task object in-place so the UI reflects the new status
 				if (task) {
 					const label = TASK_STATUSES.find((s) => s.value === entries[i][1])?.label || entries[i][1];
 					if (task.status && typeof task.status === 'object') {
@@ -239,7 +206,6 @@
 			}
 		}
 
-		// Remove succeeded from pending
 		const next = new Map(pendingChanges);
 		for (const id of succeeded) next.delete(id);
 		pendingChanges = next;
@@ -248,12 +214,10 @@
 		showResults = true;
 		submitting = false;
 
-		// Clear cache so next visit gets fresh data
 		try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
 	}
 
 	function clearPending() {
-		clearTimers();
 		pendingChanges = new Map();
 		showResults = false;
 		submitResults = [];
@@ -336,10 +300,6 @@
 			fetchDetail(false);
 		}
 	});
-
-	onDestroy(() => {
-		clearTimers();
-	});
 </script>
 
 <div class="project-detail">
@@ -408,6 +368,29 @@
 						</div>
 					{/each}
 
+					<!-- Submit button — always visible when tasks section is open -->
+					<div class="submit-area">
+						{#if submitting}
+							<button class="btn-submit" type="button" disabled>
+								Submitting...
+							</button>
+						{:else}
+							<button
+								class="btn-submit"
+								type="button"
+								disabled={pendingCount === 0}
+								onclick={submitChanges}
+							>
+								Submit Changes{#if pendingCount > 0} ({pendingCount}){/if}
+							</button>
+						{/if}
+						{#if pendingCount > 0 && !submitting}
+							<button class="btn-reset" type="button" onclick={clearPending}>
+								Reset
+							</button>
+						{/if}
+					</div>
+
 					<!-- Submit results -->
 					{#if showResults && submitResults.length > 0}
 						<div class="submit-results">
@@ -451,32 +434,12 @@
 	{/if}
 </div>
 
-<!-- Sticky bottom bar for pending changes -->
-{#if pendingCount > 0 || submitting}
-	<div class="submit-bar">
-		<div class="submit-bar-inner">
-			<span class="submit-count">{pendingCount} task{pendingCount === 1 ? '' : 's'} changed</span>
-			<div class="submit-actions">
-				{#if submitting}
-					<span class="submit-status">Saving...</span>
-				{:else if countdownSeconds > 0}
-					<span class="submit-status">Saving in {countdownSeconds}s</span>
-					<button class="btn-cancel" type="button" onclick={clearPending}>Cancel</button>
-				{:else}
-					<button class="btn-cancel" type="button" onclick={clearPending}>Cancel</button>
-				{/if}
-			</div>
-		</div>
-	</div>
-{/if}
-
 <style>
 	/* Mobile-first base */
 	.project-detail {
 		max-width: 1000px;
 		margin: 0 auto;
 		padding: 1.25rem;
-		padding-bottom: 6rem;
 	}
 
 	.loading {
@@ -700,6 +663,62 @@
 		color: #15803d;
 	}
 
+	/* ── Submit area ─────────────────────────────────── */
+	.submit-area {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-top: 1.25rem;
+		padding-top: 1rem;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	.btn-submit {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 48px;
+		padding: 0.6rem 1.5rem;
+		border-radius: 10px;
+		font-weight: 700;
+		font-size: 0.95rem;
+		background: #111827;
+		color: #fff;
+		border: none;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
+		transition: background 0.15s, opacity 0.15s;
+	}
+
+	.btn-submit:hover:not(:disabled) {
+		background: #1f2937;
+	}
+
+	.btn-submit:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.btn-reset {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 48px;
+		padding: 0.6rem 1rem;
+		border-radius: 10px;
+		font-weight: 600;
+		font-size: 0.88rem;
+		background: #fff;
+		color: #6b7280;
+		border: 1px solid #d1d5db;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.btn-reset:hover {
+		background: #f9fafb;
+	}
+
 	/* ── Submit results ─────────────────────────────────── */
 	.submit-results {
 		margin-top: 1rem;
@@ -743,84 +762,6 @@
 		font-size: 0.8rem;
 	}
 
-	/* ── Sticky submit bar ──────────────────────────────── */
-	.submit-bar {
-		position: fixed;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		z-index: 50;
-		background: rgba(255, 255, 255, 0.97);
-		border-top: 1px solid #e5e7eb;
-		backdrop-filter: blur(8px);
-		-webkit-backdrop-filter: blur(8px);
-		box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
-		padding: 0.75rem 1rem;
-		animation: slideUp 0.2s ease;
-	}
-
-	@keyframes slideUp {
-		from { transform: translateY(100%); opacity: 0; }
-		to { transform: translateY(0); opacity: 1; }
-	}
-
-	.submit-bar-inner {
-		max-width: 1000px;
-		margin: 0 auto;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
-		flex-wrap: wrap;
-	}
-
-	.submit-count {
-		font-size: 0.88rem;
-		font-weight: 600;
-		color: #92400e;
-		background: #fef3c7;
-		padding: 0.3rem 0.75rem;
-		border-radius: 999px;
-	}
-
-	.submit-status {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: #6b7280;
-	}
-
-	.submit-actions {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.btn-cancel {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 44px;
-		padding: 0.5rem 1rem;
-		border-radius: 10px;
-		font-weight: 600;
-		font-size: 0.85rem;
-		background: #fff;
-		color: #6b7280;
-		border: 1px solid #d1d5db;
-		cursor: pointer;
-		-webkit-tap-highlight-color: transparent;
-	}
-
-	.btn-cancel:hover {
-		background: #f9fafb;
-	}
-
-	.btn-cancel:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-
-
 	/* ── Activity ─────────────────────────────────────── */
 	.activity {
 		display: flex;
@@ -851,7 +792,6 @@
 	@media (min-width: 640px) {
 		.project-detail {
 			padding: 2rem;
-			padding-bottom: 6rem;
 		}
 
 		h1 {
@@ -876,10 +816,6 @@
 			border-radius: 999px;
 			min-height: 36px;
 			padding: 0.35rem 0.5rem;
-		}
-
-		.submit-bar {
-			padding: 0.75rem 2rem;
 		}
 	}
 </style>
