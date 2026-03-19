@@ -82,7 +82,7 @@
 		{ value: 'completed', label: 'Completed (100%)' }
 	];
 
-	let tasksOpen = $state(false);
+	let tasksOpen = $state(true);
 	let activityOpen = $state(false);
 
 	/* ── Form-style batch status updates ── */
@@ -593,13 +593,19 @@
 
 	/* ── Form submit footer ── */
 	.form-footer {
+		position: sticky;
+		bottom: 0;
+		z-index: 10;
 		display: flex;
 		align-items: center;
 		gap: 1rem;
 		margin-top: 1.25rem;
-		padding-top: 1rem;
-		border-top: 1px solid #e5e7eb;
+		padding: 1rem;
+		background: #fff;
+		border-top: 2px solid #e5e7eb;
+		border-radius: 0 0 12px 12px;
 		flex-wrap: wrap;
+		box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
 	}
 
 	.btn-submit {
