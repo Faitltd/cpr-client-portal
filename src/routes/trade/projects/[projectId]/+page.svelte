@@ -138,13 +138,13 @@
 	async function submitChanges() {
 		if (submitting) return;
 
-		const toSubmit: Array<{ tid: string; status: string }> = [];
+		const toSubmit: Array<{ taskId: string; status: string }> = [];
 		const selects = document.querySelectorAll<HTMLSelectElement>('select[data-tid]');
 		for (const sel of selects) {
 			const tid = sel.dataset.tid!;
 			const newStatus = sel.value;
 			if (newStatus && newStatus !== originalStatuses[tid]) {
-				toSubmit.push({ tid, status: newStatus });
+				toSubmit.push({ taskId: tid, status: newStatus });
 			}
 		}
 		if (toSubmit.length === 0) return;
@@ -152,32 +152,33 @@
 		submitting = true;
 		submitResult = null;
 		const projectId = $page.params.projectId;
-		let ok = 0, fail = 0;
 
-		await Promise.allSettled(
-			toSubmit.map(async ({ tid, status }) => {
-				try {
-					const res = await fetch(`/api/trade/projects/${projectId}/tasks/${tid}/status`, {
-						method: 'PUT',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ status })
-					});
-					if (res.status === 401) { window.location.href = '/auth/trade'; return; }
-					const payload = await res.json().catch(() => ({}));
-					if (!res.ok) throw new Error(payload?.error || `Failed (${res.status})`);
-					originalStatuses[tid] = status;
-					ok++;
-				} catch {
-					fail++;
-				}
-			})
-		);
+		// Single round-trip: batch endpoint handles auth once + parallel Zoho calls server-side
+		try {
+			const res = await fetch(`/api/trade/projects/${projectId}/tasks/batch-status`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ updates: toSubmit })
+			});
+			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(payload?.error || `Failed (${res.status})`);
 
-		submitting = false;
-		pendingCount = 0;
-		submitResult = { ok, fail };
-		try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
-		if (fail === 0) setTimeout(() => { submitResult = null; }, 4000);
+			const results: Array<{ taskId: string; ok: boolean }> = payload.results ?? [];
+			let ok = 0, fail = 0;
+			for (const r of results) {
+				if (r.ok) { originalStatuses[r.taskId] = toSubmit.find(u => u.taskId === r.taskId)?.status ?? originalStatuses[r.taskId]; ok++; }
+				else fail++;
+			}
+			submitResult = { ok, fail };
+			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
+			if (fail === 0) setTimeout(() => { submitResult = null; }, 4000);
+		} catch {
+			submitResult = { ok: 0, fail: toSubmit.length };
+		} finally {
+			submitting = false;
+			pendingCount = 0;
+		}
 	}
 
 	const getActivityText = (a: any) =>
@@ -328,25 +329,25 @@
 						</div>
 					{/each}
 				{/if}
-				{#if project?.source !== 'crm_deal'}
-					<div class="submit-row">
-						<button
-							class="btn-submit"
-							type="button"
-							disabled={submitting}
-							onclick={submitChanges}
-						>
-							{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
-						</button>
-						{#if submitResult}
-							{#if submitResult.fail === 0}
-								<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
-							{:else}
-								<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
-							{/if}
+			{/if}
+			{#if project?.source !== 'crm_deal'}
+				<div class="submit-row">
+					<button
+						class="btn-submit"
+						type="button"
+						disabled={submitting}
+						onclick={submitChanges}
+					>
+						{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
+					</button>
+					{#if submitResult}
+						{#if submitResult.fail === 0}
+							<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
+						{:else}
+							<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
 						{/if}
-					</div>
-				{/if}
+					{/if}
+				</div>
 			{/if}
 		</section>
 
