@@ -89,8 +89,13 @@
 	let tasksOpen = $state(false);
 	let activityOpen = $state(false);
 
-	let updatingTaskIds = $state(new Set<string>());
-	let taskStatusErrors = $state(new Map<string, string>());
+	// Batch status tracking
+	let pendingChanges = $state(new Map<string, string>());
+	let submitting = $state(false);
+	let submitResults = $state<{ taskId: string; taskName: string; ok: boolean; error?: string }[]>([]);
+	let showResults = $state(false);
+
+	const pendingCount = $derived(pendingChanges.size);
 
 	const normalizeStatus = (raw: string): string => {
 		const lower = raw.toLowerCase().replace(/\s+/g, '_');
@@ -112,55 +117,117 @@
 		return normalizeStatus(raw);
 	};
 
-	async function updateTaskStatus(task: any, newStatus: string) {
-		const taskId = String(task?.id || task?.id_string || '');
-		if (!taskId || !project) return;
+	/** Get the displayed status for a task — pending change overrides the server value */
+	const getDisplayStatus = (task: any): string => {
+		const tid = String(task?.id || task?.id_string || '');
+		if (pendingChanges.has(tid)) return pendingChanges.get(tid)!;
+		return getTaskStatusValue(task);
+	};
 
-		const prevStatus = task?.status;
-		const prevTaskStatus = task?.task_status;
+	/** When a select changes, track it as a pending change (or remove if reverted to original) */
+	function onStatusChange(task: any, newStatus: string) {
+		const tid = String(task?.id || task?.id_string || '');
+		if (!tid) return;
+		const originalStatus = getTaskStatusValue(task);
 
-		// Mutate task proxy in-place — only this task's reactive reads update
-		const label = TASK_STATUSES.find((s) => s.value === newStatus)?.label || newStatus;
-		if (task.status && typeof task.status === 'object') {
-			task.status = { ...task.status, name: label };
+		const next = new Map(pendingChanges);
+		if (newStatus === originalStatus) {
+			next.delete(tid);
 		} else {
-			task.status = label;
+			next.set(tid, newStatus);
 		}
-		task.task_status = label;
+		pendingChanges = next;
+		showResults = false;
+	}
 
-		// In-place Set/Map mutations — no new references, no broad re-renders
-		updatingTaskIds.add(taskId);
-		taskStatusErrors.delete(taskId);
+	/** Submit all pending changes to Zoho */
+	async function submitChanges() {
+		if (pendingChanges.size === 0 || submitting) return;
+		submitting = true;
+		showResults = false;
+		submitResults = [];
 
-		try {
-			const projectId = $page.params.projectId;
-			const res = await fetch(
-				`/api/trade/projects/${projectId}/tasks/${taskId}/status`,
-				{
-					method: 'PUT',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ status: newStatus })
+		const projectId = $page.params.projectId;
+		const entries = Array.from(pendingChanges.entries());
+
+		// Build a lookup for task names
+		const taskMap = new Map<string, any>();
+		for (const task of tasks) {
+			const tid = String(task?.id || task?.id_string || '');
+			if (tid) taskMap.set(tid, task);
+		}
+
+		// Fire all updates in parallel
+		const results = await Promise.allSettled(
+			entries.map(async ([taskId, status]) => {
+				const res = await fetch(
+					`/api/trade/projects/${projectId}/tasks/${taskId}/status`,
+					{
+						method: 'PUT',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ status })
+					}
+				);
+
+				if (res.status === 401) {
+					window.location.href = '/auth/trade';
+					throw new Error('Session expired');
 				}
-			);
 
-			if (res.status === 401) {
-				window.location.href = '/auth/trade';
-				return;
-			}
+				const payload = await res.json().catch(() => ({}));
+				if (!res.ok) {
+					throw new Error(payload?.error || `Failed (${res.status})`);
+				}
+				return { taskId, status };
+			})
+		);
 
-			const payload = await res.json().catch(() => ({}));
-			if (!res.ok) {
-				throw new Error(payload?.error || `Failed to update (${res.status})`);
+		const succeeded: string[] = [];
+		const newResults: typeof submitResults = [];
+
+		for (let i = 0; i < results.length; i++) {
+			const result = results[i];
+			const [taskId] = entries[i];
+			const task = taskMap.get(taskId);
+			const taskName = task ? decodeHtmlEntities(getTaskName(task)) : taskId;
+
+			if (result.status === 'fulfilled') {
+				succeeded.push(taskId);
+				newResults.push({ taskId, taskName, ok: true });
+
+				// Update the task object in-place so the UI reflects the new status
+				if (task) {
+					const label = TASK_STATUSES.find((s) => s.value === entries[i][1])?.label || entries[i][1];
+					if (task.status && typeof task.status === 'object') {
+						task.status = { ...task.status, name: label };
+					} else {
+						task.status = label;
+					}
+					task.task_status = label;
+				}
+			} else {
+				const errMsg = result.reason instanceof Error ? result.reason.message : 'Update failed';
+				newResults.push({ taskId, taskName, ok: false, error: errMsg });
 			}
-			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
-		} catch (err) {
-			// Revert in-place
-			task.status = prevStatus;
-			task.task_status = prevTaskStatus;
-			taskStatusErrors.set(taskId, err instanceof Error ? err.message : 'Update failed');
-		} finally {
-			updatingTaskIds.delete(taskId);
 		}
+
+		// Remove succeeded from pending
+		const next = new Map(pendingChanges);
+		for (const id of succeeded) next.delete(id);
+		pendingChanges = next;
+
+		submitResults = newResults;
+		showResults = true;
+		submitting = false;
+
+		// Clear cache so next visit gets fresh data
+		try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
+	}
+
+	function clearPending() {
+		pendingChanges = new Map();
+		showResults = false;
+		submitResults = [];
 	}
 
 	const getActivityText = (a: any) =>
@@ -208,8 +275,6 @@
 					return;
 				}
 				if (res.status === 403) {
-					// Cached project ID may be stale (e.g. CRM updated with a new project ID).
-					// Clear caches and redirect to the project list to pick up fresh IDs.
 					try { sessionStorage.removeItem('cpr:trade:projects:list'); } catch { /* ignore */ }
 					try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
 					window.location.href = '/trade/projects';
@@ -237,7 +302,6 @@
 		const hadCache = loadFromCache();
 		if (hadCache) {
 			loading = false;
-			// Refresh in background — section is collapsed so user won't see the swap
 			fetchDetail(true);
 		} else {
 			fetchDetail(false);
@@ -285,22 +349,21 @@
 						<div class="card-list">
 							{#each group.items as task}
 								{@const tid = String(task?.id || task?.id_string || '')}
-								<div class="card-row">
+								{@const displayStatus = getDisplayStatus(task)}
+								{@const isPending = pendingChanges.has(tid)}
+								<div class="card-row" class:card-pending={isPending}>
 									<div class="card-info">
 										<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
 										<p class="card-assignee">{getTaskAssignee(task)}</p>
-										{#if taskStatusErrors.has(tid)}
-											<p class="task-error">{taskStatusErrors.get(tid)}</p>
-										{/if}
 									</div>
 									{#if project?.source === 'crm_deal'}
 										<span class="badge">{getTaskStatus(task)}</span>
 									{:else}
 										<select
-											class="status-select status-{getTaskStatusValue(task)}"
-											value={getTaskStatusValue(task)}
-											disabled={updatingTaskIds.has(tid)}
-											onchange={(e) => updateTaskStatus(task, e.currentTarget.value)}
+											class="status-select status-{displayStatus}"
+											value={displayStatus}
+											disabled={submitting}
+											onchange={(e) => onStatusChange(task, e.currentTarget.value)}
 										>
 											{#each TASK_STATUSES as opt}
 												<option value={opt.value}>{opt.label}</option>
@@ -311,6 +374,23 @@
 							{/each}
 						</div>
 					{/each}
+
+					<!-- Submit results -->
+					{#if showResults && submitResults.length > 0}
+						<div class="submit-results">
+							{#each submitResults as r (r.taskId)}
+								<p class="result-item" class:result-ok={r.ok} class:result-fail={!r.ok}>
+									{#if r.ok}
+										<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 10l3 3 7-7"/></svg>
+									{:else}
+										<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l8 8M14 6l-8 8"/></svg>
+									{/if}
+									<span class="result-name">{r.taskName}</span>
+									{#if !r.ok}<span class="result-error">{r.error}</span>{/if}
+								</p>
+							{/each}
+						</div>
+					{/if}
 				{/if}
 			{/if}
 		</section>
@@ -338,26 +418,40 @@
 	{/if}
 </div>
 
+<!-- Sticky bottom bar for pending changes -->
+{#if pendingCount > 0}
+	<div class="submit-bar">
+		<div class="submit-bar-inner">
+			<span class="submit-count">{pendingCount} task{pendingCount === 1 ? '' : 's'} changed</span>
+			<div class="submit-actions">
+				<button class="btn-cancel" type="button" onclick={clearPending} disabled={submitting}>
+					Cancel
+				</button>
+				<button class="btn-submit" type="button" onclick={submitChanges} disabled={submitting}>
+					{#if submitting}
+						Submitting...
+					{:else}
+						Submit Changes
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	/* Mobile-first base */
 	.project-detail {
 		max-width: 1000px;
 		margin: 0 auto;
 		padding: 1.25rem;
+		padding-bottom: 6rem;
 	}
 
 	.loading {
 		padding: 2rem;
 		text-align: center;
 		color: #6b7280;
-	}
-
-	.refreshing {
-		padding: 0.4rem 0.75rem;
-		margin-bottom: 0.75rem;
-		font-size: 0.85rem;
-		color: #6b7280;
-		text-align: center;
 	}
 
 	.error {
@@ -513,6 +607,12 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		background: #fff;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+
+	.card-pending {
+		border-color: #f59e0b;
+		box-shadow: inset 3px 0 0 #f59e0b;
 	}
 
 	.card-info {
@@ -530,12 +630,6 @@
 		margin: 0.15rem 0 0;
 		font-size: 0.82rem;
 		color: #6b7280;
-	}
-
-	.task-error {
-		margin: 0.25rem 0 0;
-		font-size: 0.82rem;
-		color: #b91c1c;
 	}
 
 	.status-select {
@@ -575,6 +669,146 @@
 		color: #15803d;
 	}
 
+	/* ── Submit results ─────────────────────────────────── */
+	.submit-results {
+		margin-top: 1rem;
+		padding: 0.75rem 1rem;
+		border-radius: 10px;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.result-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0;
+		font-size: 0.85rem;
+		line-height: 1.3;
+	}
+
+	.result-item svg {
+		flex-shrink: 0;
+	}
+
+	.result-ok svg {
+		color: #16a34a;
+	}
+
+	.result-fail svg {
+		color: #dc2626;
+	}
+
+	.result-name {
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.result-error {
+		color: #dc2626;
+		font-size: 0.8rem;
+	}
+
+	/* ── Sticky submit bar ──────────────────────────────── */
+	.submit-bar {
+		position: fixed;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		z-index: 50;
+		background: rgba(255, 255, 255, 0.97);
+		border-top: 1px solid #e5e7eb;
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+		padding: 0.75rem 1rem;
+		animation: slideUp 0.2s ease;
+	}
+
+	@keyframes slideUp {
+		from { transform: translateY(100%); opacity: 0; }
+		to { transform: translateY(0); opacity: 1; }
+	}
+
+	.submit-bar-inner {
+		max-width: 1000px;
+		margin: 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.submit-count {
+		font-size: 0.88rem;
+		font-weight: 600;
+		color: #92400e;
+		background: #fef3c7;
+		padding: 0.3rem 0.75rem;
+		border-radius: 999px;
+	}
+
+	.submit-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.btn-cancel {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 44px;
+		padding: 0.5rem 1rem;
+		border-radius: 10px;
+		font-weight: 600;
+		font-size: 0.85rem;
+		background: #fff;
+		color: #6b7280;
+		border: 1px solid #d1d5db;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.btn-cancel:hover {
+		background: #f9fafb;
+	}
+
+	.btn-cancel:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.btn-submit {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 44px;
+		padding: 0.5rem 1.25rem;
+		border-radius: 10px;
+		font-weight: 600;
+		font-size: 0.85rem;
+		background: #111827;
+		color: #fff;
+		border: none;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
+		transition: background 0.15s;
+	}
+
+	.btn-submit:hover {
+		background: #1f2937;
+	}
+
+	.btn-submit:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	/* ── Activity ─────────────────────────────────────── */
 	.activity {
 		display: flex;
 		flex-direction: column;
@@ -604,6 +838,7 @@
 	@media (min-width: 640px) {
 		.project-detail {
 			padding: 2rem;
+			padding-bottom: 6rem;
 		}
 
 		h1 {
@@ -628,6 +863,10 @@
 			border-radius: 999px;
 			min-height: 36px;
 			padding: 0.35rem 0.5rem;
+		}
+
+		.submit-bar {
+			padding: 0.75rem 2rem;
 		}
 	}
 </style>
