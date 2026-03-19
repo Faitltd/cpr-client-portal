@@ -202,8 +202,8 @@
 	let taskStatusErrors = new Map<string, string>();
 	let taskSubmitting = false;
 	let taskSubmitMessage = '';
-	// Original status values when tasks load — only submit changed ones
-	let taskOriginals: Record<string, string> = {};
+	// Only tracks selects the user has actually changed — starts empty
+	let pendingChanges: Record<string, string> = {};
 
 	const getTaskStatus = (task: any): string => {
 		const v = task?.status ?? task?.task_status ?? '';
@@ -284,7 +284,6 @@
 							tasksCache.set(dealId, fresh);
 							if (dealId === selectedDealId) {
 								tasks = fresh;
-								recordTaskOriginals(fresh);
 								selectedProjectId = freshProjectId;
 								isZohoProject = true;
 								if (fresh.length === 0 && retryPayload?.tasksError) {
@@ -303,7 +302,6 @@
 			tasksCache.set(dealId, fresh);
 			if (dealId === selectedDealId) {
 				tasks = fresh;
-				recordTaskOriginals(fresh);
 				selectedProjectId = projectId;
 				isZohoProject = true;
 				if (fresh.length === 0 && payload?.tasksError) {
@@ -318,30 +316,13 @@
 		}
 	};
 
-	const recordTaskOriginals = (taskList: any[]) => {
-		taskOriginals = {};
-		taskSubmitMessage = '';
-		for (const task of taskList) {
-			const tid = String(task?.id || task?.id_string || '');
-			if (tid) taskOriginals[tid] = getTaskStatusValue(task);
-		}
-	};
-
 	const submitTasks = async (e: Event) => {
 		e.preventDefault();
 		if (taskSubmitting || !isZohoProject || !selectedProjectId) return;
-		const form = e.currentTarget as HTMLFormElement;
-		const data = new FormData(form);
-		const updates: Array<{ taskId: string; status: string }> = [];
-		for (const [taskId, status] of data.entries()) {
-			const s = String(status);
-			// Only submit tasks that actually changed
-			if (taskOriginals[taskId] !== s) updates.push({ taskId, status: s });
-		}
-		if (!updates.length) return;
+		const updates = Object.entries(pendingChanges).map(([taskId, status]) => ({ taskId, status }));
+		if (!updates.length) { taskSubmitMessage = 'No changes to submit.'; return; }
 		taskSubmitting = true;
 		taskSubmitMessage = '';
-		taskStatusErrors = new Map();
 		try {
 			const res = await fetch(`/api/trade/projects/${encodeURIComponent(selectedProjectId)}/tasks/batch-status`, {
 				method: 'PUT',
@@ -351,12 +332,11 @@
 			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
 			const payload = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(payload?.error || `Failed (${res.status})`);
-			const results: Array<{ taskId: string; ok: boolean; error?: string }> = payload.results ?? [];
+			const results: Array<{ taskId: string; ok: boolean }> = payload.results ?? [];
 			const ok = results.filter(r => r.ok).length;
 			const fail = results.filter(r => !r.ok).length;
 			taskSubmitMessage = fail === 0 ? `✓ ${ok} task${ok !== 1 ? 's' : ''} updated` : `✗ ${fail} failed, ${ok} updated`;
-			tasksCache.delete(selectedDealId);
-			if (fail === 0) setTimeout(() => { taskSubmitMessage = ''; }, 4000);
+			if (fail === 0) { pendingChanges = {}; tasksCache.delete(selectedDealId); setTimeout(() => { taskSubmitMessage = ''; }, 4000); }
 		} catch (err) {
 			taskSubmitMessage = err instanceof Error ? err.message : 'Submit failed';
 		} finally {
@@ -642,12 +622,13 @@
 											</div>
 											{#if isZohoProject}
 												<select
-													class="task-status-select task-status-{getTaskStatusValue(task)}"
-													name={tid}
+													class="task-status-select task-status-{pendingChanges[tid] ?? getTaskStatusValue(task)}"
+													value={pendingChanges[tid] ?? getTaskStatusValue(task)}
 													disabled={taskSubmitting}
+													on:change={(e) => { pendingChanges[tid] = e.currentTarget.value; pendingChanges = pendingChanges; }}
 												>
 													{#each TASK_STATUSES as opt}
-														<option value={opt.value} selected={opt.value === getTaskStatusValue(task)}>{opt.label}</option>
+														<option value={opt.value}>{opt.label}</option>
 													{/each}
 												</select>
 											{:else}
