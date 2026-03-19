@@ -85,99 +85,55 @@
 	let tasksOpen = $state(true);
 	let activityOpen = $state(false);
 
-	/*
-	 * Form approach: the browser owns select values. We never touch them after
-	 * initial render. On submit we read the DOM. This prevents any re-render
-	 * from resetting what the user has selected.
-	 */
-
-	// originalStatuses is plain JS — NOT $state — so Svelte never re-renders when it changes
-	const originalStatuses: Record<string, string> = {};
-
-	// Only these three values are reactive — they only affect the header button, not the task list
-	let pendingCount = $state(0);
 	let submitting = $state(false);
-	let submitResult = $state<{ ok: number; fail: number } | null>(null);
+	let submitMessage = $state('');
 
 	const normalizeStatus = (raw: string): string => {
 		const lower = raw.toLowerCase().replace(/\s+/g, '_');
 		if (lower === 'open' || lower === 'not_started') return 'not_started';
-		if (
-			lower === 'in_progress' ||
-			lower === '25%' ||
-			lower === '50%' ||
-			lower === '75%' ||
-			lower === 'in_review' ||
-			lower === 'approval_needed'
-		) return 'in_progress';
-		if (lower === 'completed' || lower === 'closed' || lower === 'done' || lower === 'complete') return 'completed';
+		if (['in_progress','25%','50%','75%','in_review','approval_needed'].includes(lower)) return 'in_progress';
+		if (['completed','closed','done','complete'].includes(lower)) return 'completed';
 		return 'not_started';
 	};
 
 	const getTaskStatusValue = (task: any): string => normalizeStatus(getTaskStatus(task));
 
-	// Called once after initial task load — records originals, never called again
-	function recordOriginals(taskList: any[]) {
-		for (const task of taskList) {
-			const tid = String(task?.id || task?.id_string || '');
-			if (tid) originalStatuses[tid] = getTaskStatusValue(task);
-		}
-	}
-
-	// Count how many selects differ from their original value
-	function countPending() {
-		let count = 0;
-		const selects = document.querySelectorAll<HTMLSelectElement>('select[data-tid]');
-		for (const sel of selects) {
-			const tid = sel.dataset.tid!;
-			if (sel.value !== originalStatuses[tid]) count++;
-		}
-		pendingCount = count;
-	}
-
-	async function submitChanges() {
+	async function handleSubmit(e: Event) {
+		e.preventDefault();
 		if (submitting) return;
 
-		const toSubmit: Array<{ taskId: string; status: string }> = [];
-		const selects = document.querySelectorAll<HTMLSelectElement>('select[data-tid]');
-		for (const sel of selects) {
-			const tid = sel.dataset.tid!;
-			const newStatus = sel.value;
-			if (newStatus && newStatus !== originalStatuses[tid]) {
-				toSubmit.push({ taskId: tid, status: newStatus });
-			}
+		const form = e.currentTarget as HTMLFormElement;
+		const data = new FormData(form);
+		const updates: Array<{ taskId: string; status: string }> = [];
+		for (const [taskId, status] of data.entries()) {
+			updates.push({ taskId, status: String(status) });
 		}
-		if (toSubmit.length === 0) return;
+		if (!updates.length) {
+			submitMessage = 'No tasks to update.';
+			return;
+		}
 
 		submitting = true;
-		submitResult = null;
-		const projectId = $page.params.projectId;
-
-		// Single round-trip: batch endpoint handles auth once + parallel Zoho calls server-side
+		submitMessage = '';
 		try {
-			const res = await fetch(`/api/trade/projects/${projectId}/tasks/batch-status`, {
+			const res = await fetch(`/api/trade/projects/${$page.params.projectId}/tasks/batch-status`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ updates: toSubmit })
+				body: JSON.stringify({ updates })
 			});
 			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
 			const payload = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(payload?.error || `Failed (${res.status})`);
+			if (!res.ok) throw new Error(payload?.error || `Server error (${res.status})`);
 
 			const results: Array<{ taskId: string; ok: boolean }> = payload.results ?? [];
-			let ok = 0, fail = 0;
-			for (const r of results) {
-				if (r.ok) { originalStatuses[r.taskId] = toSubmit.find(u => u.taskId === r.taskId)?.status ?? originalStatuses[r.taskId]; ok++; }
-				else fail++;
-			}
-			submitResult = { ok, fail };
+			const ok = results.filter((r) => r.ok).length;
+			const fail = results.filter((r) => !r.ok).length;
+			submitMessage = fail === 0 ? `✓ ${ok} task${ok !== 1 ? 's' : ''} updated` : `✗ ${fail} failed, ${ok} updated`;
 			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
-			if (fail === 0) setTimeout(() => { submitResult = null; }, 4000);
-		} catch {
-			submitResult = { ok: 0, fail: toSubmit.length };
+		} catch (err) {
+			submitMessage = err instanceof Error ? err.message : 'Submit failed';
 		} finally {
 			submitting = false;
-			pendingCount = 0;
 		}
 	}
 
@@ -235,7 +191,6 @@
 			// the task list because that would re-render the selects and reset user edits
 			if (!isRefresh) {
 				tasks = data.tasks || [];
-				recordOriginals(tasks);
 			}
 
 			saveToCache({ project, tasks, activities });
@@ -253,7 +208,6 @@
 		const hadCache = loadFromCache();
 		if (hadCache) {
 			loading = false;
-			recordOriginals(tasks);
 			// No background fetch — Submit Changes busts the cache so next visit loads fresh.
 		} else {
 			fetchDetail(false);
@@ -291,62 +245,54 @@
 		</header>
 
 		<section class="section">
-			<button class="section-toggle" onclick={() => (tasksOpen = !tasksOpen)}>
+			<button type="button" class="section-toggle" onclick={() => (tasksOpen = !tasksOpen)}>
 				<span>Tasks</span>
 				<span class="chevron" class:open={tasksOpen}>▾</span>
 			</button>
-			{#if tasksOpen}
-				{#if tasks.length === 0}
-					<p class="section-empty">{project?.source === 'crm_deal' ? 'No Zoho project linked to this deal yet.' : 'No tasks found.'}</p>
-				{:else}
-					{#each taskGroups as group (group.name)}
-						<h3 class="group-title">{group.name}</h3>
-						<div class="card-list">
-							{#each group.items as task (task?.id || task?.id_string)}
-								{@const tid = String(task?.id || task?.id_string || '')}
-								{@const initVal = getTaskStatusValue(task)}
-								<div class="card-row">
-									<div class="card-info">
-										<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
-										<p class="card-assignee">{getTaskAssignee(task)}</p>
-									</div>
-									{#if project?.source === 'crm_deal'}
-										<span class="badge">{getTaskStatus(task)}</span>
-									{:else}
-										<select
-											class="status-select status-{initVal}"
-											data-tid={tid}
-											disabled={submitting}
-											onchange={countPending}
-										>
-											{#each TASK_STATUSES as opt}
-												<option value={opt.value} selected={opt.value === initVal}>{opt.label}</option>
-											{/each}
-										</select>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					{/each}
-				{/if}
-			{/if}
-			<div class="submit-row">
-				<button
-					class="btn-submit"
-					type="button"
-					disabled={submitting}
-					onclick={submitChanges}
-				>
-					{submitting ? 'Saving...' : pendingCount > 0 ? `Submit Changes (${pendingCount})` : 'Submit Changes'}
-				</button>
-				{#if submitResult}
-					{#if submitResult.fail === 0}
-						<span class="result-ok">✓ {submitResult.ok} task{submitResult.ok !== 1 ? 's' : ''} updated</span>
+			<form onsubmit={handleSubmit}>
+				{#if tasksOpen}
+					{#if tasks.length === 0}
+						<p class="section-empty">{project?.source === 'crm_deal' ? 'No Zoho project linked to this deal yet.' : 'No tasks found.'}</p>
 					{:else}
-						<span class="result-err">✗ {submitResult.fail} failed, {submitResult.ok} updated</span>
+						{#each taskGroups as group (group.name)}
+							<h3 class="group-title">{group.name}</h3>
+							<div class="card-list">
+								{#each group.items as task (task?.id || task?.id_string)}
+									{@const tid = String(task?.id || task?.id_string || '')}
+									{@const initVal = getTaskStatusValue(task)}
+									<div class="card-row">
+										<div class="card-info">
+											<p class="card-title">{decodeHtmlEntities(getTaskName(task))}</p>
+											<p class="card-assignee">{getTaskAssignee(task)}</p>
+										</div>
+										{#if project?.source === 'crm_deal'}
+											<span class="badge">{getTaskStatus(task)}</span>
+										{:else}
+											<select
+												class="status-select status-{initVal}"
+												name={tid}
+												disabled={submitting}
+											>
+												{#each TASK_STATUSES as opt}
+													<option value={opt.value} selected={opt.value === initVal}>{opt.label}</option>
+												{/each}
+											</select>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/each}
 					{/if}
 				{/if}
-			</div>
+				<div class="submit-row">
+					<button class="btn-submit" type="submit" disabled={submitting}>
+						{submitting ? 'Saving...' : 'Submit Changes'}
+					</button>
+					{#if submitMessage}
+						<span class={submitMessage.startsWith('✓') ? 'result-ok' : 'result-err'}>{submitMessage}</span>
+					{/if}
+				</div>
+			</form>
 		</section>
 
 		<section class="section">
