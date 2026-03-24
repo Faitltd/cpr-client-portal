@@ -7,8 +7,26 @@ import {
 	upsertZohoTokens
 } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
+
+const ZOHO_FIELD_UPDATES_MODULE = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
+
+/** Map internal update_type values to Zoho-friendly display labels */
+const UPDATE_TYPE_LABELS: Record<string, string> = {
+	progress: 'Site Visit/Progress Update',
+	issue: 'Issue',
+	material_delivery: 'Material Delivery',
+	inspection: 'Inspection',
+	weather_delay: 'Weather Delay',
+	schedule_change: 'Schedule Change',
+	completed_work: 'Completed Work',
+	other: 'Other'
+};
+
+/** Deal-lookup field name candidates to try when creating a Zoho record */
+const DEAL_LOOKUP_CANDIDATES = ['Deal', 'Deal_Name', 'Deals', 'Portal_Deal', 'Portal_Deals'];
 
 const VALID_UPDATE_TYPES = new Set([
 	'progress',
@@ -126,7 +144,75 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			);
 		}
 
-		return json({ data: { ...created, photo_urls } }, { status: 201 });
+		// ── Write to Zoho CRM Field_Updates module so the dashboard can read it ──
+		let zohoRecordId: string | null = null;
+		try {
+			const accessToken = await getAccessToken();
+			const tokens = await getZohoTokens();
+			const apiDomain = tokens?.api_domain || undefined;
+
+			// Build the base record data
+			const zohoRecord: Record<string, unknown> = {
+				Note: note || '',
+				Update_Type: UPDATE_TYPE_LABELS[updateType] || updateType,
+				Name: `${UPDATE_TYPE_LABELS[updateType] || updateType} — ${new Date().toLocaleDateString()}`
+			};
+
+			// Try each deal-lookup field candidate until one succeeds
+			let zohoWriteSuccess = false;
+			for (const dealField of DEAL_LOOKUP_CANDIDATES) {
+				try {
+					const payload = {
+						data: [{ ...zohoRecord, [dealField]: { id: dealId } }]
+					};
+					const response = await zohoApiCall(
+						accessToken,
+						`/${encodeURIComponent(ZOHO_FIELD_UPDATES_MODULE)}`,
+						{
+							method: 'POST',
+							body: JSON.stringify(payload),
+							signal: AbortSignal.timeout(15000)
+						},
+						apiDomain
+					);
+					const firstResult = response?.data?.[0];
+					if (firstResult?.code === 'SUCCESS' || firstResult?.status === 'success') {
+						zohoRecordId = firstResult?.details?.id || null;
+						zohoWriteSuccess = true;
+						break;
+					}
+					// If we get a response but not SUCCESS, check if it's an invalid field error
+					const errCode = firstResult?.code || '';
+					if (errCode === 'INVALID_DATA' || errCode === 'MANDATORY_NOT_FOUND') {
+						// This deal field name didn't work, try the next one
+						continue;
+					}
+					// Some other response — log and move on
+					console.warn('Zoho Field_Updates create unexpected response:', JSON.stringify(firstResult));
+					break;
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					if (msg.includes('INVALID_DATA') || msg.includes('MANDATORY_NOT_FOUND')) {
+						continue;
+					}
+					if (msg.includes('INVALID_MODULE')) {
+						console.warn('Zoho Field_Updates module not found:', ZOHO_FIELD_UPDATES_MODULE);
+						break;
+					}
+					console.error('Zoho Field_Updates create failed:', err);
+					break;
+				}
+			}
+
+			if (!zohoWriteSuccess) {
+				console.warn('Could not write field update to Zoho CRM — saved to Supabase only');
+			}
+		} catch (zohoErr) {
+			// Non-fatal: the Supabase record was already created successfully
+			console.error('Zoho CRM write-back failed (Supabase record saved):', zohoErr);
+		}
+
+		return json({ data: { ...created, photo_urls, zoho_record_id: zohoRecordId } }, { status: 201 });
 	} catch (err) {
 		console.error('Failed to create field update:', err);
 		return json({ error: 'Failed to create field update' }, { status: 500 });
