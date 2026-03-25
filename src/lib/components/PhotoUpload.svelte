@@ -26,20 +26,17 @@
 	$: photoIds = photos.filter((p) => !p.uploading && !p.error).map((p) => ({ id: p.id, url: p.url, name: p.name }));
 	$: canAdd = photos.length < maxFiles;
 
-	function compressImage(file: File, maxDim = 2048, quality = 0.85): Promise<File> {
+	function compressImage(file: File, maxDim = 1600, quality = 0.80): Promise<File> {
 		return new Promise((resolve) => {
-			if (file.size < 500_000) {
-				resolve(file);
-				return;
-			}
-
+			// Always compress images — the server body limit (BODY_SIZE_LIMIT) may be as low as 512KB
 			const img = new Image();
 			const url = URL.createObjectURL(file);
 			img.onload = () => {
 				URL.revokeObjectURL(url);
 				let { width, height } = img;
 
-				if (width <= maxDim && height <= maxDim && file.size < 2_000_000) {
+				// Skip compression only for very small files that are definitely under the limit
+				if (file.size < 150_000 && width <= maxDim && height <= maxDim) {
 					resolve(file);
 					return;
 				}
@@ -242,7 +239,7 @@
 					{/if}
 					{#if photo.error}
 						<div class="error-overlay">
-							<span class="error-icon">!</span>
+							<span class="error-msg" title={photo.error}>{photo.error}</span>
 							<button class="retry-btn" on:click={() => retryPhoto(photo)} type="button">Retry</button>
 						</div>
 					{/if}
@@ -365,10 +362,15 @@
 		gap: 0.25rem;
 	}
 
-	.error-icon {
-		font-weight: 700;
+	.error-msg {
+		font-weight: 600;
 		color: #b91c1c;
-		font-size: 1.1rem;
+		font-size: 0.65rem;
+		text-align: center;
+		padding: 0 0.25rem;
+		word-break: break-word;
+		max-height: 3.5em;
+		overflow: hidden;
 	}
 
 	.retry-btn {

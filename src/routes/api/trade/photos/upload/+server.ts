@@ -62,7 +62,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			if (uploadError) {
 				console.error('Supabase upload error:', uploadError);
 				return json(
-					{ error: `Failed to upload "${file.name}"` },
+					{ error: `Upload failed: ${uploadError.message}` },
 					{ status: 500 }
 				);
 			}
