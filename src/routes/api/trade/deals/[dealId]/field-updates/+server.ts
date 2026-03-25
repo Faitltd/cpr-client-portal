@@ -996,12 +996,20 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 					if (bestMatch) {
 						matched.add(bestMatch.id);
 						const existingUrls = new Set(bestMatch.photos.map((p) => p.url));
+						// Skip video files — they are uploaded to Zoho as attachments and
+						// already appear via normalizePhotos. Adding them again from Supabase
+						// would create a duplicate with a different URL.
+						const VIDEO_EXTS_MERGE = new Set(["mp4", "mov", "avi", "webm", "mkv", "wmv", "hevc"]);
 						const newPhotos = (supaRec.photo_ids as string[])
-							.map((id) => ({
-								name: id.split('/').pop() || 'Photo',
+							.filter((id: string) => {
+								const ext = id.split(".").pop()?.toLowerCase() || "";
+								return !VIDEO_EXTS_MERGE.has(ext);
+							})
+							.map((id: string) => ({
+								name: id.split("/").pop() || "Photo",
 								url: `/api/trade/photos/storage/${id}`
 							}))
-							.filter((p) => !existingUrls.has(p.url));
+							.filter((p: { url: string }) => !existingUrls.has(p.url));
 						bestMatch.photos = [...bestMatch.photos, ...newPhotos];
 					}
 				}
