@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getTradeSession, getZohoTokens, upsertZohoTokens, getFieldUpdatesByDeal, supabase } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { env } from '$env/dynamic/private';
@@ -961,6 +961,54 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		const normalized = (records || [])
 			.map((record) => normalizeFieldUpdate(record || {}))
 			.filter((item) => item.id);
+
+		// Merge photos stored in Supabase (uploaded via the portal) into matching Zoho records.
+		// Photos are stored in Supabase at upload time but not attached to the Zoho CRM record,
+		// so we match by proximity: Supabase created_at should be within 2 minutes of the Zoho
+		// Created_Time (Zoho record is created first, Supabase backup is created immediately after).
+		try {
+			const supabaseUpdates = await getFieldUpdatesByDeal(resolvedDealId !== dealId ? resolvedDealId : dealId);
+			const withPhotos = supabaseUpdates.filter(
+				(r) => Array.isArray(r.photo_ids) && r.photo_ids.length > 0
+			);
+			if (withPhotos.length > 0) {
+				const matched = new Set<string>(); // track which Zoho record IDs have been matched
+				for (const supaRec of withPhotos) {
+					const supaTime = new Date(supaRec.created_at).getTime();
+					let bestMatch: (typeof normalized)[0] | null = null;
+					let bestScore = -Infinity;
+					for (const item of normalized) {
+						if (matched.has(item.id)) continue;
+						const zohoTime = new Date(item.createdAt || 0).getTime();
+						// Supabase record is created AFTER Zoho — allow Zoho to be up to 2 min earlier
+						const diff = supaTime - zohoTime;
+						if (diff < -30_000 || diff > 2 * 60_000) continue;
+						// Score: closer is better; boost for matching note text
+						let score = 2 * 60_000 - diff;
+						const supaNote = (supaRec.note || '').trim();
+						const zohoNote = (item.body || '').trim();
+						if (supaNote && zohoNote && supaNote === zohoNote) score += 10 * 60_000;
+						if (score > bestScore) {
+							bestScore = score;
+							bestMatch = item;
+						}
+					}
+					if (bestMatch) {
+						matched.add(bestMatch.id);
+						const existingUrls = new Set(bestMatch.photos.map((p) => p.url));
+						const newPhotos = (supaRec.photo_ids as string[])
+							.map((id) => ({
+								name: id.split('/').pop() || 'Photo',
+								url: supabase.storage.from('trade-photos').getPublicUrl(id).data.publicUrl
+							}))
+							.filter((p) => !existingUrls.has(p.url));
+						bestMatch.photos = [...bestMatch.photos, ...newPhotos];
+					}
+				}
+			}
+		} catch (supaErr) {
+			console.error('[field-updates] Failed to merge Supabase photos:', supaErr);
+		}
 
 		normalized.sort((a, b) => {
 			const aDate = new Date(a.createdAt || a.updatedAt || 0).getTime();
