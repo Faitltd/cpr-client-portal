@@ -197,7 +197,7 @@ async function uploadAttachmentsToZoho(
 
 			const arrayBuffer = await data.arrayBuffer();
 			if (arrayBuffer.byteLength > ZOHO_ATTACHMENT_SIZE_LIMIT) {
-				console.info(`[field-updates] Skipping Zoho attachment for ${storagePath} — exceeds 20MB limit`);
+				console.info(`[field-updates] Skipping immediate Zoho upload for ${storagePath} — ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB exceeds 20MB limit; transcoding worker will attach a compressed version`);
 				continue;
 			}
 

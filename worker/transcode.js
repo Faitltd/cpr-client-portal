@@ -41,14 +41,54 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 // FFmpeg transcoding
 // ---------------------------------------------------------------------------
 
-function transcodeToMp4(inputPath, outputPath) {
+/**
+ * Probe video duration in seconds using ffprobe.
+ * Returns null if it can't be determined.
+ */
+function probeDuration(inputPath) {
+	return new Promise((resolve) => {
+		const proc = spawn('ffprobe', [
+			'-v', 'quiet',
+			'-print_format', 'json',
+			'-show_format',
+			inputPath
+		], { stdio: ['ignore', 'pipe', 'ignore'] });
+		const out = [];
+		proc.stdout.on('data', (d) => out.push(d));
+		proc.on('close', () => {
+			try {
+				const json = JSON.parse(Buffer.concat(out).toString());
+				const dur = parseFloat(json?.format?.duration);
+				resolve(isNaN(dur) ? null : dur);
+			} catch {
+				resolve(null);
+			}
+		});
+		proc.on('error', () => resolve(null));
+	});
+}
+
+function transcodeToMp4(inputPath, outputPath, durationSecs) {
 	return new Promise((resolve, reject) => {
+		// Target just under 18MB to stay safely within Zoho's 20MB limit.
+		// Calculate bitrate from duration; fall back to 800k if unknown.
+		const TARGET_BYTES = 18 * 1024 * 1024;
+		const AUDIO_KBPS = 96;
+		let videoBitrateKbps = 800;
+		if (durationSecs && durationSecs > 0) {
+			const totalKbps = (TARGET_BYTES * 8) / durationSecs / 1000;
+			videoBitrateKbps = Math.max(200, Math.round(totalKbps - AUDIO_KBPS));
+		}
+
 		const args = [
 			'-i', inputPath,
 			'-c:v', 'libx264',
+			'-b:v', `${videoBitrateKbps}k`,
+			'-maxrate', `${videoBitrateKbps * 2}k`,
+			'-bufsize', `${videoBitrateKbps * 4}k`,
 			'-c:a', 'aac',
+			'-b:a', `${AUDIO_KBPS}k`,
 			'-preset', 'fast',
-			'-crf', '23',
 			'-movflags', '+faststart',
 			'-y',
 			outputPath
@@ -196,8 +236,10 @@ async function processJob(job) {
 		await writeFile(inputFile, Buffer.from(await blob.arrayBuffer()));
 		console.info(`[worker] Downloaded ${job.original_path} (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
 
-		// 2. Transcode
-		await transcodeToMp4(inputFile, outputFile);
+		// 2. Probe duration then transcode
+		const duration = await probeDuration(inputFile);
+		console.info(`[worker] Duration: ${duration ? duration.toFixed(1) + 's' : 'unknown'} — transcoding...`);
+		await transcodeToMp4(inputFile, outputFile, duration);
 		console.info(`[worker] Transcoded to H.264 MP4`);
 
 		// 3. Upload transcoded file to Supabase
