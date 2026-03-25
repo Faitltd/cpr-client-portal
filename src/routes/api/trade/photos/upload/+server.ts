@@ -80,7 +80,8 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 
 		return json({ data: uploaded }, { status: 201 });
 	} catch (err) {
-		console.error('Photo upload failed:', err);
-		return json({ error: 'Photo upload failed' }, { status: 500 });
+		const message = err instanceof Error ? err.message : String(err);
+		console.error('Photo upload failed:', message);
+		return json({ error: message || 'Photo upload failed' }, { status: 500 });
 	}
 };

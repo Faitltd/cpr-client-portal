@@ -26,7 +26,7 @@
 	$: photoIds = photos.filter((p) => !p.uploading && !p.error).map((p) => ({ id: p.id, url: p.url, name: p.name }));
 	$: canAdd = photos.length < maxFiles;
 
-	function compressImage(file: File, maxDim = 1600, quality = 0.80): Promise<File> {
+	function compressImage(file: File, maxDim = 1200, quality = 0.72): Promise<File> {
 		return new Promise((resolve) => {
 			// Always compress images — the server body limit (BODY_SIZE_LIMIT) may be as low as 512KB
 			const img = new Image();
