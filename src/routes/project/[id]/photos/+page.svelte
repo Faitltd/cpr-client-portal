@@ -167,6 +167,11 @@
 				throw new Error(detail || 'Failed to load photos');
 			}
 			const payload = await res.json();
+			// If the CRM has an external share URL, redirect to WorkDrive directly.
+			if (payload?.folderViewUrl && typeof payload.folderViewUrl === 'string') {
+				window.location.replace(payload.folderViewUrl);
+				return;
+			}
 			dealName = payload?.dealName || '';
 			statusMessage = payload?.message || '';
 			allPhotos = Array.isArray(payload?.files) ? payload.files : [];

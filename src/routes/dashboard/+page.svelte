@@ -104,6 +104,10 @@
 		payload?.error || payload?.message || fallback;
 	const readJson = async (res: Response) => res.json().catch(() => ({}));
 	const getProgressPhotosLink = (deal: any) => {
+		const crmLink = deal?.Client_Portal_Folder || deal?.External_Link;
+		if (typeof crmLink === 'string' && /^https?:\/\//i.test(crmLink.trim())) {
+			return crmLink.trim();
+		}
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '';
 		return `/project/${encodeURIComponent(dealId)}/photos`;

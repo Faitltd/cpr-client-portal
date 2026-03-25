@@ -203,9 +203,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	if (!dealId) throw error(400, 'Deal ID required');
 
 	const rootFolderId = getRootFolderId();
-	if (!rootFolderId) {
-		throw error(500, 'ZOHO_WORKDRIVE_ROOT_FOLDER_ID is not configured');
-	}
 
 	if (!(await canClientAccessDeal(session, dealId))) {
 		throw error(403, 'Access denied to this project');
@@ -224,6 +221,23 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		typeof deal?.Deal_Name === 'string'
 			? deal.Deal_Name
 			: deal?.Deal_Name?.name || deal?.Deal_Name?.display_value || null;
+
+	// If the CRM has a direct external share URL (zohoexternal.com), return it immediately.
+	// No WorkDrive API calls needed — the client will be redirected to the WorkDrive viewer.
+	const directExternalUrl =
+		(typeof deal?.Client_Portal_Folder === 'string' &&
+		/zohoexternal\.com/i.test(deal.Client_Portal_Folder)
+			? deal.Client_Portal_Folder.trim()
+			: null) ||
+		(typeof deal?.External_Link === 'string' &&
+		/zohoexternal\.com/i.test(deal.External_Link)
+			? deal.External_Link.trim()
+			: null);
+	if (directExternalUrl) {
+		log.info('photos: redirecting to external share URL from CRM', { dealId, url: directExternalUrl });
+		return json({ dealId, dealName, folderViewUrl: directExternalUrl, source: 'external-link', files: [] });
+	}
+
 	let rootItems: Awaited<ReturnType<typeof listWorkDriveFolder>> = [];
 	const candidateNames = buildDealFolderCandidates(dealName);
 	let projectFolderId = '';
@@ -299,6 +313,16 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 
 	let projectFolder: { id: string; name: string | null } | null = null;
 	if (!projectFolderId) {
+		if (!rootFolderId) {
+			return json({
+				dealId,
+				dealName,
+				source: 'workdrive',
+				status: 'missing_config',
+				message: 'Progress photos are not yet available for this project.',
+				files: []
+			});
+		}
 		rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain);
 		projectFolder = findBestFolderByName(rootItems, candidateNames);
 		if (!projectFolder) {
