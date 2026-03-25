@@ -54,7 +54,9 @@ const CRM_DEAL_REHYDRATE_BASE_FIELDS = [
 	'Closing_Date',
 	'Contact_Name',
 	'Project_ID',
-	'Zoho_Projects_ID'
+	'Zoho_Projects_ID',
+	'Client_Portal_Folder',
+	'External_Link'
 ];
 const DEAL_PROJECT_FIELD_CACHE_TTL_MS = 60 * 60 * 1000;
 
