@@ -786,22 +786,7 @@
 						{/if}
 						<a
 							class="view-all-photos"
-							href={
-								(typeof selectedDeal?.Client_Portal_Folder === 'string' && /^https?:\/\//i.test(selectedDeal.Client_Portal_Folder.trim()))
-									? selectedDeal.Client_Portal_Folder.trim()
-									: (typeof selectedDeal?.External_Link === 'string' && /^https?:\/\//i.test(selectedDeal.External_Link.trim()))
-									? selectedDeal.External_Link.trim()
-									: selectedDealId
-									? `/trade/photos?dealId=${encodeURIComponent(selectedDealId)}`
-									: '/trade/photos'
-							}
-							target={
-								(typeof selectedDeal?.Client_Portal_Folder === 'string' && /^https?:\/\//i.test(selectedDeal.Client_Portal_Folder.trim())) ||
-								(typeof selectedDeal?.External_Link === 'string' && /^https?:\/\//i.test(selectedDeal.External_Link.trim()))
-									? '_blank'
-									: undefined
-							}
-							rel="noreferrer"
+							href={selectedDealId ? `/trade/photos?dealId=${encodeURIComponent(selectedDealId)}` : '/trade/photos'}
 						>
 							View all photos
 							<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
