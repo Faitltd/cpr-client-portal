@@ -63,6 +63,10 @@
 				photos = [];
 				return;
 			}
+			if (payload?.folderViewUrl && typeof payload.folderViewUrl === 'string') {
+				window.location.replace(payload.folderViewUrl);
+				return;
+			}
 			photos = Array.isArray(payload?.photos) ? payload.photos : [];
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unable to load progress photos.';

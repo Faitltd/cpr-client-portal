@@ -322,9 +322,8 @@ async function fetchTradePhotosForSession(
 		: deals;
 	const photos: TradePhoto[] = [];
 
-	for (const deal of deals) {
+	for (const deal of filteredDeals) {
 		const currentDealId = String(deal?.id || '').trim();
-		if (requestedDealId && currentDealId !== requestedDealId) continue;
 		const projectName =
 			getDealLabel(deal) || (currentDealId ? `Deal ${currentDealId.slice(-6)}` : 'Project');
 		const dealPhotoStart = photos.length;
@@ -724,6 +723,25 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 	const tradePartnerId = session.trade_partner.zoho_trade_partner_id;
 	if (!tradePartnerId) {
 		return json({ photos: [] });
+	}
+
+	// Early exit: if a specific deal is requested and it has an external share URL, return it
+	// so the caller can redirect directly to the WorkDrive share (same as client portal photos).
+	if (dealId) {
+		try {
+			const allDeals = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+			const requestedDeal = allDeals.find((d) => String(d?.id || '').trim() === dealId.trim());
+			const externalUrl =
+				(typeof requestedDeal?.Client_Portal_Folder === 'string' && /zohoexternal\.com/i.test(requestedDeal.Client_Portal_Folder)
+					? requestedDeal.Client_Portal_Folder.trim() : null) ||
+				(typeof requestedDeal?.External_Link === 'string' && /zohoexternal\.com/i.test(requestedDeal.External_Link)
+					? requestedDeal.External_Link.trim() : null);
+			if (externalUrl) {
+				return json({ folderViewUrl: externalUrl, source: 'external-link', photos: [] });
+			}
+		} catch {
+			// fall through to normal photo fetch
+		}
 	}
 
 	try {
