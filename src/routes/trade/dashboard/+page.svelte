@@ -416,7 +416,7 @@
 	// Collapsible state — collapsed by default
 	let tasksOpen = false;
 	let fieldUpdatesOpen = false;
-	let photosOpen = false;
+
 
 	const loadFieldUpdates = async (dealId: string) => {
 		if (!dealId) return;
@@ -479,11 +479,6 @@
 		lastFieldUpdatesDealId = selectedDealId;
 		loadFieldUpdates(selectedDealId);
 	}
-
-	// Collect all photos across field updates for the Photos section
-	$: allPhotos = fieldUpdates.flatMap((u) =>
-		(u.photos || []).map((p) => ({ ...p, updateType: u.type, date: u.createdAt || u.updatedAt }))
-	);
 
 	$: fieldUpdateUrl = selectedDealId
 		? `/trade/field-update?deal=${encodeURIComponent(selectedDealId)}`
@@ -740,62 +735,6 @@
 				{/if}
 			</div>
 
-			<!-- Photos collapsible -->
-			<div class="card collapsible-card">
-				<button
-					class="collapsible-toggle"
-					type="button"
-					on:click={() => (photosOpen = !photosOpen)}
-					aria-expanded={photosOpen}
-				>
-					<span class="collapsible-title">
-						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-							<rect x="2" y="3" width="16" height="14" rx="2"/>
-							<circle cx="7" cy="8" r="2"/>
-							<path d="M18 14l-4-4-3 3-2-2-5 5"/>
-						</svg>
-						Photos
-						{#if !fieldUpdatesLoading && allPhotos.length > 0}
-							<span class="count-badge">{allPhotos.length}</span>
-						{/if}
-					</span>
-					<svg
-						class="chevron"
-						class:rotated={photosOpen}
-						width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-						aria-hidden="true"
-					>
-						<path d="M5 8l5 5 5-5"/>
-					</svg>
-				</button>
-
-				{#if photosOpen}
-					<div class="collapsible-body">
-						{#if fieldUpdatesLoading}
-							<p class="muted">Loading photos...</p>
-						{:else if allPhotos.length === 0}
-							<p class="muted">No photos submitted for this project yet.</p>
-						{:else}
-							<div class="photos-grid">
-								{#each allPhotos as photo (photo.url)}
-									<a class="photo" href={photo.url} target="_blank" rel="noreferrer">
-										<img src={photo.url} alt={photo.name} loading="lazy" />
-									</a>
-								{/each}
-							</div>
-						{/if}
-						<a
-							class="view-all-photos"
-							href={selectedDealId ? `/trade/photos?dealId=${encodeURIComponent(selectedDealId)}` : '/trade/photos'}
-						>
-							View all photos
-							<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-								<path d="M5 10h10M11 6l4 4-4 4"/>
-							</svg>
-						</a>
-					</div>
-				{/if}
-			</div>
 		{/if}
 	{/if}
 </div>
@@ -1033,14 +972,6 @@
 		gap: 0.6rem;
 	}
 
-	/* Photos grid */
-	.photos-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-		gap: 0.75rem;
-		margin-top: 0.75rem;
-	}
-
 	.photo {
 		display: block;
 		border-radius: 10px;
@@ -1054,22 +985,6 @@
 		width: 100%;
 		height: 120px;
 		object-fit: cover;
-	}
-
-	.view-all-photos {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		margin-top: 1rem;
-		color: #1d4ed8;
-		font-size: 0.9rem;
-		font-weight: 600;
-		text-decoration: none;
-	}
-
-	.view-all-photos:hover {
-		color: #1e40af;
-		text-decoration: underline;
 	}
 
 	/* Deal details */
