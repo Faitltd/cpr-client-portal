@@ -3,9 +3,12 @@ import { supabase } from '$lib/server/db';
 import { getTradeSession } from '$lib/server/db';
 import type { RequestHandler } from './$types';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;  // 10MB
+const MAX_VIDEO_SIZE = 200 * 1024 * 1024; // 200MB
 const MAX_FILES = 5;
 const BUCKET = 'trade-photos';
+
+const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
 
 export const POST: RequestHandler = async ({ cookies, request }) => {
 	const token = cookies.get('trade_session');
@@ -35,18 +38,23 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				return json({ error: 'Invalid file upload' }, { status: 400 });
 			}
 
-			if (!file.type.startsWith('image/')) {
-				return json({ error: `File "${file.name}" is not an image` }, { status: 400 });
+			const rawExt = file.name.split('.').pop()?.toLowerCase() || '';
+			const ext = rawExt || (file.type.startsWith('video/') ? 'mp4' : 'jpg');
+			const isVideo = file.type.startsWith('video/') || VIDEO_EXTS.has(rawExt);
+
+			if (!file.type.startsWith('image/') && !file.type.startsWith('video/') && !VIDEO_EXTS.has(ext)) {
+				return json({ error: `File "${file.name}" is not a supported image or video` }, { status: 400 });
 			}
 
-			if (file.size > MAX_FILE_SIZE) {
+			const sizeLimit = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+			const sizeLabelMB = isVideo ? '200' : '10';
+			if (file.size > sizeLimit) {
 				return json(
-					{ error: `File "${file.name}" exceeds 10MB limit` },
+					{ error: `File "${file.name}" exceeds ${sizeLabelMB}MB limit` },
 					{ status: 400 }
 				);
 			}
 
-			const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
 			const timestamp = Date.now();
 			const random = Math.random().toString(36).slice(2, 8);
 			const storagePath = `${session.trade_partner_id}/${timestamp}-${random}.${ext}`;

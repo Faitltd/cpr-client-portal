@@ -721,8 +721,14 @@
 										{#if update.photos?.length}
 											<div class="update-photos">
 												{#each update.photos as photo (photo.url)}
+													{@const isVid = /\.(mp4|mov|avi|webm|mkv|wmv|hevc)$/i.test(photo.name || photo.url)}
 													<a class="photo" href={photo.url} target="_blank" rel="noreferrer">
-														<img src={photo.url} alt={photo.name} loading="lazy" />
+														{#if isVid}
+															<video src={photo.url} class="photo-media" muted playsinline preload="metadata"></video>
+															<span class="photo-play">▶</span>
+														{:else}
+															<img src={photo.url} alt={photo.name} class="photo-media" loading="lazy" />
+														{/if}
 													</a>
 												{/each}
 											</div>
@@ -980,11 +986,27 @@
 		background: #f9fafb;
 	}
 
-	.photo img {
+	.photo-media {
 		display: block;
 		width: 100%;
 		height: 120px;
 		object-fit: cover;
+	}
+
+	.photo {
+		position: relative;
+	}
+
+	.photo-play {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.5rem;
+		color: #fff;
+		text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+		pointer-events: none;
 	}
 
 	/* Deal details */

@@ -11,7 +11,14 @@ const EXT_CONTENT_TYPE: Record<string, string> = {
 	gif: 'image/gif',
 	webp: 'image/webp',
 	heic: 'image/heic',
-	heif: 'image/heif'
+	heif: 'image/heif',
+	mp4: 'video/mp4',
+	mov: 'video/quicktime',
+	avi: 'video/x-msvideo',
+	webm: 'video/webm',
+	mkv: 'video/x-matroska',
+	wmv: 'video/x-ms-wmv',
+	hevc: 'video/mp4'
 };
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
@@ -50,7 +57,7 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 	}
 
 	const ext = storagePath.split('.').pop()?.toLowerCase() || 'jpg';
-	const contentType = EXT_CONTENT_TYPE[ext] || 'image/jpeg';
+	const contentType = EXT_CONTENT_TYPE[ext] || 'application/octet-stream';
 	const arrayBuffer = await data.arrayBuffer();
 
 	return new Response(arrayBuffer, {

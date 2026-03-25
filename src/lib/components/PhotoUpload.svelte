@@ -18,6 +18,18 @@
 		error?: string;
 	};
 
+	const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
+	const VIDEO_SIZE_LIMIT = 200 * 1024 * 1024; // 200MB
+	const IMAGE_SIZE_LIMIT = 10 * 1024 * 1024;  // 10MB
+
+	function isVideoFile(file: File | string) {
+		const name = typeof file === 'string' ? file : (file.name || '');
+		const ext = name.split('.').pop()?.toLowerCase() || '';
+		if (VIDEO_EXTS.has(ext)) return true;
+		if (typeof file !== 'string') return file.type.startsWith('video/');
+		return false;
+	}
+
 	let photos: PhotoEntry[] = existingPhotos.map((p) => ({ ...p }));
 	let dragOver = false;
 	let uploadError = '';
@@ -83,12 +95,15 @@
 		}
 
 		for (const rawFile of toUpload) {
-			if (!rawFile.type.startsWith('image/')) {
-				uploadError = `"${rawFile.name}" is not an image.`;
+			const isVideo = isVideoFile(rawFile);
+			if (!rawFile.type.startsWith('image/') && !rawFile.type.startsWith('video/')) {
+				uploadError = `"${rawFile.name}" is not a supported image or video file.`;
 				continue;
 			}
-			if (rawFile.size > 10 * 1024 * 1024) {
-				uploadError = `"${rawFile.name}" exceeds 10MB limit.`;
+			const sizeLimit = isVideo ? VIDEO_SIZE_LIMIT : IMAGE_SIZE_LIMIT;
+			const sizeLabelMB = isVideo ? '200' : '10';
+			if (rawFile.size > sizeLimit) {
+				uploadError = `"${rawFile.name}" exceeds ${sizeLabelMB}MB limit.`;
 				continue;
 			}
 
@@ -105,9 +120,10 @@
 			photos = [...photos, entry];
 
 			try {
-				const compressed = await compressImage(rawFile);
+				// Videos are not compressed — upload as-is
+				const fileToUpload = isVideo ? rawFile : await compressImage(rawFile);
 				const formData = new FormData();
-				formData.append('files', compressed, compressed.name);
+				formData.append('files', fileToUpload, fileToUpload.name);
 
 				const res = await fetch('/api/trade/photos/upload', {
 					method: 'POST',
@@ -211,15 +227,14 @@
 			<input
 				bind:this={fileInput}
 				type="file"
-				accept="image/*"
-				capture="environment"
+				accept="image/*,video/*"
 				multiple
 				on:change={handleFileSelect}
 				style="display:none"
 			/>
 			<span class="drop-icon">+</span>
-			<span class="drop-text">Tap to add photos</span>
-			<span class="drop-hint">or drag & drop (max {maxFiles})</span>
+			<span class="drop-text">Tap to add photos or video</span>
+			<span class="drop-hint">or drag & drop · images & video (max {maxFiles})</span>
 		</div>
 	{/if}
 
@@ -231,7 +246,12 @@
 		<div class="photo-previews">
 			{#each photos as photo (photo.id)}
 				<div class="preview-item" class:has-error={!!photo.error}>
-					<img src={photo.url} alt={photo.name} class="preview-img" />
+					{#if isVideoFile(photo.name || photo.url)}
+						<video src={photo.url} class="preview-img" muted playsinline preload="metadata"></video>
+						<span class="video-badge">▶</span>
+					{:else}
+						<img src={photo.url} alt={photo.name} class="preview-img" />
+					{/if}
 					{#if photo.uploading && !photo.error}
 						<div class="upload-overlay">
 							<div class="spinner"></div>
@@ -318,6 +338,18 @@
 
 	.preview-item.has-error {
 		border-color: #fca5a5;
+	}
+
+	.video-badge {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.4rem;
+		color: #fff;
+		text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+		pointer-events: none;
 	}
 
 	.preview-img {

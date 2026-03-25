@@ -16,6 +16,8 @@ import type { RequestHandler } from './$types';
 // ---------------------------------------------------------------------------
 
 const ZOHO_FIELD_UPDATES_MODULE = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
+/** Explicit override — set this in your env to skip auto-discovery entirely */
+const ZOHO_FIELD_UPDATES_DEAL_FIELD = env.ZOHO_FIELD_UPDATES_DEAL_FIELD || '';
 const ZOHO_TIMEOUT_MS = 15_000;
 
 /** Map internal update_type values to Zoho-friendly display labels */
@@ -222,9 +224,9 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		}
 
 		// ── 1. Write to Zoho CRM (primary — triggers Cliq workflow) ──────────
-		const dealField = await discoverDealLookupField(accessToken, apiDomain);
+		const dealField = ZOHO_FIELD_UPDATES_DEAL_FIELD || await discoverDealLookupField(accessToken, apiDomain);
 		if (!dealField) {
-			console.error(`Could not discover deal lookup field on ${ZOHO_FIELD_UPDATES_MODULE}`);
+			console.error(`Could not discover deal lookup field on ${ZOHO_FIELD_UPDATES_MODULE}. Set ZOHO_FIELD_UPDATES_DEAL_FIELD env var to the exact API field name.`);
 			return json(
 				{ error: 'Unable to save: field update module configuration issue. Please contact the office.' },
 				{ status: 502 }
