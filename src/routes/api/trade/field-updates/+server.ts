@@ -7,7 +7,7 @@ import {
 	upsertZohoTokens
 } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { refreshAccessToken, zohoApiCall, getZohoApiBase } from '$lib/server/zoho';
 import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
@@ -160,6 +160,68 @@ async function discoverDealLookupField(
 }
 
 // ---------------------------------------------------------------------------
+// Zoho CRM attachment upload (non-fatal — best effort)
+// ---------------------------------------------------------------------------
+
+const ZOHO_ATTACHMENT_SIZE_LIMIT = 20 * 1024 * 1024; // 20MB Zoho CRM limit
+
+const FILE_MIME_MAP: Record<string, string> = {
+	jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+	webp: 'image/webp', heic: 'image/heic', heif: 'image/heif',
+	mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
+	webm: 'video/webm', mkv: 'video/x-matroska', wmv: 'video/x-ms-wmv'
+};
+
+async function uploadAttachmentsToZoho(
+	accessToken: string,
+	moduleApiName: string,
+	recordId: string,
+	photoIds: string[],
+	apiDomain?: string
+): Promise<void> {
+	const base = getZohoApiBase(apiDomain);
+	for (const storagePath of photoIds) {
+		try {
+			const { data, error } = await supabase.storage.from('trade-photos').download(storagePath);
+			if (error || !data) {
+				console.warn(`[field-updates] Could not download ${storagePath} from Supabase:`, error?.message);
+				continue;
+			}
+
+			const arrayBuffer = await data.arrayBuffer();
+			if (arrayBuffer.byteLength > ZOHO_ATTACHMENT_SIZE_LIMIT) {
+				console.info(`[field-updates] Skipping Zoho attachment for ${storagePath} — exceeds 20MB limit`);
+				continue;
+			}
+
+			const fileName = storagePath.split('/').pop() || 'attachment';
+			const ext = fileName.split('.').pop()?.toLowerCase() || '';
+			const mimeType = FILE_MIME_MAP[ext] || 'application/octet-stream';
+
+			const form = new FormData();
+			form.append('file', new Blob([arrayBuffer], { type: mimeType }), fileName);
+
+			const url = `${base}/${encodeURIComponent(moduleApiName)}/${encodeURIComponent(recordId)}/Attachments`;
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+				body: form,
+				signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS)
+			});
+
+			if (!res.ok) {
+				const text = await res.text().catch(() => '');
+				console.warn(`[field-updates] Zoho attachment upload failed for ${storagePath}: ${res.status} ${text}`);
+			} else {
+				console.info(`[field-updates] Uploaded attachment to Zoho: ${storagePath}`);
+			}
+		} catch (err) {
+			console.warn(`[field-updates] Attachment upload error for ${storagePath}:`, err);
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Authorization check
 // ---------------------------------------------------------------------------
 
@@ -263,7 +325,13 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 
 		const zohoRecordId = firstResult?.details?.id || null;
 
-		// ── 2. Write to Supabase (backup / local record) ─────────────────────
+		// ── 2. Upload attachments to Zoho CRM record (non-fatal) ─────────────
+		if (zohoRecordId && Array.isArray(photoIds) && photoIds.length > 0) {
+			uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photoIds, apiDomain)
+				.catch((err) => console.error('[field-updates] Attachment upload error:', err));
+		}
+
+		// ── 3. Write to Supabase (backup / local record) ─────────────────────
 		let created: any = null;
 		try {
 			created = await createFieldUpdate({
