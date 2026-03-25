@@ -279,7 +279,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		let photo_urls: string[] | null = null;
 		if (created?.photo_ids?.length) {
 			photo_urls = created.photo_ids.map(
-				(id: string) => supabase.storage.from('trade-photos').getPublicUrl(id).data.publicUrl
+				(id: string) => `/api/trade/photos/storage/${id}`
 			);
 		}
 

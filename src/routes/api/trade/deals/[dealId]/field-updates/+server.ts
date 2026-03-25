@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { getTradeSession, getZohoTokens, upsertZohoTokens, getFieldUpdatesByDeal, supabase } from '$lib/server/db';
+import { getTradeSession, getZohoTokens, upsertZohoTokens, getFieldUpdatesByDeal } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { env } from '$env/dynamic/private';
@@ -999,7 +999,7 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 						const newPhotos = (supaRec.photo_ids as string[])
 							.map((id) => ({
 								name: id.split('/').pop() || 'Photo',
-								url: supabase.storage.from('trade-photos').getPublicUrl(id).data.publicUrl
+								url: `/api/trade/photos/storage/${id}`
 							}))
 							.filter((p) => !existingUrls.has(p.url));
 						bestMatch.photos = [...bestMatch.photos, ...newPhotos];

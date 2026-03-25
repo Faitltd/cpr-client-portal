@@ -67,13 +67,9 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				);
 			}
 
-			const { data: urlData } = supabase.storage
-				.from(BUCKET)
-				.getPublicUrl(storagePath);
-
 			uploaded.push({
 				id: storagePath,
-				url: urlData.publicUrl,
+				url: `/api/trade/photos/storage/${storagePath}`,
 				name: file.name
 			});
 		}
