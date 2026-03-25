@@ -332,24 +332,27 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 
 		const zohoRecordId = firstResult?.details?.id || null;
 
-		// ── 2. Handle photos/videos: photos → Zoho now, videos → transcoding queue ──
+		// ── 2. Handle photos/videos ───────────────────────────────────────────
 		if (Array.isArray(photoIds) && photoIds.length > 0) {
 			const photos = photoIds.filter((p: string) => !isVideoPath(p));
 			const videos = photoIds.filter((p: string) => isVideoPath(p));
 
-			// Upload photos to Zoho immediately
-			if (zohoRecordId && photos.length > 0) {
-				uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photos, apiDomain)
-					.catch((err) => console.error('[field-updates] Photo attachment error:', err));
+			// Upload ALL files (photos + raw videos) to Zoho immediately so the
+			// record is linked and Cliq fires correctly. The worker will later
+			// replace the raw video attachment with a transcoded H.264 version.
+			if (zohoRecordId && photoIds.length > 0) {
+				uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photoIds, apiDomain)
+					.catch((err) => console.error('[field-updates] Attachment upload error:', err));
 			}
 
-			// Queue videos for background transcoding + Zoho upload
+			// Also queue videos for background transcoding so Zoho gets a
+			// playable H.264 version once the worker runs.
 			for (const videoPath of videos) {
 				createTranscodingJob({
 					original_path: videoPath,
 					zoho_record_id: zohoRecordId ?? undefined,
 					zoho_module: ZOHO_FIELD_UPDATES_MODULE
-				}).catch((err) => console.error('[field-updates] Failed to queue transcoding job:', err));
+				}).catch((err) => console.warn('[field-updates] Could not queue transcoding job (worker may not be set up yet):', err));
 			}
 		}
 
