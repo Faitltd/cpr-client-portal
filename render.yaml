@@ -1,0 +1,31 @@
+services:
+  # Main SvelteKit web app (already exists — shown here for reference)
+  - type: web
+    name: cpr-client-portal
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # All other env vars (SUPABASE_URL, ZOHO_*, etc.) set manually in Render dashboard
+
+  # Background transcoding worker — create this as a NEW Render service
+  # Type: Background Worker
+  - type: worker
+    name: cpr-transcoding-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    envVars:
+      # Must match the main app's environment
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ZOHO_CLIENT_ID
+        sync: false
+      - key: ZOHO_CLIENT_SECRET
+        sync: false
+      - key: ZOHO_TOKEN_URL
+        value: https://accounts.zoho.com/oauth/v2/token
+      - key: ZOHO_API_BASE
+        sync: false

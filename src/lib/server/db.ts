@@ -1454,3 +1454,69 @@ export async function getAllActiveTaskTemplates(): Promise<TaskTemplate[]> {
 	if (error) throw new Error(`Task templates fetch failed: ${error.message}`);
 	return (data as TaskTemplate[]) || [];
 }
+
+// ---------------------------------------------------------------------------
+// Transcoding job queue
+// ---------------------------------------------------------------------------
+
+export interface TranscodingJob {
+	id: string;
+	field_update_id: string | null;
+	original_path: string;
+	output_path: string | null;
+	zoho_record_id: string | null;
+	zoho_module: string;
+	status: 'pending' | 'processing' | 'done' | 'failed';
+	error: string | null;
+	attempts: number;
+	created_at: string;
+	updated_at: string;
+}
+
+export async function createTranscodingJob(data: {
+	field_update_id?: string;
+	original_path: string;
+	zoho_record_id?: string;
+	zoho_module?: string;
+}): Promise<TranscodingJob> {
+	const { data: created, error } = await getSupabase()
+		.from('transcoding_jobs')
+		.insert({
+			field_update_id: data.field_update_id ?? null,
+			original_path: data.original_path,
+			zoho_record_id: data.zoho_record_id ?? null,
+			zoho_module: data.zoho_module ?? 'Field_Updates'
+		})
+		.select()
+		.single();
+	if (error) throw new Error(`Transcoding job create failed: ${error.message}`);
+	return created as TranscodingJob;
+}
+
+export async function updateTranscodingJob(
+	id: string,
+	update: Partial<Pick<TranscodingJob, 'status' | 'output_path' | 'error' | 'attempts'>>
+): Promise<void> {
+	const { error } = await getSupabase()
+		.from('transcoding_jobs')
+		.update({ ...update, updated_at: new Date().toISOString() })
+		.eq('id', id);
+	if (error) throw new Error(`Transcoding job update failed: ${error.message}`);
+}
+
+export async function replacePhotoIdInFieldUpdate(
+	fieldUpdateId: string,
+	oldPath: string,
+	newPath: string
+): Promise<void> {
+	const db = getSupabase();
+	const { data, error: fetchError } = await db
+		.from('field_updates')
+		.select('photo_ids')
+		.eq('id', fieldUpdateId)
+		.single();
+	if (fetchError || !data) return;
+	const photoIds: string[] = Array.isArray(data.photo_ids) ? data.photo_ids : [];
+	const updated = photoIds.map((p: string) => (p === oldPath ? newPath : p));
+	await db.from('field_updates').update({ photo_ids: updated }).eq('id', fieldUpdateId);
+}

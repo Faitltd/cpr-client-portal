@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import {
 	createFieldUpdate,
+	createTranscodingJob,
 	getTradeSession,
 	getZohoTokens,
 	supabase,
@@ -19,6 +20,12 @@ const ZOHO_FIELD_UPDATES_MODULE = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Update
 /** Explicit override — set this in your env to skip auto-discovery entirely */
 const ZOHO_FIELD_UPDATES_DEAL_FIELD = env.ZOHO_FIELD_UPDATES_DEAL_FIELD || '';
 const ZOHO_TIMEOUT_MS = 15_000;
+
+const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
+function isVideoPath(storagePath: string) {
+	const ext = storagePath.split('.').pop()?.toLowerCase() || '';
+	return VIDEO_EXTS.has(ext);
+}
 
 /** Map internal update_type values to Zoho-friendly display labels */
 const UPDATE_TYPE_LABELS: Record<string, string> = {
@@ -325,10 +332,25 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 
 		const zohoRecordId = firstResult?.details?.id || null;
 
-		// ── 2. Upload attachments to Zoho CRM record (non-fatal) ─────────────
-		if (zohoRecordId && Array.isArray(photoIds) && photoIds.length > 0) {
-			uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photoIds, apiDomain)
-				.catch((err) => console.error('[field-updates] Attachment upload error:', err));
+		// ── 2. Handle photos/videos: photos → Zoho now, videos → transcoding queue ──
+		if (Array.isArray(photoIds) && photoIds.length > 0) {
+			const photos = photoIds.filter((p: string) => !isVideoPath(p));
+			const videos = photoIds.filter((p: string) => isVideoPath(p));
+
+			// Upload photos to Zoho immediately
+			if (zohoRecordId && photos.length > 0) {
+				uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photos, apiDomain)
+					.catch((err) => console.error('[field-updates] Photo attachment error:', err));
+			}
+
+			// Queue videos for background transcoding + Zoho upload
+			for (const videoPath of videos) {
+				createTranscodingJob({
+					original_path: videoPath,
+					zoho_record_id: zohoRecordId ?? undefined,
+					zoho_module: ZOHO_FIELD_UPDATES_MODULE
+				}).catch((err) => console.error('[field-updates] Failed to queue transcoding job:', err));
+			}
 		}
 
 		// ── 3. Write to Supabase (backup / local record) ─────────────────────

@@ -12,7 +12,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# FFmpeg is required by the transcoding worker
+RUN apk add --no-cache ffmpeg
+
 COPY --from=builder /app/build ./build
+COPY --from=builder /app/worker ./worker
 COPY --from=builder /app/package*.json ./
 
 RUN npm ci --omit=dev
