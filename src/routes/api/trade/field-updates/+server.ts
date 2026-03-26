@@ -337,16 +337,16 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			const photos = photoIds.filter((p: string) => !isVideoPath(p));
 			const videos = photoIds.filter((p: string) => isVideoPath(p));
 
-			// Upload ALL files (photos + raw videos) to Zoho immediately so the
-			// record is linked and Cliq fires correctly. The worker will later
-			// replace the raw video attachment with a transcoded H.264 version.
-			if (zohoRecordId && photoIds.length > 0) {
-				uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photoIds, apiDomain)
+			// Upload photos to Zoho immediately. Videos are intentionally skipped
+			// here — the transcoding worker uploads the single H.264 version once
+			// it's ready, avoiding duplicate attachments in Zoho.
+			if (zohoRecordId && photos.length > 0) {
+				uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photos, apiDomain)
 					.catch((err) => console.error('[field-updates] Attachment upload error:', err));
 			}
 
-			// Also queue videos for background transcoding so Zoho gets a
-			// playable H.264 version once the worker runs.
+			// Queue videos for background transcoding; the worker will upload the
+			// compressed H.264 version to Zoho when done.
 			for (const videoPath of videos) {
 				createTranscodingJob({
 					original_path: videoPath,
