@@ -6,10 +6,7 @@
 	<header class="admin-header">
 		<div class="admin-header-inner">
 			<a class="admin-logo" href="/admin">
-				<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-					<rect width="28" height="28" rx="6" fill="#111827"/>
-					<text x="14" y="19" text-anchor="middle" font-size="14" font-weight="800" fill="#fff" font-family="system-ui">C</text>
-				</svg>
+				<img src="/favicon.png" alt="CPR Remodeling" width="32" height="32" style="object-fit:contain;" />
 				<span>Admin</span>
 			</a>
 			<div class="header-actions">
