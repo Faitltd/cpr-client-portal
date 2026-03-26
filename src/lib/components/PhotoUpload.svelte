@@ -120,24 +120,47 @@
 			photos = [...photos, entry];
 
 			try {
-				// Videos are not compressed — upload as-is
-				const fileToUpload = isVideo ? rawFile : await compressImage(rawFile);
-				const formData = new FormData();
-				formData.append('files', fileToUpload, fileToUpload.name);
+				let uploaded: { id: string; url: string; name: string };
 
-				const res = await fetch('/api/trade/photos/upload', {
-					method: 'POST',
-					body: formData
-				});
-
-				if (!res.ok) {
-					const payload = await res.json().catch(() => ({}));
-					throw new Error(payload?.error || `Upload failed (${res.status})`);
+				if (isVideo) {
+					// Videos: upload directly from browser → Supabase via signed URL.
+					// This bypasses the Node server entirely so large files don't
+					// time out the reverse proxy (502).
+					const urlRes = await fetch('/api/trade/photos/upload-url', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ filename: rawFile.name, mimeType: rawFile.type || 'video/mp4' })
+					});
+					if (!urlRes.ok) {
+						const p = await urlRes.json().catch(() => ({}));
+						throw new Error(p?.error || `Failed to get upload URL (${urlRes.status})`);
+					}
+					const { data: urlData } = await urlRes.json();
+					const putRes = await fetch(urlData.signedUrl, {
+						method: 'PUT',
+						body: rawFile,
+						headers: { 'Content-Type': rawFile.type || 'video/mp4' }
+					});
+					if (!putRes.ok) throw new Error(`Direct upload failed (${putRes.status})`);
+					uploaded = { id: urlData.path, url: urlData.url, name: urlData.name };
+				} else {
+					// Images: compress then upload through server as before
+					const fileToUpload = await compressImage(rawFile);
+					const formData = new FormData();
+					formData.append('files', fileToUpload, fileToUpload.name);
+					const res = await fetch('/api/trade/photos/upload', {
+						method: 'POST',
+						body: formData
+					});
+					if (!res.ok) {
+						const payload = await res.json().catch(() => ({}));
+						throw new Error(payload?.error || `Upload failed (${res.status})`);
+					}
+					const payload = await res.json();
+					const up = payload?.data?.[0];
+					if (!up) throw new Error('No upload data returned');
+					uploaded = up;
 				}
-
-				const payload = await res.json();
-				const uploaded = payload?.data?.[0];
-				if (!uploaded) throw new Error('No upload data returned');
 
 				URL.revokeObjectURL(preview);
 				photos = photos.map((p) =>
