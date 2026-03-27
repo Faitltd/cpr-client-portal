@@ -3,7 +3,7 @@ import { env } from '$env/dynamic/private';
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { createLogger } from '$lib/server/logger';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import {
 	extractExternalLinkHash,
 	extractWorkDriveFolderId,
@@ -56,7 +56,6 @@ function findDesignFolder(items: { id: string; name: string; type: string }[]) {
 		const match = folders.find((f) => normalizeName(f.name) === target);
 		if (match) return match;
 	}
-	// Partial match fallback
 	for (const target of DESIGN_FOLDER_NAMES) {
 		const match = folders.find((f) => normalizeName(f.name).includes(target));
 		if (match) return match;
@@ -93,7 +92,8 @@ async function createExternalShareLink(
 			body: JSON.stringify(payload)
 		});
 		if (!response.ok) {
-			log.debug('createExternalShareLink failed', { resourceId, status: response.status });
+			const body = await response.text().catch(() => '');
+			log.info('createExternalShareLink failed', { resourceId, status: response.status, body: body.slice(0, 200) });
 			return null;
 		}
 		const data = await response.json().catch(() => null);
@@ -105,7 +105,7 @@ async function createExternalShareLink(
 			'';
 		return typeof link === 'string' && link.trim() ? link.trim() : null;
 	} catch (err) {
-		log.debug('createExternalShareLink error', { resourceId, error: String(err) });
+		log.info('createExternalShareLink error', { resourceId, error: String(err) });
 		return null;
 	}
 }
@@ -124,19 +124,40 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 
 	// Verify trade partner has access to this deal
 	const dealList = await getTradePartnerDeals(accessToken, undefined, apiDomain);
-	const deal = dealList.find((item: any) => String(item?.id || '').trim() === dealId);
-	if (!deal) throw error(403, 'Access denied to this project');
+	const accessibleDeal = dealList.find((item: any) => String(item?.id || '').trim() === dealId);
+	if (!accessibleDeal) throw error(403, 'Access denied to this project');
+
+	// Fetch the deal directly from Zoho with the fields we need
+	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link';
+	const dealResponse = await zohoApiCall(
+		accessToken,
+		`/Deals/${dealId}?fields=${encodeURIComponent(dealFields)}`,
+		{},
+		apiDomain
+	);
+	const deal = dealResponse?.data?.[0];
+
+	log.info('Design folder lookup: deal fields', {
+		dealId,
+		dealName: deal?.Deal_Name,
+		clientPortalFolder: deal?.Client_Portal_Folder ? String(deal.Client_Portal_Folder).slice(0, 80) : null,
+		externalLink: deal?.External_Link ? String(deal.External_Link).slice(0, 80) : null
+	});
 
 	// Resolve the project folder ID from Client_Portal_Folder or External_Link
 	let projectFolderId = '';
+	let folderSource = '';
 	const folderField = deal?.Client_Portal_Folder || deal?.External_Link;
 
 	if (folderField) {
 		projectFolderId = extractWorkDriveFolderId(folderField) || '';
-		if (!projectFolderId) {
+		if (projectFolderId) {
+			folderSource = 'crm-field-id';
+		} else {
 			const hash = extractExternalLinkHash(folderField);
 			if (hash) {
 				projectFolderId = await resolveExternalLink(accessToken, hash, apiDomain) || '';
+				if (projectFolderId) folderSource = 'external-link-resolved';
 			}
 		}
 	}
@@ -145,17 +166,30 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (!projectFolderId) {
 		const rootId = getRootFolderId();
 		if (rootId) {
-			const dealName = deal?.Deal_Name || deal?.Potential_Name || '';
+			const dealName = deal?.Deal_Name || accessibleDeal?.Deal_Name || '';
 			const candidates = buildDealFolderCandidates(dealName);
 			if (candidates.length > 0) {
-				const rootItems = await listWorkDriveFolder(accessToken, rootId, apiDomain);
-				const match = findBestFolderByName(rootItems, candidates);
-				if (match) projectFolderId = match.id;
+				try {
+					const rootItems = await listWorkDriveFolder(accessToken, rootId, apiDomain);
+					const match = findBestFolderByName(rootItems, candidates);
+					if (match) {
+						projectFolderId = match.id;
+						folderSource = 'root-name-match';
+					}
+				} catch (err) {
+					log.info('Design folder root search failed', { dealId, rootId, error: String(err) });
+				}
 			}
 		}
 	}
 
 	if (!projectFolderId) {
+		log.info('Design folder: project folder not found', {
+			dealId,
+			hasClientPortalFolder: !!deal?.Client_Portal_Folder,
+			hasExternalLink: !!deal?.External_Link,
+			hasRootFolder: !!getRootFolderId()
+		});
 		return json({ url: null, message: 'Project folder not found' });
 	}
 
@@ -164,19 +198,21 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const designFolder = findDesignFolder(items);
 
 	if (!designFolder) {
-		log.info('Design folder not found', {
+		const subfolders = items.filter((i) => i.type === 'folder').map((i) => i.name);
+		log.info('Design folder not found in project folder', {
 			dealId,
 			projectFolderId,
-			subfolders: items.filter((i) => i.type === 'folder').map((i) => i.name)
+			folderSource,
+			subfolders
 		});
-		return json({ url: null, message: 'Design and Planning folder not found' });
+		return json({ url: null, message: 'Design and Planning folder not found', subfolders });
 	}
 
 	// Create an external share link for the design folder
 	const shareLink = await createExternalShareLink(accessToken, designFolder.id, apiDomain);
 
 	if (shareLink) {
-		log.info('Design folder share link created', { dealId, folderId: designFolder.id });
+		log.info('Design folder share link created', { dealId, folderId: designFolder.id, folderSource });
 		return json({ url: shareLink });
 	}
 
