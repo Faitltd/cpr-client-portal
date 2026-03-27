@@ -18,7 +18,7 @@ const BASE_DEAL_FIELDS = [
 	'Zip_Code'
 ];
 
-const DETAIL_DEAL_FIELDS = ['Garage_Code', 'WiFi', 'Refined_SOW', 'File_Upload', 'Progress_Photos', 'Project_ID', 'Zoho_Projects_ID', 'Client_Portal_Folder', 'External_Link'];
+const DETAIL_DEAL_FIELDS = ['Garage_Code', 'WiFi', 'Refined_Scope', 'File_Upload', 'Progress_Photos', 'Project_ID', 'Zoho_Projects_ID', 'Client_Portal_Folder', 'External_Link'];
 
 export type LoadTradePageContextOptions = {
 	includeDetailFields?: boolean;
@@ -78,7 +78,7 @@ function hasTradeDealUsefulData(deal: any, includeDetailFields: boolean) {
 	return Boolean(
 		deal?.Garage_Code ||
 			deal?.WiFi ||
-			deal?.Refined_SOW ||
+			deal?.Refined_Scope ||
 			deal?.File_Upload ||
 			deal?.Progress_Photos
 	);

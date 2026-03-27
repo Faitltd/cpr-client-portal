@@ -26,7 +26,7 @@ const DEAL_FIELDS = [
 	'Zip_Code',
 	'Garage_Code',
 	'WiFi',
-	'Refined_SOW',
+	'Refined_Scope',
 	'File_Upload',
 	'External_Link',
 	'Progress_Photos',

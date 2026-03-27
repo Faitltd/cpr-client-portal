@@ -553,7 +553,7 @@
 					</div>
 					<div class="notes">
 						<h4>Scope</h4>
-						<p class="scope-text">{formatCrmRichText(selectedDeal.Refined_SOW) || 'Not available'}</p>
+						<p class="scope-text">{formatCrmRichText(selectedDeal.Refined_Scope) || 'Not available'}</p>
 					</div>
 					<div class="notes">
 						<h4>Designs</h4>

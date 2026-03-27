@@ -134,7 +134,7 @@
 				</div>
 				<div>
 					<h3>Scope</h3>
-					<p class="scope-text">{formatCrmRichText(project.Refined_SOW) || 'Not available'}</p>
+					<p class="scope-text">{formatCrmRichText(project.Refined_Scope) || 'Not available'}</p>
 				</div>
 				<div>
 					<h3>Progress Photos</h3>

@@ -84,7 +84,7 @@ const isPlaceholderName = (name: string | null) =>
 const hasUsefulData = (deal: any) =>
   Boolean(
     deal?.Address || deal?.Street || deal?.City || deal?.Stage ||
-    deal?.Garage_Code || deal?.WiFi || deal?.Refined_SOW || deal?.File_Upload
+    deal?.Garage_Code || deal?.WiFi || deal?.Refined_Scope || deal?.File_Upload
   );
 
 const isDisplayableDeal = (deal: any) => {

@@ -30,7 +30,7 @@ function stripHtml(html: string): string {
 
 function findScopeText(deal: Record<string, unknown>): string | null {
 	// Try known scope field names first
-	const knownNames = ['Scope', 'Scope_of_Work', 'Scope_Description', 'Scope1', 'Description'];
+	const knownNames = ['Refined_Scope', 'Scope', 'Scope_of_Work', 'Scope_Description', 'Scope1', 'Description'];
 	for (const name of knownNames) {
 		const val = deal[name];
 		if (typeof val === 'string' && val.trim().length > 50) {

@@ -41,7 +41,7 @@ const DEAL_FIELDS = [
 	'Zip_Code',
 	'Garage_Code',
 	'WiFi',
-	'Refined_SOW',
+	'Refined_Scope',
 	'File_Upload',
 	'External_Link',
 	'Progress_Photos',
@@ -360,7 +360,7 @@ function normalizeDealRecord(deal: any) {
 		'Zip_Code',
 		'Garage_Code',
 		'WiFi',
-		'Refined_SOW',
+		'Refined_Scope',
 		'Notes1',
 		'Stage'
 	];
@@ -370,8 +370,8 @@ function normalizeDealRecord(deal: any) {
 		const coerced = coerceText(current);
 		if (coerced) normalized[field] = coerced;
 	}
-	if (!normalized.Notes1 && normalized.Refined_SOW) {
-		normalized.Notes1 = normalized.Refined_SOW;
+	if (!normalized.Notes1 && normalized.Refined_Scope) {
+		normalized.Notes1 = normalized.Refined_Scope;
 	}
 
 	return normalized;
