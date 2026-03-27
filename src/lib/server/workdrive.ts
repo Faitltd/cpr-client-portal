@@ -237,6 +237,15 @@ export function extractWorkDriveFolderId(value: unknown) {
 				log.debug('WORKDRIVE extract id', { folderId: folderId.trim(), source: 'path' });
 				return folderId.trim();
 			}
+			// Handle one.zoho.com/...workdrive/{id} URLs
+			const wdIdx = pathTokens.findIndex((t) => t.toLowerCase() === 'workdrive');
+			if (wdIdx >= 0) {
+				const wdId = pathTokens[wdIdx + 1] || '';
+				if (wdId && /^[a-z0-9]{12,}$/i.test(wdId)) {
+					log.debug('WORKDRIVE extract id', { folderId: wdId, source: 'workdrive-path' });
+					return wdId;
+				}
+			}
 		} catch {
 			// ignore malformed url
 		}
