@@ -31,80 +31,28 @@
 		photos: Array<{ name: string; url: string }>;
 	};
 
-	type DesignFile = { name: string; url?: string; attachmentId?: string };
+	let designLink: string | null = null;
+	let designLoading = false;
 
-	const safeDecode = (value: string) => {
+	async function loadDesignLink(dealId: string) {
+		if (!dealId) { designLink = null; return; }
+		designLoading = true;
 		try {
-			return decodeURIComponent(value);
+			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/designs`);
+			if (res.ok) {
+				const data = await res.json();
+				designLink = data.url || null;
+			} else {
+				designLink = null;
+			}
 		} catch {
-			return value;
+			designLink = null;
+		} finally {
+			designLoading = false;
 		}
-	};
+	}
 
-	const normalizeDesignFiles = (value: any): DesignFile[] => {
-		if (!value) return [];
-
-		const toItem = (item: any): DesignFile | null => {
-			if (!item) return null;
-			if (typeof item === 'string') {
-				const name = item.split('/').pop() || 'Design file';
-				return { name, url: item };
-			}
-			if (typeof item === 'object') {
-				const attachmentId =
-					item.fields_attachment_id ||
-					item.fieldsAttachmentId ||
-					item.attachment_id ||
-					item.attachmentId ||
-					item.file_id ||
-					item.fileId ||
-					item.id ||
-					item.ID ||
-					'';
-				const url =
-					item.link_url ||
-					item.link ||
-					item.download_url ||
-					item.url ||
-					item.File_Url ||
-					item.File_URL ||
-					item.file_url ||
-					item.fileUrl ||
-					item.href ||
-					'';
-				const name =
-					item.file_name ||
-					item.File_Name ||
-					item.name ||
-					item.filename ||
-					item.fileName ||
-					item.display_name ||
-					safeDecode(String(url).split('/').pop() || '') ||
-					'Design file';
-				if (!url && !attachmentId) return null;
-				return { name, url: url || undefined, attachmentId: attachmentId || undefined };
-			}
-			return null;
-		};
-
-		if (Array.isArray(value)) {
-			return value.map(toItem).filter(Boolean) as DesignFile[];
-		}
-
-		const single = toItem(value);
-		return single ? [single] : [];
-	};
-
-	const getDesignLink = (file: DesignFile) => {
-		if (file.url) return file.url;
-		if (!file.attachmentId || !selectedDeal?.id) return '';
-		const params = new URLSearchParams();
-		if (file.name) params.set('fileName', file.name);
-		const suffix = params.toString() ? `?${params.toString()}` : '';
-		return `/api/trade/deals/${selectedDeal.id}/fields-attachment/${file.attachmentId}${suffix}`;
-	};
-
-	$: designFiles = normalizeDesignFiles(selectedDeal?.File_Upload);
+	$: if (browser && selectedDealId) loadDesignLink(selectedDealId);
 
 	const getDealLabel = (deal: any) => {
 		return (
@@ -557,18 +505,10 @@
 					</div>
 					<div class="notes">
 						<h4>Designs</h4>
-						{#if designFiles.length > 0}
-							<ul class="file-list">
-								{#each designFiles as file}
-									{#if getDesignLink(file)}
-										<li>
-											<a class="file-link" href={getDesignLink(file)} target="_blank" rel="noreferrer">
-												{file.name}
-											</a>
-										</li>
-									{/if}
-								{/each}
-							</ul>
+						{#if designLoading}
+							<p>Loading...</p>
+						{:else if designLink}
+							<a class="file-link" href={designLink} target="_blank" rel="noreferrer">View Design and Planning</a>
 						{:else}
 							<p>Not available</p>
 						{/if}
