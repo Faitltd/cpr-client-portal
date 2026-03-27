@@ -362,6 +362,8 @@
 	let fieldUpdatesController: AbortController | null = null;
 
 	// Collapsible state — collapsed by default
+	let scopeOpen = false;
+	let designsOpen = false;
 	let tasksOpen = false;
 	let fieldUpdatesOpen = false;
 
@@ -499,21 +501,67 @@
 						<h4>WiFi</h4>
 						<p>{selectedDeal.WiFi || 'Not available'}</p>
 					</div>
-					<div class="notes">
-						<h4>Scope</h4>
+					</div>
+			</div>
+
+			<!-- Scope collapsible -->
+			<div class="card collapsible-card">
+				<button
+					class="collapsible-toggle"
+					type="button"
+					on:click={() => (scopeOpen = !scopeOpen)}
+					aria-expanded={scopeOpen}
+				>
+					<span class="collapsible-title">
+						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<path d="M3 4h14M3 8h10M3 12h12M3 16h8"/>
+						</svg>
+						Scope
+					</span>
+					<svg class="chevron" class:rotated={scopeOpen} width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+						<path d="M5 8l5 5 5-5"/>
+					</svg>
+				</button>
+
+				{#if scopeOpen}
+					<div class="collapsible-body">
 						<p class="scope-text">{formatCrmRichText(selectedDeal.Refined_Scope) || 'Not available'}</p>
 					</div>
-					<div class="notes">
-						<h4>Designs</h4>
+				{/if}
+			</div>
+
+			<!-- Designs collapsible -->
+			<div class="card collapsible-card">
+				<button
+					class="collapsible-toggle"
+					type="button"
+					on:click={() => (designsOpen = !designsOpen)}
+					aria-expanded={designsOpen}
+				>
+					<span class="collapsible-title">
+						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<path d="M4 4h12v12H4z"/>
+							<path d="M4 16l4-5 3 3 2-2 3 4"/>
+							<circle cx="13" cy="8" r="1.5"/>
+						</svg>
+						Designs
+					</span>
+					<svg class="chevron" class:rotated={designsOpen} width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+						<path d="M5 8l5 5 5-5"/>
+					</svg>
+				</button>
+
+				{#if designsOpen}
+					<div class="collapsible-body">
 						{#if designLoading}
-							<p>Loading...</p>
+							<p class="muted">Loading...</p>
 						{:else if designLink}
 							<a class="file-link" href={designLink} target="_blank" rel="noreferrer">View Design and Planning</a>
 						{:else}
-							<p>Not available</p>
+							<p class="muted">Not available</p>
 						{/if}
 					</div>
-				</div>
+				{/if}
 			</div>
 
 			<!-- Tasks collapsible -->
