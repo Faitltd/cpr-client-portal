@@ -365,14 +365,17 @@ export async function resolveExternalLink(
 ): Promise<string | null> {
 	const base = getWorkDriveApiBase(apiDomain);
 	try {
-		const response = await fetch(`${base}/links/${encodeURIComponent(linkHash)}`, {
+		const url = `${base}/links/${encodeURIComponent(linkHash)}`;
+		log.info('resolveExternalLink: calling', { url: url.slice(0, 120), linkHash: linkHash.slice(0, 20) });
+		const response = await fetch(url, {
 			headers: {
 				Authorization: `Zoho-oauthtoken ${accessToken}`,
 				'Content-Type': 'application/json'
 			}
 		});
 		if (!response.ok) {
-			log.debug('resolveExternalLink: API call failed', { linkHash, status: response.status });
+			const body = await response.text().catch(() => '');
+			log.info('resolveExternalLink: API call failed', { linkHash: linkHash.slice(0, 20), status: response.status, body: body.slice(0, 300) });
 			return null;
 		}
 		const data = await response.json().catch(() => null);
@@ -382,13 +385,13 @@ export async function resolveExternalLink(
 			data?.data?.id ||
 			'';
 		if (resourceId) {
-			log.info('resolveExternalLink: resolved', { linkHash, resourceId });
+			log.info('resolveExternalLink: resolved', { linkHash: linkHash.slice(0, 20), resourceId });
 			return String(resourceId).trim();
 		}
-		log.debug('resolveExternalLink: no resource_id in response', { linkHash });
+		log.info('resolveExternalLink: no resource_id in response', { linkHash: linkHash.slice(0, 20), keys: data ? Object.keys(data) : null });
 		return null;
 	} catch (err) {
-		log.debug('resolveExternalLink: error', { linkHash, error: String(err) });
+		log.info('resolveExternalLink: error', { linkHash: linkHash.slice(0, 20), error: String(err) });
 		return null;
 	}
 }
@@ -417,22 +420,40 @@ export function findBestFolderByName(items: WorkDriveItem[], candidates: string[
 	const normalizedCandidates = candidates.map(normalizeName).filter(Boolean);
 	if (normalizedCandidates.length === 0) return null;
 
+	// Priority 1: exact match
+	for (const folder of folders) {
+		const nf = normalizeName(folder.name || '');
+		if (!nf) continue;
+		for (const candidate of normalizedCandidates) {
+			if (nf === candidate) return folder;
+		}
+	}
+
+	// Priority 2: folder starts with candidate (folder "john smith kitchen" matches candidate "john smith")
 	let best: WorkDriveItem | null = null;
 	let bestScore = 0;
 	for (const folder of folders) {
-		const normalizedFolder = normalizeName(folder.name || '');
-		if (!normalizedFolder) continue;
+		const nf = normalizeName(folder.name || '');
+		if (!nf) continue;
 		for (const candidate of normalizedCandidates) {
 			if (!candidate) continue;
-			if (normalizedFolder === candidate) {
-				return folder;
+			if (nf.startsWith(candidate) && candidate.length > bestScore) {
+				bestScore = candidate.length;
+				best = folder;
 			}
-			if (normalizedFolder.includes(candidate) || candidate.includes(normalizedFolder)) {
-				const score = Math.min(normalizedFolder.length, candidate.length);
-				if (score > bestScore) {
-					bestScore = score;
-					best = folder;
-				}
+		}
+	}
+	if (best) return best;
+
+	// Priority 3: candidate starts with folder (candidate "john smith 12 29 2025" matches folder "john smith")
+	for (const folder of folders) {
+		const nf = normalizeName(folder.name || '');
+		if (!nf || nf.length < 4) continue;
+		for (const candidate of normalizedCandidates) {
+			if (!candidate) continue;
+			if (candidate.startsWith(nf) && nf.length > bestScore) {
+				bestScore = nf.length;
+				best = folder;
 			}
 		}
 	}
