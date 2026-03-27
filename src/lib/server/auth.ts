@@ -312,7 +312,7 @@ function findDealLookup(record: Record<string, any>) {
 	return null;
 }
 
-function normalizeDealRecord(deal: any) {
+export function normalizeDealRecord(deal: any) {
 	if (!deal || typeof deal !== 'object') return deal;
 	const lookup = findDealLookup(deal);
 	// Many Zoho related-list/junction records include their own `id` plus a Deal lookup field.

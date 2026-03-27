@@ -1,4 +1,4 @@
-import { getTradePartnerDeals, isTradeActiveStage } from '$lib/server/auth';
+import { getTradePartnerDeals, isTradeActiveStage, normalizeDealRecord } from '$lib/server/auth';
 import {
 	getTradeSession,
 	getZohoTokens,
@@ -136,7 +136,7 @@ async function fetchDealsByIds(accessToken: string, ids: string[], includeDetail
 		results.push(...(response.data || []));
 	}
 
-	return results;
+	return results.map(normalizeDealRecord);
 }
 
 export async function loadTradePageContext(
