@@ -10,6 +10,7 @@
 				<span>Admin</span>
 			</a>
 			<div class="header-actions">
+			<a class="nav-link" href="/admin/process-map">Process Map</a>
 			<a class="client-admin-btn" href="/admin/clients">Client Admin</a>
 			<a class="logout-link" href="/admin/logout">Log out</a>
 		</div>
@@ -84,6 +85,21 @@
 
 	.client-admin-btn:hover {
 		background: #374151;
+	}
+
+	.nav-link {
+		font-size: 0.82rem;
+		font-weight: 600;
+		color: #374151;
+		text-decoration: none;
+		padding: 0.35rem 0.65rem;
+		border-radius: 6px;
+		white-space: nowrap;
+	}
+
+	.nav-link:hover {
+		background: #f3f4f6;
+		color: #111827;
 	}
 
 	.logout-link {
