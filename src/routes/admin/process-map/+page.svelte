@@ -6,7 +6,7 @@
 </svelte:head>
 
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 
 	const PHASES = [
 		{
@@ -222,6 +222,57 @@
 	let searchQuery = '';
 	let phaseFilterValue = 'all';
 
+	/** Persisted notes keyed by step code */
+	let notes = {};
+	let saveTimers = {};
+	let saveStatus = {};
+
+	async function loadNotes() {
+		try {
+			const res = await fetch('/api/admin/process-map-notes');
+			if (res.ok) {
+				const json = await res.json();
+				notes = json.data ?? {};
+			}
+		} catch (e) {
+			console.error('Failed to load process map notes', e);
+		}
+	}
+
+	function saveNote(stepCode) {
+		if (saveTimers[stepCode]) clearTimeout(saveTimers[stepCode]);
+		saveStatus[stepCode] = 'saving';
+		saveTimers[stepCode] = setTimeout(async () => {
+			try {
+				const res = await fetch('/api/admin/process-map-notes', {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ stepCode, note: notes[stepCode] ?? '' })
+				});
+				saveStatus[stepCode] = res.ok ? 'saved' : 'error';
+			} catch {
+				saveStatus[stepCode] = 'error';
+			}
+			saveStatus = saveStatus;
+			setTimeout(() => {
+				if (saveStatus[stepCode] === 'saved') {
+					saveStatus[stepCode] = '';
+					saveStatus = saveStatus;
+				}
+			}, 2000);
+		}, 600);
+	}
+
+	function handleNoteInput(stepCode, event) {
+		notes[stepCode] = event.target.value;
+		notes = notes;
+		saveNote(stepCode);
+	}
+
+	onDestroy(() => {
+		Object.values(saveTimers).forEach(t => clearTimeout(t));
+	});
+
 	function getTypeIcon(type) {
 		switch (type) {
 			case 'Decision': return '\u25C6';
@@ -291,6 +342,7 @@
 		: 0;
 
 	onMount(() => {
+		loadNotes();
 		applyArrows();
 		window.addEventListener('resize', applyArrows);
 		return () => window.removeEventListener('resize', applyArrows);
@@ -425,9 +477,20 @@
 												</ul>
 											{/if}
 
-											<div class="notes-title">Team Notes</div>
+											<div class="notes-title">
+												Team Notes
+												{#if saveStatus[step.code] === 'saving'}
+													<span class="save-indicator saving">Saving...</span>
+												{:else if saveStatus[step.code] === 'saved'}
+													<span class="save-indicator saved">Saved</span>
+												{:else if saveStatus[step.code] === 'error'}
+													<span class="save-indicator error">Save failed</span>
+												{/if}
+											</div>
 											<textarea class="team-notes"
 												placeholder="Add observations, bottlenecks, or improvement ideas..."
+												value={notes[step.code] ?? ''}
+												on:input={(e) => handleNoteInput(step.code, e)}
 												on:click|stopPropagation
 											></textarea>
 										</div>
@@ -705,7 +768,19 @@
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 		color: #888;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
+	.save-indicator {
+		font-size: 10px;
+		text-transform: none;
+		letter-spacing: 0;
+		font-weight: 500;
+	}
+	.save-indicator.saving { color: #888; }
+	.save-indicator.saved { color: #247040; }
+	.save-indicator.error { color: #B52A23; }
 	.automations-title { margin: 12px 0 8px; }
 	.outcomes-title { margin: 12px 0 8px; }
 	.notes-title { margin: 16px 0 6px; }
