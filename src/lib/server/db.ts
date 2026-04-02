@@ -1520,3 +1520,30 @@ export async function replacePhotoIdInFieldUpdate(
 	const updated = photoIds.map((p: string) => (p === oldPath ? newPath : p));
 	await db.from('field_updates').update({ photo_ids: updated }).eq('id', fieldUpdateId);
 }
+
+/* ── Process Map Notes ────────────────────────────── */
+
+export interface ProcessMapNote {
+	step_code: string;
+	note: string;
+	updated_at: string;
+}
+
+export async function getAllProcessMapNotes(): Promise<Record<string, string>> {
+	const { data, error } = await supabase
+		.from('process_map_notes')
+		.select('step_code, note');
+	if (error) throw new Error(error.message);
+	const notes: Record<string, string> = {};
+	for (const row of data ?? []) {
+		notes[row.step_code] = row.note;
+	}
+	return notes;
+}
+
+export async function upsertProcessMapNote(stepCode: string, note: string): Promise<void> {
+	const { error } = await supabase
+		.from('process_map_notes')
+		.upsert({ step_code: stepCode, note, updated_at: new Date().toISOString() }, { onConflict: 'step_code' });
+	if (error) throw new Error(error.message);
+}
