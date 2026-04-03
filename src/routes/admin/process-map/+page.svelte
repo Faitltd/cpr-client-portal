@@ -190,9 +190,7 @@
 					],
 					automations: ["Client reviews and signs CO"] },
 				{ code: "SU", name: "Scope Updated", pct: "", type: "Standard", outcomes: [],
-					automations: ["Refined_Scope field updated on deal record", "Field Update > Cliq Notification (WF #5)"] },
-				{ code: "PR", name: "Project Regenerated", pct: "", type: "Standard", outcomes: [],
-					automations: ["'Create Project from Scope' re-fires (Function)", "Existing tasklists deleted & rebuilt (Zoho Projects)", "Waterfall dates recalculated automatically"] }
+					automations: ["Refined_Scope field updated on deal record", "Field Update > Cliq Notification (WF #5)"] }
 			]
 		},
 		{
@@ -200,8 +198,6 @@
 			key: "cross_cutting",
 			color: "#2D2D2D",
 			steps: [
-				{ code: "JC", name: "Jeff Tasks to Calendar", pct: "All phases", type: "Standard", outcomes: [],
-					automations: ["Every task created/edited syncs to Jeff's calendar via addTaskToCalendar (WF #13)"] },
 				{ code: "TN", name: "Task Notifications", pct: "All phases", type: "Standard", outcomes: [],
 					automations: ["Task owner notified via Cliq (WF #24)", "Task due date auto-set (WF #21)"] },
 				{ code: "TR", name: "Trade Partner Reminders", pct: "Monthly", type: "Standard", outcomes: [],
