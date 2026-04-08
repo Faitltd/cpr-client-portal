@@ -10,6 +10,7 @@
 				<span>Admin</span>
 			</a>
 			<div class="header-actions">
+			<a class="nav-link" href="/admin/leads">Leads</a>
 			<a class="nav-link" href="/admin/process-map">Process Map</a>
 			<a class="client-admin-btn" href="/admin/clients">Client Admin</a>
 			<a class="logout-link" href="/admin/logout">Log out</a>
