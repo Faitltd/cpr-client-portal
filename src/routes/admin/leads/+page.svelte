@@ -24,11 +24,13 @@
 		Budget_Range: string | null;
 		Decision_Makers: string | null;
 		Reside_During_Construction: string | null;
+		Finishes: string | null;
+		Owner_Provided_Materials: string | null;
+		Owner_Performed_Tasks: string | null;
 		Photos: string | null;
 		Image_Upload_4: string | null;
 		Unqualified: boolean;
 		Prior_Renovations: string | null;
-		What_level_of_finishes_are_you_aiming_for: string | null;
 		File_Upload_1: string | null;
 		Selections_Availability: string | null;
 		Access_Notes: string | null;
@@ -51,7 +53,9 @@
 		{ key: 'Reside_During_Construction', label: 'Reside During Construction?', type: 'text' },
 		{ key: 'Unqualified', label: 'Unqualified', type: 'boolean' },
 		{ key: 'Prior_Renovations', label: 'Prior Renovations', type: 'text' },
-		{ key: 'What_level_of_finishes_are_you_aiming_for', label: 'Level of Finish', type: 'text' },
+		{ key: 'Finishes', label: 'Finishes', type: 'picklist', options: ['-None-', 'Good', 'Better', 'Best'] },
+		{ key: 'Owner_Provided_Materials', label: 'Owner Provided Materials', type: 'picklist', options: ['-None-', 'Yes', 'No'] },
+		{ key: 'Owner_Performed_Tasks', label: 'Owner-Performed Tasks', type: 'picklist', options: ['-None-', 'Yes', 'No'] },
 		{ key: 'Selections_Availability', label: 'Selections Availability', type: 'text' },
 		{ key: 'Access_Notes', label: 'Access Notes', type: 'text' },
 		{ key: 'Timeline', label: 'Timeline', type: 'text' },

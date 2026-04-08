@@ -19,9 +19,9 @@ const DETAIL_FIELDS = [
 	'First_Name', 'Last_Name', 'Email', 'Phone', 'Lead_Status', 'Company',
 	'Disco_Call', 'Description', 'Property_Type', 'What_are_the_must_have_features',
 	'Budget_Range', 'Decision_Makers', 'Reside_During_Construction',
+	'Finishes', 'Owner_Provided_Materials', 'Owner_Performed_Tasks',
 	'Photos', 'Image_Upload_4', 'Unqualified', 'Prior_Renovations',
-	'What_level_of_finishes_are_you_aiming_for', 'File_Upload_1',
-	'Selections_Availability', 'Access_Notes', 'Timeline',
+	'File_Upload_1', 'Selections_Availability', 'Access_Notes', 'Timeline',
 	'Project_Details_Cont_d'
 ].join(',');
 
