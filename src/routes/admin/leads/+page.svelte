@@ -243,8 +243,7 @@
 			<p class="error-text">{detailError}</p>
 		{:else if detail}
 			<div class="detail-header">
-				{@const badge = statusBadge(detail.Lead_Status)}
-				<span class="badge" style="background:{badge.bg};color:{badge.color}">{detail.Lead_Status || '—'}</span>
+				<span class="badge" style="background:{statusBadge(detail.Lead_Status).bg};color:{statusBadge(detail.Lead_Status).color}">{detail.Lead_Status || '—'}</span>
 				{#if detail.Email}<span class="meta">{detail.Email}</span>{/if}
 				{#if detail.Phone}<span class="meta">{detail.Phone}</span>{/if}
 			</div>
