@@ -29,7 +29,6 @@
 		Owner_Performed_Tasks: string | null;
 		Photos: string | null;
 		Image_Upload_4: string | null;
-		Unqualified: boolean;
 		Prior_Renovations: string | null;
 		File_Upload_1: string | null;
 		Selections_Availability: string | null;
@@ -51,8 +50,7 @@
 		{ key: 'Budget_Range', label: 'Budget Range', type: 'text' },
 		{ key: 'Decision_Makers', label: 'Decision Makers', type: 'text' },
 		{ key: 'Reside_During_Construction', label: 'Reside During Construction?', type: 'text' },
-		{ key: 'Unqualified', label: 'Unqualified', type: 'boolean' },
-		{ key: 'Prior_Renovations', label: 'Prior Renovations', type: 'text' },
+{ key: 'Prior_Renovations', label: 'Prior Renovations', type: 'text' },
 		{ key: 'Finishes', label: 'Finishes', type: 'picklist', options: ['-None-', 'Good', 'Better', 'Best'] },
 		{ key: 'Owner_Provided_Materials', label: 'Owner Provided Materials', type: 'picklist', options: ['-None-', 'Yes', 'No'] },
 		{ key: 'Owner_Performed_Tasks', label: 'Owner-Performed Tasks', type: 'picklist', options: ['-None-', 'Yes', 'No'] },

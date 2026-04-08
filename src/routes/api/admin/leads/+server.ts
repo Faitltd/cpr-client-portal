@@ -20,7 +20,7 @@ const DETAIL_FIELDS = [
 	'Disco_Call', 'Description', 'Property_Type', 'What_are_the_must_have_features',
 	'Budget_Range', 'Decision_Makers', 'Reside_During_Construction',
 	'Finishes', 'Owner_Provided_Materials', 'Owner_Performed_Tasks',
-	'Photos', 'Image_Upload_4', 'Unqualified', 'Prior_Renovations',
+	'Photos', 'Image_Upload_4', 'Prior_Renovations',
 	'File_Upload_1', 'Selections_Availability', 'Access_Notes', 'Timeline',
 	'Project_Details_Cont_d'
 ].join(',');
