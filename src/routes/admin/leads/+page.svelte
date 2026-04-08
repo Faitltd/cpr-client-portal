@@ -39,8 +39,9 @@
 	const FIELD_DEFS: Array<{
 		key: keyof LeadDetail;
 		label: string;
-		type: 'text' | 'textarea' | 'picklist' | 'boolean' | 'readonly';
+		type: 'text' | 'textarea' | 'picklist' | 'boolean' | 'file';
 		options?: string[];
+		accept?: string;
 	}> = [
 		{ key: 'Disco_Call', label: 'Disco Call Notes', type: 'textarea' },
 		{ key: 'Property_Type', label: 'Property Type', type: 'picklist', options: ['-None-', 'Primary Residence', 'Vacation Home', 'Investment Property'] },
@@ -55,9 +56,9 @@
 		{ key: 'Access_Notes', label: 'Access Notes', type: 'text' },
 		{ key: 'Timeline', label: 'Timeline', type: 'text' },
 		{ key: 'Project_Details_Cont_d', label: 'Form Entry', type: 'textarea' },
-		{ key: 'Photos', label: 'Photos', type: 'readonly' },
-		{ key: 'Image_Upload_4', label: 'Photos 2', type: 'readonly' },
-		{ key: 'File_Upload_1', label: 'Designs', type: 'readonly' },
+		{ key: 'Photos', label: 'Photos', type: 'file', accept: 'image/*' },
+		{ key: 'Image_Upload_4', label: 'Photos 2', type: 'file', accept: 'image/*' },
+		{ key: 'File_Upload_1', label: 'Designs', type: 'file' },
 	];
 
 	let leads: LeadSummary[] = [];
@@ -75,6 +76,81 @@
 	let saveOk = false;
 
 	let search = '';
+
+	// File upload state
+	let fileUploading: Record<string, boolean> = {};
+	let fileMessages: Record<string, { text: string; ok: boolean }> = {};
+	let filePreviews: Record<string, string> = {};
+
+	function hasFile(key: keyof LeadDetail): boolean {
+		if (!detail) return false;
+		const val = detail[key];
+		return val !== null && val !== undefined && val !== '';
+	}
+
+	function fileDownloadUrl(key: string): string {
+		if (!detail) return '';
+		return `/api/admin/leads/files?leadId=${encodeURIComponent(detail.id)}&field=${encodeURIComponent(key)}`;
+	}
+
+	async function uploadFile(key: string, accept?: string) {
+		if (!detail) return;
+		const input = document.createElement('input');
+		input.type = 'file';
+		if (accept) input.accept = accept;
+		input.onchange = async () => {
+			const file = input.files?.[0];
+			if (!file) return;
+			fileUploading = { ...fileUploading, [key]: true };
+			fileMessages = { ...fileMessages, [key]: undefined as any };
+			try {
+				const form = new FormData();
+				form.append('file', file);
+				const r = await fetch(
+					`/api/admin/leads/files?leadId=${encodeURIComponent(detail!.id)}&field=${encodeURIComponent(key)}`,
+					{ method: 'POST', body: form }
+				);
+				const j = await r.json();
+				if (!r.ok) throw new Error(j.message || 'Upload failed');
+				fileMessages = { ...fileMessages, [key]: { text: 'Uploaded successfully.', ok: true } };
+				// Update detail to reflect file is now present
+				(detail as any)[key] = file.name;
+				detail = detail;
+				// Create local preview for images
+				if (file.type.startsWith('image/')) {
+					filePreviews = { ...filePreviews, [key]: URL.createObjectURL(file) };
+				}
+			} catch (e) {
+				fileMessages = { ...fileMessages, [key]: { text: e instanceof Error ? e.message : 'Upload failed', ok: false } };
+			} finally {
+				fileUploading = { ...fileUploading, [key]: false };
+			}
+		};
+		input.click();
+	}
+
+	async function deleteFile(key: string) {
+		if (!detail || !confirm('Delete this file?')) return;
+		fileUploading = { ...fileUploading, [key]: true };
+		fileMessages = { ...fileMessages, [key]: undefined as any };
+		try {
+			const r = await fetch(
+				`/api/admin/leads/files?leadId=${encodeURIComponent(detail.id)}&field=${encodeURIComponent(key)}`,
+				{ method: 'DELETE' }
+			);
+			const j = await r.json();
+			if (!r.ok) throw new Error(j.message || 'Delete failed');
+			(detail as any)[key] = null;
+			detail = detail;
+			delete filePreviews[key];
+			filePreviews = filePreviews;
+			fileMessages = { ...fileMessages, [key]: { text: 'Deleted.', ok: true } };
+		} catch (e) {
+			fileMessages = { ...fileMessages, [key]: { text: e instanceof Error ? e.message : 'Delete failed', ok: false } };
+		} finally {
+			fileUploading = { ...fileUploading, [key]: false };
+		}
+	}
 
 	$: filtered = search
 		? leads.filter(l => {
@@ -107,6 +183,9 @@
 		detail = null;
 		edited = {};
 		saveMessage = '';
+		fileUploading = {};
+		fileMessages = {};
+		filePreviews = {};
 		detailLoading = true;
 		detailError = '';
 		try {
@@ -163,6 +242,9 @@
 		detail = null;
 		edited = {};
 		saveMessage = '';
+		fileUploading = {};
+		fileMessages = {};
+		filePreviews = {};
 	}
 
 	function leadName(l: LeadSummary | LeadDetail) {
@@ -279,15 +361,51 @@
 								/>
 								<span>{fieldValue(field.key) ? 'Yes' : 'No'}</span>
 							</label>
-						{:else if field.type === 'readonly'}
-							{@const val = fieldValue(field.key)}
-							{#if val && typeof val === 'string'}
-								<p class="readonly-value">{val}</p>
-							{:else if val && typeof val === 'object'}
-								<p class="readonly-value">(file attached)</p>
-							{:else}
-								<p class="readonly-value muted">None</p>
-							{/if}
+						{:else if field.type === 'file'}
+							<div class="file-field">
+								{#if hasFile(field.key)}
+									<div class="file-actions">
+										{#if filePreviews[field.key]}
+											<img class="file-preview" src={filePreviews[field.key]} alt={field.label} />
+										{:else if field.accept?.startsWith('image')}
+											<img class="file-preview" src={fileDownloadUrl(field.key)} alt={field.label} />
+										{/if}
+										<a class="file-btn download" href={fileDownloadUrl(field.key)} target="_blank" rel="noopener">
+											Download
+										</a>
+										<button
+											type="button"
+											class="file-btn replace"
+											disabled={fileUploading[field.key]}
+											on:click={() => uploadFile(field.key, field.accept)}
+										>
+											{fileUploading[field.key] ? 'Uploading…' : 'Replace'}
+										</button>
+										<button
+											type="button"
+											class="file-btn delete"
+											disabled={fileUploading[field.key]}
+											on:click={() => deleteFile(field.key)}
+										>
+											Delete
+										</button>
+									</div>
+								{:else}
+									<button
+										type="button"
+										class="file-btn upload"
+										disabled={fileUploading[field.key]}
+										on:click={() => uploadFile(field.key, field.accept)}
+									>
+										{fileUploading[field.key] ? 'Uploading…' : 'Upload File'}
+									</button>
+								{/if}
+								{#if fileMessages[field.key]}
+									<p class="file-msg" class:ok={fileMessages[field.key].ok} class:err={!fileMessages[field.key].ok}>
+										{fileMessages[field.key].text}
+									</p>
+								{/if}
+							</div>
 						{:else}
 							<input
 								id="field-{field.key}"
@@ -508,12 +626,62 @@
 		cursor: pointer;
 	}
 
-	.readonly-value {
-		font-size: 0.9rem;
-		color: #374151;
-		margin: 0;
-		padding: 0.5rem 0;
+	/* ── File fields ──────────────────────────────── */
+	.file-field {
+		padding: 0.25rem 0;
 	}
+
+	.file-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.file-preview {
+		width: 80px;
+		height: 80px;
+		object-fit: cover;
+		border-radius: 6px;
+		border: 1px solid #e5e7eb;
+	}
+
+	.file-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.4rem 0.85rem;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 0.82rem;
+		font-weight: 600;
+		cursor: pointer;
+		background: #fff;
+		color: #374151;
+		text-decoration: none;
+		min-height: 36px;
+	}
+
+	.file-btn:hover { background: #f9fafb; }
+	.file-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	.file-btn.upload { background: #0066cc; color: #fff; border-color: #0066cc; }
+	.file-btn.upload:hover { background: #0052a3; }
+
+	.file-btn.replace { background: #f3f4f6; }
+
+	.file-btn.download { color: #0066cc; border-color: #0066cc; }
+	.file-btn.download:hover { background: #eff6ff; }
+
+	.file-btn.delete { color: #b91c1c; border-color: #fca5a5; }
+	.file-btn.delete:hover { background: #fef2f2; }
+
+	.file-msg {
+		margin: 0.35rem 0 0;
+		font-size: 0.82rem;
+	}
+	.file-msg.ok { color: #065f46; }
+	.file-msg.err { color: #b91c1c; }
 
 	/* ── Save bar ──────────────────────────────────── */
 	.save-bar {
