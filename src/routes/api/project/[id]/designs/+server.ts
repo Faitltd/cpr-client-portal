@@ -185,13 +185,34 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		externalLink: deal?.External_Link ? String(deal.External_Link).slice(0, 100) : null
 	});
 
-	// If the CRM "Designs" field contains a direct URL, return it immediately
+	// If the CRM "Designs" field contains a WorkDrive URL, extract the folder ID
+	// and create a scoped external share link (never return internal WorkDrive URLs).
 	const designsFieldValue = deal?.Designs;
-	if (typeof designsFieldValue === 'string' && /^https?:\/\//i.test(designsFieldValue.trim())) {
-		return json({ url: designsFieldValue.trim() });
+	if (typeof designsFieldValue === 'string' && designsFieldValue.trim()) {
+		const designsFolderId = extractWorkDriveFolderId(designsFieldValue.trim());
+		if (designsFolderId) {
+			const shareLink = await createExternalShareLink(accessToken, designsFolderId, apiDomain);
+			if (shareLink) {
+				return json({ url: shareLink });
+			}
+			return json({ url: null, message: 'Unable to create external share link for designs folder' });
+		}
+
+		// If it's an external share link hash, resolve and re-share the specific folder
+		const hash = extractExternalLinkHash(designsFieldValue.trim());
+		if (hash) {
+			const resolvedId = await resolveExternalLink(accessToken, hash, apiDomain);
+			if (resolvedId) {
+				const shareLink = await createExternalShareLink(accessToken, resolvedId, apiDomain);
+				if (shareLink) {
+					return json({ url: shareLink });
+				}
+			}
+			return json({ url: null, message: 'Unable to create external share link for designs folder' });
+		}
 	}
 
-	// Otherwise fall back to WorkDrive folder lookup
+	// Fall back to WorkDrive folder lookup to find the design subfolder
 	let projectFolderId = '';
 	let folderSource = '';
 
@@ -281,12 +302,12 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		try { await setCachedFolder(dealId, 'root', projectFolderId); } catch {}
 	}
 
-	// Step 6: Create external share link or use fallback
+	// Step 6: Create a scoped external share link for the design folder only
 	const shareLink = await createExternalShareLink(accessToken, designFolder.id, apiDomain);
 	if (shareLink) {
 		return json({ url: shareLink });
 	}
 
-	const fallbackUrl = `https://workdrive.zoho.com/folder/${designFolder.id}`;
-	return json({ url: fallbackUrl });
+	// Never fall back to internal WorkDrive URLs — they expose the entire drive
+	return json({ url: null, message: 'Unable to create external share link for designs folder' });
 };
