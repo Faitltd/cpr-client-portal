@@ -39,19 +39,27 @@
 	let designsOpen = false;
 	let designLink: string | null = null;
 	let designLoading = false;
+	let designMessage = '';
 
 	async function loadDesignLink() {
 		if (projects.length === 0) return;
 		designLoading = true;
+		designMessage = '';
 		try {
 			const pid = projects[0].id;
 			const res = await fetch(`/api/project/${encodeURIComponent(pid)}/designs`);
+			const data = await res.json().catch(() => ({}));
 			if (res.ok) {
-				const data = await res.json();
 				designLink = data?.url || null;
+				if (!designLink && data?.message) {
+					designMessage = data.message;
+				}
+			} else {
+				designMessage = data?.message || `Error ${res.status}`;
 			}
 		} catch {
 			designLink = null;
+			designMessage = 'Failed to load designs';
 		} finally {
 			designLoading = false;
 		}
@@ -356,7 +364,7 @@
 						</div>
 					</div>
 				{:else}
-					<p class="muted-text">No designs available.</p>
+					<p class="muted-text">No designs available.{#if designMessage} ({designMessage}){/if}</p>
 				{/if}
 			{/if}
 		</section>
