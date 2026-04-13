@@ -195,7 +195,7 @@ async function getOrCreateExternalShareLink(
 	}
 }
 
-export const GET: RequestHandler = async ({ cookies, params }) => {
+export const GET: RequestHandler = async ({ cookies, params, url }) => {
 	const sessionToken = cookies.get('portal_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
 
@@ -205,13 +205,18 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const dealId = String(params.id || '').trim();
 	if (!dealId) throw error(400, 'Deal ID required');
 
+	const debug = url.searchParams.get('debug') === '1';
+	const steps: string[] = [];
+
 	const { accessToken, apiDomain } = await getAccessToken();
+	if (debug) steps.push(`auth: ok, apiDomain=${apiDomain || 'default'}`);
 
 	// Verify client has access to this deal
 	const deals = await getDealsForClient(session.client.zoho_contact_id, session.client.email);
 	if (!deals.some((deal: any) => String(deal?.id || '').trim() === dealId)) {
 		throw error(403, 'Access denied to this project');
 	}
+	if (debug) steps.push(`access: verified, ${deals.length} deals found`);
 
 	// Fetch the deal with fields we need
 	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link,Designs';
@@ -223,6 +228,11 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	);
 	const deal = dealResponse?.data?.[0];
 	const dealName = deal?.Deal_Name || '';
+
+	if (debug) {
+		steps.push(`deal: ${deal ? 'found' : 'NOT FOUND'}, name="${dealName}"`);
+		steps.push(`crm_fields: Designs=${JSON.stringify(deal?.Designs ?? null)}, Client_Portal_Folder=${JSON.stringify(deal?.Client_Portal_Folder ?? null)}, External_Link=${JSON.stringify(deal?.External_Link ?? null)}`);
+	}
 
 	log.info('Client design folder lookup', {
 		dealId,
@@ -236,27 +246,37 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	// and create a scoped external share link (never return internal WorkDrive URLs).
 	const designsFieldValue = deal?.Designs;
 	if (typeof designsFieldValue === 'string' && designsFieldValue.trim()) {
+		if (debug) steps.push(`designs_field: has value, trying to extract folder ID`);
 		const designsFolderId = extractWorkDriveFolderId(designsFieldValue.trim());
 		if (designsFolderId) {
+			if (debug) steps.push(`designs_field: extracted folder ID ${designsFolderId}`);
 			const shareLink = await getOrCreateExternalShareLink(accessToken, designsFolderId, apiDomain);
 			if (shareLink) {
-				return json({ url: shareLink });
+				return json({ url: shareLink, ...(debug ? { debug: steps } : {}) });
 			}
-			return json({ url: null, message: 'Unable to create external share link for designs folder' });
+			if (debug) steps.push(`designs_field: share link creation FAILED`);
+			return json({ url: null, message: 'Unable to create external share link for designs folder', ...(debug ? { debug: steps } : {}) });
 		}
 
-		// If it's an external share link hash, resolve and re-share the specific folder
 		const hash = extractExternalLinkHash(designsFieldValue.trim());
 		if (hash) {
+			if (debug) steps.push(`designs_field: found external link hash ${hash}`);
 			const resolvedId = await resolveExternalLink(accessToken, hash, apiDomain);
 			if (resolvedId) {
+				if (debug) steps.push(`designs_field: resolved to folder ${resolvedId}`);
 				const shareLink = await getOrCreateExternalShareLink(accessToken, resolvedId, apiDomain);
 				if (shareLink) {
-					return json({ url: shareLink });
+					return json({ url: shareLink, ...(debug ? { debug: steps } : {}) });
 				}
+				if (debug) steps.push(`designs_field: share link creation FAILED`);
+			} else {
+				if (debug) steps.push(`designs_field: external link resolve FAILED`);
 			}
-			return json({ url: null, message: 'Unable to create external share link for designs folder' });
+			return json({ url: null, message: 'Unable to create external share link for designs folder', ...(debug ? { debug: steps } : {}) });
 		}
+		if (debug) steps.push(`designs_field: not a WorkDrive URL or external link`);
+	} else {
+		if (debug) steps.push(`designs_field: empty or not set`);
 	}
 
 	// Fall back to WorkDrive folder lookup to find the design subfolder
@@ -269,8 +289,13 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		if (cached) {
 			projectFolderId = cached.folderId;
 			folderSource = 'cache';
+			if (debug) steps.push(`step1_cache: HIT, folderId=${projectFolderId}`);
+		} else {
+			if (debug) steps.push(`step1_cache: miss`);
 		}
-	} catch {}
+	} catch (err) {
+		if (debug) steps.push(`step1_cache: error - ${String(err)}`);
+	}
 
 	// Step 2: Try extracting folder ID from CRM fields
 	if (!projectFolderId) {
@@ -280,9 +305,11 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 			if (extracted) {
 				projectFolderId = extracted;
 				folderSource = 'crm-field-id';
+				if (debug) steps.push(`step2_crm: extracted folder ID ${extracted} from "${String(field).slice(0, 80)}"`);
 				break;
 			}
 		}
+		if (!projectFolderId && debug) steps.push(`step2_crm: no folder ID extracted`);
 	}
 
 	// Step 3: Try resolving external share links
@@ -291,42 +318,62 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 			if (!field) continue;
 			const hash = extractExternalLinkHash(field);
 			if (hash) {
+				if (debug) steps.push(`step3_resolve: trying hash ${hash}`);
 				const resolved = await resolveExternalLink(accessToken, hash, apiDomain);
 				if (resolved) {
 					projectFolderId = resolved;
 					folderSource = 'external-link-resolved';
+					if (debug) steps.push(`step3_resolve: resolved to ${resolved}`);
 					break;
+				} else {
+					if (debug) steps.push(`step3_resolve: resolve failed for hash ${hash}`);
 				}
 			}
 		}
+		if (!projectFolderId && debug) steps.push(`step3_resolve: no folder resolved`);
 	}
 
 	// Step 4: Search root WorkDrive folder by deal name
 	if (!projectFolderId) {
 		const rootId = getRootFolderId();
+		if (debug) steps.push(`step4_search: rootId=${rootId || 'NOT SET'}, dealName="${dealName}"`);
 		if (rootId) {
 			const candidates = buildDealFolderCandidates(dealName);
+			if (debug) steps.push(`step4_search: candidates=${JSON.stringify(candidates)}`);
 			if (candidates.length > 0) {
 				try {
 					let searchFolderId = rootId;
 					const rootItems = await listWorkDriveFolder(accessToken, rootId, apiDomain);
+					if (debug) steps.push(`step4_search: root listing returned ${rootItems.length} items`);
 
 					if (looksLikeProjectContents(rootItems)) {
 						const parentId = await getParentFolderId(accessToken, rootId, apiDomain);
-						if (parentId) searchFolderId = parentId;
+						if (parentId) {
+							searchFolderId = parentId;
+							if (debug) steps.push(`step4_search: root is project contents, using parent ${parentId}`);
+						}
 					}
 
 					const parentItems = searchFolderId !== rootId
 						? await listWorkDriveFolder(accessToken, searchFolderId, apiDomain)
 						: rootItems;
 
+					if (debug) {
+						const folderNames = parentItems.filter(i => i.type === 'folder').map(i => i.name);
+						steps.push(`step4_search: ${folderNames.length} folders: ${folderNames.slice(0, 10).join(', ')}${folderNames.length > 10 ? '...' : ''}`);
+					}
+
 					const match = findBestFolderByName(parentItems, candidates);
 					if (match) {
 						projectFolderId = match.id;
 						folderSource = 'name-match';
+						if (debug) steps.push(`step4_search: MATCHED "${match.name}" -> ${match.id}`);
 						try { await setCachedFolder(dealId, 'root', match.id, match.name); } catch {}
+					} else {
+						if (debug) steps.push(`step4_search: no match found`);
 					}
 				} catch (err) {
+					if (debug) steps.push(`step4_search: ERROR - ${String(err)}`);
 					log.info('Client design folder: root search failed', { dealId, error: String(err) });
 				}
 			}
@@ -334,16 +381,24 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	}
 
 	if (!projectFolderId) {
-		return json({ url: null, message: 'Project folder not found' });
+		if (debug) steps.push(`RESULT: project folder not found`);
+		return json({ url: null, message: 'Project folder not found', ...(debug ? { debug: steps } : {}) });
 	}
 
 	// Step 5: Find "Design and Planning" subfolder
 	const items = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
+	if (debug) {
+		const subfolders = items.filter(i => i.type === 'folder').map(i => i.name);
+		steps.push(`step5_design: project folder ${projectFolderId} (${folderSource}) has ${subfolders.length} subfolders: ${subfolders.join(', ')}`);
+	}
 	const designFolder = findDesignFolder(items);
 
 	if (!designFolder) {
-		return json({ url: null, message: 'Design and Planning folder not found' });
+		if (debug) steps.push(`RESULT: design subfolder not found`);
+		return json({ url: null, message: 'Design and Planning folder not found', ...(debug ? { debug: steps } : {}) });
 	}
+
+	if (debug) steps.push(`step5_design: found "${designFolder.name}" -> ${designFolder.id}`);
 
 	if (folderSource !== 'cache') {
 		try { await setCachedFolder(dealId, 'root', projectFolderId); } catch {}
@@ -352,9 +407,11 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	// Step 6: Create a scoped external share link for the design folder only
 	const shareLink = await getOrCreateExternalShareLink(accessToken, designFolder.id, apiDomain);
 	if (shareLink) {
-		return json({ url: shareLink });
+		if (debug) steps.push(`step6_link: SUCCESS -> ${shareLink}`);
+		return json({ url: shareLink, ...(debug ? { debug: steps } : {}) });
 	}
 
+	if (debug) steps.push(`step6_link: FAILED to get or create share link`);
 	// Never fall back to internal WorkDrive URLs — they expose the entire drive
-	return json({ url: null, message: 'Unable to create external share link for designs folder' });
+	return json({ url: null, message: 'Unable to create external share link for designs folder', ...(debug ? { debug: steps } : {}) });
 };
