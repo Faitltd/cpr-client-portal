@@ -37,11 +37,11 @@
 
 	// Designs
 	let designsOpen = false;
-	let designLink: string | null = null;
+	let designFiles: { id: string; name: string; url: string; size: number | null }[] = [];
 	let designLoading = false;
 	let designMessage = '';
 
-	async function loadDesignLink() {
+	async function loadDesignFiles() {
 		if (projects.length === 0) return;
 		designLoading = true;
 		designMessage = '';
@@ -50,20 +50,27 @@
 			const res = await fetch(`/api/project/${encodeURIComponent(pid)}/designs`);
 			const data = await res.json().catch(() => ({}));
 			if (res.ok) {
-				designLink = data?.url || null;
-				if (!designLink && data?.message) {
+				designFiles = data?.files || [];
+				if (designFiles.length === 0 && data?.message) {
 					designMessage = data.message;
 				}
 			} else {
 				designMessage = data?.message || `Error ${res.status}`;
 			}
 		} catch {
-			designLink = null;
+			designFiles = [];
 			designMessage = 'Failed to load designs';
 		} finally {
 			designLoading = false;
 		}
 	}
+
+	const formatFileSize = (bytes: number | null) => {
+		if (!bytes || bytes <= 0) return '';
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	};
 
 	// Contracts / Documents / Access Info
 	let contracts: any[] = [];
@@ -282,7 +289,7 @@
 			}
 			documentsLoading = false;
 
-			loadDesignLink();
+			loadDesignFiles();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -351,17 +358,14 @@
 			{#if designsOpen}
 				{#if designLoading}
 					<p class="muted-text">Loading...</p>
-				{:else if designLink}
+				{:else if designFiles.length > 0}
 					<div class="doc-list">
-						<div class="doc-item">
-							<span class="doc-link-label">{projects[0]?.Deal_Name || 'Project'}</span>
-							<a
-								href={designLink}
-								class="btn-secondary btn-sm"
-								target="_blank"
-								rel="noreferrer"
-							>View Designs</a>
-						</div>
+						{#each designFiles as file (file.id)}
+							<div class="doc-item">
+								<a href={file.url} target="_blank" class="doc-link">{file.name || 'File'}</a>
+								{#if file.size}<span class="meta-text">{formatFileSize(file.size)}</span>{/if}
+							</div>
+						{/each}
 					</div>
 				{:else}
 					<p class="muted-text">No designs available.{#if designMessage} ({designMessage}){/if}</p>
