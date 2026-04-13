@@ -100,11 +100,64 @@ async function getParentFolderId(
 	}
 }
 
-async function createExternalShareLink(
+function extractShareLinkUrl(data: any): string | null {
+	const link =
+		data?.data?.attributes?.link ||
+		data?.data?.attributes?.url ||
+		data?.data?.attributes?.permalink ||
+		data?.data?.attributes?.download_url ||
+		'';
+	return typeof link === 'string' && link.trim() ? link.trim() : null;
+}
+
+async function getExistingShareLink(
 	accessToken: string,
 	resourceId: string,
 	apiDomain?: string
 ): Promise<string | null> {
+	const base = getWorkDriveApiBase(apiDomain);
+	try {
+		const response = await fetch(
+			`${base}/files/${encodeURIComponent(resourceId)}/links`,
+			{
+				headers: {
+					Authorization: `Zoho-oauthtoken ${accessToken}`,
+					Accept: 'application/vnd.api+json'
+				}
+			}
+		);
+		if (!response.ok) return null;
+		const data = await response.json().catch(() => null);
+		const links = data?.data;
+		if (!Array.isArray(links) || links.length === 0) return null;
+		// Return the first view link found
+		for (const entry of links) {
+			const url =
+				entry?.attributes?.link ||
+				entry?.attributes?.url ||
+				entry?.attributes?.permalink ||
+				'';
+			if (typeof url === 'string' && url.trim()) return url.trim();
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+async function getOrCreateExternalShareLink(
+	accessToken: string,
+	resourceId: string,
+	apiDomain?: string
+): Promise<string | null> {
+	// First check for an existing share link
+	const existing = await getExistingShareLink(accessToken, resourceId, apiDomain);
+	if (existing) {
+		log.info('Using existing share link', { resourceId });
+		return existing;
+	}
+
+	// Create a new one
 	const base = getWorkDriveApiBase(apiDomain);
 	const shortId = resourceId.slice(-12);
 	const payload = {
@@ -135,13 +188,7 @@ async function createExternalShareLink(
 			return null;
 		}
 		const data = await response.json().catch(() => null);
-		const link =
-			data?.data?.attributes?.link ||
-			data?.data?.attributes?.url ||
-			data?.data?.attributes?.permalink ||
-			data?.data?.attributes?.download_url ||
-			'';
-		return typeof link === 'string' && link.trim() ? link.trim() : null;
+		return extractShareLinkUrl(data);
 	} catch (err) {
 		log.info('createExternalShareLink error', { resourceId, error: String(err) });
 		return null;
@@ -191,7 +238,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (typeof designsFieldValue === 'string' && designsFieldValue.trim()) {
 		const designsFolderId = extractWorkDriveFolderId(designsFieldValue.trim());
 		if (designsFolderId) {
-			const shareLink = await createExternalShareLink(accessToken, designsFolderId, apiDomain);
+			const shareLink = await getOrCreateExternalShareLink(accessToken, designsFolderId, apiDomain);
 			if (shareLink) {
 				return json({ url: shareLink });
 			}
@@ -203,7 +250,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		if (hash) {
 			const resolvedId = await resolveExternalLink(accessToken, hash, apiDomain);
 			if (resolvedId) {
-				const shareLink = await createExternalShareLink(accessToken, resolvedId, apiDomain);
+				const shareLink = await getOrCreateExternalShareLink(accessToken, resolvedId, apiDomain);
 				if (shareLink) {
 					return json({ url: shareLink });
 				}
@@ -303,7 +350,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	}
 
 	// Step 6: Create a scoped external share link for the design folder only
-	const shareLink = await createExternalShareLink(accessToken, designFolder.id, apiDomain);
+	const shareLink = await getOrCreateExternalShareLink(accessToken, designFolder.id, apiDomain);
 	if (shareLink) {
 		return json({ url: shareLink });
 	}
