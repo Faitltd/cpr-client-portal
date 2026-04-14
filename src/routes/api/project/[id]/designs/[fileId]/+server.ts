@@ -9,17 +9,37 @@ function safeFileName(value: string) {
 	return value.replace(/[^\x20-\x7E]/g, '_').replace(/[/\\]/g, '_').replace(/"/g, "'");
 }
 
-/** Content types that browsers can display inline (PDFs, images). */
-const INLINE_TYPES = new Set([
-	'application/pdf',
-	'image/jpeg',
-	'image/png',
-	'image/gif',
-	'image/webp',
-	'image/svg+xml',
-	'image/bmp',
-	'image/tiff'
-]);
+/** Map file extensions to MIME types for browser-displayable formats. */
+const EXT_TO_MIME: Record<string, string> = {
+	pdf: 'application/pdf',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	svg: 'image/svg+xml',
+	bmp: 'image/bmp',
+	tif: 'image/tiff',
+	tiff: 'image/tiff',
+	heic: 'image/heic',
+	heif: 'image/heif'
+};
+
+/** Content types that browsers can display inline. */
+const INLINE_TYPES = new Set(Object.values(EXT_TO_MIME));
+
+function inferMimeFromName(name: string): string {
+	const ext = name.split('.').pop()?.toLowerCase() || '';
+	return EXT_TO_MIME[ext] || '';
+}
+
+function resolveContentType(responseType: string, fileName: string): string {
+	const normalized = (responseType || '').split(';')[0].trim().toLowerCase();
+	// If WorkDrive returned a real content type, use it
+	if (normalized && normalized !== 'application/octet-stream') return normalized;
+	// Otherwise infer from the file name
+	return inferMimeFromName(fileName) || normalized || 'application/octet-stream';
+}
 
 function dispositionFor(contentType: string): 'inline' | 'attachment' {
 	const lower = (contentType || '').split(';')[0].trim().toLowerCase();
@@ -92,6 +112,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 
 	const { accessToken, apiDomain } = await getAccessToken();
 	const candidates = getWorkDriveDownloadCandidates(apiDomain);
+	const fileName = url.searchParams.get('fileName') || '';
 	let lastStatus = 500;
 	let lastMessage = '';
 
@@ -108,7 +129,12 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			continue;
 		}
 
-		const contentType = response.headers.get('content-type') || 'application/octet-stream';
+		const nameFromHeader = extractFileNameFromDisposition(response.headers.get('content-disposition'));
+		const finalName = safeFileName(fileName || nameFromHeader || fileId || 'file');
+
+		// WorkDrive often returns application/octet-stream — infer real type from filename
+		const rawContentType = response.headers.get('content-type') || 'application/octet-stream';
+		const contentType = resolveContentType(rawContentType, finalName);
 		const disposition = dispositionFor(contentType);
 
 		const headers = new Headers();
@@ -119,9 +145,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			headers.set('Content-Length', contentLength);
 		}
 
-		const nameFromQuery = url.searchParams.get('fileName') || '';
-		const nameFromHeader = extractFileNameFromDisposition(response.headers.get('content-disposition'));
-		const finalName = safeFileName(nameFromQuery || nameFromHeader || fileId || 'file');
 		headers.set('Content-Disposition', `${disposition}; filename="${finalName}"`);
 
 		return new Response(response.body, { status: 200, headers });
