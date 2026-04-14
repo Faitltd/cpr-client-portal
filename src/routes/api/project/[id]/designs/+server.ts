@@ -100,6 +100,58 @@ async function getParentFolderId(
 	}
 }
 
+/** Recursively scan any object for a zohoexternal.com URL string. */
+function findExternalUrl(node: unknown, depth = 0): string | null {
+	if (depth > 5 || node === null || node === undefined) return null;
+	if (typeof node === 'string') {
+		return /zohoexternal\.com/i.test(node) ? node : null;
+	}
+	if (Array.isArray(node)) {
+		for (const item of node) {
+			const found = findExternalUrl(item, depth + 1);
+			if (found) return found;
+		}
+		return null;
+	}
+	if (typeof node === 'object') {
+		for (const val of Object.values(node as Record<string, unknown>)) {
+			const found = findExternalUrl(val, depth + 1);
+			if (found) return found;
+		}
+	}
+	return null;
+}
+
+/**
+ * Check folder metadata for an existing external (zohoexternal.com) share URL.
+ */
+async function getFolderPermalink(
+	accessToken: string,
+	folderId: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const base = getWorkDriveApiBase(apiDomain);
+	try {
+		const response = await fetch(`${base}/files/${encodeURIComponent(folderId)}`, {
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				'Content-Type': 'application/json'
+			}
+		});
+		if (!response.ok) return null;
+		const data = await response.json().catch(() => null);
+		const attrs = data?.data?.attributes || {};
+		const externalUrl = findExternalUrl(attrs);
+		if (externalUrl) {
+			log.info('designs getFolderPermalink: found external URL', { folderId, url: externalUrl });
+			return externalUrl;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
 export const GET: RequestHandler = async ({ cookies, params }) => {
 	const sessionToken = cookies.get('portal_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
@@ -129,72 +181,59 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const deal = dealResponse?.data?.[0];
 	const dealName = deal?.Deal_Name || '';
 
-	log.info('Client design folder lookup', {
-		dealId,
-		dealName,
-		designs: deal?.Designs ? String(deal.Designs).slice(0, 100) : null,
-		clientPortalFolder: deal?.Client_Portal_Folder ? String(deal.Client_Portal_Folder).slice(0, 100) : null,
-		externalLink: deal?.External_Link ? String(deal.External_Link).slice(0, 100) : null
-	});
+	log.info('Client design folder lookup', { dealId, dealName });
 
-	// If the CRM "Designs" field contains a WorkDrive folder ID, use it directly
-	let designFolderId = '';
+	// ── Priority 1: CRM "Designs" field has a direct URL ──────────────
 	const designsFieldValue = deal?.Designs;
+	if (typeof designsFieldValue === 'string' && /^https?:\/\//i.test(designsFieldValue.trim())) {
+		return json({ url: designsFieldValue.trim() });
+	}
+
+	// ── Priority 2: Find the design folder and get its external permalink ──
+	let designFolderId = '';
+
+	// If CRM Designs field has a WorkDrive folder ID or external link hash
 	if (typeof designsFieldValue === 'string' && designsFieldValue.trim()) {
 		const extracted = extractWorkDriveFolderId(designsFieldValue.trim());
-		if (extracted) {
-			designFolderId = extracted;
-			log.info('Client designs: folder ID from Designs CRM field', { dealId, designFolderId });
-		} else {
+		if (extracted) designFolderId = extracted;
+
+		if (!designFolderId) {
 			const hash = extractExternalLinkHash(designsFieldValue.trim());
 			if (hash) {
 				const resolved = await resolveExternalLink(accessToken, hash, apiDomain);
-				if (resolved) {
-					designFolderId = resolved;
-					log.info('Client designs: resolved Designs CRM field external link', { dealId, designFolderId });
-				}
+				if (resolved) designFolderId = resolved;
 			}
 		}
 	}
 
-	// If no direct design folder, look up via project folder
+	// Otherwise look up the project folder and find the design subfolder
 	if (!designFolderId) {
 		let projectFolderId = '';
 
-		// Check folder cache
 		try {
 			const cached = await getCachedFolder(dealId, 'root');
 			if (cached) projectFolderId = cached.folderId;
 		} catch {}
 
-		// Try extracting folder ID from CRM fields
 		if (!projectFolderId) {
 			for (const field of [deal?.Client_Portal_Folder, deal?.External_Link]) {
 				if (!field) continue;
 				const extracted = extractWorkDriveFolderId(field) || '';
-				if (extracted) {
-					projectFolderId = extracted;
-					break;
-				}
+				if (extracted) { projectFolderId = extracted; break; }
 			}
 		}
 
-		// Try resolving external share links
 		if (!projectFolderId) {
 			for (const field of [deal?.Client_Portal_Folder, deal?.External_Link]) {
 				if (!field) continue;
 				const hash = extractExternalLinkHash(field);
 				if (hash) {
 					const resolved = await resolveExternalLink(accessToken, hash, apiDomain);
-					if (resolved) {
-						projectFolderId = resolved;
-						break;
-					}
+					if (resolved) { projectFolderId = resolved; break; }
 				}
 			}
 		}
 
-		// Search root WorkDrive folder by deal name
 		if (!projectFolderId) {
 			const rootId = getRootFolderId();
 			if (rootId) {
@@ -203,55 +242,55 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 					try {
 						let searchFolderId = rootId;
 						const rootItems = await listWorkDriveFolder(accessToken, rootId, apiDomain);
-
 						if (looksLikeProjectContents(rootItems)) {
 							const parentId = await getParentFolderId(accessToken, rootId, apiDomain);
 							if (parentId) searchFolderId = parentId;
 						}
-
 						const parentItems = searchFolderId !== rootId
 							? await listWorkDriveFolder(accessToken, searchFolderId, apiDomain)
 							: rootItems;
-
 						const match = findBestFolderByName(parentItems, candidates);
 						if (match) {
 							projectFolderId = match.id;
 							try { await setCachedFolder(dealId, 'root', match.id, match.name); } catch {}
 						}
-					} catch (err) {
-						log.info('Client design folder: root search failed', { dealId, error: String(err) });
-					}
+					} catch {}
 				}
 			}
 		}
 
 		if (!projectFolderId) {
-			return json({ files: [], message: 'Project folder not found' });
+			return json({ url: null, message: 'Project folder not found' });
 		}
 
-		// Find "Design and Planning" subfolder
 		const items = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 		const designFolder = findDesignFolder(items);
-
 		if (!designFolder) {
-			return json({ files: [], message: 'Design folder not found' });
+			return json({ url: null, message: 'Design folder not found' });
 		}
-
 		designFolderId = designFolder.id;
 	}
 
-	// List all files in the design folder
-	const designItems = await listWorkDriveFolder(accessToken, designFolderId, apiDomain);
-	const files = designItems
-		.filter((item) => item.type === 'file')
-		.map((file) => ({
-			id: file.id,
-			name: file.name,
-			size: file.size,
-			mime: file.mime,
-			modifiedTime: file.modifiedTime,
-			url: `/api/project/${encodeURIComponent(dealId)}/designs/${encodeURIComponent(file.id)}?fileName=${encodeURIComponent(file.name || 'file')}`
-		}));
+	// ── Get the external permalink for the design folder ──────────────
+	const cacheKey = `${dealId}:designs`;
 
-	return json({ files, designFolderId });
+	// Check cache first
+	try {
+		const cached = await getCachedFolder(cacheKey, 'view-url');
+		if (cached?.folderId) {
+			return json({ url: cached.folderId });
+		}
+	} catch {}
+
+	// Check folder metadata for an external share URL
+	const externalUrl = await getFolderPermalink(accessToken, designFolderId, apiDomain);
+	if (externalUrl) {
+		try { await setCachedFolder(cacheKey, 'view-url', externalUrl); } catch {}
+		return json({ url: externalUrl });
+	}
+
+	// Fall back to the WorkDrive folder URL — this requires Zoho login but
+	// is scoped to just this design folder, not the entire drive.
+	const folderUrl = `https://workdrive.zoho.com/folder/${designFolderId}`;
+	return json({ url: folderUrl });
 };
