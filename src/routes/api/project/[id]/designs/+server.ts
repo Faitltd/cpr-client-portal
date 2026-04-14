@@ -263,8 +263,24 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 			return json({ url: null, message: 'Project folder not found' });
 		}
 
+		// List contents and look for the design subfolder
 		const items = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
-		const designFolder = findDesignFolder(items);
+		let designFolder = findDesignFolder(items);
+
+		// If not found, the CRM field may point to a sibling folder (e.g. "Client Portal")
+		// rather than the project root. Navigate up to the parent and search there.
+		if (!designFolder) {
+			log.info('Client designs: not found in resolved folder, checking parent', { dealId, projectFolderId });
+			const parentId = await getParentFolderId(accessToken, projectFolderId, apiDomain);
+			if (parentId) {
+				const parentItems = await listWorkDriveFolder(accessToken, parentId, apiDomain);
+				designFolder = findDesignFolder(parentItems);
+				if (designFolder) {
+					log.info('Client designs: found in parent folder', { dealId, parentId, designFolder: designFolder.name });
+				}
+			}
+		}
+
 		if (!designFolder) {
 			return json({ url: null, message: 'Design folder not found' });
 		}
