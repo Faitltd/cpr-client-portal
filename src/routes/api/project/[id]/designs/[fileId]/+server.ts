@@ -9,6 +9,23 @@ function safeFileName(value: string) {
 	return value.replace(/[^\x20-\x7E]/g, '_').replace(/[/\\]/g, '_').replace(/"/g, "'");
 }
 
+/** Content types that browsers can display inline (PDFs, images). */
+const INLINE_TYPES = new Set([
+	'application/pdf',
+	'image/jpeg',
+	'image/png',
+	'image/gif',
+	'image/webp',
+	'image/svg+xml',
+	'image/bmp',
+	'image/tiff'
+]);
+
+function dispositionFor(contentType: string): 'inline' | 'attachment' {
+	const lower = (contentType || '').split(';')[0].trim().toLowerCase();
+	return INLINE_TYPES.has(lower) ? 'inline' : 'attachment';
+}
+
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) return date.toISOString();
@@ -91,16 +108,23 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 			continue;
 		}
 
-		const headers = new Headers();
 		const contentType = response.headers.get('content-type') || 'application/octet-stream';
+		const disposition = dispositionFor(contentType);
+
+		const headers = new Headers();
 		headers.set('Content-Type', contentType);
+
+		const contentLength = response.headers.get('content-length');
+		if (contentLength) {
+			headers.set('Content-Length', contentLength);
+		}
 
 		const nameFromQuery = url.searchParams.get('fileName') || '';
 		const nameFromHeader = extractFileNameFromDisposition(response.headers.get('content-disposition'));
 		const finalName = safeFileName(nameFromQuery || nameFromHeader || fileId || 'file');
-		headers.set('Content-Disposition', `inline; filename="${finalName}"`);
+		headers.set('Content-Disposition', `${disposition}; filename="${finalName}"`);
 
-		return new Response(response.body, { status: response.status, headers });
+		return new Response(response.body, { status: 200, headers });
 	}
 
 	throw error(lastStatus, lastMessage || 'Failed to download file');
