@@ -37,7 +37,7 @@
 
 	// Designs
 	let designsOpen = false;
-	let designFiles: { id: string; name: string; url: string; size: number | null }[] = [];
+	let designFiles: { id: string; name: string; url: string; modifiedTime: string | null }[] = [];
 	let designLoading = false;
 	let designMessage = '';
 
@@ -64,13 +64,6 @@
 			designLoading = false;
 		}
 	}
-
-	const formatFileSize = (bytes: number | null) => {
-		if (!bytes || bytes <= 0) return '';
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	};
 
 	// Contracts / Documents / Access Info
 	let contracts: any[] = [];
@@ -363,12 +356,12 @@
 						{#each designFiles as file (file.id)}
 							<div class="doc-item">
 								<a href={file.url} target="_blank" class="doc-link">{file.name || 'File'}</a>
-								{#if file.size}<span class="meta-text">{formatFileSize(file.size)}</span>{/if}
+								<span class="meta-text">{file.modifiedTime ? new Date(file.modifiedTime).toLocaleDateString() : ''}</span>
 							</div>
 						{/each}
 					</div>
 				{:else}
-					<p class="muted-text">No designs available.{#if designMessage} ({designMessage}){/if}</p>
+					<p class="muted-text">No designs available.</p>
 				{/if}
 			{/if}
 		</section>
