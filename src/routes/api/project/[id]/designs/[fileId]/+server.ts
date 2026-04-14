@@ -132,22 +132,23 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 		const nameFromHeader = extractFileNameFromDisposition(response.headers.get('content-disposition'));
 		const finalName = safeFileName(fileName || nameFromHeader || fileId || 'file');
 
-		// WorkDrive often returns application/octet-stream — infer real type from filename
+		// WorkDrive returns application/octet-stream — infer real type from filename
 		const rawContentType = response.headers.get('content-type') || 'application/octet-stream';
 		const contentType = resolveContentType(rawContentType, finalName);
 		const disposition = dispositionFor(contentType);
 
-		const headers = new Headers();
-		headers.set('Content-Type', contentType);
+		// Buffer the full response body so we control all headers completely —
+		// streaming response.body can leak WorkDrive's download-forcing headers.
+		const body = await response.arrayBuffer();
 
-		const contentLength = response.headers.get('content-length');
-		if (contentLength) {
-			headers.set('Content-Length', contentLength);
-		}
-
-		headers.set('Content-Disposition', `${disposition}; filename="${finalName}"`);
-
-		return new Response(response.body, { status: 200, headers });
+		return new Response(body, {
+			status: 200,
+			headers: {
+				'Content-Type': contentType,
+				'Content-Length': String(body.byteLength),
+				'Content-Disposition': `${disposition}; filename="${finalName}"`
+			}
+		});
 	}
 
 	throw error(lastStatus, lastMessage || 'Failed to download file');
