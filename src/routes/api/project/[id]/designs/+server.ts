@@ -271,26 +271,30 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		designFolderId = designFolder.id;
 	}
 
-	// ── Get the external permalink for the design folder ──────────────
-	const cacheKey = `${dealId}:designs`;
+	// ── Get the external permalink for the design subfolder ───────────
+	// Use a cache key that includes the actual folder ID to avoid stale entries
+	// from earlier versions that may have cached the parent project folder URL.
+	const cacheKey = `${dealId}:design-folder:${designFolderId}`;
 
 	// Check cache first
 	try {
 		const cached = await getCachedFolder(cacheKey, 'view-url');
 		if (cached?.folderId) {
-			return json({ url: cached.folderId });
+			log.info('Client designs: cache hit', { dealId, designFolderId, url: cached.folderId });
+			return json({ url: cached.folderId, folderId: designFolderId });
 		}
 	} catch {}
 
 	// Check folder metadata for an external share URL
 	const externalUrl = await getFolderPermalink(accessToken, designFolderId, apiDomain);
 	if (externalUrl) {
+		log.info('Client designs: external permalink found', { dealId, designFolderId, url: externalUrl });
 		try { await setCachedFolder(cacheKey, 'view-url', externalUrl); } catch {}
-		return json({ url: externalUrl });
+		return json({ url: externalUrl, folderId: designFolderId });
 	}
 
-	// Fall back to the WorkDrive folder URL — this requires Zoho login but
-	// is scoped to just this design folder, not the entire drive.
+	// Fall back to the WorkDrive folder URL for the design subfolder specifically.
 	const folderUrl = `https://workdrive.zoho.com/folder/${designFolderId}`;
-	return json({ url: folderUrl });
+	log.info('Client designs: using direct folder URL', { dealId, designFolderId, folderUrl });
+	return json({ url: folderUrl, folderId: designFolderId });
 };
