@@ -37,29 +37,21 @@
 
 	// Designs
 	let designsOpen = false;
-	let designFiles: { id: string; name: string; url: string; modifiedTime: string | null }[] = [];
+	let designUrl: string | null = null;
 	let designLoading = false;
-	let designMessage = '';
 
-	async function loadDesignFiles() {
+	async function loadDesignLink() {
 		if (projects.length === 0) return;
 		designLoading = true;
-		designMessage = '';
 		try {
 			const pid = projects[0].id;
 			const res = await fetch(`/api/project/${encodeURIComponent(pid)}/designs`);
-			const data = await res.json().catch(() => ({}));
 			if (res.ok) {
-				designFiles = data?.files || [];
-				if (designFiles.length === 0 && data?.message) {
-					designMessage = data.message;
-				}
-			} else {
-				designMessage = data?.message || `Error ${res.status}`;
+				const data = await res.json();
+				designUrl = data?.url || null;
 			}
 		} catch {
-			designFiles = [];
-			designMessage = 'Failed to load designs';
+			designUrl = null;
 		} finally {
 			designLoading = false;
 		}
@@ -282,7 +274,7 @@
 			}
 			documentsLoading = false;
 
-			loadDesignFiles();
+			loadDesignLink();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -351,14 +343,11 @@
 			{#if designsOpen}
 				{#if designLoading}
 					<p class="muted-text">Loading...</p>
-				{:else if designFiles.length > 0}
+				{:else if designUrl}
 					<div class="doc-list">
-						{#each designFiles as file (file.id)}
-							<div class="doc-item">
-								<a href={file.url} target="_blank" class="doc-link">{file.name || 'File'}</a>
-								<span class="meta-text">{file.modifiedTime ? new Date(file.modifiedTime).toLocaleDateString() : ''}</span>
-							</div>
-						{/each}
+						<div class="doc-item">
+							<a href={designUrl} target="_blank" rel="noreferrer" class="doc-link">View Designs</a>
+						</div>
 					</div>
 				{:else}
 					<p class="muted-text">No designs available.</p>
