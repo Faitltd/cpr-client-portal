@@ -36,9 +36,9 @@
 		return hay.includes(needle);
 	});
 
-	function onDealUpdated(event: CustomEvent<{ dealId: string; fields: Record<string, unknown> }>) {
-		const { dealId, fields } = event.detail;
-		deals = deals.map((deal) => (deal.id === dealId ? { ...deal, fields } : deal));
+	function onDealUpdated(event: CustomEvent<{ dealId: string; deal: DesignerDealSummary }>) {
+		const { dealId, deal: updatedDeal } = event.detail;
+		deals = deals.map((deal) => (deal.id === dealId ? updatedDeal : deal));
 	}
 </script>
 
