@@ -3,9 +3,11 @@ import { createHash } from 'crypto';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import {
+	createDesignerSession,
 	createSession,
 	createTradeSession,
 	getClientAuthByEmail,
+	getDesignerAuthByEmail,
 	getTradePartnerAuthByEmail
 } from '$lib/server/db';
 import { reconcileClientPhoneLogin } from '$lib/server/client-login';
@@ -108,6 +110,36 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			return json({ message: 'Login successful.', redirect: '/dashboard', role: 'client' });
 		}
 		throw redirect(303, '/dashboard');
+	}
+
+	const designer = await getDesignerAuthByEmail(email);
+	if (designer && designer.active !== false && verifyPassword(password, designer.password_hash)) {
+		const sessionId = createHash('sha256')
+			.update(`${designer.id}:${Date.now()}:${Math.random()}`)
+			.digest('hex');
+		const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+		const ipAddress = getClientAddress ? getClientAddress() : null;
+
+		await createDesignerSession({
+			session_token: sessionId,
+			designer_id: designer.id,
+			expires_at: sessionExpiresAt,
+			ip_address: ipAddress,
+			user_agent: request.headers.get('user-agent')
+		});
+
+		cookies.set('portal_session', sessionId, {
+			path: '/',
+			httpOnly: true,
+			secure: !dev,
+			sameSite: 'strict',
+			maxAge: 60 * 60 * 24 * 7
+		});
+
+		if (expectsJson) {
+			return json({ message: 'Login successful.', redirect: '/designer', role: 'designer' });
+		}
+		throw redirect(303, '/designer');
 	}
 
 	const tradePartner = await getTradePartnerAuthByEmail(email);
