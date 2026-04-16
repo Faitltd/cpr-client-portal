@@ -276,10 +276,12 @@ async function paginateFilteredDeals(
 	const fields = DESIGNER_DEAL_FIELDS.join(',');
 	const summaries: DesignerDealSummary[] = [];
 
+	// Ask Zoho to sort by Deal_Name asc so pagination is alphabetical end-to-end
+	// (if we ever hit the page cap, we'd keep A–M rather than a random slice).
 	for (let page = 1; page <= maxPages; page += 1) {
 		const response = await zohoCall(
 			ctx,
-			`/Deals?fields=${encodeURIComponent(fields)}&per_page=${perPage}&page=${page}&sort_by=Modified_Time&sort_order=desc`
+			`/Deals?fields=${encodeURIComponent(fields)}&per_page=${perPage}&page=${page}&sort_by=Deal_Name&sort_order=asc`
 		);
 		const pageData = Array.isArray(response.data) ? response.data : [];
 		if (pageData.length === 0) break;
@@ -293,6 +295,12 @@ async function paginateFilteredDeals(
 		if (hasMore === false) break;
 		if (hasMore !== true && pageData.length < perPage) break;
 	}
+
+	// Secondary in-JS sort for locale-aware, case-insensitive ordering —
+	// Zoho's collation may otherwise group by ASCII (uppercase before lowercase).
+	summaries.sort((a, b) =>
+		a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+	);
 
 	return summaries;
 }
