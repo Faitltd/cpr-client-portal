@@ -41,6 +41,13 @@
 	let ballInCourtError = '';
 	let ballInCourtSavedAt: number | null = null;
 
+	// Ball-in-court note: short companion note for the BIC status. Same inline
+	// pattern as above.
+	let ballInCourtNoteDraft: string = deal.ballInCourtNote ?? '';
+	let savingBallInCourtNote = false;
+	let ballInCourtNoteError = '';
+	let ballInCourtNoteSavedAt: number | null = null;
+
 	const dispatch = createEventDispatcher<{
 		dealUpdated: { dealId: string; deal: DesignerDealSummary };
 	}>();
@@ -54,7 +61,7 @@
 
 	// Fields with a dedicated inline editor in the summary row — skip rendering
 	// them inside the expanded Deal editor so there's only one input per field.
-	const INLINE_HEADER_FIELD_KEYS = new Set(['Ball_In_Court']);
+	const INLINE_HEADER_FIELD_KEYS = new Set(['Ball_In_Court', 'Ball_In_Court_Note']);
 
 	const GROUP_ORDER: DealFieldGroup[] = ['core', 'scope', 'address', 'access', 'system'];
 	const GROUP_LABEL: Record<DealFieldGroup, string> = {
@@ -293,6 +300,56 @@
 		}
 	}
 
+	async function commitBallInCourtNote() {
+		const next = ballInCourtNoteDraft.trim();
+		const current = (deal.ballInCourtNote ?? '').trim();
+		if (next === current) return;
+		savingBallInCourtNote = true;
+		ballInCourtNoteError = '';
+		ballInCourtNoteSavedAt = null;
+		try {
+			const res = await fetch(`/api/designer/deals/${encodeURIComponent(deal.id)}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ fields: { Ball_In_Court_Note: next === '' ? null : next } })
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				ballInCourtNoteError = data.message || `Failed to save (${res.status})`;
+				ballInCourtNoteDraft = deal.ballInCourtNote ?? '';
+				return;
+			}
+			const updatedDeal: DesignerDealSummary | undefined = data?.deal;
+			if (updatedDeal) {
+				ballInCourtNoteDraft = updatedDeal.ballInCourtNote ?? '';
+				dispatch('dealUpdated', { dealId: deal.id, deal: updatedDeal });
+			} else {
+				ballInCourtNoteDraft = next;
+			}
+			ballInCourtNoteSavedAt = Date.now();
+			setTimeout(() => {
+				ballInCourtNoteSavedAt = null;
+			}, 1800);
+		} catch (err) {
+			ballInCourtNoteError = err instanceof Error ? err.message : 'Failed to save';
+			ballInCourtNoteDraft = deal.ballInCourtNote ?? '';
+		} finally {
+			savingBallInCourtNote = false;
+		}
+	}
+
+	function onBallInCourtNoteKey(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			(event.target as HTMLInputElement).blur();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			ballInCourtNoteDraft = deal.ballInCourtNote ?? '';
+			ballInCourtNoteError = '';
+			(event.target as HTMLInputElement).blur();
+		}
+	}
+
 	function onHeaderKey(event: KeyboardEvent) {
 		if (event.key === 'Enter' || event.key === ' ') {
 			// Don't toggle when the keystroke is coming from the inline editor.
@@ -358,10 +415,34 @@
 						{/if}
 					</dd>
 				</div>
-				<div>
-					<dt>Latest note</dt>
+				<div
+					class="bic-cell"
+					on:click|stopPropagation
+					on:keydown|stopPropagation
+					role="presentation"
+				>
+					<dt>
+						<label for={`bicnote-${deal.id}`}>Ball in court note</label>
+					</dt>
 					<dd>
-						{latestNote?.Created_Time ? formatRelativeTime(latestNote.Created_Time) : '—'}
+						<input
+							id={`bicnote-${deal.id}`}
+							class="bic-input"
+							type="text"
+							bind:value={ballInCourtNoteDraft}
+							on:blur={commitBallInCourtNote}
+							on:keydown={onBallInCourtNoteKey}
+							placeholder="—"
+							disabled={savingBallInCourtNote}
+							aria-busy={savingBallInCourtNote}
+						/>
+						{#if savingBallInCourtNote}
+							<span class="bic-status" aria-live="polite">Saving…</span>
+						{:else if ballInCourtNoteError}
+							<span class="bic-status error" role="alert">{ballInCourtNoteError}</span>
+						{:else if ballInCourtNoteSavedAt}
+							<span class="bic-status success" role="status">Saved</span>
+						{/if}
 					</dd>
 				</div>
 			</dl>

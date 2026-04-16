@@ -23,6 +23,7 @@ export type DesignerDealSummary = {
 	accountId: string | null;
 	address: string | null;
 	ballInCourt: string | null;
+	ballInCourtNote: string | null;
 	workdriveUrl: string | null;
 	modifiedTime: string | null;
 	createdTime: string | null;
@@ -103,6 +104,14 @@ export const DESIGNER_DEAL_FIELD_DESCRIPTORS: readonly DealFieldDescriptor[] = [
 		group: 'core',
 		editable: true,
 		helpText: 'Who owns the current action on this deal.'
+	},
+	{
+		key: 'Ball_In_Court_Note',
+		label: 'Ball in court note',
+		kind: 'text',
+		group: 'core',
+		editable: true,
+		helpText: 'Short note accompanying the current ball-in-court status.'
 	},
 	{ key: 'Amount', label: 'Amount', kind: 'currency', group: 'core', editable: true },
 	{ key: 'Closing_Date', label: 'Closing date', kind: 'date', group: 'core', editable: true },

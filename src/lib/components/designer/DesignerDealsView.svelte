@@ -42,7 +42,8 @@
 			deal.contactName,
 			deal.accountName,
 			deal.address,
-			deal.ballInCourt
+			deal.ballInCourt,
+			deal.ballInCourtNote
 		]
 			.filter(Boolean)
 			.join(' ')
