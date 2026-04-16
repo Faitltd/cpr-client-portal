@@ -22,7 +22,14 @@
 		if (stageFilter && deal.stage !== stageFilter) return false;
 		if (!query.trim()) return true;
 		const needle = query.trim().toLowerCase();
-		const hay = [deal.name, deal.stage, deal.contactName, deal.accountName, deal.address]
+		const hay = [
+			deal.name,
+			deal.stage,
+			deal.contactName,
+			deal.accountName,
+			deal.address,
+			deal.ballInCourt
+		]
 			.filter(Boolean)
 			.join(' ')
 			.toLowerCase();

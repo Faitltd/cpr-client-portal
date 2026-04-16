@@ -22,6 +22,7 @@ export type DesignerDealSummary = {
 	accountName: string | null;
 	accountId: string | null;
 	address: string | null;
+	ballInCourt: string | null;
 	workdriveUrl: string | null;
 	modifiedTime: string | null;
 	createdTime: string | null;
@@ -94,6 +95,14 @@ export const DESIGNER_DEAL_FIELD_DESCRIPTORS: readonly DealFieldDescriptor[] = [
 		group: 'core',
 		editable: false,
 		helpText: 'Changed from the Zoho CRM stage pipeline.'
+	},
+	{
+		key: 'Ball_In_Court',
+		label: 'Ball in court',
+		kind: 'text',
+		group: 'core',
+		editable: true,
+		helpText: 'Who owns the current action on this deal.'
 	},
 	{ key: 'Amount', label: 'Amount', kind: 'currency', group: 'core', editable: true },
 	{ key: 'Closing_Date', label: 'Closing date', kind: 'date', group: 'core', editable: true },

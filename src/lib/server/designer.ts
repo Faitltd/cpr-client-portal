@@ -220,6 +220,7 @@ export function summarizeDeal(raw: any): DesignerDealSummary | null {
 		accountName: pickLookupName(normalized?.Account_Name),
 		accountId: pickLookupId(normalized?.Account_Name),
 		address: pickAddress(normalized),
+		ballInCourt: pickLookupName(normalized?.Ball_In_Court),
 		workdriveUrl: extractWorkDriveUrl(normalized),
 		modifiedTime: typeof normalized?.Modified_Time === 'string' ? normalized.Modified_Time : null,
 		createdTime: typeof normalized?.Created_Time === 'string' ? normalized.Created_Time : null,

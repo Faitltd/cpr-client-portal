@@ -251,9 +251,10 @@
 				{#if deal.accountName && deal.accountName !== deal.contactName}
 					<div><dt>Account</dt><dd>{deal.accountName}</dd></div>
 				{/if}
-				{#if deal.address}
-					<div><dt>Address</dt><dd>{deal.address}</dd></div>
-				{/if}
+				<div>
+					<dt>Ball in court</dt>
+					<dd>{deal.ballInCourt ?? '—'}</dd>
+				</div>
 				<div>
 					<dt>Latest note</dt>
 					<dd>
