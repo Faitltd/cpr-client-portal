@@ -394,6 +394,143 @@ export async function listTradePartnersForAdmin(): Promise<TradePartnerListItem[
 	return (data as TradePartnerListItem[]) || [];
 }
 
+// ---------------------------------------------------------------------------
+// Designers (role: designer) — reuses the portal_session cookie model.
+// Sessions live in a dedicated table so the existing client flow is untouched.
+// ---------------------------------------------------------------------------
+
+export interface Designer {
+	id: string;
+	email: string;
+	name?: string | null;
+	active?: boolean | null;
+}
+
+export interface DesignerAuth {
+	id: string;
+	email: string;
+	password_hash: string | null;
+	active?: boolean | null;
+}
+
+export interface DesignerSessionRecord {
+	session_token: string;
+	designer_id: string;
+	expires_at: string;
+	ip_address?: string | null;
+	user_agent?: string | null;
+}
+
+export interface DesignerSession extends DesignerSessionRecord {
+	designer: Designer;
+}
+
+export async function getDesignerAuthByEmail(email: string): Promise<DesignerAuth | null> {
+	const { data, error } = await getSupabase()
+		.from('designers')
+		.select('id, email, password_hash, active')
+		.ilike('email', email)
+		.single();
+
+	if (error || !data) return null;
+	return data as DesignerAuth;
+}
+
+export async function getDesignerById(id: string): Promise<Designer | null> {
+	const { data, error } = await getSupabase()
+		.from('designers')
+		.select('id, email, name, active')
+		.eq('id', id)
+		.single();
+
+	if (error || !data) return null;
+	return data as Designer;
+}
+
+export async function upsertDesigner(
+	input: { email: string; name?: string | null; active?: boolean }
+): Promise<Designer> {
+	const row = {
+		email: input.email.toLowerCase(),
+		name: input.name ?? null,
+		active: input.active ?? true,
+		updated_at: new Date().toISOString()
+	};
+
+	const { data, error } = await getSupabase()
+		.from('designers')
+		.upsert([row], { onConflict: 'email', defaultToNull: false })
+		.select('id, email, name, active')
+		.single();
+
+	if (error) throw new Error(`Designer upsert failed: ${error.message}`);
+	return data as Designer;
+}
+
+export async function setDesignerPassword(designerId: string, passwordHash: string): Promise<void> {
+	const { error } = await getSupabase()
+		.from('designers')
+		.update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+		.eq('id', designerId);
+
+	if (error) throw new Error(`Designer password update failed: ${error.message}`);
+}
+
+export async function createDesignerSession(sessionData: DesignerSessionRecord): Promise<void> {
+	const { error } = await getSupabase().from('designer_sessions').insert(sessionData);
+	if (error) throw new Error(`Designer session create failed: ${error.message}`);
+}
+
+export async function getDesignerSession(sessionToken: string): Promise<DesignerSession | null> {
+	const nowIso = new Date().toISOString();
+	const { data, error } = await getSupabase()
+		.from('designer_sessions')
+		.select(
+			`session_token,
+			 designer_id,
+			 expires_at,
+			 designers (
+				id,
+				email,
+				name,
+				active
+			 )`
+		)
+		.eq('session_token', sessionToken)
+		.gt('expires_at', nowIso)
+		.single();
+
+	if (error || !data || !data.designers) return null;
+
+	const designer = Array.isArray(data.designers) ? data.designers[0] : data.designers;
+	if (!designer) return null;
+	if (designer.active === false) return null;
+
+	return {
+		session_token: data.session_token,
+		designer_id: data.designer_id,
+		expires_at: data.expires_at,
+		designer: designer as Designer
+	};
+}
+
+export async function deleteDesignerSession(sessionToken: string): Promise<void> {
+	await getSupabase().from('designer_sessions').delete().eq('session_token', sessionToken);
+}
+
+export type DesignerListItem = { id: string; email: string; name: string | null; active: boolean | null };
+
+export async function listDesigners(): Promise<DesignerListItem[]> {
+	const { data, error } = await getSupabase()
+		.from('designers')
+		.select('id, email, name, active')
+		.order('name', { ascending: true, nullsFirst: false })
+		.order('email', { ascending: true });
+
+	if (error) throw new Error(`Designer list failed: ${error.message}`);
+	return (data as DesignerListItem[]) || [];
+}
+
 
 /**
  * Fetch latest Zoho tokens

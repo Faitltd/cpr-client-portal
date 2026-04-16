@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { deleteSession, deleteTradeSession } from '$lib/server/db';
+import { deleteDesignerSession, deleteSession, deleteTradeSession } from '$lib/server/db';
 import type { RequestHandler } from './$types';
 
 const handleLogout: RequestHandler = async ({ cookies, url }) => {
@@ -7,8 +7,10 @@ const handleLogout: RequestHandler = async ({ cookies, url }) => {
 	const tradeSessionId = cookies.get('trade_session');
 
 	if (sessionId) {
-		// Delete session from database
+		// portal_session may map to either a client_sessions row or a designer_sessions row.
+		// Try both — unmatched deletes are no-ops.
 		await deleteSession(sessionId);
+		await deleteDesignerSession(sessionId);
 	}
 	if (tradeSessionId) {
 		await deleteTradeSession(tradeSessionId);
