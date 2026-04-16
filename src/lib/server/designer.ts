@@ -232,7 +232,35 @@ export function summarizeDeal(raw: any): DesignerDealSummary | null {
 // ---------------------------------------------------------------------------
 
 /**
+ * Stages hidden from the designer dashboard. Matches $lib/server/auth
+ * `normalizeStage` convention: lowercased, with any trailing `(n%)` stripped.
+ * Designers shouldn't be surfaced deals that are already closed out.
+ */
+const DESIGNER_EXCLUDED_STAGES: ReadonlySet<string> = new Set(['completed', 'on hold', 'lost']);
+
+function normalizeStageName(raw: unknown): string {
+	let value: unknown = raw;
+	if (value && typeof value === 'object') {
+		value = (value as any).name ?? (value as any).display_value ?? '';
+	}
+	if (typeof value !== 'string') return '';
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/\s*\(\s*\d+\s*%?\s*\)\s*/g, '')
+		.trim();
+}
+
+function isDealStageVisibleToDesigner(rawDeal: any): boolean {
+	const normalized = normalizeStageName(rawDeal?.Stage);
+	if (!normalized) return true; // stageless deals remain visible
+	return !DESIGNER_EXCLUDED_STAGES.has(normalized);
+}
+
+/**
  * Fetch every Deal from Zoho CRM, paginating until the result set is exhausted.
+ * Deals in closed-out stages (Completed, On Hold, Lost) are filtered out —
+ * the designer dashboard surfaces only actionable deals.
  * Returns frontend-friendly summaries sorted by `Modified_Time desc`.
  */
 export async function getAllDeals(): Promise<DesignerDealSummary[]> {
@@ -250,6 +278,7 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
 		const pageData = Array.isArray(response.data) ? response.data : [];
 		if (pageData.length === 0) break;
 		for (const raw of pageData) {
+			if (!isDealStageVisibleToDesigner(raw)) continue;
 			const summary = summarizeDeal(raw);
 			if (summary) summaries.push(summary);
 		}
