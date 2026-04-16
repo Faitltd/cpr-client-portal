@@ -246,6 +246,7 @@ const ACTIVE_VIEW_EXCLUDED_STAGES: ReadonlySet<string> = new Set([
 ]);
 
 const PROJECT_CREATED_STAGE = 'project created';
+const ON_HOLD_STAGE = 'on hold';
 
 function normalizeStageName(raw: unknown): string {
 	let value: unknown = raw;
@@ -310,6 +311,14 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
  */
 export async function getProjectCreatedDeals(): Promise<DesignerDealSummary[]> {
 	return paginateFilteredDeals((stage) => stage === PROJECT_CREATED_STAGE);
+}
+
+/**
+ * Deals whose Stage is exactly "On Hold" — the dedicated on-hold view.
+ * Stageless deals are NOT included here.
+ */
+export async function getOnHoldDeals(): Promise<DesignerDealSummary[]> {
+	return paginateFilteredDeals((stage) => stage === ON_HOLD_STAGE);
 }
 
 /**
@@ -466,7 +475,7 @@ export type DesignerDashboardContext = {
  * that should redirect to the login screen. Zoho failures surface via
  * `warning` so the page can render an empty list rather than 500.
  */
-export type DesignerDashboardScope = 'active' | 'project-created';
+export type DesignerDashboardScope = 'active' | 'project-created' | 'on-hold';
 
 export async function getDesignerDashboardContext(
 	sessionToken: string | null | undefined,
@@ -482,7 +491,12 @@ export async function getDesignerDashboardContext(
 	let deals: DesignerDealSummary[] = [];
 	let warning = '';
 	try {
-		deals = scope === 'project-created' ? await getProjectCreatedDeals() : await getAllDeals();
+		deals =
+			scope === 'project-created'
+				? await getProjectCreatedDeals()
+				: scope === 'on-hold'
+					? await getOnHoldDeals()
+					: await getAllDeals();
 	} catch (err) {
 		warning = err instanceof Error ? err.message : 'Unable to load deals';
 		log.warn('getDesignerDashboardContext: deal load failed', { scope, warning });
