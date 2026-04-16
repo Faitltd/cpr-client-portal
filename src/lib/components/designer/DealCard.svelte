@@ -34,8 +34,15 @@
 
 	let historyOpen = false;
 
+	// Inline Ball-in-court editor in the summary row — small text field that saves
+	// on blur/Enter and propagates the updated deal back to the parent.
+	let ballInCourtDraft: string = deal.ballInCourt ?? '';
+	let savingBallInCourt = false;
+	let ballInCourtError = '';
+	let ballInCourtSavedAt: number | null = null;
+
 	const dispatch = createEventDispatcher<{
-		dealUpdated: { dealId: string; fields: Record<string, unknown> };
+		dealUpdated: { dealId: string; deal: DesignerDealSummary };
 	}>();
 
 	$: latestNote = notes[0] ?? null;
@@ -44,6 +51,10 @@
 	// All descriptors — we render every one. The form treats non-editable
 	// descriptors as display-only. The server still enforces the whitelist.
 	$: groupedFields = groupByOrder(fieldDescriptors);
+
+	// Fields with a dedicated inline editor in the summary row — skip rendering
+	// them inside the expanded Deal editor so there's only one input per field.
+	const INLINE_HEADER_FIELD_KEYS = new Set(['Ball_In_Court']);
 
 	const GROUP_ORDER: DealFieldGroup[] = ['core', 'scope', 'address', 'access', 'system'];
 	const GROUP_LABEL: Record<DealFieldGroup, string> = {
@@ -58,6 +69,7 @@
 		const map = new Map<DealFieldGroup, DealFieldDescriptor[]>();
 		for (const group of GROUP_ORDER) map.set(group, []);
 		for (const d of all) {
+			if (INLINE_HEADER_FIELD_KEYS.has(d.key)) continue;
 			const bucket = map.get(d.group) ?? [];
 			bucket.push(d);
 			map.set(d.group, bucket);
@@ -215,8 +227,11 @@
 				return;
 			}
 			savedAt = Date.now();
-			const nextFields = data?.deal?.fields ?? { ...deal.fields, ...delta };
-			dispatch('dealUpdated', { dealId: deal.id, fields: nextFields });
+			const updatedDeal: DesignerDealSummary = data?.deal ?? {
+				...deal,
+				fields: { ...deal.fields, ...delta }
+			};
+			dispatch('dealUpdated', { dealId: deal.id, deal: updatedDeal });
 			// Re-seed draft from the server-authoritative fields so subsequent
 			// delta calculations compare against the saved state.
 			await tick();
@@ -227,15 +242,77 @@
 			saving = false;
 		}
 	}
+
+	async function commitBallInCourt() {
+		const next = ballInCourtDraft.trim();
+		const current = (deal.ballInCourt ?? '').trim();
+		if (next === current) return;
+		savingBallInCourt = true;
+		ballInCourtError = '';
+		ballInCourtSavedAt = null;
+		try {
+			const res = await fetch(`/api/designer/deals/${encodeURIComponent(deal.id)}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ fields: { Ball_In_Court: next === '' ? null : next } })
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				ballInCourtError = data.message || `Failed to save (${res.status})`;
+				ballInCourtDraft = deal.ballInCourt ?? '';
+				return;
+			}
+			const updatedDeal: DesignerDealSummary | undefined = data?.deal;
+			if (updatedDeal) {
+				ballInCourtDraft = updatedDeal.ballInCourt ?? '';
+				dispatch('dealUpdated', { dealId: deal.id, deal: updatedDeal });
+			} else {
+				ballInCourtDraft = next;
+			}
+			ballInCourtSavedAt = Date.now();
+			setTimeout(() => {
+				ballInCourtSavedAt = null;
+			}, 1800);
+		} catch (err) {
+			ballInCourtError = err instanceof Error ? err.message : 'Failed to save';
+			ballInCourtDraft = deal.ballInCourt ?? '';
+		} finally {
+			savingBallInCourt = false;
+		}
+	}
+
+	function onBallInCourtKey(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			(event.target as HTMLInputElement).blur();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			ballInCourtDraft = deal.ballInCourt ?? '';
+			ballInCourtError = '';
+			(event.target as HTMLInputElement).blur();
+		}
+	}
+
+	function onHeaderKey(event: KeyboardEvent) {
+		if (event.key === 'Enter' || event.key === ' ') {
+			// Don't toggle when the keystroke is coming from the inline editor.
+			const target = event.target as HTMLElement | null;
+			if (target && target.closest('.bic-cell')) return;
+			event.preventDefault();
+			void toggle();
+		}
+	}
 </script>
 
 <section class="card" aria-labelledby={`deal-${deal.id}-title`} class:expanded>
-	<button
-		type="button"
+	<div
 		class="header"
+		role="button"
+		tabindex="0"
 		aria-expanded={expanded}
 		aria-controls={`deal-${deal.id}-body`}
 		on:click={toggle}
+		on:keydown={onHeaderKey}
 	>
 		<div class="header-main">
 			<div class="header-top">
@@ -251,9 +328,35 @@
 				{#if deal.accountName && deal.accountName !== deal.contactName}
 					<div><dt>Account</dt><dd>{deal.accountName}</dd></div>
 				{/if}
-				<div>
-					<dt>Ball in court</dt>
-					<dd>{deal.ballInCourt ?? '—'}</dd>
+				<div
+					class="bic-cell"
+					on:click|stopPropagation
+					on:keydown|stopPropagation
+					role="presentation"
+				>
+					<dt>
+						<label for={`bic-${deal.id}`}>Ball in court</label>
+					</dt>
+					<dd>
+						<input
+							id={`bic-${deal.id}`}
+							class="bic-input"
+							type="text"
+							bind:value={ballInCourtDraft}
+							on:blur={commitBallInCourt}
+							on:keydown={onBallInCourtKey}
+							placeholder="—"
+							disabled={savingBallInCourt}
+							aria-busy={savingBallInCourt}
+						/>
+						{#if savingBallInCourt}
+							<span class="bic-status" aria-live="polite">Saving…</span>
+						{:else if ballInCourtError}
+							<span class="bic-status error" role="alert">{ballInCourtError}</span>
+						{:else if ballInCourtSavedAt}
+							<span class="bic-status success" role="status">Saved</span>
+						{/if}
+					</dd>
 				</div>
 				<div>
 					<dt>Latest note</dt>
@@ -264,7 +367,7 @@
 			</dl>
 		</div>
 		<span class="chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-	</button>
+	</div>
 
 	{#if expanded}
 		<div class="body" id={`deal-${deal.id}-body`}>
@@ -530,6 +633,60 @@
 		font-size: 0.9rem;
 		color: #6b7280;
 		padding-top: 0.2rem;
+	}
+
+	/* Inline Ball-in-court editor lives in the summary row and must not trigger
+	   the header toggle when interacted with. */
+	.bic-cell {
+		cursor: text;
+	}
+
+	.bic-input {
+		width: 100%;
+		box-sizing: border-box;
+		border: 1px solid transparent;
+		background: transparent;
+		padding: 0.2rem 0.35rem;
+		margin: -0.2rem -0.35rem;
+		font: inherit;
+		color: #111827;
+		border-radius: 4px;
+		transition: border-color 0.15s ease, background 0.15s ease;
+	}
+
+	.bic-input::placeholder {
+		color: #9ca3af;
+	}
+
+	.bic-input:hover:not(:disabled) {
+		border-color: #d1d5db;
+		background: #fff;
+	}
+
+	.bic-input:focus {
+		outline: none;
+		border-color: #2563eb;
+		background: #fff;
+	}
+
+	.bic-input:disabled {
+		opacity: 0.7;
+		cursor: progress;
+	}
+
+	.bic-status {
+		display: inline-block;
+		font-size: 0.7rem;
+		margin-top: 0.15rem;
+		color: #6b7280;
+	}
+
+	.bic-status.error {
+		color: #b91c1c;
+	}
+
+	.bic-status.success {
+		color: #047857;
 	}
 
 	.body {
