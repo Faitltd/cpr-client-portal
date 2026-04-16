@@ -263,6 +263,15 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
 }
 
 /**
+ * Fields requested when reading Notes. Zoho CRM v8 requires an explicit
+ * `fields` list on related-list GETs; omitting it returns
+ * REQUIRED_PARAM_MISSING {param_name: "fields"}.
+ */
+const NOTE_FIELDS = ['Note_Title', 'Note_Content', 'Created_Time', 'Modified_Time', 'Owner'].join(
+	','
+);
+
+/**
  * Fetch Zoho CRM Notes attached to a specific Deal, newest first. Paginated
  * to completion so long histories aren't silently truncated.
  */
@@ -275,7 +284,7 @@ export async function getDealNotes(dealId: string): Promise<DesignerNote[]> {
 	for (let page = 1; page <= maxPages; page += 1) {
 		const response = await zohoCall(
 			ctx,
-			`/Deals/${encodeURIComponent(dealId)}/Notes?sort_by=Created_Time&sort_order=desc&per_page=${perPage}&page=${page}`
+			`/Deals/${encodeURIComponent(dealId)}/Notes?fields=${encodeURIComponent(NOTE_FIELDS)}&sort_by=Created_Time&sort_order=desc&per_page=${perPage}&page=${page}`
 		);
 		const rows = Array.isArray(response.data) ? response.data : [];
 		if (rows.length === 0) break;
