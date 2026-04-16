@@ -58,7 +58,8 @@
 	$: pathname = $page.url.pathname;
 	$: tabs = [
 		{ href: '/designer', label: 'Active Deals' },
-		{ href: '/designer/projects', label: 'Project Created' }
+		{ href: '/designer/projects', label: 'Project Created' },
+		{ href: '/designer/on-hold', label: 'On Hold' }
 	];
 </script>
 
