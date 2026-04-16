@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>Active Deals · Designer · CPR Portal</title>
+	<title>Project Created · Designer · CPR Portal</title>
 </svelte:head>
 
 <DesignerDealsView
@@ -15,6 +15,6 @@
 	warning={data.warning}
 	fieldDescriptors={data.fieldDescriptors}
 	{designerLabel}
-	heading="Active Deals"
-	emptyMessage="No active deals found."
+	heading="Project Created"
+	emptyMessage="No deals currently in Project Created stage."
 />
