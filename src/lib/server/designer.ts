@@ -276,12 +276,15 @@ async function paginateFilteredDeals(
 	const fields = DESIGNER_DEAL_FIELDS.join(',');
 	const summaries: DesignerDealSummary[] = [];
 
-	// Ask Zoho to sort by Deal_Name asc so pagination is alphabetical end-to-end
-	// (if we ever hit the page cap, we'd keep A–M rather than a random slice).
+	// Zoho only permits sort_by on id, Created_Time, or Modified_Time for Deals
+	// (Deal_Name is rejected with INVALID_DATA). We use Modified_Time desc so
+	// if we ever hit the 30-page cap we truncate to the most recently active
+	// deals rather than a random slice; alphabetical order is then produced by
+	// the localeCompare pass below.
 	for (let page = 1; page <= maxPages; page += 1) {
 		const response = await zohoCall(
 			ctx,
-			`/Deals?fields=${encodeURIComponent(fields)}&per_page=${perPage}&page=${page}&sort_by=Deal_Name&sort_order=asc`
+			`/Deals?fields=${encodeURIComponent(fields)}&per_page=${perPage}&page=${page}&sort_by=Modified_Time&sort_order=desc`
 		);
 		const pageData = Array.isArray(response.data) ? response.data : [];
 		if (pageData.length === 0) break;
