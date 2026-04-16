@@ -7,11 +7,7 @@
 		DesignerDealSummary,
 		DesignerNote
 	} from '$lib/types/designer';
-	import {
-		formatAbsoluteTimestamp,
-		formatCompactTimestamp,
-		formatRelativeTime
-	} from './note-format';
+	import { formatAbsoluteTimestamp, formatCompactTimestamp } from './note-format';
 
 	export let deal: DesignerDealSummary;
 	export let fieldDescriptors: DealFieldDescriptor[];
@@ -25,7 +21,6 @@
 	let composerBusy = false;
 	let composerError = '';
 	let composerTextarea: HTMLTextAreaElement | null = null;
-	let justSavedFlash = false;
 
 	let draft: Record<string, string> = {};
 	let saving = false;
@@ -52,8 +47,6 @@
 		dealUpdated: { dealId: string; deal: DesignerDealSummary };
 	}>();
 
-	$: latestNote = notes[0] ?? null;
-	$: olderNotes = notes.slice(1);
 
 	// All descriptors — we render every one. The form treats non-editable
 	// descriptors as display-only. The server still enforces the whitelist.
@@ -181,8 +174,6 @@
 			if (data?.note) {
 				notes = [data.note, ...notes];
 				composerText = '';
-				justSavedFlash = true;
-				setTimeout(() => (justSavedFlash = false), 1500);
 				await tick();
 				composerTextarea?.focus({ preventScroll: true });
 			}
@@ -452,43 +443,7 @@
 
 	{#if expanded}
 		<div class="body" id={`deal-${deal.id}-body`}>
-			<!-- 1. Hero: latest note -->
-			<section class="latest-note-hero" aria-label="Latest note" class:flash={justSavedFlash}>
-				<header class="latest-head">
-					<h3>Latest note</h3>
-					{#if latestNote?.Created_Time}
-						<time
-							class="latest-time"
-							datetime={latestNote.Created_Time}
-							title={formatAbsoluteTimestamp(latestNote.Created_Time)}
-						>
-							<span class="rel">{formatRelativeTime(latestNote.Created_Time)}</span>
-							<span class="abs">{formatAbsoluteTimestamp(latestNote.Created_Time)}</span>
-						</time>
-					{/if}
-				</header>
-
-				{#if loadingNotes && notes.length === 0}
-					<p class="hero-state loading">Loading notes…</p>
-				{:else if notesError}
-					<p class="hero-state error" role="alert">
-						{notesError}
-						<button type="button" class="link" on:click={loadNotes}>Retry</button>
-					</p>
-				{:else if latestNote}
-					<p class="hero-body">{latestNote.Note_Content}</p>
-					{#if latestNote.owner_name}
-						<p class="hero-author">— {latestNote.owner_name}</p>
-					{/if}
-				{:else}
-					<div class="hero-empty">
-						<p class="hero-empty-title">No notes yet</p>
-						<p class="hero-empty-sub">Add the first note below to start a history.</p>
-					</div>
-				{/if}
-			</section>
-
-			<!-- 2. Composer -->
+			<!-- 1. Composer -->
 			<form class="composer" on:submit={submitNote} aria-label="Add note">
 				<label for={`note-${deal.id}`} class="composer-label">Add a note</label>
 				<textarea
@@ -515,28 +470,32 @@
 				</div>
 			</form>
 
-			<!-- 3. History -->
-			<section class="history" aria-label="Note history">
+			<!-- 2. Notes -->
+			<section class="history" aria-label="Notes">
 				<header class="history-head">
-					<h3>Earlier notes</h3>
-					{#if olderNotes.length > 3}
+					<h3>Notes</h3>
+					{#if notes.length > 3}
 						<button
 							type="button"
 							class="link"
 							on:click={() => (historyOpen = !historyOpen)}
 							aria-expanded={historyOpen}
 						>
-							{historyOpen ? 'Show fewer' : `Show all ${olderNotes.length}`}
+							{historyOpen ? 'Show fewer' : `Show all ${notes.length}`}
 						</button>
 					{/if}
 				</header>
 				{#if loadingNotes && notes.length === 0}
 					<p class="muted">Loading…</p>
-				{:else if olderNotes.length === 0}
-					<p class="muted">No earlier notes.</p>
+				{:else if notesError}
+					<p class="muted" role="alert">
+						{notesError} <button type="button" class="link" on:click={loadNotes}>Retry</button>
+					</p>
+				{:else if notes.length === 0}
+					<p class="muted">No notes yet. Add one above.</p>
 				{:else}
 					<ol class="history-list">
-						{#each (historyOpen ? olderNotes : olderNotes.slice(0, 3)) as note (note.id)}
+						{#each (historyOpen ? notes : notes.slice(0, 3)) as note (note.id)}
 							<li>
 								<time
 									datetime={note.Created_Time ?? ''}
@@ -554,7 +513,7 @@
 				{/if}
 			</section>
 
-			<!-- 4. Editable deal fields -->
+			<!-- 3. Editable deal fields -->
 			<details class="fields-wrap">
 				<summary>Deal fields</summary>
 				<form class="fields" on:submit={saveFields} aria-label="Edit deal fields">
@@ -612,7 +571,7 @@
 				</form>
 			</details>
 
-			<!-- 5. WorkDrive link -->
+			<!-- 4. WorkDrive link -->
 			<section class="workdrive" aria-label="WorkDrive">
 				{#if deal.workdriveUrl}
 					<a class="wd-link" href={deal.workdriveUrl} target="_blank" rel="noopener noreferrer">
@@ -775,101 +734,6 @@
 		padding: 1.25rem;
 		display: grid;
 		gap: 1.25rem;
-	}
-
-	/* Latest-note hero */
-
-	.latest-note-hero {
-		background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
-		border: 1px solid #fcd34d;
-		border-radius: 10px;
-		padding: 1.1rem 1.25rem;
-		display: grid;
-		gap: 0.6rem;
-		transition: box-shadow 0.25s ease, transform 0.25s ease;
-	}
-
-	.latest-note-hero.flash {
-		box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35);
-	}
-
-	.latest-head {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 1rem;
-		flex-wrap: wrap;
-	}
-
-	.latest-head h3 {
-		margin: 0;
-		font-size: 0.75rem;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #92400e;
-		font-weight: 700;
-	}
-
-	.latest-time {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		line-height: 1.1;
-	}
-
-	.latest-time .rel {
-		font-size: 1rem;
-		font-weight: 700;
-		color: #78350f;
-	}
-
-	.latest-time .abs {
-		font-size: 0.72rem;
-		color: #92400e;
-	}
-
-	.hero-body {
-		margin: 0;
-		white-space: pre-wrap;
-		color: #1f2937;
-		font-size: 1.05rem;
-		line-height: 1.55;
-		font-weight: 500;
-	}
-
-	.hero-author {
-		margin: 0;
-		color: #78350f;
-		font-size: 0.85rem;
-		font-style: italic;
-	}
-
-	.hero-state {
-		margin: 0;
-		color: #78350f;
-		font-size: 0.95rem;
-	}
-
-	.hero-state.error {
-		color: #b91c1c;
-	}
-
-	.hero-empty {
-		text-align: center;
-		padding: 0.35rem 0;
-	}
-
-	.hero-empty-title {
-		margin: 0;
-		font-size: 1.05rem;
-		font-weight: 700;
-		color: #78350f;
-	}
-
-	.hero-empty-sub {
-		margin: 0.2rem 0 0 0;
-		color: #92400e;
-		font-size: 0.9rem;
 	}
 
 	/* Composer */
@@ -1156,9 +1020,6 @@
 		}
 		.chevron {
 			align-self: flex-end;
-		}
-		.latest-time {
-			align-items: flex-start;
 		}
 	}
 </style>
