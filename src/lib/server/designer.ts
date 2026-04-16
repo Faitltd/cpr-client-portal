@@ -233,11 +233,19 @@ export function summarizeDeal(raw: any): DesignerDealSummary | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Stages hidden from the designer dashboard. Matches $lib/server/auth
+ * Stages hidden from the main designer dashboard. Matches $lib/server/auth
  * `normalizeStage` convention: lowercased, with any trailing `(n%)` stripped.
- * Designers shouldn't be surfaced deals that are already closed out.
+ * `project created` lives on its own page, closed-out states are hidden
+ * entirely.
  */
-const DESIGNER_EXCLUDED_STAGES: ReadonlySet<string> = new Set(['completed', 'on hold', 'lost']);
+const ACTIVE_VIEW_EXCLUDED_STAGES: ReadonlySet<string> = new Set([
+	'completed',
+	'on hold',
+	'lost',
+	'project created'
+]);
+
+const PROJECT_CREATED_STAGE = 'project created';
 
 function normalizeStageName(raw: unknown): string {
 	let value: unknown = raw;
@@ -252,19 +260,14 @@ function normalizeStageName(raw: unknown): string {
 		.trim();
 }
 
-function isDealStageVisibleToDesigner(rawDeal: any): boolean {
-	const normalized = normalizeStageName(rawDeal?.Stage);
-	if (!normalized) return true; // stageless deals remain visible
-	return !DESIGNER_EXCLUDED_STAGES.has(normalized);
-}
-
 /**
- * Fetch every Deal from Zoho CRM, paginating until the result set is exhausted.
- * Deals in closed-out stages (Completed, On Hold, Lost) are filtered out —
- * the designer dashboard surfaces only actionable deals.
- * Returns frontend-friendly summaries sorted by `Modified_Time desc`.
+ * Paginated fetch of all Deals, filtering each raw record through
+ * `stagePredicate(normalizedStage)`. The predicate receives '' for stageless
+ * deals — callers decide whether to include those.
  */
-export async function getAllDeals(): Promise<DesignerDealSummary[]> {
+async function paginateFilteredDeals(
+	stagePredicate: (normalizedStage: string) => boolean
+): Promise<DesignerDealSummary[]> {
 	const ctx = await resolveAdminZohoContext();
 	const perPage = 200;
 	const maxPages = 30;
@@ -279,7 +282,7 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
 		const pageData = Array.isArray(response.data) ? response.data : [];
 		if (pageData.length === 0) break;
 		for (const raw of pageData) {
-			if (!isDealStageVisibleToDesigner(raw)) continue;
+			if (!stagePredicate(normalizeStageName(raw?.Stage))) continue;
 			const summary = summarizeDeal(raw);
 			if (summary) summaries.push(summary);
 		}
@@ -290,6 +293,23 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
 	}
 
 	return summaries;
+}
+
+/**
+ * Active deals for the main designer dashboard — hides closed-out stages
+ * (Completed, On Hold, Lost) AND Project Created (which lives on its own page).
+ * Stageless deals remain visible so WIP records aren't accidentally hidden.
+ */
+export async function getAllDeals(): Promise<DesignerDealSummary[]> {
+	return paginateFilteredDeals((stage) => !ACTIVE_VIEW_EXCLUDED_STAGES.has(stage));
+}
+
+/**
+ * Deals whose Stage is exactly "Project Created" — the dedicated projects view.
+ * Stageless deals are NOT included here.
+ */
+export async function getProjectCreatedDeals(): Promise<DesignerDealSummary[]> {
+	return paginateFilteredDeals((stage) => stage === PROJECT_CREATED_STAGE);
 }
 
 /**
@@ -446,8 +466,11 @@ export type DesignerDashboardContext = {
  * that should redirect to the login screen. Zoho failures surface via
  * `warning` so the page can render an empty list rather than 500.
  */
+export type DesignerDashboardScope = 'active' | 'project-created';
+
 export async function getDesignerDashboardContext(
-	sessionToken: string | null | undefined
+	sessionToken: string | null | undefined,
+	scope: DesignerDashboardScope = 'active'
 ): Promise<DesignerDashboardContext | null> {
 	const normalizedToken = typeof sessionToken === 'string' ? sessionToken.trim() : '';
 	if (!normalizedToken) return null;
@@ -459,10 +482,10 @@ export async function getDesignerDashboardContext(
 	let deals: DesignerDealSummary[] = [];
 	let warning = '';
 	try {
-		deals = await getAllDeals();
+		deals = scope === 'project-created' ? await getProjectCreatedDeals() : await getAllDeals();
 	} catch (err) {
 		warning = err instanceof Error ? err.message : 'Unable to load deals';
-		log.warn('getDesignerDashboardContext: deal load failed', { warning });
+		log.warn('getDesignerDashboardContext: deal load failed', { scope, warning });
 	}
 
 	return {
