@@ -13,6 +13,7 @@ import {
 } from '$lib/server/db';
 import { reconcileClientPhoneLogin } from '$lib/server/client-login';
 import { verifyClientPasswordInput } from '$lib/server/client-password';
+import { verifyTradePartnerLogin } from '$lib/server/trade-login';
 import {
 	createAdminSession,
 	getAdminSessionMaxAge,
@@ -143,7 +144,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	const tradePartner = await getTradePartnerAuthByEmail(email);
-	if (tradePartner && verifyPassword(password, tradePartner.password_hash)) {
+	if (tradePartner && (await verifyTradePartnerLogin(tradePartner, password))) {
 		const sessionId = createHash('sha256')
 			.update(`${tradePartner.id}:${Date.now()}:${Math.random()}`)
 			.digest('hex');
