@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { dev } from '$app/environment';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { createTradeSession, getTradePartnerAuthByEmail } from '$lib/server/db';
-import { verifyPassword } from '$lib/server/password';
+import { verifyTradePartnerLogin } from '$lib/server/trade-login';
 import type { RequestHandler } from './$types';
 
 const isJsonRequest = (request: Request) =>
@@ -40,7 +40,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	const tradePartner = await getTradePartnerAuthByEmail(email);
-	if (!tradePartner || !verifyPassword(password, tradePartner.password_hash)) {
+	if (!tradePartner || !(await verifyTradePartnerLogin(tradePartner, password))) {
 		if (expectsJson) {
 			return json({ message: 'Invalid email or password.' }, { status: 401 });
 		}

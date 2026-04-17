@@ -136,6 +136,7 @@ export interface TradePartnerAuth {
 	id: string;
 	email: string;
 	password_hash: string | null;
+	phone?: string | null;
 }
 
 export interface TradeSessionRecord {
@@ -309,7 +310,7 @@ export async function deleteSession(sessionToken: string): Promise<void> {
 export async function getTradePartnerAuthByEmail(email: string): Promise<TradePartnerAuth | null> {
 	return findRecordByNormalizedEmail<TradePartnerAuth>(
 		'trade_partners',
-		'id, email, password_hash',
+		'id, email, password_hash, phone',
 		email
 	);
 }
