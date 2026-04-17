@@ -1,7 +1,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
+import {
+	findNormalizedEmailMatch,
+	normalizeEmailAddress,
+	normalizeStoredPasswordHash
+} from './auth-normalization';
 
 let supabaseClient: SupabaseClient<any, any, any> | null = null;
+
+type EmailRecord = { email: string | null | undefined };
 
 function getSupabase() {
 	if (supabaseClient) return supabaseClient;
@@ -16,6 +23,70 @@ function getSupabase() {
 		auth: { persistSession: false }
 	});
 	return supabaseClient;
+}
+
+function normalizeAuthRecord<T extends EmailRecord>(record: T): T {
+	if (!record) return record;
+
+	return {
+		...record,
+		email: normalizeEmailAddress(record.email),
+		...(Object.prototype.hasOwnProperty.call(record, 'password_hash')
+			? {
+					password_hash: normalizeStoredPasswordHash(
+						(record as T & { password_hash?: string | null }).password_hash ?? null
+					)
+				}
+			: {})
+	} as T;
+}
+
+async function findRecordByNormalizedEmail<T extends EmailRecord>(
+	table: string,
+	select: string,
+	email: string
+): Promise<T | null> {
+	const normalizedEmail = normalizeEmailAddress(email);
+	if (!normalizedEmail) return null;
+
+	let directLookupError: Error | null = null;
+	const directResult = await getSupabase()
+		.from(table)
+		.select(select)
+		.ilike('email', normalizedEmail)
+		.maybeSingle();
+
+	if (directResult.error) {
+		directLookupError = new Error(`${table} email lookup failed: ${directResult.error.message}`);
+	} else if (directResult.data) {
+		return normalizeAuthRecord(directResult.data as unknown as T);
+	}
+
+	const fallbackResult = await getSupabase().from(table).select(select).not('email', 'is', null);
+	if (fallbackResult.error) {
+		throw new Error(`${table} fallback email lookup failed: ${fallbackResult.error.message}`);
+	}
+
+	let fallbackMatch: T | null = null;
+	try {
+		fallbackMatch = findNormalizedEmailMatch(
+			(fallbackResult.data ?? []) as unknown as T[],
+			normalizedEmail
+		);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`${table} email lookup failed: ${message}`);
+	}
+
+	if (fallbackMatch) {
+		return normalizeAuthRecord(fallbackMatch);
+	}
+
+	if (directLookupError) {
+		throw directLookupError;
+	}
+
+	return null;
 }
 
 export const supabase = new Proxy({} as SupabaseClient<any, any, any>, {
@@ -104,7 +175,7 @@ export interface ZohoTokens {
 export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Client> {
 	const insertData = {
 		zoho_contact_id: clientData.zoho_contact_id,
-		email: clientData.email.toLowerCase(),
+		email: normalizeEmailAddress(clientData.email),
 		first_name: clientData.first_name ?? null,
 		last_name: clientData.last_name ?? null,
 		company: clientData.company ?? null,
@@ -155,28 +226,22 @@ export async function getClientById(clientId: string): Promise<Client | null> {
  * Fetch full client profile by email
  */
 export async function getClientByEmail(email: string): Promise<Client | null> {
-	const { data, error } = await getSupabase()
-		.from('clients')
-		.select('id, zoho_contact_id, email, first_name, last_name, full_name, company, phone, portal_active')
-		.ilike('email', email)
-		.single();
-
-	if (error || !data) return null;
-	return data as Client;
+	return findRecordByNormalizedEmail<Client>(
+		'clients',
+		'id, zoho_contact_id, email, first_name, last_name, full_name, company, phone, portal_active',
+		email
+	);
 }
 
 /**
  * Fetch client auth details by email
  */
 export async function getClientAuthByEmail(email: string): Promise<ClientAuth | null> {
-	const { data, error } = await getSupabase()
-		.from('clients')
-		.select('id, email, password_hash, portal_active')
-		.ilike('email', email)
-		.single();
-
-	if (error || !data) return null;
-	return data as ClientAuth;
+	return findRecordByNormalizedEmail<ClientAuth>(
+		'clients',
+		'id, email, password_hash, portal_active',
+		email
+	);
 }
 
 /**
@@ -250,14 +315,11 @@ export async function deleteSession(sessionToken: string): Promise<void> {
  * Fetch trade partner auth details by email
  */
 export async function getTradePartnerAuthByEmail(email: string): Promise<TradePartnerAuth | null> {
-	const { data, error } = await getSupabase()
-		.from('trade_partners')
-		.select('id, email, password_hash')
-		.ilike('email', email)
-		.single();
-
-	if (error || !data) return null;
-	return data as TradePartnerAuth;
+	return findRecordByNormalizedEmail<TradePartnerAuth>(
+		'trade_partners',
+		'id, email, password_hash',
+		email
+	);
 }
 
 /**
@@ -266,7 +328,7 @@ export async function getTradePartnerAuthByEmail(email: string): Promise<TradePa
 export async function upsertTradePartner(tradePartner: Omit<TradePartner, 'id'>): Promise<TradePartner> {
 	const insertData = {
 		zoho_trade_partner_id: tradePartner.zoho_trade_partner_id,
-		email: tradePartner.email.toLowerCase(),
+		email: normalizeEmailAddress(tradePartner.email),
 		name: tradePartner.name ?? null,
 		company: tradePartner.company ?? null,
 		phone: tradePartner.phone ?? null,
@@ -426,14 +488,11 @@ export interface DesignerSession extends DesignerSessionRecord {
 }
 
 export async function getDesignerAuthByEmail(email: string): Promise<DesignerAuth | null> {
-	const { data, error } = await getSupabase()
-		.from('designers')
-		.select('id, email, password_hash, active')
-		.ilike('email', email)
-		.single();
-
-	if (error || !data) return null;
-	return data as DesignerAuth;
+	return findRecordByNormalizedEmail<DesignerAuth>(
+		'designers',
+		'id, email, password_hash, active',
+		email
+	);
 }
 
 export async function getDesignerById(id: string): Promise<Designer | null> {
@@ -451,7 +510,7 @@ export async function upsertDesigner(
 	input: { email: string; name?: string | null; active?: boolean }
 ): Promise<Designer> {
 	const row = {
-		email: input.email.toLowerCase(),
+		email: normalizeEmailAddress(input.email),
 		name: input.name ?? null,
 		active: input.active ?? true,
 		updated_at: new Date().toISOString()

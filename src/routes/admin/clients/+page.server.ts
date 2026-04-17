@@ -20,6 +20,7 @@ import {
 	upsertTradePartner,
 	upsertZohoTokens
 } from '$lib/server/db';
+import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { normalizeClientPhonePassword } from '$lib/server/client-password';
 import { hashPassword } from '$lib/server/password';
 import type { Actions, PageServerLoad } from './$types';
@@ -158,15 +159,15 @@ export const actions: Actions = {
 				const seedContacts = await listContactsForPasswordSeedDeals(accessToken);
 
 				const activeEmails = new Set(
-					activeContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
+					activeContacts.map((contact) => normalizeEmailAddress(contact.email)).filter(Boolean)
 				);
 				const seedEmails = new Set(
-					seedContacts.map((contact) => contact.email?.toLowerCase()).filter(Boolean)
+					seedContacts.map((contact) => normalizeEmailAddress(contact.email)).filter(Boolean)
 				);
 
 				const contactMap = new Map<string, typeof activeContacts[number]>();
 				for (const contact of [...activeContacts, ...seedContacts]) {
-					const email = contact.email?.toLowerCase();
+					const email = normalizeEmailAddress(contact.email);
 					if (!email) continue;
 					if (!contactMap.has(email)) {
 						contactMap.set(email, contact);
