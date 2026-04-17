@@ -7,6 +7,7 @@
 		DesignerDealSummary,
 		DesignerNote
 	} from '$lib/types/designer';
+	import { formatCrmRichText } from '$lib/html';
 	import { formatAbsoluteTimestamp, formatCompactTimestamp } from './note-format';
 
 	export let deal: DesignerDealSummary;
@@ -506,7 +507,7 @@
 								{#if note.owner_name}
 									<span class="author">· {note.owner_name}</span>
 								{/if}
-								<p>{note.Note_Content}</p>
+								<p>{formatCrmRichText(note.Note_Content)}</p>
 							</li>
 						{/each}
 					</ol>
