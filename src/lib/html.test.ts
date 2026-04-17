@@ -21,4 +21,13 @@ describe('formatCrmRichText', () => {
 
 		expect(formatCrmRichText(input)).toBe('Phase 1\n\nExisting vanity removal\n\nPhase 2');
 	});
+
+	it('removes zero-width separators from CRM note content', () => {
+		const input =
+			'Existing conditions<br>Upstairs hall bath: Oversized tub.<br>​<br><br>Ideas and constraints<br>Plumbing/toilet: Use existing stack.';
+
+		expect(formatCrmRichText(input)).toBe(
+			'Existing conditions\nUpstairs hall bath: Oversized tub.\n\nIdeas and constraints\nPlumbing/toilet: Use existing stack.'
+		);
+	});
 });

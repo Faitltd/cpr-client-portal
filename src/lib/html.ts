@@ -34,6 +34,7 @@ export function formatCrmRichText(value: string | null | undefined): string {
 		.replace(/<\s*\/\s*(p|div|section|article|ul|ol|table|tr|h[1-6])\s*>/gi, '\n\n')
 		.replace(/<\s*\/\s*li\s*>/gi, '')
 		.replace(/<[^>]+>/g, '')
+		.replace(/[\u200B-\u200D\uFEFF]/g, '')
 		.replace(/\u00a0/g, ' ')
 		.replace(/[ \t]+\n/g, '\n')
 		.replace(/\n[ \t]+/g, '\n')
