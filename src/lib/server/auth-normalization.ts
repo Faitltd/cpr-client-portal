@@ -22,7 +22,10 @@ export function findNormalizedEmailMatch<T extends { email: string | null | unde
 
 	if (matches.length === 0) return null;
 	if (matches.length > 1) {
-		throw new Error(`Multiple records matched normalized email ${normalizedEmail}`);
+		console.warn(
+			`Multiple records matched normalized email ${normalizedEmail}; refusing to auto-select. Clean up duplicates to enable login for this address.`
+		);
+		return null;
 	}
 
 	return matches[0];
