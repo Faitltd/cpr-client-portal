@@ -23,6 +23,7 @@ import { verifyPassword } from '$lib/server/password';
 import type { RequestHandler } from './$types';
 
 const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
+const PORTAL_ADMIN_EMAIL = normalizeEmailAddress(env.PORTAL_ADMIN_EMAIL || 'ray@homecpr.pro');
 
 const isJsonRequest = (request: Request) =>
 	request.headers.get('content-type')?.includes('application/json') ?? false;
@@ -57,9 +58,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		throw redirect(303, '/auth/portal?error=invalid');
 	}
 
-	if (!email) {
-		const adminConfigured = isAdminConfigured();
-		if (adminConfigured && PORTAL_ADMIN_PASSWORD && password === PORTAL_ADMIN_PASSWORD) {
+	// ── Admin check (highest priority) ──────────────────────────────────
+	// If email matches the admin email OR no email was provided,
+	// check the admin password first so admin is never shadowed by other roles.
+	const adminConfigured = isAdminConfigured();
+	if (adminConfigured && PORTAL_ADMIN_PASSWORD) {
+		const isAdminEmail = email === PORTAL_ADMIN_EMAIL;
+		const isNoEmail = !email;
+		if ((isAdminEmail || isNoEmail) && password === PORTAL_ADMIN_PASSWORD) {
 			const session = createAdminSession();
 			cookies.set('admin_session', session, {
 				path: '/',
@@ -73,12 +79,16 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			}
 			throw redirect(303, '/admin');
 		}
+	}
+
+	if (!email) {
 		if (expectsJson) {
 			return json({ message: 'Invalid email or password.' }, { status: 401 });
 		}
 		throw redirect(303, '/auth/portal?error=invalid');
 	}
 
+	// ── Client check ────────────────────────────────────────────────────
 	const client = await getClientAuthByEmail(email);
 	const clientPasswordValid = client ? verifyClientPasswordInput(password, client.password_hash) : false;
 	const repairedClient = !client || !clientPasswordValid ? await reconcileClientPhoneLogin(email, password) : null;
@@ -113,6 +123,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		throw redirect(303, '/dashboard');
 	}
 
+	// ── Designer check ──────────────────────────────────────────────────
 	const designer = await getDesignerAuthByEmail(email);
 	if (designer && designer.active !== false && verifyPassword(password, designer.password_hash)) {
 		const sessionId = createHash('sha256')
@@ -143,6 +154,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		throw redirect(303, '/designer');
 	}
 
+	// ── Trade partner check ─────────────────────────────────────────────
 	const tradePartner = await getTradePartnerAuthByEmail(email);
 	if (tradePartner && (await verifyTradePartnerLogin(tradePartner, password))) {
 		const sessionId = createHash('sha256')
@@ -171,22 +183,6 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			return json({ message: 'Login successful.', redirect: '/trade/dashboard', role: 'trade' });
 		}
 		throw redirect(303, '/trade/dashboard');
-	}
-
-	const adminConfigured = isAdminConfigured();
-	if (adminConfigured && PORTAL_ADMIN_PASSWORD && password === PORTAL_ADMIN_PASSWORD) {
-		const session = createAdminSession();
-		cookies.set('admin_session', session, {
-			path: '/',
-			httpOnly: true,
-			secure: !dev,
-			sameSite: 'strict',
-			maxAge: getAdminSessionMaxAge()
-		});
-		if (expectsJson) {
-			return json({ message: 'Login successful.', redirect: '/admin', role: 'admin' });
-		}
-		throw redirect(303, '/admin');
 	}
 
 	if (expectsJson) {
