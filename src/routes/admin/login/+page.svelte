@@ -15,7 +15,9 @@
 		</div>
 	{:else}
 		<form method="POST" class="card">
-			<label for="password">Admin Password</label>
+			<label for="email">Email</label>
+			<input id="email" type="email" name="email" autocomplete="email" />
+			<label for="password">Password</label>
 			<input id="password" type="password" name="password" />
 			<button type="submit">Sign In</button>
 			{#if form?.message}
