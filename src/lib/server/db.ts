@@ -49,41 +49,33 @@ async function findRecordByNormalizedEmail<T extends EmailRecord>(
 	const normalizedEmail = normalizeEmailAddress(email);
 	if (!normalizedEmail) return null;
 
-	let directLookupError: Error | null = null;
 	const directResult = await getSupabase()
 		.from(table)
 		.select(select)
 		.ilike('email', normalizedEmail)
 		.maybeSingle();
 
-	if (directResult.error) {
-		directLookupError = new Error(`${table} email lookup failed: ${directResult.error.message}`);
-	} else if (directResult.data) {
+	if (directResult.data) {
 		return normalizeAuthRecord(directResult.data as unknown as T);
+	}
+
+	if (directResult.error) {
+		console.warn(`${table} email lookup failed: ${directResult.error.message}`);
 	}
 
 	const fallbackResult = await getSupabase().from(table).select(select).not('email', 'is', null);
 	if (fallbackResult.error) {
-		throw new Error(`${table} fallback email lookup failed: ${fallbackResult.error.message}`);
+		console.warn(`${table} fallback email lookup failed: ${fallbackResult.error.message}`);
+		return null;
 	}
 
-	let fallbackMatch: T | null = null;
-	try {
-		fallbackMatch = findNormalizedEmailMatch(
-			(fallbackResult.data ?? []) as unknown as T[],
-			normalizedEmail
-		);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(`${table} email lookup failed: ${message}`);
-	}
+	const fallbackMatch = findNormalizedEmailMatch(
+		(fallbackResult.data ?? []) as unknown as T[],
+		normalizedEmail
+	);
 
 	if (fallbackMatch) {
 		return normalizeAuthRecord(fallbackMatch);
-	}
-
-	if (directLookupError) {
-		throw directLookupError;
 	}
 
 	return null;

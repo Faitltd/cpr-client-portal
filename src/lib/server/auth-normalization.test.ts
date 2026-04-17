@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
 	findNormalizedEmailMatch,
 	normalizeEmailAddress,
@@ -42,15 +42,23 @@ describe('findNormalizedEmailMatch', () => {
 		expect(match).toEqual({ id: '1', email: '  ray@example.com  ' });
 	});
 
-	it('throws when multiple records collapse to the same normalized email', () => {
-		expect(() =>
-			findNormalizedEmailMatch(
+	it('returns null and warns when multiple records collapse to the same normalized email', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		try {
+			const result = findNormalizedEmailMatch(
 				[
 					{ id: '1', email: 'ray@example.com' },
 					{ id: '2', email: ' Ray@example.com ' }
 				],
 				'ray@example.com'
-			)
-		).toThrow('Multiple records matched normalized email ray@example.com');
+			);
+
+			expect(result).toBeNull();
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining('Multiple records matched normalized email ray@example.com')
+			);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 });
