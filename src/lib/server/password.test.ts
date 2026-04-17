@@ -38,6 +38,11 @@ describe('password hashing', () => {
 		expect(verifyPassword('wrong', hashed)).toBe(false);
 	});
 
+	it('verifyPassword accepts stored hashes with surrounding whitespace', () => {
+		const hashed = hashPassword('trim-check');
+		expect(verifyPassword('trim-check', `  ${hashed}  `)).toBe(true);
+	});
+
 	it('different passwords produce different hashes', () => {
 		const alpha = hashPassword('alpha');
 		const beta = hashPassword('beta');

@@ -1,11 +1,11 @@
 import { json, redirect } from '@sveltejs/kit';
 import { createHash } from 'crypto';
 import { dev } from '$app/environment';
+import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { createTradeSession, getTradePartnerAuthByEmail } from '$lib/server/db';
 import { verifyPassword } from '$lib/server/password';
 import type { RequestHandler } from './$types';
 
-const normalizeEmail = (value: string) => value.trim().toLowerCase();
 const isJsonRequest = (request: Request) =>
 	request.headers.get('content-type')?.includes('application/json') ?? false;
 
@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	const credentials = expectsJson
 		? await request.json().catch(() => ({}))
 		: await request.formData();
-	const email = normalizeEmail(
+	const email = normalizeEmailAddress(
 		expectsJson
 			? typeof credentials.email === 'string'
 				? credentials.email

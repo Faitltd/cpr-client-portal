@@ -1,5 +1,6 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto';
 import { env } from '$env/dynamic/private';
+import { normalizeStoredPasswordHash } from './auth-normalization';
 
 const PORTAL_PASSWORD_ITERATIONS = env.PORTAL_PASSWORD_ITERATIONS;
 
@@ -21,8 +22,9 @@ export function hashPassword(password: string) {
 }
 
 export function verifyPassword(password: string, stored: string | null) {
-	if (!stored) return false;
-	const parts = stored.split('$');
+	const normalizedStored = normalizeStoredPasswordHash(stored);
+	if (!normalizedStored) return false;
+	const parts = normalizedStored.split('$');
 	if (parts.length !== 4) return false;
 
 	const [prefix, iterationsRaw, salt, hash] = parts;
