@@ -92,13 +92,13 @@ const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 // Alternative Zoho modules where the trade partner record might actually live.
 // The sync pulls from Trade_Partners, but the ID may belong to Vendors/Contacts/Accounts.
 const ALTERNATIVE_TP_MODULES = ['Vendors', 'Contacts', 'Accounts'];
-const TRADE_PARTNER_RELATED_LISTS = Array.from(
+const TRADE_PARTNER_RELATED_LIST_DEFAULTS = Array.from(
 	new Set(
 		(ZOHO_TRADE_PARTNER_RELATED_LIST || '')
 			.split(',')
 			.map((name) => name.trim())
 			.filter(Boolean)
-			.concat(['Deals', 'Portal_Deals', 'Deals3', 'Portal_Deals3'])
+			.concat(['Deals', 'Portal_Deals', 'Deals3', 'Portal_Deals3', 'Active_Deals3'])
 	)
 );
 
@@ -429,32 +429,99 @@ async function fetchAllDeals(accessToken: string, apiDomain?: string): Promise<a
 	return dedupeDeals(allDeals);
 }
 
+function dealContainsTradePartner(deal: any, tradePartnerId: string) {
+	const field = deal?.Portal_Trade_Partners;
+	if (Array.isArray(field)) {
+		return field.some((item: any) => String(item?.id || '').trim() === tradePartnerId);
+	}
+	if (field && typeof field === 'object') {
+		return String(field?.id || '').trim() === tradePartnerId;
+	}
+	return false;
+}
+
 async function fetchDealsByTradePartnerField(
 	accessToken: string,
 	tradePartnerId: string,
 	apiDomain?: string
 ): Promise<any[]> {
-	const perPage = 200;
-	const maxPages = 20;
-	const matches: any[] = [];
-	const criteria = `(Portal_Trade_Partners:equals:${tradePartnerId})`;
+	const allDeals = await fetchAllDeals(accessToken, apiDomain);
+	return dedupeDeals(allDeals.filter((deal) => dealContainsTradePartner(deal, tradePartnerId)));
+}
 
-	for (let page = 1; page <= maxPages; page += 1) {
-		const response = await zohoApiCall(
+type RelatedListCacheEntry = { fetchedAt: number; apiNames: string[] };
+const TRADE_RELATED_LIST_CACHE_TTL_MS = 10 * 60 * 1000;
+const tradeRelatedListCacheByModule = new Map<string, RelatedListCacheEntry>();
+
+function normalizeRelatedListApiName(value: unknown): string | null {
+	if (typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	return trimmed || null;
+}
+
+function getRelatedListsArray(payload: any) {
+	if (Array.isArray(payload?.related_lists)) return payload.related_lists;
+	if (Array.isArray(payload?.relatedLists)) return payload.relatedLists;
+	if (Array.isArray(payload?.data)) return payload.data;
+	return [];
+}
+
+function isDealsRelatedList(record: any) {
+	if (!record || typeof record !== 'object') return false;
+	const values = [
+		record?.api_name,
+		record?.name,
+		record?.display_label,
+		record?.plural_label,
+		record?.module,
+		record?.module_name,
+		record?.moduleName,
+		record?.module_api_name,
+		record?.moduleApiName
+	];
+	return values.some((value) => typeof value === 'string' && value.toLowerCase().includes('deal'));
+}
+
+async function getTradePartnerRelatedListApiNames(
+	accessToken: string,
+	moduleName: string,
+	apiDomain?: string
+) {
+	const cacheKey = `${apiDomain || 'default'}:${moduleName}`;
+	const cached = tradeRelatedListCacheByModule.get(cacheKey);
+	if (cached && Date.now() - cached.fetchedAt < TRADE_RELATED_LIST_CACHE_TTL_MS) {
+		return cached.apiNames;
+	}
+
+	const discovered: string[] = [];
+	try {
+		const payload = await zohoApiCall(
 			accessToken,
-			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+			`/settings/related_lists?module=${encodeURIComponent(moduleName)}`,
 			{},
 			apiDomain
 		);
-		const pageData = Array.isArray(response.data) ? response.data : [];
-		if (pageData.length === 0) break;
-		matches.push(...pageData);
-		const hasMore = response.info?.more_records;
-		if (hasMore === false) break;
-		if (hasMore !== true && pageData.length < perPage) break;
+		for (const relatedList of getRelatedListsArray(payload)) {
+			if (!isDealsRelatedList(relatedList)) continue;
+			const apiName = normalizeRelatedListApiName(relatedList?.api_name ?? relatedList?.name);
+			if (apiName) discovered.push(apiName);
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Trade partner related-list discovery failed', { moduleName, error: message });
 	}
 
-	return dedupeDeals(matches);
+	const apiNames: string[] = [];
+	const seen = new Set<string>();
+	for (const apiName of [...TRADE_PARTNER_RELATED_LIST_DEFAULTS, ...discovered]) {
+		const normalized = normalizeRelatedListApiName(apiName);
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		apiNames.push(normalized);
+	}
+
+	tradeRelatedListCacheByModule.set(cacheKey, { fetchedAt: Date.now(), apiNames });
+	return apiNames;
 }
 
 async function fetchTradePartnerRelatedListRecords(
@@ -496,7 +563,12 @@ async function fetchDealsByTradePartnerRelatedLists(
 	const records: any[] = [];
 
 	for (const moduleName of moduleNames) {
-		for (const relatedList of TRADE_PARTNER_RELATED_LISTS) {
+		const relatedListApiNames = await getTradePartnerRelatedListApiNames(
+			accessToken,
+			moduleName,
+			apiDomain
+		);
+		for (const relatedList of relatedListApiNames) {
 			try {
 				const data = await fetchTradePartnerRelatedListRecords(
 					accessToken,
@@ -715,9 +787,8 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 
 /**
  * Fetch deals visible to a trade partner.
- * Primary signal is the Deal-side `Portal_Trade_Partners` assignment field.
- * Fallback is the partner's related lists for Zoho orgs where the Deal field
- * is not populated consistently.
+ * First try filtering Deals directly by the populated Portal_Trade_Partners field,
+ * then fall back to the trade partner record's Deals related lists.
  */
 export async function getTradePartnerDeals(
 	accessToken: string,
@@ -730,15 +801,15 @@ export async function getTradePartnerDeals(
 	}
 
 	try {
-		const explicitMatches = await fetchDealsByTradePartnerField(
+		const fieldMatches = await fetchDealsByTradePartnerField(
 			accessToken,
 			normalizedTradePartnerId,
 			apiDomain
 		);
-		if (explicitMatches.length > 0) return explicitMatches;
+		if (fieldMatches.length > 0) return fieldMatches;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		log.warn('Deal-side trade partner lookup failed', {
+		log.warn('Trade partner deal field filter failed', {
 			tradePartnerId: normalizedTradePartnerId,
 			error: message
 		});
