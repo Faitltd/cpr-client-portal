@@ -284,7 +284,14 @@ function coerceText(value: any): string | null {
 	return null;
 }
 
-function extractLookup(value: any) {
+function extractLookup(value: any): { id: string; name: string | null } | null {
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			const lookup: { id: string; name: string | null } | null = extractLookup(item);
+			if (lookup) return lookup;
+		}
+		return null;
+	}
 	if (!value || typeof value !== 'object') return null;
 	const id = value.id || value.ID || value.Id;
 	if (!id) return null;
@@ -303,11 +310,20 @@ function findDealLookup(record: Record<string, any>) {
 		'Deal_Name',
 		'Deal',
 		'Deals',
+		'Potential_Name',
 		'Portal_Deal',
 		'Portal_Deals',
 		'Portal_Deals1',
 		'Portal_Deals2',
-		'Portal_Deals3'
+		'Portal_Deals3',
+		'Parent_Id',
+		'What_Id',
+		'Related_Record',
+		'Related_Record_Id',
+		'Entity',
+		'Entity_Id',
+		'Record',
+		'Record_Id'
 	];
 	for (const key of preferredKeys) {
 		const lookup = extractLookup(record[key]);
@@ -315,7 +331,7 @@ function findDealLookup(record: Record<string, any>) {
 	}
 
 	for (const [key, value] of Object.entries(record)) {
-		if (!/deal/i.test(key)) continue;
+		if (!/(deal|potential|parent|entity|record|what)/i.test(key)) continue;
 		const lookup = extractLookup(value);
 		if (lookup) return { ...lookup, key };
 	}
@@ -431,16 +447,52 @@ async function fetchAllDeals(accessToken: string, apiDomain?: string): Promise<a
 
 function dealContainsTradePartner(deal: any, tradePartnerId: string) {
 	const field = deal?.Portal_Trade_Partners;
-	if (Array.isArray(field)) {
-		return field.some((item: any) => String(item?.id || '').trim() === tradePartnerId);
-	}
-	if (field && typeof field === 'object') {
-		return String(field?.id || '').trim() === tradePartnerId;
-	}
-	return false;
+	const matches = (value: any): boolean => {
+		if (value === null || value === undefined) return false;
+		if (typeof value === 'string' || typeof value === 'number') {
+			return String(value).trim() === tradePartnerId;
+		}
+		if (Array.isArray(value)) {
+			return value.some((item) => matches(item));
+		}
+		if (typeof value === 'object') {
+			if (String(value?.id || value?.ID || value?.Id || '').trim() === tradePartnerId) return true;
+			return Object.values(value).some((item) => matches(item));
+		}
+		return false;
+	};
+	return matches(field);
 }
 
-async function fetchDealsByTradePartnerField(
+async function fetchDealsByTradePartnerFieldSearch(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const perPage = 200;
+	const maxPages = 20;
+	const matches: any[] = [];
+	const criteria = `(Portal_Trade_Partners:equals:${tradePartnerId})`;
+
+	for (let page = 1; page <= maxPages; page += 1) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+			{},
+			apiDomain
+		);
+		const pageData = Array.isArray(response.data) ? response.data : [];
+		if (pageData.length === 0) break;
+		matches.push(...pageData);
+		const hasMore = response.info?.more_records;
+		if (hasMore === false) break;
+		if (hasMore !== true && pageData.length < perPage) break;
+	}
+
+	return dedupeDeals(matches);
+}
+
+async function fetchDealsByTradePartnerFieldFromList(
 	accessToken: string,
 	tradePartnerId: string,
 	apiDomain?: string
@@ -787,9 +839,9 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 
 /**
  * Fetch deals visible to a trade partner.
- * Merge matches from the populated Portal_Trade_Partners field with the trade
- * partner record's related lists because Zoho assignment data can be split
- * across both representations within the same org.
+ * Merge matches from direct deal search, deal-list field filtering, and the
+ * trade partner record's related lists because Zoho assignment data can be
+ * split across multiple representations within the same org.
  */
 export async function getTradePartnerDeals(
 	accessToken: string,
@@ -801,9 +853,24 @@ export async function getTradePartnerDeals(
 		return fetchAllDeals(accessToken, apiDomain);
 	}
 
+	let searchMatches: any[] = [];
+	try {
+		searchMatches = await fetchDealsByTradePartnerFieldSearch(
+			accessToken,
+			normalizedTradePartnerId,
+			apiDomain
+		);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Trade partner deal search failed', {
+			tradePartnerId: normalizedTradePartnerId,
+			error: message
+		});
+	}
+
 	let fieldMatches: any[] = [];
 	try {
-		fieldMatches = await fetchDealsByTradePartnerField(
+		fieldMatches = await fetchDealsByTradePartnerFieldFromList(
 			accessToken,
 			normalizedTradePartnerId,
 			apiDomain
@@ -831,7 +898,21 @@ export async function getTradePartnerDeals(
 		});
 	}
 
-	return dedupeDeals([...fieldMatches, ...relatedListMatches]);
+	const rawMatches = dedupeDeals([...searchMatches, ...fieldMatches, ...relatedListMatches]);
+	const hydratedMatches = await fetchDealsByIds(
+		accessToken,
+		rawMatches.map((deal) => String(deal?.id || '')).filter(Boolean),
+		apiDomain
+	).catch((err) => {
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Trade partner deal hydration failed', {
+			tradePartnerId: normalizedTradePartnerId,
+			error: message
+		});
+		return [];
+	});
+
+	return dedupeDeals([...hydratedMatches, ...rawMatches]);
 }
 
 /**
