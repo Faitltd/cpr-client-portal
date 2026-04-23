@@ -122,7 +122,12 @@ export function finalizeTradePageDeals(deals: any[], includeDetailFields = false
 	return displayable.length > 0 ? displayable : normalized;
 }
 
-async function fetchDealsByIds(accessToken: string, ids: string[], includeDetailFields: boolean) {
+async function fetchDealsByIds(
+	accessToken: string,
+	ids: string[],
+	includeDetailFields: boolean,
+	apiDomain?: string
+) {
 	const results: any[] = [];
 	const fields = getTradePageDealFields(includeDetailFields);
 	const chunkSize = 100;
@@ -131,7 +136,9 @@ async function fetchDealsByIds(accessToken: string, ids: string[], includeDetail
 		const chunk = ids.slice(i, i + chunkSize);
 		const response = await zohoApiCall(
 			accessToken,
-			`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(fields)}`
+			`/Deals?ids=${chunk.join(',')}&fields=${encodeURIComponent(fields)}`,
+			{},
+			apiDomain
 		);
 		results.push(...(response.data || []));
 	}
@@ -216,7 +223,12 @@ export async function loadTradePageContext(
 		let hydratedDeals = allDeals;
 		if (hydrateIds.length > 0) {
 			try {
-				const hydrated = await fetchDealsByIds(accessToken, hydrateIds, includeDetailFields);
+				const hydrated = await fetchDealsByIds(
+					accessToken,
+					hydrateIds,
+					includeDetailFields,
+					apiDomain
+				);
 				const hydratedMap = new Map(hydrated.map((deal) => [deal.id, deal]));
 				hydratedDeals = allDeals.map((deal) => hydratedMap.get(deal.id) || deal);
 			} catch {
