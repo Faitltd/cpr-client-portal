@@ -839,80 +839,15 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 
 /**
  * Fetch deals visible to a trade partner.
- * Merge matches from direct deal search, deal-list field filtering, and the
- * trade partner record's related lists because Zoho assignment data can be
- * split across multiple representations within the same org.
+ * Current portal behavior is to show all deals to trade users.
  */
 export async function getTradePartnerDeals(
 	accessToken: string,
 	tradePartnerId?: string,
 	apiDomain?: string
 ): Promise<any[]> {
-	const normalizedTradePartnerId = String(tradePartnerId || '').trim();
-	if (!normalizedTradePartnerId) {
-		return fetchAllDeals(accessToken, apiDomain);
-	}
-
-	let searchMatches: any[] = [];
-	try {
-		searchMatches = await fetchDealsByTradePartnerFieldSearch(
-			accessToken,
-			normalizedTradePartnerId,
-			apiDomain
-		);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		log.warn('Trade partner deal search failed', {
-			tradePartnerId: normalizedTradePartnerId,
-			error: message
-		});
-	}
-
-	let fieldMatches: any[] = [];
-	try {
-		fieldMatches = await fetchDealsByTradePartnerFieldFromList(
-			accessToken,
-			normalizedTradePartnerId,
-			apiDomain
-		);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		log.warn('Trade partner deal field filter failed', {
-			tradePartnerId: normalizedTradePartnerId,
-			error: message
-		});
-	}
-
-	let relatedListMatches: any[] = [];
-	try {
-		relatedListMatches = await fetchDealsByTradePartnerRelatedLists(
-			accessToken,
-			normalizedTradePartnerId,
-			apiDomain
-		);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		log.warn('Trade partner related-list aggregation failed', {
-			tradePartnerId: normalizedTradePartnerId,
-			error: message
-		});
-	}
-
-	const rawMatches = dedupeDeals([...searchMatches, ...fieldMatches, ...relatedListMatches]);
-	const hydratedMatches = await fetchDealsByIds(
-		accessToken,
-		rawMatches.map((deal) => String(deal?.id || '')).filter(Boolean),
-		apiDomain
-	).catch((err) => {
-		const message = err instanceof Error ? err.message : String(err);
-		log.warn('Trade partner deal hydration failed', {
-			tradePartnerId: normalizedTradePartnerId,
-			error: message
-		});
-		return [];
-	});
-
-	return dedupeDeals([...hydratedMatches, ...rawMatches]);
+	void tradePartnerId;
+	return fetchAllDeals(accessToken, apiDomain);
 }
 
 /**
