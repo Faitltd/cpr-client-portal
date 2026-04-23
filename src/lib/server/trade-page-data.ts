@@ -1,4 +1,8 @@
-import { getTradePartnerDeals, normalizeDealRecord } from '$lib/server/auth';
+import {
+	getTradePartnerDeals,
+	isTradePortalVisibleStage,
+	normalizeDealRecord
+} from '$lib/server/auth';
 import {
 	getTradeSession,
 	getZohoTokens,
@@ -236,10 +240,12 @@ export async function loadTradePageContext(
 			}
 		}
 
-		deals = finalizeTradePageDeals(hydratedDeals, includeDetailFields);
+		const visibleDeals = hydratedDeals.filter((deal) => isTradePortalVisibleStage(deal?.Stage));
+		deals = finalizeTradePageDeals(visibleDeals, includeDetailFields);
 
 		if (deals.length === 0) {
-			warning = 'No assigned deals found. Please try again later or contact your admin.';
+			warning =
+				'No deals found in Quoted or Project Created. Please try again later or contact your admin.';
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
