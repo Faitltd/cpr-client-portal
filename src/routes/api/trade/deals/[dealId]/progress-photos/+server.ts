@@ -47,7 +47,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (!dealId) throw error(400, 'Deal ID required');
 
 	const { accessToken, apiDomain } = await getAccessToken();
-	const dealList = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+	const dealList = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	const deal = dealList.find((item: any) => String(item?.id || '').trim() === dealId);
 	if (!deal) {
 		throw error(403, 'Access denied to this project');

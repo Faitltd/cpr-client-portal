@@ -69,7 +69,10 @@ export const PUT: RequestHandler = async ({ cookies, params, request }) => {
 	// Verify project authorization — once for the whole batch
 	let authorizedProjectIds: Set<string>;
 	try {
-		const dealList = await getTradePartnerDeals(accessToken);
+		const dealList = await getTradePartnerDeals(
+			accessToken,
+			session.trade_partner.zoho_trade_partner_id
+		);
 		authorizedProjectIds = new Set<string>();
 		for (const deal of dealList) {
 			const ids = parseZohoProjectIds(deal?.Project_ID ?? deal?.Zoho_Projects_ID);

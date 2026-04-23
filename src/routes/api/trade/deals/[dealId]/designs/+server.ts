@@ -164,6 +164,8 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 
 	const session = await getTradeSession(sessionToken);
 	if (!session) throw error(401, 'Invalid session');
+	const tradePartnerId = String(session.trade_partner?.zoho_trade_partner_id || '').trim();
+	if (!tradePartnerId) throw error(403, 'No linked trade partner');
 
 	const dealId = String(params.dealId || '').trim();
 	if (!dealId) throw error(400, 'Deal ID required');
@@ -171,7 +173,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const { accessToken, apiDomain } = await getAccessToken();
 
 	// Verify trade partner has access to this deal
-	const dealList = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+	const dealList = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	const accessibleDeal = dealList.find((item: any) => String(item?.id || '').trim() === dealId);
 	if (!accessibleDeal) throw error(403, 'Access denied to this project');
 

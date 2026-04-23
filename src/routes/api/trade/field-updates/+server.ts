@@ -41,6 +41,31 @@ const UPDATE_TYPE_LABELS: Record<string, string> = {
 
 const VALID_UPDATE_TYPES = new Set(Object.keys(UPDATE_TYPE_LABELS));
 
+function pickSubmitterDisplayName(tradePartner: {
+	name?: string | null;
+	company?: string | null;
+	email?: string | null;
+}) {
+	return (
+		String(tradePartner?.name || '').trim() ||
+		String(tradePartner?.company || '').trim() ||
+		String(tradePartner?.email || '').trim() ||
+		'Trade Partner'
+	);
+}
+
+function buildZohoFieldUpdateNote(note: string | null, submitterName: string) {
+	const trimmed = String(note || '').trim();
+	const prefix = `Submitted by: ${submitterName}`;
+	if (!trimmed) return prefix;
+	if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) return trimmed;
+	return `${prefix}\n\n${trimmed}`;
+}
+
+function buildZohoFieldUpdateName(label: string, submitterName: string, now = new Date()) {
+	return `${label} — ${submitterName} — ${now.toLocaleDateString()}`;
+}
+
 // ---------------------------------------------------------------------------
 // Zoho access-token helper
 // ---------------------------------------------------------------------------
@@ -232,8 +257,12 @@ async function uploadAttachmentsToZoho(
 // Authorization check
 // ---------------------------------------------------------------------------
 
-async function isDealAuthorizedForTradePartner(accessToken: string, dealId: string) {
-	const dealList = await getTradePartnerDeals(accessToken);
+async function isDealAuthorizedForTradePartner(
+	accessToken: string,
+	dealId: string,
+	zohoTradePartnerId: string
+) {
+	const dealList = await getTradePartnerDeals(accessToken, zohoTradePartnerId);
 	return dealList.some((deal: any) => String(deal?.id || '') === dealId);
 }
 
@@ -287,7 +316,11 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		// Get a fresh Zoho access token
 		const { accessToken, apiDomain } = await getAccessTokenAndDomain();
 
-		const authorized = await isDealAuthorizedForTradePartner(accessToken, dealId);
+		const authorized = await isDealAuthorizedForTradePartner(
+			accessToken,
+			dealId,
+			session.trade_partner.zoho_trade_partner_id
+		);
 		if (!authorized) {
 			return json({ error: 'Deal not authorized for this trade partner' }, { status: 403 });
 		}
@@ -303,9 +336,12 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		}
 
 		const zohoRecord: Record<string, unknown> = {
-			Note: note || '',
+			Note: buildZohoFieldUpdateNote(note, pickSubmitterDisplayName(session.trade_partner)),
 			Update_Type: UPDATE_TYPE_LABELS[updateType] || updateType,
-			Name: `${UPDATE_TYPE_LABELS[updateType] || updateType} — ${new Date().toLocaleDateString()}`,
+			Name: buildZohoFieldUpdateName(
+				UPDATE_TYPE_LABELS[updateType] || updateType,
+				pickSubmitterDisplayName(session.trade_partner)
+			),
 			[dealField]: { id: dealId }
 		};
 
