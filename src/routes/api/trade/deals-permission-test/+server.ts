@@ -129,7 +129,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 	let resolvedDeals: Record<string, unknown> | null = null;
 	try {
-		const dealList = await getTradePartnerDeals(accessToken);
+		const dealList = await getTradePartnerDeals(accessToken, tradePartnerId);
 		resolvedDeals = {
 			count: dealList.length,
 			sample: dealList.slice(0, 5).map((deal: any) => ({

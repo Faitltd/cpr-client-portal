@@ -191,9 +191,19 @@ export async function loadTradePageContext(
 	let warning = '';
 
 	const apiDomain = tokens.api_domain || undefined;
+	const tradePartnerZohoId = String(session.trade_partner?.zoho_trade_partner_id || '').trim();
+
+	if (!tradePartnerZohoId) {
+		return {
+			redirectTo: null,
+			tradePartner: session.trade_partner,
+			deals: [],
+			warning: 'Your trade partner account is not linked to Zoho yet. Please contact your admin.'
+		};
+	}
 
 	try {
-		const allDeals = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+		const allDeals = await getTradePartnerDeals(accessToken, tradePartnerZohoId, apiDomain);
 		const hydrateIds = Array.from(
 			new Set(
 				allDeals

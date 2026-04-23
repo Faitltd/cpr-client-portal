@@ -574,7 +574,7 @@ async function tradePartnerCanAccessDeal(
 
 	// Robust final check: use the same deal lookup logic used by the dashboard.
 	// This covers orgs where Portal_Trade_Partners isn't populated on the Deal.
-	const dealList = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+	const dealList = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	const requested = String(dealId || '').trim();
 	return dealList.some((deal: any) => collectDealIdCandidates(deal).has(requested));
 }
@@ -592,7 +592,7 @@ async function resolveAuthorizedDealId(
 		return requested;
 	}
 
-	const dealList = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+	const dealList = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	for (const deal of dealList) {
 		const candidates = collectDealIdCandidates(deal);
 		if (!candidates.has(requested)) continue;

@@ -28,6 +28,33 @@ const UPDATE_TYPE_LABELS: Record<string, string> = {
 	other: 'Other'
 };
 
+function pickSubmitterDisplayName(partner: {
+	name?: string | null;
+	company?: string | null;
+	email?: string | null;
+} | null | undefined) {
+	return (
+		String(partner?.name || '').trim() ||
+		String(partner?.company || '').trim() ||
+		String(partner?.email || '').trim() ||
+		'Trade Partner'
+	);
+}
+
+function buildZohoFieldUpdateNote(note: string | null, submitterName: string) {
+	const trimmed = String(note || '').trim();
+	const prefix = `Submitted by: ${submitterName}`;
+	if (!trimmed) return prefix;
+	if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) return trimmed;
+	return `${prefix}\n\n${trimmed}`;
+}
+
+function buildZohoFieldUpdateName(label: string, submitterName: string, createdAt?: string | null) {
+	const date = createdAt ? new Date(createdAt) : new Date();
+	const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+	return `${label} — ${submitterName} — ${safeDate.toLocaleDateString()}`;
+}
+
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) return date.toISOString();
@@ -155,6 +182,25 @@ export const POST: RequestHandler = async ({ cookies }) => {
 			return json({ synced: 0, failed: 0, message: 'No records to sync' });
 		}
 
+		const tradePartnerIds = Array.from(
+			new Set(
+				rows
+					.map((row: any) => String(row?.trade_partner_id || '').trim())
+					.filter(Boolean)
+			)
+		);
+		const tradePartnerMap = new Map<string, { name?: string | null; company?: string | null; email?: string | null }>();
+		if (tradePartnerIds.length > 0) {
+			const { data: partners, error: partnerError } = await supabase
+				.from('trade_partners')
+				.select('id, name, company, email')
+				.in('id', tradePartnerIds);
+			if (partnerError) throw new Error(`Trade partner lookup failed: ${partnerError.message}`);
+			for (const partner of partners || []) {
+				tradePartnerMap.set(String((partner as any).id), partner as any);
+			}
+		}
+
 		const { accessToken, apiDomain } = await getAccessTokenAndDomain();
 		const dealField = await discoverDealLookupField(accessToken, apiDomain);
 		if (!dealField) {
@@ -170,14 +216,14 @@ export const POST: RequestHandler = async ({ cookies }) => {
 
 		for (const row of rows) {
 			const label = UPDATE_TYPE_LABELS[row.update_type] || row.update_type || 'Other';
-			const createdDate = row.created_at
-				? new Date(row.created_at).toLocaleDateString()
-				: new Date().toLocaleDateString();
+			const submitterName = pickSubmitterDisplayName(
+				tradePartnerMap.get(String(row.trade_partner_id || '').trim())
+			);
 
 			const zohoRecord: Record<string, unknown> = {
-				Note: row.note || '',
+				Note: buildZohoFieldUpdateNote(row.note || null, submitterName),
 				Update_Type: label,
-				Name: `${label} — ${createdDate}`,
+				Name: buildZohoFieldUpdateName(label, submitterName, row.created_at),
 				[dealField]: { id: row.deal_id }
 			};
 

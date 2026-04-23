@@ -315,7 +315,7 @@ async function fetchTradePhotosForSession(
 		}
 	}
 
-	const deals = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+	const deals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 	const requestedDealId = dealId ? String(dealId).trim() : '';
 	const filteredDeals = requestedDealId
 		? deals.filter((deal) => String(deal?.id || '').trim() === requestedDealId)
@@ -729,7 +729,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 	// so the caller can redirect directly to the WorkDrive share (same as client portal photos).
 	if (dealId) {
 		try {
-			const allDeals = await getTradePartnerDeals(accessToken, undefined, apiDomain);
+			const allDeals = await getTradePartnerDeals(accessToken, tradePartnerId, apiDomain);
 			const requestedDeal = allDeals.find((d) => String(d?.id || '').trim() === dealId.trim());
 			const externalUrl =
 				(typeof requestedDeal?.Client_Portal_Folder === 'string' && /zohoexternal\.com/i.test(requestedDeal.Client_Portal_Folder)

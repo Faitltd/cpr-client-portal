@@ -69,7 +69,10 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
   let fallbackLink: { dealId: string | null; dealName: string | null; stage: string | null } | null =
     null;
   try {
-    const dealList = await getTradePartnerDeals(accessToken);
+    const dealList = await getTradePartnerDeals(
+      accessToken,
+      session.trade_partner.zoho_trade_partner_id
+    );
     authorizedProjectIds = new Set<string>();
     authorizedDealMap = new Map<string, any>();
     for (const deal of dealList) {

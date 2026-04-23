@@ -8,6 +8,7 @@ const log = createLogger('auth');
 
 const PORTAL_DEV_SHOW_ALL = env.PORTAL_DEV_SHOW_ALL;
 const ZOHO_TRADE_PARTNERS_MODULE = env.ZOHO_TRADE_PARTNERS_MODULE;
+const ZOHO_TRADE_PARTNER_RELATED_LIST = env.ZOHO_TRADE_PARTNER_RELATED_LIST;
 
 type ClientProfile = Omit<Client, 'id'>;
 
@@ -91,6 +92,15 @@ const TRADE_PARTNERS_MODULES = (ZOHO_TRADE_PARTNERS_MODULE || 'Trade_Partners')
 // Alternative Zoho modules where the trade partner record might actually live.
 // The sync pulls from Trade_Partners, but the ID may belong to Vendors/Contacts/Accounts.
 const ALTERNATIVE_TP_MODULES = ['Vendors', 'Contacts', 'Accounts'];
+const TRADE_PARTNER_RELATED_LISTS = Array.from(
+	new Set(
+		(ZOHO_TRADE_PARTNER_RELATED_LIST || '')
+			.split(',')
+			.map((name) => name.trim())
+			.filter(Boolean)
+			.concat(['Deals', 'Portal_Deals', 'Deals3', 'Portal_Deals3'])
+	)
+);
 
 const PORTAL_ACTIVE_DEAL_STAGES = new Set([
 	'design needed',
@@ -385,6 +395,140 @@ function ensureDealId(deal: any, index: number) {
 	return deal;
 }
 
+function dedupeDeals(deals: any[]) {
+	const deduped = new Map<string, any>();
+	for (const [index, deal] of deals.entries()) {
+		const normalized = ensureDealId(normalizeDealRecord(deal), index);
+		const id = String(normalized?.id || '').trim();
+		if (!id) continue;
+		if (!deduped.has(id)) deduped.set(id, normalized);
+	}
+	return Array.from(deduped.values());
+}
+
+async function fetchAllDeals(accessToken: string, apiDomain?: string): Promise<any[]> {
+	const perPage = 200;
+	const maxPages = 20;
+	const allDeals: any[] = [];
+
+	for (let page = 1; page <= maxPages; page += 1) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+			{},
+			apiDomain
+		);
+		const pageData = Array.isArray(response.data) ? response.data : [];
+		if (pageData.length === 0) break;
+		allDeals.push(...pageData);
+		const hasMore = response.info?.more_records;
+		if (hasMore === false) break;
+		if (hasMore !== true && pageData.length < perPage) break;
+	}
+
+	return dedupeDeals(allDeals);
+}
+
+async function fetchDealsByTradePartnerField(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const perPage = 200;
+	const maxPages = 20;
+	const matches: any[] = [];
+	const criteria = `(Portal_Trade_Partners:equals:${tradePartnerId})`;
+
+	for (let page = 1; page <= maxPages; page += 1) {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
+			{},
+			apiDomain
+		);
+		const pageData = Array.isArray(response.data) ? response.data : [];
+		if (pageData.length === 0) break;
+		matches.push(...pageData);
+		const hasMore = response.info?.more_records;
+		if (hasMore === false) break;
+		if (hasMore !== true && pageData.length < perPage) break;
+	}
+
+	return dedupeDeals(matches);
+}
+
+async function fetchTradePartnerRelatedListRecords(
+	accessToken: string,
+	moduleName: string,
+	tradePartnerId: string,
+	relatedList: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const endpoints = [
+		`/${moduleName}/${tradePartnerId}/${relatedList}?fields=${encodeURIComponent(DEAL_FIELDS)}`,
+		`/${moduleName}/${tradePartnerId}/${relatedList}`
+	];
+
+	let lastError: unknown = null;
+	for (const endpoint of endpoints) {
+		try {
+			const response = await zohoApiCall(accessToken, endpoint, {}, apiDomain);
+			return Array.isArray(response.data) ? response.data : [];
+		} catch (err) {
+			lastError = err;
+		}
+	}
+
+	throw lastError instanceof Error ? lastError : new Error('Failed to fetch trade partner related list');
+}
+
+async function fetchDealsByTradePartnerRelatedLists(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const moduleNames = Array.from(
+		new Set([
+			...(TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['Trade_Partners']),
+			...ALTERNATIVE_TP_MODULES
+		])
+	);
+	const records: any[] = [];
+
+	for (const moduleName of moduleNames) {
+		for (const relatedList of TRADE_PARTNER_RELATED_LISTS) {
+			try {
+				const data = await fetchTradePartnerRelatedListRecords(
+					accessToken,
+					moduleName,
+					tradePartnerId,
+					relatedList,
+					apiDomain
+				);
+				if (data.length > 0) records.push(...data);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				if (
+					message.toLowerCase().includes('module name given seems to be invalid') ||
+					message.toLowerCase().includes('record not found') ||
+					message.toLowerCase().includes('related list') ||
+					message.includes('4100')
+				) {
+					continue;
+				}
+				log.warn('Trade partner related-list lookup failed', {
+					moduleName,
+					relatedList,
+					tradePartnerId,
+					error: message
+				});
+			}
+		}
+	}
+
+	return dedupeDeals(records);
+}
+
 /**
  * Fetch current Zoho CRM user (admin)
  */
@@ -570,30 +714,44 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 }
 
 /**
- * Fetch ALL deals from Zoho CRM with pagination.
- * Trade partners see every deal — no per-partner filtering.
+ * Fetch deals visible to a trade partner.
+ * Primary signal is the Deal-side `Portal_Trade_Partners` assignment field.
+ * Fallback is the partner's related lists for Zoho orgs where the Deal field
+ * is not populated consistently.
  */
-export async function getTradePartnerDeals(accessToken: string, _tradePartnerId?: string, apiDomain?: string): Promise<any[]> {
-	const perPage = 200;
-	const maxPages = 20;
-	const allDeals: any[] = [];
-
-	for (let page = 1; page <= maxPages; page += 1) {
-		const response = await zohoApiCall(
-			accessToken,
-			`/Deals?fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
-			{},
-			apiDomain
-		);
-		const pageData = Array.isArray(response.data) ? response.data : [];
-		if (pageData.length === 0) break;
-		allDeals.push(...pageData);
-		const hasMore = response.info?.more_records;
-		if (hasMore === false) break;
-		if (hasMore !== true && pageData.length < perPage) break;
+export async function getTradePartnerDeals(
+	accessToken: string,
+	tradePartnerId?: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const normalizedTradePartnerId = String(tradePartnerId || '').trim();
+	if (!normalizedTradePartnerId) {
+		return fetchAllDeals(accessToken, apiDomain);
 	}
 
-	return allDeals.map(normalizeDealRecord).map(ensureDealId);
+	try {
+		const explicitMatches = await fetchDealsByTradePartnerField(
+			accessToken,
+			normalizedTradePartnerId,
+			apiDomain
+		);
+		if (explicitMatches.length > 0) return explicitMatches;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Deal-side trade partner lookup failed', {
+			tradePartnerId: normalizedTradePartnerId,
+			error: message
+		});
+	}
+
+	const relatedListMatches = await fetchDealsByTradePartnerRelatedLists(
+		accessToken,
+		normalizedTradePartnerId,
+		apiDomain
+	);
+	if (relatedListMatches.length > 0) return relatedListMatches;
+
+	return [];
 }
 
 /**
