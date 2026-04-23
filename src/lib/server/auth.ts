@@ -787,8 +787,9 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 
 /**
  * Fetch deals visible to a trade partner.
- * First try filtering Deals directly by the populated Portal_Trade_Partners field,
- * then fall back to the trade partner record's Deals related lists.
+ * Merge matches from the populated Portal_Trade_Partners field with the trade
+ * partner record's related lists because Zoho assignment data can be split
+ * across both representations within the same org.
  */
 export async function getTradePartnerDeals(
 	accessToken: string,
@@ -800,13 +801,13 @@ export async function getTradePartnerDeals(
 		return fetchAllDeals(accessToken, apiDomain);
 	}
 
+	let fieldMatches: any[] = [];
 	try {
-		const fieldMatches = await fetchDealsByTradePartnerField(
+		fieldMatches = await fetchDealsByTradePartnerField(
 			accessToken,
 			normalizedTradePartnerId,
 			apiDomain
 		);
-		if (fieldMatches.length > 0) return fieldMatches;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		log.warn('Trade partner deal field filter failed', {
@@ -815,14 +816,22 @@ export async function getTradePartnerDeals(
 		});
 	}
 
-	const relatedListMatches = await fetchDealsByTradePartnerRelatedLists(
-		accessToken,
-		normalizedTradePartnerId,
-		apiDomain
-	);
-	if (relatedListMatches.length > 0) return relatedListMatches;
+	let relatedListMatches: any[] = [];
+	try {
+		relatedListMatches = await fetchDealsByTradePartnerRelatedLists(
+			accessToken,
+			normalizedTradePartnerId,
+			apiDomain
+		);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Trade partner related-list aggregation failed', {
+			tradePartnerId: normalizedTradePartnerId,
+			error: message
+		});
+	}
 
-	return [];
+	return dedupeDeals([...fieldMatches, ...relatedListMatches]);
 }
 
 /**
