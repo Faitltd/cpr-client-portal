@@ -31,28 +31,31 @@
 		photos: Array<{ name: string; url: string }>;
 	};
 
-	let designLink: string | null = null;
-	let designLoading = false;
-
-	async function loadDesignLink(dealId: string) {
-		if (!dealId) { designLink = null; return; }
-		designLoading = true;
-		try {
-			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/designs`);
-			if (res.ok) {
-				const data = await res.json();
-				designLink = data.url || null;
-			} else {
-				designLink = null;
-			}
-		} catch {
-			designLink = null;
-		} finally {
-			designLoading = false;
+	// Parse File_Upload from deal — Zoho returns an array of {File_Id, File_Name, ...} objects
+	// or sometimes a JSON string. Normalize to { name, url }[].
+	function parseFileUpload(raw: any): Array<{ name: string; url: string }> {
+		if (!raw) return [];
+		let items: any[] = [];
+		if (typeof raw === 'string') {
+			try { items = JSON.parse(raw); } catch { return []; }
+		} else if (Array.isArray(raw)) {
+			items = raw;
+		} else if (typeof raw === 'object') {
+			items = [raw];
 		}
+		return items
+			.filter((f) => f && typeof f === 'object')
+			.map((f) => {
+				const name =
+					f.File_Name ?? f.name ?? f.filename ?? f.fileName ?? f.title ?? 'Design File';
+				const url =
+					f.url ?? f.download_url ?? f.permalink ?? f.File_Url ?? f.fileUrl ?? '';
+				return { name: String(name), url: String(url) };
+			})
+			.filter((f) => f.url);
 	}
 
-	$: if (browser && selectedDealId) loadDesignLink(selectedDealId);
+	$: designFiles = parseFileUpload(selectedDeal?.File_Upload);
 
 	const getDealLabel = (deal: any) => {
 		return (
@@ -553,12 +556,16 @@
 
 				{#if designsOpen}
 					<div class="collapsible-body">
-						{#if designLoading}
-							<p class="muted">Loading...</p>
-						{:else if designLink}
-							<a class="file-link" href={designLink} target="_blank" rel="noreferrer">View Design and Planning</a>
+						{#if designFiles.length > 0}
+							<ul class="file-list">
+								{#each designFiles as file}
+									<li>
+										<a class="file-link" href={file.url} target="_blank" rel="noreferrer">{file.name}</a>
+									</li>
+								{/each}
+							</ul>
 						{:else}
-							<p class="muted">Not available</p>
+							<p class="muted">No design files on file for this project.</p>
 						{/if}
 					</div>
 				{/if}
@@ -1034,7 +1041,7 @@
 	}
 
 	.file-list {
-		margin: 0;
+		margin: 0.75rem 0 0;
 		padding-left: 1.1rem;
 	}
 
