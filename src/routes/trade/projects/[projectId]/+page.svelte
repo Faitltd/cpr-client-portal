@@ -6,12 +6,14 @@
 	type ZProject = any;
 	type ZTask = any;
 	type ZActivity = any;
+	type ZDesign = any;
 
 	const CACHE_PREFIX = 'cpr:trade:projects:detail:';
 
 	let project = $state<ZProject | null>(null);
 	let tasks = $state<ZTask[]>([]);
 	let activities = $state<ZActivity[]>([]);
+	let designs = $state<ZDesign[]>([]);
 	let loading = $state(true);
 	let error = $state('');
 
@@ -83,6 +85,7 @@
 	];
 
 	let tasksOpen = $state(true);
+	let designsOpen = $state(true);
 	let activityOpen = $state(false);
 
 	let submitting = $state(false);
@@ -155,13 +158,14 @@
 				project = cached.project;
 				tasks = cached.tasks || [];
 				activities = cached.activities || [];
+				designs = cached.designs || [];
 				return true;
 			}
 		} catch { /* ignore */ }
 		return false;
 	}
 
-	function saveToCache(data: { project: any; tasks: any[]; activities: any[] }) {
+	function saveToCache(data: { project: any; tasks: any[]; activities: any[]; designs: any[] }) {
 		try {
 			sessionStorage.setItem(getCacheKey(), JSON.stringify({ ...data, ts: Date.now() }));
 		} catch { /* storage full */ }
@@ -186,6 +190,7 @@
 			const data = await res.json().catch(() => ({}));
 			project = data.project ?? null;
 			activities = data.activities || [];
+			designs = data.designs || [];
 
 			// Only update tasks on first load — background refresh must NOT overwrite
 			// the task list because that would re-render the selects and reset user edits
@@ -193,7 +198,7 @@
 				tasks = data.tasks || [];
 			}
 
-			saveToCache({ project, tasks, activities });
+			saveToCache({ project, tasks, activities, designs });
 			error = '';
 		} catch (err) {
 			if (!isRefresh) {
@@ -293,6 +298,32 @@
 					{/if}
 				</div>
 			</form>
+		</section>
+
+		<section class="section">
+			<button type="button" class="section-toggle" onclick={() => (designsOpen = !designsOpen)}>
+				<span>Designs</span>
+				<span class="chevron" class:open={designsOpen}>▾</span>
+			</button>
+			{#if designsOpen}
+				{#if designs.length === 0}
+					<p class="section-empty">No designs on file.</p>
+				{:else}
+					<div class="design-list">
+						{#each designs as doc (doc.id)}
+							<a
+								class="design-item btn-secondary"
+								href={doc.url}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								<span class="design-icon">📄</span>
+								<span class="design-name">{doc.name}</span>
+							</a>
+						{/each}
+					</div>
+				{/if}
+			{/if}
 		</section>
 
 		<section class="section">
@@ -517,6 +548,33 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
+	}
+
+	.design-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		margin-top: 0.5rem;
+	}
+
+	.design-item {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		text-decoration: none;
+	}
+
+	.design-icon {
+		font-size: 1.1rem;
+		flex-shrink: 0;
+	}
+
+	.design-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.card-row {

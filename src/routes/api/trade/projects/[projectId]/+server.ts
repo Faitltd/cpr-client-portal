@@ -33,6 +33,52 @@ function normalizeProjectResponse(payload: any) {
 const getDealLabel = (deal: any) =>
   deal?.Deal_Name || deal?.Potential_Name || deal?.Name || deal?.name || null;
 
+async function getDealDesigns(accessToken: string, dealId: string | null) {
+  if (!dealId) return [];
+
+  try {
+    const response = await fetch(`https://www.zohoapis.com/crm/v2/Deals/${dealId}/Attachments`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 403 || response.status === 404) return [];
+      const detail = await response.text().catch(() => '');
+      throw new Error(detail || `Zoho CRM attachments request failed (${response.status})`);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    const attachments = Array.isArray(payload?.data) ? payload.data : [];
+
+    return attachments
+      .filter((attachment: any) => {
+        const name = String(attachment?.File_Name || '').trim();
+        const lowerName = name.toLowerCase();
+        const fileType = String(attachment?.file_type || '').trim().toLowerCase();
+
+        return (
+          fileType === 'pdf' ||
+          lowerName.endsWith('.pdf') ||
+          lowerName.includes('design') ||
+          lowerName.includes('drawing')
+        );
+      })
+      .map((attachment: any) => ({
+        id: attachment?.id,
+        name: attachment?.File_Name,
+        url:
+          attachment?.download_url ||
+          `https://www.zohoapis.com/crm/v2/Deals/${dealId}/Attachments/${attachment?.id}`
+      }))
+      .filter((attachment: any) => attachment.id && attachment.name && attachment.url);
+  } catch (err) {
+    console.error(`[trade/projects/${dealId}] failed to load deal attachments:`, err);
+    return [];
+  }
+}
+
 // GET /api/trade/projects/:projectId
 // Returns Zoho Project detail (tasks + activities) for an authorized trade partner.
 export const GET: RequestHandler = async ({ cookies, params, url }) => {
@@ -113,6 +159,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
       });
       throw error(403, 'Not authorized for this project');
     }
+    const designs = await getDealDesigns(accessToken, String(deal?.id || projectId));
     return json({
       project: {
         id: projectId,
@@ -124,7 +171,8 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
         source: 'crm_deal'
       },
       tasks: [],
-      activities: []
+      activities: [],
+      designs
     });
   }
 
@@ -143,12 +191,14 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 
   const cachedTasks = projectTasksCache.get(projectId);
   const useTaskCache = cachedTasks && Date.now() - cachedTasks.fetchedAt < PROJECT_TASKS_CACHE_TTL_MS;
+  const dealId = fallbackLink?.dealId || project?.deal_id || null;
 
-  const [tasksResult, activitiesResult] = await Promise.allSettled([
+  const [tasksResult, activitiesResult, designsResult] = await Promise.allSettled([
     useTaskCache
       ? Promise.resolve(cachedTasks!.tasks)
       : getAllProjectTasks(projectId, 100),
-    getAllProjectActivities(projectId, 50)
+    getAllProjectActivities(projectId, 50),
+    getDealDesigns(accessToken, dealId)
   ]);
 
   let tasks: any[] = [];
@@ -169,17 +219,23 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
       ? activitiesResult.value
       : [];
 
+  const designs =
+    designsResult.status === 'fulfilled' && Array.isArray(designsResult.value)
+      ? designsResult.value
+      : [];
+
   return json({
     project: project
-      ? { ...project, deal_id: fallbackLink?.dealId || project?.deal_id || null }
+      ? { ...project, deal_id: dealId }
       : {
           id: projectId,
-          deal_id: fallbackLink?.dealId || null,
+          deal_id: dealId,
           name: fallbackLink?.dealName || `Project ${projectId}`,
           status: fallbackLink?.stage || 'Unknown'
         },
     tasks,
     activities,
+    designs,
     ...(tasksLoadError ? { tasksError: tasksLoadError } : {})
   });
 };
