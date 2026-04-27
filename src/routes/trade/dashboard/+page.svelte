@@ -31,13 +31,22 @@
 		photos: Array<{ name: string; url: string }>;
 	};
 
-	// Parse File_Upload from deal — Zoho returns an array of {File_Id, File_Name, ...} objects
-	// or sometimes a JSON string. Normalize to { name, url }[].
-	function parseFileUpload(raw: any): Array<{ name: string; url: string }> {
+	// Parse External_Link field — Zoho stores shareable links here (WorkDrive, Google Drive, etc.)
+	// Can be a plain URL string, array of {url, name} objects, or JSON string.
+	function parseExternalLinks(raw: any): Array<{ name: string; url: string }> {
 		if (!raw) return [];
 		let items: any[] = [];
 		if (typeof raw === 'string') {
-			try { items = JSON.parse(raw); } catch { return []; }
+			// Could be a plain URL or JSON
+			const trimmed = raw.trim();
+			if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+				try { items = JSON.parse(trimmed); } catch { /* fall through */ }
+				if (!Array.isArray(items)) items = items ? [items] : [];
+			} else if (trimmed.startsWith('http')) {
+				return [{ name: 'Design Files', url: trimmed }];
+			} else {
+				return [];
+			}
 		} else if (Array.isArray(raw)) {
 			items = raw;
 		} else if (typeof raw === 'object') {
@@ -46,16 +55,69 @@
 		return items
 			.filter((f) => f && typeof f === 'object')
 			.map((f) => {
-				const name =
-					f.File_Name ?? f.name ?? f.filename ?? f.fileName ?? f.title ?? 'Design File';
-				const url =
-					f.url ?? f.download_url ?? f.permalink ?? f.File_Url ?? f.fileUrl ?? '';
+				const name = f.name ?? f.title ?? f.File_Name ?? f.filename ?? 'Design File';
+				const url = f.url ?? f.link ?? f.href ?? f.download_url ?? '';
 				return { name: String(name), url: String(url) };
 			})
-			.filter((f) => f.url);
+			.filter((f) => f.url.startsWith('http'));
 	}
 
-	$: designFiles = parseFileUpload(selectedDeal?.File_Upload);
+	// ── Designs: External_Link (immediate) + lazy Attachments fallback ───────
+	$: externalLinks = parseExternalLinks(selectedDeal?.External_Link);
+
+	// Lazy attachments fetch — triggered when Designs section opens
+	const attachmentsCache = new Map<string, Array<{ name: string; url: string }>>();
+	let attachments: Array<{ name: string; url: string }> = [];
+	let attachmentsLoading = false;
+	let attachmentsError = '';
+	let lastAttachmentsDealId = '';
+
+	const loadAttachments = async (dealId: string) => {
+		if (!dealId) return;
+		if (attachmentsCache.has(dealId)) {
+			attachments = attachmentsCache.get(dealId)!;
+			return;
+		}
+		attachmentsLoading = true;
+		attachmentsError = '';
+		try {
+			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/attachments`);
+			if (res.status === 401) throw new Error('Please login again');
+			if (!res.ok) throw new Error(`Failed to load attachments (${res.status})`);
+			const payload = await res.json().catch(() => ({}));
+			const fresh: Array<{ name: string; url: string }> = Array.isArray(payload?.data)
+				? payload.data
+				: [];
+			attachmentsCache.set(dealId, fresh);
+			if (dealId === selectedDealId) attachments = fresh;
+		} catch (err) {
+			attachmentsError = err instanceof Error ? err.message : 'Failed to load attachments';
+			if (!attachmentsCache.has(dealId)) attachments = [];
+		} finally {
+			attachmentsLoading = false;
+		}
+	};
+
+	// Combined design files: External_Link first, then attachments (deduped by url)
+	$: designFiles = (() => {
+		const seen = new Set<string>();
+		const combined: Array<{ name: string; url: string }> = [];
+		for (const f of [...externalLinks, ...attachments]) {
+			if (f.url && !seen.has(f.url)) { seen.add(f.url); combined.push(f); }
+		}
+		return combined;
+	})();
+
+	// When designs section opens, also kick off attachments fetch for current deal
+	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastAttachmentsDealId) {
+		lastAttachmentsDealId = selectedDealId;
+		loadAttachments(selectedDealId);
+	}
+
+	// Reset attachments when deal changes so stale data isn't shown while loading
+	$: if (selectedDealId !== lastAttachmentsDealId && !attachmentsCache.has(selectedDealId)) {
+		attachments = [];
+	}
 
 	const getDealLabel = (deal: any) => {
 		return (
@@ -556,7 +618,14 @@
 
 				{#if designsOpen}
 					<div class="collapsible-body">
-						{#if designFiles.length > 0}
+						{#if attachmentsLoading && attachments.length === 0 && externalLinks.length === 0}
+							<p class="muted">Loading design files...</p>
+						{:else if attachmentsError && designFiles.length === 0}
+							<div class="field-updates-error">
+								<p class="error-text">{attachmentsError}</p>
+								<button class="retry" type="button" on:click={() => { attachmentsCache.delete(selectedDealId); lastAttachmentsDealId = ''; loadAttachments(selectedDealId); }}>Retry</button>
+							</div>
+						{:else if designFiles.length > 0}
 							<ul class="file-list">
 								{#each designFiles as file}
 									<li>
