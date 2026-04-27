@@ -8,7 +8,7 @@
 	type ZActivity = any;
 	type ZDesign = any;
 
-	const CACHE_PREFIX = 'cpr:trade:projects:detail:';
+	const CACHE_PREFIX = 'cpr:trade:projects:detail:v2:';
 
 	let project = $state<ZProject | null>(null);
 	let tasks = $state<ZTask[]>([]);
@@ -213,7 +213,8 @@
 		const hadCache = loadFromCache();
 		if (hadCache) {
 			loading = false;
-			// No background fetch — Submit Changes busts the cache so next visit loads fresh.
+			// Background refresh to pick up designs / activity changes without resetting task edits.
+			fetchDetail(true);
 		} else {
 			fetchDetail(false);
 		}
