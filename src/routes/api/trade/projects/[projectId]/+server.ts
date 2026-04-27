@@ -33,50 +33,21 @@ function normalizeProjectResponse(payload: any) {
 const getDealLabel = (deal: any) =>
   deal?.Deal_Name || deal?.Potential_Name || deal?.Name || deal?.name || null;
 
-async function getDealDesigns(accessToken: string, dealId: string | null) {
-  if (!dealId) return [];
+function normalizeDealDesigns(rawFileUpload: any) {
+  const rawFiles = Array.isArray(rawFileUpload)
+    ? rawFileUpload
+    : rawFileUpload
+      ? [rawFileUpload]
+      : [];
 
-  try {
-    const response = await fetch(`https://www.zohoapis.com/crm/v2/Deals/${dealId}/Attachments`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      }
-    });
-
-    if (!response.ok) {
-      if (response.status === 403 || response.status === 404) return [];
-      const detail = await response.text().catch(() => '');
-      throw new Error(detail || `Zoho CRM attachments request failed (${response.status})`);
-    }
-
-    const payload = await response.json().catch(() => ({}));
-    const attachments = Array.isArray(payload?.data) ? payload.data : [];
-
-    return attachments
-      .filter((attachment: any) => {
-        const name = String(attachment?.File_Name || '').trim();
-        const lowerName = name.toLowerCase();
-        const fileType = String(attachment?.file_type || '').trim().toLowerCase();
-
-        return (
-          fileType === 'pdf' ||
-          lowerName.endsWith('.pdf') ||
-          lowerName.includes('design') ||
-          lowerName.includes('drawing')
-        );
-      })
-      .map((attachment: any) => ({
-        id: attachment?.id,
-        name: attachment?.File_Name,
-        url:
-          attachment?.download_url ||
-          `https://www.zohoapis.com/crm/v2/Deals/${dealId}/Attachments/${attachment?.id}`
-      }))
-      .filter((attachment: any) => attachment.id && attachment.name && attachment.url);
-  } catch (err) {
-    console.error(`[trade/projects/${dealId}] failed to load deal attachments:`, err);
-    return [];
-  }
+  return rawFiles
+    .filter(Boolean)
+    .map((f: any) => ({
+      id: String(f.id || f.file_id || f.File_Id || Math.random()),
+      name: String(f.File_Name || f.file_name || f.name || 'Design File'),
+      url: f.download_url || f.Download_Url || f.file_url || null
+    }))
+    .filter((design: any) => design.url);
 }
 
 // GET /api/trade/projects/:projectId
@@ -159,7 +130,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
       });
       throw error(403, 'Not authorized for this project');
     }
-    const designs = await getDealDesigns(accessToken, String(deal?.id || projectId));
+    const designs = normalizeDealDesigns(deal?.File_Upload ?? null);
     return json({
       project: {
         id: projectId,
@@ -192,13 +163,14 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
   const cachedTasks = projectTasksCache.get(projectId);
   const useTaskCache = cachedTasks && Date.now() - cachedTasks.fetchedAt < PROJECT_TASKS_CACHE_TTL_MS;
   const dealId = fallbackLink?.dealId || project?.deal_id || null;
+  const dealRecord = dealId ? authorizedDealMap.get(String(dealId)) : null;
+  const rawFileUpload = dealRecord?.File_Upload ?? null;
 
-  const [tasksResult, activitiesResult, designsResult] = await Promise.allSettled([
+  const [tasksResult, activitiesResult] = await Promise.allSettled([
     useTaskCache
       ? Promise.resolve(cachedTasks!.tasks)
       : getAllProjectTasks(projectId, 100),
-    getAllProjectActivities(projectId, 50),
-    getDealDesigns(accessToken, dealId)
+    getAllProjectActivities(projectId, 50)
   ]);
 
   let tasks: any[] = [];
@@ -219,10 +191,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
       ? activitiesResult.value
       : [];
 
-  const designs =
-    designsResult.status === 'fulfilled' && Array.isArray(designsResult.value)
-      ? designsResult.value
-      : [];
+  const designs = normalizeDealDesigns(rawFileUpload);
 
   return json({
     project: project

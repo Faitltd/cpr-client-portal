@@ -62,10 +62,40 @@ beforeEach(() => {
 		{
 			id: 'deal-1',
 			Deal_Name: 'Kitchen Remodel',
-			Stage: 'Project Created'
+			Stage: 'Project Created',
+			File_Upload: [
+				{
+					id: 'file-1',
+					File_Name: 'Kitchen Design.pdf',
+					download_url: 'https://download.example/file-1'
+				},
+				{
+					file_id: 'file-2',
+					file_name: 'Elevation Set.pdf',
+					file_url: 'https://download.example/file-2'
+				},
+				null,
+				{
+					id: 'file-3',
+					File_Name: 'Broken Link.pdf'
+				}
+			]
+		},
+		{
+			id: 'project-2',
+			Deal_Name: 'Fallback Deal',
+			Stage: 'Project Created',
+			File_Upload: {
+				id: 'fallback-file',
+				File_Name: 'Fallback Design.pdf',
+				download_url: 'https://download.example/fallback-file'
+			}
 		}
 	]);
-	mocks.getDealProjectIdsForLinking.mockReturnValue(['project-1', 'project-2']);
+	mocks.getDealProjectIdsForLinking.mockImplementation((deal: any) => {
+		if (deal?.id === 'deal-1') return ['project-1'];
+		return [];
+	});
 	mocks.getProject.mockImplementation(async (projectId: string) => ({
 		project: {
 			id: projectId,
@@ -75,36 +105,10 @@ beforeEach(() => {
 	}));
 	mocks.getAllProjectTasks.mockResolvedValue([{ id: 'task-1', name: 'Install cabinets' }]);
 	mocks.getAllProjectActivities.mockResolvedValue([{ id: 'activity-1', description: 'Created' }]);
-
-	vi.stubGlobal('fetch', vi.fn());
 });
 
 describe('GET /api/trade/projects/:projectId', () => {
-	it('returns filtered CRM deal attachments as designs', async () => {
-		vi.mocked(fetch).mockResolvedValue({
-			ok: true,
-			json: vi.fn().mockResolvedValue({
-				data: [
-					{
-						id: 'attachment-1',
-						File_Name: 'Kitchen Design.pdf',
-						file_type: 'pdf',
-						download_url: 'https://download.example/attachment-1'
-					},
-					{
-						id: 'attachment-2',
-						File_Name: 'drawing-sheet.dwg',
-						file_type: 'dwg'
-					},
-					{
-						id: 'attachment-3',
-						File_Name: 'site-photo.jpg',
-						file_type: 'jpg'
-					}
-				]
-			})
-		} as any);
-
+	it('returns normalized File_Upload entries as designs for linked projects', async () => {
 		const response = await GET({
 			cookies: makeCookies({ trade_session: 'valid-session' }),
 			params: { projectId: 'project-1' },
@@ -121,35 +125,20 @@ describe('GET /api/trade/projects/:projectId', () => {
 			activities: [{ id: 'activity-1', description: 'Created' }],
 			designs: [
 				{
-					id: 'attachment-1',
+					id: 'file-1',
 					name: 'Kitchen Design.pdf',
-					url: 'https://download.example/attachment-1'
+					url: 'https://download.example/file-1'
 				},
 				{
-					id: 'attachment-2',
-					name: 'drawing-sheet.dwg',
-					url: 'https://www.zohoapis.com/crm/v2/Deals/deal-1/Attachments/attachment-2'
+					id: 'file-2',
+					name: 'Elevation Set.pdf',
+					url: 'https://download.example/file-2'
 				}
 			]
 		});
-
-		expect(fetch).toHaveBeenCalledWith(
-			'https://www.zohoapis.com/crm/v2/Deals/deal-1/Attachments',
-			expect.objectContaining({
-				headers: expect.objectContaining({
-					Authorization: 'Bearer access-token'
-				})
-			})
-		);
 	});
 
-	it('returns an empty designs list when attachments cannot be read', async () => {
-		vi.mocked(fetch).mockResolvedValue({
-			ok: false,
-			status: 403,
-			text: vi.fn().mockResolvedValue('Forbidden')
-		} as any);
-
+	it('returns normalized File_Upload entries for crm-deal fallback cards', async () => {
 		const response = await GET({
 			cookies: makeCookies({ trade_session: 'valid-session' }),
 			params: { projectId: 'project-2' },
@@ -160,11 +149,17 @@ describe('GET /api/trade/projects/:projectId', () => {
 		await expect(response.json()).resolves.toMatchObject({
 			project: {
 				id: 'project-2',
-				deal_id: 'deal-1'
+				deal_id: 'project-2'
 			},
-			designs: [],
-			tasks: [{ id: 'task-1', name: 'Install cabinets' }],
-			activities: [{ id: 'activity-1', description: 'Created' }]
+			designs: [
+				{
+					id: 'fallback-file',
+					name: 'Fallback Design.pdf',
+					url: 'https://download.example/fallback-file'
+				}
+			],
+			tasks: [],
+			activities: []
 		});
 	});
 });
