@@ -114,7 +114,11 @@ export function shouldHydrateTradeDeal(deal: any, includeDetailFields = false) {
 	if (!deal?.Stage) return true;
 	if (!isTradeDealDisplayable(deal, includeDetailFields)) return true;
 	if (!includeDetailFields) return false;
-	return typeof deal?.File_Upload === 'undefined' || typeof deal?.Progress_Photos === 'undefined';
+	return (
+		typeof deal?.Garage_Code === 'undefined' ||
+		typeof deal?.File_Upload === 'undefined' ||
+		typeof deal?.Progress_Photos === 'undefined'
+	);
 }
 
 export function finalizeTradePageDeals(deals: any[], includeDetailFields = false) {

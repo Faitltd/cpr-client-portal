@@ -34,6 +34,27 @@ describe('trade page deal helpers', () => {
 		);
 	});
 
+	it('rehydrates dashboard deals when Garage_Code is missing from detail fields', () => {
+		const partialDeal = {
+			id: '4',
+			Deal_Name: 'Main House',
+			Stage: 'Project Created',
+			File_Upload: [],
+			Progress_Photos: []
+		};
+
+		expect(shouldHydrateTradeDeal(partialDeal, true)).toBe(true);
+		expect(
+			shouldHydrateTradeDeal(
+				{
+					...partialDeal,
+					Garage_Code: '1234'
+				},
+				true
+			)
+		).toBe(false);
+	});
+
 	it('treats detail fields as displayable for dashboard pages', () => {
 		const deal = { id: '3', Deal_Name: 'Deal 3', WiFi: 'CPR-Guest' };
 
