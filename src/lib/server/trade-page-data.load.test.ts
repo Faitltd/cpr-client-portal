@@ -108,4 +108,64 @@ describe('loadTradePageContext', () => {
 			'https://www.zohoapis.com'
 		);
 	});
+
+	it('falls back to per-deal hydration when bulk hydration returns null Garage_Code', async () => {
+		mocks.getTradePartnerDeals.mockResolvedValue([
+			{
+				id: 'deal-2',
+				Deal_Name: 'Bathroom Remodel',
+				Stage: 'Project Created',
+				Garage_Code: null,
+				File_Upload: [],
+				Progress_Photos: []
+			}
+		]);
+
+		mocks.zohoApiCall.mockImplementation(async (_token: string, path: string) => {
+			if (path.startsWith('/Deals?ids=deal-2')) {
+				return {
+					data: [
+						{
+							id: 'deal-2',
+							Deal_Name: 'Bathroom Remodel',
+							Stage: 'Project Created',
+							Garage_Code: null,
+							File_Upload: [],
+							Progress_Photos: []
+						}
+					]
+				};
+			}
+
+			if (path.startsWith('/Deals/deal-2?fields=')) {
+				return {
+					data: [
+						{
+							id: 'deal-2',
+							Deal_Name: 'Bathroom Remodel',
+							Stage: 'Project Created',
+							Garage_Code: '5678',
+							File_Upload: [],
+							Progress_Photos: []
+						}
+					]
+				};
+			}
+
+			throw new Error(`Unexpected path ${path}`);
+		});
+
+		const result = await loadTradePageContext('session-token', {
+			includeDetailFields: true
+		});
+
+		expect(result.deals).toHaveLength(1);
+		expect(result.deals[0].Garage_Code).toBe('5678');
+		expect(mocks.zohoApiCall).toHaveBeenCalledWith(
+			'access-token',
+			expect.stringContaining('/Deals/deal-2?fields='),
+			{},
+			'https://www.zohoapis.com'
+		);
+	});
 });

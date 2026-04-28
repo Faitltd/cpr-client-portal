@@ -88,6 +88,10 @@ function hasTradeDealUsefulData(deal: any, includeDetailFields: boolean) {
 	);
 }
 
+function hasGarageCodeValue(value: unknown) {
+	return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined;
+}
+
 export function isTradeDealDisplayable(deal: any, includeDetailFields = false) {
 	const label = getTradeDealLabel(deal);
 	if (label && !isPlaceholderTradeDealName(label)) return true;
@@ -115,7 +119,7 @@ export function shouldHydrateTradeDeal(deal: any, includeDetailFields = false) {
 	if (!isTradeDealDisplayable(deal, includeDetailFields)) return true;
 	if (!includeDetailFields) return false;
 	return (
-		typeof deal?.Garage_Code === 'undefined' ||
+		!hasGarageCodeValue(deal?.Garage_Code) ||
 		typeof deal?.File_Upload === 'undefined' ||
 		typeof deal?.Progress_Photos === 'undefined'
 	);

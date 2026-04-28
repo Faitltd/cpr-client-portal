@@ -55,6 +55,22 @@ describe('trade page deal helpers', () => {
 		).toBe(false);
 	});
 
+	it('treats null Garage_Code as missing for dashboard hydration', () => {
+		expect(
+			shouldHydrateTradeDeal(
+				{
+					id: '5',
+					Deal_Name: 'Guest House',
+					Stage: 'Project Created',
+					Garage_Code: null,
+					File_Upload: [],
+					Progress_Photos: []
+				},
+				true
+			)
+		).toBe(true);
+	});
+
 	it('treats detail fields as displayable for dashboard pages', () => {
 		const deal = { id: '3', Deal_Name: 'Deal 3', WiFi: 'CPR-Guest' };
 
