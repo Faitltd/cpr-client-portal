@@ -148,10 +148,44 @@ async function fetchDealsByIds(
 			{},
 			apiDomain
 		);
-		results.push(...(response.data || []));
+		const bulkDeals = (response.data || []).map(normalizeDealRecord);
+		const dealsById = new Map<string, any>(
+			bulkDeals
+				.map((deal) => {
+					const dealId = String(deal?.id || '').trim();
+					return dealId ? ([dealId, deal] as const) : null;
+				})
+				.filter(Boolean) as Array<readonly [string, any]>
+		);
+
+		const needsFallbackIds = chunk.filter((id) => {
+			const bulkDeal = dealsById.get(String(id));
+			if (!bulkDeal) return true;
+			return includeDetailFields && shouldHydrateTradeDeal(bulkDeal, true);
+		});
+
+		for (const id of needsFallbackIds) {
+			try {
+				const fallback = await zohoApiCall(
+					accessToken,
+					`/Deals/${id}?fields=${encodeURIComponent(fields)}`,
+					{},
+					apiDomain
+				);
+				const deal = fallback.data?.[0];
+				if (deal) dealsById.set(String(id), normalizeDealRecord(deal));
+			} catch {
+				// Continue with the bulk result when single-deal hydration fails.
+			}
+		}
+
+		for (const id of chunk) {
+			const deal = dealsById.get(String(id));
+			if (deal) results.push(deal);
+		}
 	}
 
-	return results.map(normalizeDealRecord);
+	return results;
 }
 
 export async function loadTradePageContext(
