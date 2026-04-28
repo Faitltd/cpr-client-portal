@@ -2,6 +2,7 @@
 	export let data: {
 		clients: { id: string; email: string; full_name?: string | null }[];
 		tradePartners: { id: string; email: string; name?: string | null }[];
+		designers: { id: string; email: string; name?: string | null; active?: boolean | null }[];
 	};
 	export let form:
 		| {
@@ -46,12 +47,17 @@
 		const bName = sortLabel(b.name) || sortLabel(b.email);
 		return aName.localeCompare(bName);
 	});
+	$: sortedDesigners = [...(data?.designers || [])].sort((a, b) => {
+		const aName = sortLabel(a.name) || sortLabel(a.email);
+		const bName = sortLabel(b.name) || sortLabel(b.email);
+		return aName.localeCompare(bName);
+	});
 </script>
 
 <div class="container">
 	<header>
 		<div>
-			<h1>Client Passwords</h1>
+			<h1>Portal Passwords</h1>
 			<p>New client logins default to email as username and phone number as password.</p>
 		</div>
 	</header>
@@ -158,6 +164,23 @@
 		<input id="trade_password" name="password" type="password" />
 
 		<button type="submit">Set Trade Partner Password</button>
+	</form>
+
+	<form method="POST" action="?/setDesignerPassword" class="card trade-card">
+		<label for="designer_id">Designer</label>
+		<select id="designer_id" name="designer_id">
+			<option value="">Select a designer</option>
+			{#each sortedDesigners as designer}
+				<option value={designer.id}>
+					{designer.name || designer.email} ({designer.email}){designer.active === false ? ' - inactive' : ''}
+				</option>
+			{/each}
+		</select>
+
+		<label for="designer_password">New Password</label>
+		<input id="designer_password" name="password" type="password" />
+
+		<button type="submit">Set Designer Password</button>
 	</form>
 
 </div>

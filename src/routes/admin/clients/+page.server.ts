@@ -13,8 +13,10 @@ import {
 	clearClients,
 	getZohoTokens,
 	listClients,
+	listDesigners,
 	listTradePartnersForAdmin,
 	setClientPassword,
+	setDesignerPassword,
 	setTradePartnerPassword,
 	upsertClient,
 	upsertTradePartner,
@@ -86,12 +88,17 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	requireAdmin(cookies.get('admin_session'));
 	const clients = await listClients();
 	const tradePartners = await listTradePartnersForAdmin();
+	const designers = await listDesigners();
 	const sorted = [...clients].sort((a, b) => {
 		const aName = (a.full_name || a.email || '').toLowerCase();
 		const bName = (b.full_name || b.email || '').toLowerCase();
 		return aName.localeCompare(bName);
 	});
-	return { clients: sorted, tradePartners: tradePartners || [] };
+	return {
+		clients: sorted,
+		tradePartners: tradePartners || [],
+		designers: designers || []
+	};
 };
 
 export const actions: Actions = {
@@ -127,6 +134,22 @@ export const actions: Actions = {
 		await setTradePartnerPassword(tradeId, hashPassword(password));
 
 		return { message: 'Trade partner password updated.' };
+	},
+	setDesignerPassword: async ({ request, cookies }) => {
+		requireAdmin(cookies.get('admin_session'));
+		const form = await request.formData();
+		const designerId = String(form.get('designer_id') || '');
+		const password = String(form.get('password') || '');
+
+		if (!designerId) {
+			return fail(400, { message: 'Select a designer.' });
+		}
+		if (password.length < 8) {
+			return fail(400, { message: 'Password must be at least 8 characters.' });
+		}
+
+		await setDesignerPassword(designerId, hashPassword(password));
+		return { message: 'Designer password updated.' };
 	},
 	sync: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
