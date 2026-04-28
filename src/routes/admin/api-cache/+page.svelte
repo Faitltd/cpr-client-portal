@@ -61,41 +61,43 @@
 		<div class="empty">No cached API responses.</div>
 	{:else}
 		<div class="panel">
-			<table>
-				<thead>
-					<tr>
-						<th>Cache Key</th>
-						<th>Status</th>
-						<th>Data Size</th>
-						<th>Updated At</th>
-						<th>Stale At</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each data.entries as entry}
+			<div class="table-scroll">
+				<table>
+					<thead>
 						<tr>
-							<td class="mono">{entry.cache_key}</td>
-							<td>
-								{#if entry.status === 'fresh'}
-									<span class="badge fresh">Fresh</span>
-								{:else}
-									<span class="badge stale">Stale</span>
-								{/if}
-							</td>
-							<td>{entry.dataSize.toFixed(1)} KB</td>
-							<td>{formatDate(entry.updated_at)}</td>
-							<td>{formatDate(entry.stale_at)}</td>
-							<td>
-								<form method="POST" action="?/clearOne">
-									<input type="hidden" name="cacheKey" value={entry.cache_key} />
-									<button type="submit" class="btn btn-small">Clear</button>
-								</form>
-							</td>
+							<th>Cache Key</th>
+							<th>Status</th>
+							<th>Data Size</th>
+							<th>Updated At</th>
+							<th>Stale At</th>
+							<th>Actions</th>
 						</tr>
-					{/each}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						{#each data.entries as entry}
+							<tr>
+								<td class="mono">{entry.cache_key}</td>
+								<td>
+									{#if entry.status === 'fresh'}
+										<span class="badge fresh">Fresh</span>
+									{:else}
+										<span class="badge stale">Stale</span>
+									{/if}
+								</td>
+								<td>{entry.dataSize.toFixed(1)} KB</td>
+								<td>{formatDate(entry.updated_at)}</td>
+								<td>{formatDate(entry.stale_at)}</td>
+								<td>
+									<form method="POST" action="?/clearOne">
+										<input type="hidden" name="cacheKey" value={entry.cache_key} />
+										<button type="submit" class="btn btn-small">Clear</button>
+									</form>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -104,7 +106,7 @@
 	.cache-admin {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: 2rem 1rem;
 	}
 
 	header {
@@ -149,7 +151,7 @@
 		padding: 0.45rem 0.9rem;
 		font-size: 0.9rem;
 		min-height: 40px;
-		min-width: 220px;
+		width: min(100%, 220px);
 	}
 
 	.panel {
@@ -157,11 +159,18 @@
 		border-radius: 12px;
 		background: #fff;
 		padding: 1rem;
+		overflow: hidden;
+	}
+
+	.table-scroll {
+		width: 100%;
 		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	table {
 		width: 100%;
+		min-width: 100%;
 		border-collapse: collapse;
 		font-size: 0.93rem;
 	}
@@ -188,6 +197,7 @@
 		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
 			'Courier New', monospace;
 		font-size: 0.88rem;
+		word-break: break-all;
 	}
 
 	.btn {

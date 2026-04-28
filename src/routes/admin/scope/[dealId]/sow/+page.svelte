@@ -176,47 +176,49 @@
 	<section class="section">
 		<h2>Task Schedule</h2>
 
-		<table class="schedule-table">
-			<thead>
-				<tr>
-					<th>Task Name</th>
-					<th>Trade</th>
-					<th>Duration (days)</th>
-					<th>Start Date</th>
-					<th>End Date</th>
-					<th>Notes</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each groupedTasks as group}
-					<tr class="phase-row">
-						<td colspan="6">{formatLabel(group.phase.name)}</td>
+		<div class="table-scroll">
+			<table class="schedule-table">
+				<thead>
+					<tr>
+						<th>Task Name</th>
+						<th>Trade</th>
+						<th>Duration (days)</th>
+						<th>Start Date</th>
+						<th>End Date</th>
+						<th>Notes</th>
 					</tr>
-					{#each group.tasks as task}
-						<tr class="task-row">
-							<td>{task.task_name}</td>
-							<td>{task.trade ? formatLabel(task.trade) : '—'}</td>
-							<td>{task.duration_days}</td>
-							<td>{formatDate(task.start_date)}</td>
-							<td>{formatDate(task.end_date)}</td>
-							<td>
-								<div class="note-badges">
-									{#if task.requires_client_decision}
-										<span class="badge badge-decision">Client decision</span>
-									{/if}
-									{#if task.requires_inspection}
-										<span class="badge badge-inspection">Inspection</span>
-									{/if}
-									{#if !task.requires_client_decision && !task.requires_inspection}
-										<span>—</span>
-									{/if}
-								</div>
-							</td>
+				</thead>
+				<tbody>
+					{#each groupedTasks as group}
+						<tr class="phase-row">
+							<td colspan="6">{formatLabel(group.phase.name)}</td>
 						</tr>
+						{#each group.tasks as task}
+							<tr class="task-row">
+								<td>{task.task_name}</td>
+								<td>{task.trade ? formatLabel(task.trade) : '—'}</td>
+								<td>{task.duration_days}</td>
+								<td>{formatDate(task.start_date)}</td>
+								<td>{formatDate(task.end_date)}</td>
+								<td>
+									<div class="note-badges">
+										{#if task.requires_client_decision}
+											<span class="badge badge-decision">Client decision</span>
+										{/if}
+										{#if task.requires_inspection}
+											<span class="badge badge-inspection">Inspection</span>
+										{/if}
+										{#if !task.requires_client_decision && !task.requires_inspection}
+											<span>—</span>
+										{/if}
+									</div>
+								</td>
+							</tr>
+						{/each}
 					{/each}
-				{/each}
-			</tbody>
-		</table>
+				</tbody>
+			</table>
+		</div>
 	</section>
 
 	<section class="section summary-footer">
@@ -270,7 +272,7 @@
 	.sow-page {
 		max-width: 900px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: 2rem 1rem;
 	}
 
 	.toolbar {
@@ -392,8 +394,15 @@
 
 	.schedule-table {
 		width: 100%;
+		min-width: 100%;
 		border-collapse: collapse;
 		font-size: 0.92rem;
+	}
+
+	.table-scroll {
+		width: 100%;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.schedule-table th,

@@ -111,7 +111,7 @@
 	.contract-view {
 		max-width: 1100px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: 2rem 1rem;
 	}
 
 	.back-nav {
@@ -149,6 +149,8 @@
 		display: flex;
 		justify-content: flex-end;
 		margin-bottom: 1rem;
+		flex-wrap: wrap;
+		gap: 0.75rem;
 	}
 
 	.btn-secondary {
@@ -172,15 +174,16 @@
 		border-radius: 12px;
 		overflow: hidden;
 		background: #fff;
-		min-height: 600px;
+		width: 100%;
+		aspect-ratio: 4 / 5;
+		min-height: 420px;
 	}
 
-	.frame iframe,
-	.frame object {
+	.frame iframe {
 		border: none;
 		width: 100%;
-		height: 80vh;
-		min-height: 600px;
+		height: 100%;
+		min-height: 100%;
 	}
 
 	@media (max-width: 720px) {
@@ -198,12 +201,7 @@
 		}
 
 		.frame {
-			min-height: 420px;
-		}
-
-		.frame iframe {
-			height: 70vh;
-			min-height: 420px;
+			aspect-ratio: 3 / 4;
 		}
 	}
 </style>

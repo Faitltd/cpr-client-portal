@@ -32,6 +32,9 @@
 		min-height: 100vh;
 		display: flex;
 		flex-direction: column;
+		width: 100%;
+		max-width: 100%;
+		overflow-x: clip;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 	}
 
@@ -50,10 +53,11 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 0 1rem;
-		height: 56px;
+		min-height: 56px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 0.75rem;
 	}
 
 	.admin-logo {
@@ -71,6 +75,15 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
+		min-width: 0;
+		max-width: 100%;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+	}
+
+	.header-actions::-webkit-scrollbar {
+		display: none;
 	}
 
 	.client-admin-btn {
@@ -117,6 +130,8 @@
 	/* ── Content & Footer ────────────────────────────── */
 	.admin-content {
 		flex: 1;
+		width: 100%;
+		max-width: 100%;
 	}
 
 	.admin-footer {
@@ -140,6 +155,21 @@
 
 		.admin-footer-inner {
 			padding: 1rem 2rem;
+		}
+	}
+
+	@media (max-width: 767px) {
+		.admin-header-inner {
+			padding-top: 0.6rem;
+			padding-bottom: 0.6rem;
+			flex-wrap: wrap;
+			align-items: flex-start;
+		}
+
+		.header-actions {
+			width: 100%;
+			padding-bottom: 0.15rem;
+			white-space: nowrap;
 		}
 	}
 </style>

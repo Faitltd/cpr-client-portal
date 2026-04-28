@@ -57,45 +57,47 @@
 		<div class="empty">No cached folder mappings.</div>
 	{:else}
 		<div class="panel">
-			<table>
-				<thead>
-					<tr>
-						<th>Deal ID</th>
-						<th>Folder Type</th>
-						<th>Folder ID</th>
-						<th>Folder Name</th>
-						<th>Resolved At</th>
-						<th>Expires At</th>
-						<th>Status</th>
-						<th>Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each data.entries as entry}
+			<div class="table-scroll">
+				<table>
+					<thead>
 						<tr>
-							<td class="mono">{entry.deal_id}</td>
-							<td>{entry.folder_type}</td>
-							<td class="mono">{entry.folder_id}</td>
-							<td>{entry.folder_name || '—'}</td>
-							<td>{formatDate(entry.resolved_at)}</td>
-							<td>{formatDate(entry.expires_at)}</td>
-							<td>
-								{#if isExpired(entry.expires_at)}
-									<span class="badge expired">Expired</span>
-								{:else}
-									<span class="badge">Active</span>
-								{/if}
-							</td>
-							<td>
-								<form method="POST" action="?/clearDeal">
-									<input type="hidden" name="dealId" value={entry.deal_id} />
-									<button type="submit" class="btn btn-small">Clear</button>
-								</form>
-							</td>
+							<th>Deal ID</th>
+							<th>Folder Type</th>
+							<th>Folder ID</th>
+							<th>Folder Name</th>
+							<th>Resolved At</th>
+							<th>Expires At</th>
+							<th>Status</th>
+							<th>Actions</th>
 						</tr>
-					{/each}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						{#each data.entries as entry}
+							<tr>
+								<td class="mono">{entry.deal_id}</td>
+								<td>{entry.folder_type}</td>
+								<td class="mono">{entry.folder_id}</td>
+								<td>{entry.folder_name || '—'}</td>
+								<td>{formatDate(entry.resolved_at)}</td>
+								<td>{formatDate(entry.expires_at)}</td>
+								<td>
+									{#if isExpired(entry.expires_at)}
+										<span class="badge expired">Expired</span>
+									{:else}
+										<span class="badge">Active</span>
+									{/if}
+								</td>
+								<td>
+									<form method="POST" action="?/clearDeal">
+										<input type="hidden" name="dealId" value={entry.deal_id} />
+										<button type="submit" class="btn btn-small">Clear</button>
+									</form>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -104,7 +106,7 @@
 	.cache-admin {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: 2rem 1rem;
 	}
 
 	header {
@@ -140,11 +142,18 @@
 		border-radius: 12px;
 		background: #fff;
 		padding: 1rem;
+		overflow: hidden;
+	}
+
+	.table-scroll {
+		width: 100%;
 		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	table {
 		width: 100%;
+		min-width: 100%;
 		border-collapse: collapse;
 		font-size: 0.93rem;
 	}
@@ -171,6 +180,7 @@
 		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
 			'Courier New', monospace;
 		font-size: 0.88rem;
+		word-break: break-all;
 	}
 
 	.btn {

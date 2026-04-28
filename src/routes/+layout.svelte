@@ -97,6 +97,9 @@
 	.app-bg {
 		position: relative;
 		min-height: 100vh;
+		width: 100%;
+		max-width: 100%;
+		overflow-x: clip;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 		--bg-fade: 0.78;
 		background: url('/images/cpr-bg.png') center/contain no-repeat;
@@ -113,6 +116,8 @@
 	.app-content {
 		position: relative;
 		z-index: 1;
+		width: 100%;
+		max-width: 100%;
 	}
 
 	/* ── Header ─────────────────────────────────────────── */
@@ -130,10 +135,11 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 0 1rem;
-		height: 56px;
+		min-height: 56px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 0.75rem;
 	}
 
 	.portal-logo {
@@ -152,6 +158,15 @@
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
+		min-width: 0;
+		max-width: 100%;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: none;
+	}
+
+	.trade-nav::-webkit-scrollbar {
+		display: none;
 	}
 
 	.trade-nav-item {
@@ -206,10 +221,38 @@
 		box-sizing: border-box;
 	}
 
+	:global(img) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+	}
+
+	:global(iframe) {
+		display: block;
+		max-width: 100%;
+	}
+
 	/* ── Desktop breakpoint ─────────────────────────────── */
 	@media (min-width: 768px) {
 		.portal-header-inner {
 			padding: 0 2rem;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.portal-header-inner {
+			padding-top: 0.6rem;
+			padding-bottom: 0.6rem;
+			flex-wrap: wrap;
+		}
+
+		.trade-nav {
+			width: 100%;
+			padding-bottom: 0.15rem;
+		}
+
+		.header-logout {
+			margin-left: auto;
 		}
 	}
 </style>
