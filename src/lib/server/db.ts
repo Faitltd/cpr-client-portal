@@ -41,6 +41,10 @@ function normalizeAuthRecord<T extends EmailRecord>(record: T): T {
 	} as T;
 }
 
+function buildEmailContainsPattern(email: string): string {
+	return `%${email.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
 async function findRecordByNormalizedEmail<T extends EmailRecord>(
 	table: string,
 	select: string,
@@ -49,33 +53,45 @@ async function findRecordByNormalizedEmail<T extends EmailRecord>(
 	const normalizedEmail = normalizeEmailAddress(email);
 	if (!normalizedEmail) return null;
 
-	const directResult = await getSupabase()
+	let exactLookupError: Error | null = null;
+	const exactResult = await getSupabase()
 		.from(table)
 		.select(select)
-		.ilike('email', normalizedEmail)
+		.eq('email', normalizedEmail)
 		.maybeSingle();
 
-	if (directResult.data) {
-		return normalizeAuthRecord(directResult.data as unknown as T);
+	if (exactResult.error) {
+		exactLookupError = new Error(`${table} email lookup failed: ${exactResult.error.message}`);
+	} else if (exactResult.data) {
+		return normalizeAuthRecord(exactResult.data as unknown as T);
 	}
 
-	if (directResult.error) {
-		console.warn(`${table} email lookup failed: ${directResult.error.message}`);
+	const candidateResult = await getSupabase()
+		.from(table)
+		.select(select)
+		.ilike('email', buildEmailContainsPattern(normalizedEmail));
+
+	if (candidateResult.error) {
+		throw new Error(`${table} email lookup failed: ${candidateResult.error.message}`);
 	}
 
-	const fallbackResult = await getSupabase().from(table).select(select).not('email', 'is', null);
-	if (fallbackResult.error) {
-		console.warn(`${table} fallback email lookup failed: ${fallbackResult.error.message}`);
-		return null;
+	let candidateMatch: T | null = null;
+	try {
+		candidateMatch = findNormalizedEmailMatch(
+			(candidateResult.data ?? []) as unknown as T[],
+			normalizedEmail
+		);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`${table} email lookup failed: ${message}`);
 	}
 
-	const fallbackMatch = findNormalizedEmailMatch(
-		(fallbackResult.data ?? []) as unknown as T[],
-		normalizedEmail
-	);
+	if (candidateMatch) {
+		return normalizeAuthRecord(candidateMatch);
+	}
 
-	if (fallbackMatch) {
-		return normalizeAuthRecord(fallbackMatch);
+	if (exactLookupError) {
+		throw exactLookupError;
 	}
 
 	return null;
