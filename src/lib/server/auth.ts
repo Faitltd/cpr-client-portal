@@ -907,7 +907,10 @@ export async function getTradePartnerDeals(
 			});
 		}
 
-		return [];
+		log.warn('Trade partner scoped lookups returned no deals; falling back to legacy full scan', {
+			tradePartnerId
+		});
+		return fetchAllDeals(accessToken, apiDomain);
 	}
 	return fetchAllDeals(accessToken, apiDomain);
 }

@@ -137,6 +137,28 @@ describe('trade deal field coverage', () => {
 		]);
 	});
 
+	it('falls back to the legacy full scan when scoped mapping returns no deals', async () => {
+		vi.mocked(zohoApiCall).mockImplementation(async (_token, endpoint) => {
+			if (endpoint.startsWith('/Deals/search?criteria=')) {
+				return { data: [], info: { more_records: false } } as any;
+			}
+			if (endpoint.startsWith('/settings/related_lists?module=')) {
+				return { related_lists: [] } as any;
+			}
+			if (endpoint.startsWith('/Deals?fields=')) {
+				return {
+					data: [{ id: 'deal-legacy-1', Deal_Name: 'Legacy Visible Deal' }],
+					info: { more_records: false }
+				} as any;
+			}
+			return { data: [] } as any;
+		});
+
+		const result = await getTradePartnerDeals('token', 'tp-1', 'https://www.zohoapis.com');
+
+		expect(result).toEqual([{ id: 'deal-legacy-1', Deal_Name: 'Legacy Visible Deal' }]);
+	});
+
 	it('treats On Hold as visible in the trade partner portal', () => {
 		expect(isTradePortalVisibleStage('On Hold')).toBe(true);
 		expect(isTradePortalVisibleStage('On Hold (50%)')).toBe(true);
