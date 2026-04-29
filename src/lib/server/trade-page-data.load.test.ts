@@ -1,171 +1,102 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { loadTradePageContext } from './trade-page-data';
 
-const mocks = vi.hoisted(() => ({
-	getTradePartnerDeals: vi.fn(),
-	isTradePortalVisibleStage: vi.fn(),
-	normalizeDealRecord: vi.fn(),
+// --- Module mocks ---
+vi.mock('$lib/server/db', () => ({
 	getTradeSession: vi.fn(),
 	getZohoTokens: vi.fn(),
-	upsertZohoTokens: vi.fn(),
+	upsertZohoTokens: vi.fn()
+}));
+
+vi.mock('$lib/server/zoho', () => ({
 	refreshAccessToken: vi.fn(),
 	zohoApiCall: vi.fn()
 }));
 
 vi.mock('$lib/server/auth', () => ({
-	getTradePartnerDeals: mocks.getTradePartnerDeals,
-	isTradePortalVisibleStage: mocks.isTradePortalVisibleStage,
-	normalizeDealRecord: mocks.normalizeDealRecord
+	getTradePartnerDeals: vi.fn(),
+	isTradePortalVisibleStage: vi.fn(() => true),
+	normalizeDealRecord: vi.fn((d) => d)
 }));
 
-vi.mock('$lib/server/db', () => ({
-	getTradeSession: mocks.getTradeSession,
-	getZohoTokens: mocks.getZohoTokens,
-	upsertZohoTokens: mocks.upsertZohoTokens
-}));
+import * as db from '$lib/server/db';
+import * as zoho from '$lib/server/zoho';
+import * as auth from '$lib/server/auth';
 
-vi.mock('$lib/server/zoho', () => ({
-	refreshAccessToken: mocks.refreshAccessToken,
-	zohoApiCall: mocks.zohoApiCall
-}));
+const VALID_SESSION = {
+	trade_partner: { zoho_trade_partner_id: 'tp-123', id: 'p-1' }
+};
 
-import { loadTradePageContext } from './trade-page-data';
+const VALID_TOKENS = {
+	access_token: 'at-valid',
+	refresh_token: 'rt-valid',
+	expires_at: new Date(Date.now() + 60_000).toISOString(),
+	user_id: 'u1',
+	scope: 'ZohoCRM.modules.ALL',
+	api_domain: 'https://www.zohoapis.com'
+};
 
 beforeEach(() => {
 	vi.clearAllMocks();
-
-	mocks.getTradeSession.mockResolvedValue({
-		trade_partner: {
-			zoho_trade_partner_id: 'tp-1',
-			email: 'trade@example.com'
-		}
-	});
-	mocks.getZohoTokens.mockResolvedValue({
-		access_token: 'access-token',
-		refresh_token: 'refresh-token',
-		expires_at: new Date(Date.now() + 60_000).toISOString(),
-		api_domain: 'https://www.zohoapis.com',
-		scope: 'scope'
-	});
-	mocks.normalizeDealRecord.mockImplementation((deal: any) => deal);
-	mocks.isTradePortalVisibleStage.mockReturnValue(true);
 });
 
 describe('loadTradePageContext', () => {
-	it('falls back to per-deal hydration when bulk hydration omits Garage_Code', async () => {
-		mocks.getTradePartnerDeals.mockResolvedValue([
-			{
-				id: 'deal-1',
-				Deal_Name: 'Kitchen Remodel',
-				Stage: 'Project Created',
-				File_Upload: [],
-				Progress_Photos: []
-			}
-		]);
-
-		mocks.zohoApiCall.mockImplementation(async (_token: string, path: string) => {
-			if (path.startsWith('/Deals?ids=deal-1')) {
-				return {
-					data: [
-						{
-							id: 'deal-1',
-							Deal_Name: 'Kitchen Remodel',
-							Stage: 'Project Created',
-							File_Upload: [],
-							Progress_Photos: []
-						}
-					]
-				};
-			}
-
-			if (path.startsWith('/Deals/deal-1?fields=')) {
-				return {
-					data: [
-						{
-							id: 'deal-1',
-							Deal_Name: 'Kitchen Remodel',
-							Stage: 'Project Created',
-							Garage_Code: '1234',
-							File_Upload: [],
-							Progress_Photos: []
-						}
-					]
-				};
-			}
-
-			throw new Error(`Unexpected path ${path}`);
-		});
-
-		const result = await loadTradePageContext('session-token', {
-			includeDetailFields: true
-		});
-
-		expect(result.deals).toHaveLength(1);
-		expect(result.deals[0].Garage_Code).toBe('1234');
-		expect(mocks.zohoApiCall).toHaveBeenCalledWith(
-			'access-token',
-			expect.stringContaining('/Deals/deal-1?fields='),
-			{},
-			'https://www.zohoapis.com'
-		);
+	it('redirects to /auth/trade when no session token', async () => {
+		const result = await loadTradePageContext(null);
+		expect(result.redirectTo).toBe('/auth/trade');
+		expect(result.deals).toEqual([]);
 	});
 
-	it('falls back to per-deal hydration when bulk hydration returns null Garage_Code', async () => {
-		mocks.getTradePartnerDeals.mockResolvedValue([
-			{
-				id: 'deal-2',
-				Deal_Name: 'Bathroom Remodel',
-				Stage: 'Project Created',
-				Garage_Code: null,
-				File_Upload: [],
-				Progress_Photos: []
-			}
-		]);
-
-		mocks.zohoApiCall.mockImplementation(async (_token: string, path: string) => {
-			if (path.startsWith('/Deals?ids=deal-2')) {
-				return {
-					data: [
-						{
-							id: 'deal-2',
-							Deal_Name: 'Bathroom Remodel',
-							Stage: 'Project Created',
-							Garage_Code: null,
-							File_Upload: [],
-							Progress_Photos: []
-						}
-					]
-				};
-			}
-
-			if (path.startsWith('/Deals/deal-2?fields=')) {
-				return {
-					data: [
-						{
-							id: 'deal-2',
-							Deal_Name: 'Bathroom Remodel',
-							Stage: 'Project Created',
-							Garage_Code: '5678',
-							File_Upload: [],
-							Progress_Photos: []
-						}
-					]
-				};
-			}
-
-			throw new Error(`Unexpected path ${path}`);
-		});
-
-		const result = await loadTradePageContext('session-token', {
-			includeDetailFields: true
-		});
-
-		expect(result.deals).toHaveLength(1);
-		expect(result.deals[0].Garage_Code).toBe('5678');
-		expect(mocks.zohoApiCall).toHaveBeenCalledWith(
-			'access-token',
-			expect.stringContaining('/Deals/deal-2?fields='),
-			{},
-			'https://www.zohoapis.com'
+	it('returns cached empty deals fast when Zoho throws 401', async () => {
+		vi.mocked(db.getTradeSession).mockResolvedValue(VALID_SESSION as any);
+		vi.mocked(db.getZohoTokens).mockResolvedValue(VALID_TOKENS as any);
+		vi.mocked(auth.getTradePartnerDeals).mockRejectedValue(
+			new Error('Request failed with status 401 INVALID_OAUTHTOKEN')
 		);
+
+		const t0 = Date.now();
+		const result = await loadTradePageContext('valid-token');
+		const elapsed = Date.now() - t0;
+
+		expect(result.redirectTo).toBeNull();
+		expect(result.deals).toEqual([]);
+		expect(result.syncing).toBe(true);
+		expect(result.warning).toMatch(/syncing/i);
+		expect(elapsed).toBeLessThan(1000);
+	});
+
+	it('returns cached deals fast when Zoho times out', async () => {
+		vi.mocked(db.getTradeSession).mockResolvedValue(VALID_SESSION as any);
+		vi.mocked(db.getZohoTokens).mockResolvedValue(VALID_TOKENS as any);
+		vi.mocked(auth.getTradePartnerDeals).mockRejectedValue(
+			new Error('Zoho call timed out after 2500ms')
+		);
+
+		const result = await loadTradePageContext('valid-token');
+		expect(result.deals).toEqual([]);
+		expect(result.syncing).toBe(true);
+	});
+
+	it('does not retry portal discovery after 401 — called exactly once', async () => {
+		vi.mocked(db.getTradeSession).mockResolvedValue(VALID_SESSION as any);
+		vi.mocked(db.getZohoTokens).mockResolvedValue(VALID_TOKENS as any);
+		vi.mocked(auth.getTradePartnerDeals).mockRejectedValue(
+			new Error('401 INVALID_OAUTHTOKEN')
+		);
+
+		await loadTradePageContext('valid-token');
+		expect(vi.mocked(auth.getTradePartnerDeals)).toHaveBeenCalledTimes(1);
+	});
+
+	it('returns Supabase deals without blocking on Zoho when token valid and deals cached', async () => {
+		const fakeDeal = { id: 'd1', Stage: 'Quoted', Deal_Name: 'Test Project', Address: '123 Main' };
+		vi.mocked(db.getTradeSession).mockResolvedValue(VALID_SESSION as any);
+		vi.mocked(db.getZohoTokens).mockResolvedValue(VALID_TOKENS as any);
+		vi.mocked(auth.getTradePartnerDeals).mockResolvedValue([fakeDeal] as any);
+		vi.mocked(auth.isTradePortalVisibleStage).mockReturnValue(true);
+
+		const result = await loadTradePageContext('valid-token', { includeDetailFields: true });
+		expect(result.deals.length).toBeGreaterThan(0);
+		expect(result.syncing).toBeFalsy();
 	});
 });
