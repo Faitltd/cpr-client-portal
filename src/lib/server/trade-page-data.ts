@@ -90,6 +90,11 @@ function hasGarageCodeValue(value: unknown) {
 	return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined;
 }
 
+function hasTradeDetailValue(value: unknown) {
+	if (typeof value === 'string') return value.trim().length > 0;
+	return value !== null && value !== undefined;
+}
+
 export function isTradeDealDisplayable(deal: any, includeDetailFields = false) {
 	const label = getTradeDealLabel(deal);
 	if (label && !isPlaceholderTradeDealName(label)) return true;
@@ -118,8 +123,13 @@ export function shouldHydrateTradeDeal(deal: any, includeDetailFields = false) {
 	if (!deal?.Stage) return true;
 	// Hydrate if the deal isn't displayable yet
 	if (!isTradeDealDisplayable(deal, includeDetailFields)) return true;
-	// For detail fields: only hydrate if Garage_Code key is absent (not just empty)
-	if (includeDetailFields && !('Garage_Code' in deal)) return true;
+	// For dashboard detail cards, the trade path needs the same ball-in-court
+	// fields the designer dashboard already relies on.
+	if (includeDetailFields) {
+		if (!hasGarageCodeValue(deal?.Garage_Code)) return true;
+		if (!hasTradeDetailValue(deal?.Ball_In_Court)) return true;
+		if (!hasTradeDetailValue(deal?.Ball_In_Court_Note)) return true;
+	}
 	return false;
 }
 

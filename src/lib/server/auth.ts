@@ -3,6 +3,7 @@ import type { Client } from './db';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import { createLogger } from '$lib/server/logger';
+import { DESIGNER_FETCH_FIELD_KEYS } from '$lib/types/designer';
 
 const log = createLogger('auth');
 
@@ -24,33 +25,16 @@ type TradePartnerProfile = {
 	phone?: string | null;
 };
 
-const DEAL_FIELDS = [
-	'Deal_Name',
-	'Stage',
-	'Amount',
-	'Closing_Date',
-	'Created_Time',
-	'Modified_Time',
-	'Owner',
-	'Contact_Name',
-	'Account_Name',
-	'Address',
-	'Address_Line_2',
-	'Street',
-	'City',
-	'State',
-	'Zip_Code',
-	'Garage_Code',
-	'WiFi',
-	'Refined_Scope',
-	'File_Upload',
-	'External_Link',
-	'Progress_Photos',
-	'Client_Portal_Folder',
-	'Portal_Trade_Partners',
-	'Project_ID',
-	'Zoho_Projects_ID'
-].join(',');
+const DEAL_FIELDS = Array.from(
+	new Set([
+		...DESIGNER_FETCH_FIELD_KEYS,
+		'Amount',
+		'Closing_Date',
+		'Description',
+		'External_Link',
+		'Client_Portal_Folder'
+	])
+).join(',');
 
 const CONTACT_FIELDS = [
 	'First_Name',
