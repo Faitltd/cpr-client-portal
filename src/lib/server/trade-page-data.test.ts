@@ -96,6 +96,22 @@ describe('trade page deal helpers', () => {
 		).toBe(false);
 	});
 
+	it('rehydrates dashboard deals when ball-in-court fields are object shells without display values', () => {
+		expect(
+			shouldHydrateTradeDeal(
+				{
+					id: '7',
+					Deal_Name: 'Guest Suite',
+					Stage: 'Project Created',
+					Garage_Code: '9876',
+					Ball_In_Court: { id: '123' },
+					Ball_In_Court_Note: { id: '456' }
+				},
+				true
+			)
+		).toBe(true);
+	});
+
 	it('treats detail fields as displayable for dashboard pages', () => {
 		const deal = { id: '3', Deal_Name: 'Deal 3', WiFi: 'CPR-Guest' };
 

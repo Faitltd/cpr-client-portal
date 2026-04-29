@@ -148,7 +148,9 @@ function zohoCall(ctx: AdminZohoContext, endpoint: string, init: RequestInit = {
 function pickLookupName(value: any): string | null {
 	if (!value) return null;
 	if (typeof value === 'string') return value;
-	if (typeof value === 'object') return value.name ?? value.display_value ?? null;
+	if (typeof value === 'object') {
+		return value.name ?? value.display_value ?? value.displayValue ?? value.value ?? value.label ?? null;
+	}
 	return null;
 }
 

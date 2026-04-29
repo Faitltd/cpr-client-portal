@@ -90,9 +90,32 @@ function hasGarageCodeValue(value: unknown) {
 	return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined;
 }
 
+function getTradeDetailDisplayValue(value: unknown): string | null {
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		return trimmed || null;
+	}
+	if (typeof value === 'number') return String(value);
+	if (!value || typeof value !== 'object') return null;
+
+	const candidate =
+		(value as any).name ??
+		(value as any).display_value ??
+		(value as any).displayValue ??
+		(value as any).value ??
+		(value as any).label ??
+		null;
+
+	if (typeof candidate === 'string') {
+		const trimmed = candidate.trim();
+		return trimmed || null;
+	}
+	if (typeof candidate === 'number') return String(candidate);
+	return null;
+}
+
 function hasTradeDetailValue(value: unknown) {
-	if (typeof value === 'string') return value.trim().length > 0;
-	return value !== null && value !== undefined;
+	return Boolean(getTradeDetailDisplayValue(value));
 }
 
 export function isTradeDealDisplayable(deal: any, includeDetailFields = false) {
