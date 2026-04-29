@@ -2,6 +2,10 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import DesignerDealsView from '$lib/components/designer/DesignerDealsView.svelte';
+	import {
+		getTradeDealsSyncPollDelay,
+		normalizeTradeDealsPayload
+	} from '$lib/trade-dashboard';
 	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
 	import type { DealFieldDescriptor, DesignerDealSummary } from '$lib/types/designer';
 
@@ -21,30 +25,77 @@
 	let selectedDealId = '';
 	type DashboardTab = 'trade' | 'designer';
 	let activeTab: DashboardTab = 'trade';
+	let dealsSyncTimer: number | null = null;
 
-	onMount(async () => {
+	function clearDealsSyncTimer() {
+		if (dealsSyncTimer) {
+			clearTimeout(dealsSyncTimer);
+			dealsSyncTimer = null;
+		}
+	}
+
+	function scheduleDealsSyncPoll() {
+		clearDealsSyncTimer();
+		const pollDelay = getTradeDealsSyncPollDelay(dealsSyncing);
+		if (pollDelay === null) return;
+		dealsSyncTimer = window.setTimeout(() => {
+			void loadDeals({ preferredDealId: selectedDealId });
+		}, pollDelay);
+	}
+
+	type LoadDealsOptions = {
+		preferredDealId?: string | null;
+		preferredTab?: string | null;
+		showLoading?: boolean;
+	};
+
+	async function loadDeals({
+		preferredDealId = selectedDealId,
+		preferredTab,
+		showLoading = false
+	}: LoadDealsOptions = {}) {
+		if (showLoading) dealsLoading = true;
+
 		try {
 			const res = await fetch('/api/trade/deals');
-			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
-			if (res.ok) {
-				const body = await res.json().catch(() => ({}));
-				deals = Array.isArray(body.deals) ? body.deals : [];
-				designerDeals = Array.isArray(body.designerDeals) ? body.designerDeals : [];
-				designerFieldDescriptors = Array.isArray(body.designerFieldDescriptors)
-					? body.designerFieldDescriptors
-					: [];
-				dealsWarning = body.warning ?? '';
-				dealsSyncing = body.syncing ?? false;
-				if (deals.length > 0) selectedDealId = deals[0].id;
-				const params = new URLSearchParams(window.location.search);
-				const paramId = params.get('deal');
-				const paramTab = params.get('tab');
-				if (paramId && deals.find((d: any) => d.id === paramId)) selectedDealId = paramId;
-				if (paramTab === 'designer') activeTab = 'designer';
+			if (res.status === 401) {
+				window.location.href = '/auth/trade';
+				return;
 			}
-		} catch { /* non-fatal */ } finally {
+			if (!res.ok) return;
+
+			const body = normalizeTradeDealsPayload(await res.json().catch(() => ({})));
+			deals = body.deals;
+			designerDeals = body.designerDeals;
+			designerFieldDescriptors = body.designerFieldDescriptors;
+			dealsWarning = body.warning;
+			dealsSyncing = body.syncing;
+
+			const nextSelectedDealId =
+				preferredDealId && deals.find((deal: any) => deal.id === preferredDealId)
+					? preferredDealId
+					: deals[0]?.id ?? '';
+			selectedDealId = nextSelectedDealId;
+
+			if (preferredTab === 'designer') {
+				activeTab = 'designer';
+			}
+
+			scheduleDealsSyncPoll();
+		} catch {
+			// non-fatal
+		} finally {
 			dealsLoading = false;
 		}
+	}
+
+	onMount(async () => {
+		const params = new URLSearchParams(window.location.search);
+		await loadDeals({
+			preferredDealId: params.get('deal'),
+			preferredTab: params.get('tab'),
+			showLoading: true
+		});
 		loadProjectsList();
 	});
 
@@ -554,6 +605,7 @@
 		: '/trade/field-update';
 
 	onDestroy(() => {
+		clearDealsSyncTimer();
 		fieldUpdatesController?.abort();
 	});
 </script>
