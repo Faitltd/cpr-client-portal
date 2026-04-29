@@ -1530,12 +1530,6 @@
 			flex-direction: column;
 		}
 
-		.project-actions .btn-primary,
-		.project-actions .btn-secondary {
-			flex: none;
-			white-space: nowrap;
-		}
-
 		.invoice-card {
 			display: grid;
 			grid-template-columns: 1fr auto auto;

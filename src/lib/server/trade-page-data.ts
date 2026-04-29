@@ -3,6 +3,7 @@ import {
 	isTradePortalVisibleStage,
 	normalizeDealRecord
 } from '$lib/server/auth';
+import { DESIGNER_FETCH_FIELD_KEYS } from '$lib/types/designer';
 import {
 	getTradeSession,
 	getZohoTokens,
@@ -23,17 +24,7 @@ const BASE_DEAL_FIELDS = [
 	'Zip_Code'
 ];
 
-const DETAIL_DEAL_FIELDS = [
-	'Garage_Code',
-	'WiFi',
-	'Refined_Scope',
-	'File_Upload',
-	'Progress_Photos',
-	'Project_ID',
-	'Zoho_Projects_ID',
-	'Client_Portal_Folder',
-	'External_Link'
-];
+const DETAIL_DEAL_FIELDS = Array.from(new Set(DESIGNER_FETCH_FIELD_KEYS));
 
 const ZOHO_TIMEOUT_MS = 5000;
 // Supabase cache TTL: serve stale after 2 min, expire after 1 year
@@ -62,7 +53,9 @@ function toSafeIso(value: unknown, fallback?: unknown) {
 }
 
 function getTradePageDealFields(includeDetailFields: boolean) {
-	return [...BASE_DEAL_FIELDS, ...(includeDetailFields ? DETAIL_DEAL_FIELDS : [])].join(',');
+	return Array.from(
+		new Set([...BASE_DEAL_FIELDS, ...(includeDetailFields ? DETAIL_DEAL_FIELDS : [])])
+	).join(',');
 }
 
 export function getTradeDealLabel(deal: any): string | null {
@@ -179,7 +172,7 @@ async function fetchDealsByIds(
 		const bulkDeals = (bulkResponse.data || []).map(normalizeDealRecord);
 		const dealsById = new Map<string, any>(
 			bulkDeals
-				.map((deal) => {
+				.map((deal: any) => {
 					const dealId = String(deal?.id || '').trim();
 					return dealId ? ([dealId, deal] as const) : null;
 				})

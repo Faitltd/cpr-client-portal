@@ -13,6 +13,7 @@
 	export let deal: DesignerDealSummary;
 	export let fieldDescriptors: DealFieldDescriptor[];
 	export let expanded = false;
+	export let readonly = false;
 
 	let notes: DesignerNote[] = [];
 	let loadingNotes = false;
@@ -101,6 +102,10 @@
 	}
 
 	function seedDraft() {
+		if (readonly) {
+			draft = {};
+			return;
+		}
 		const next: Record<string, string> = {};
 		for (const d of fieldDescriptors) {
 			if (!d.editable) continue;
@@ -148,10 +153,12 @@
 	async function toggle() {
 		expanded = !expanded;
 		if (expanded) {
-			if (notes.length === 0 && !notesError && !loadingNotes) void loadNotes();
-			if (Object.keys(draft).length === 0) seedDraft();
-			await tick();
-			composerTextarea?.focus({ preventScroll: true });
+			if (!readonly) {
+				if (notes.length === 0 && !notesError && !loadingNotes) void loadNotes();
+				if (Object.keys(draft).length === 0) seedDraft();
+				await tick();
+				composerTextarea?.focus({ preventScroll: true });
+			}
 		}
 	}
 
@@ -387,23 +394,27 @@
 						<label for={`bic-${deal.id}`}>Ball in court</label>
 					</dt>
 					<dd>
-						<input
-							id={`bic-${deal.id}`}
-							class="bic-input"
-							type="text"
-							bind:value={ballInCourtDraft}
-							on:blur={commitBallInCourt}
-							on:keydown={onBallInCourtKey}
-							placeholder="—"
-							disabled={savingBallInCourt}
-							aria-busy={savingBallInCourt}
-						/>
-						{#if savingBallInCourt}
-							<span class="bic-status" aria-live="polite">Saving…</span>
-						{:else if ballInCourtError}
-							<span class="bic-status error" role="alert">{ballInCourtError}</span>
-						{:else if ballInCourtSavedAt}
-							<span class="bic-status success" role="status">Saved</span>
+						{#if readonly}
+							<p class="bic-readonly">{deal.ballInCourt || '—'}</p>
+						{:else}
+							<input
+								id={`bic-${deal.id}`}
+								class="bic-input"
+								type="text"
+								bind:value={ballInCourtDraft}
+								on:blur={commitBallInCourt}
+								on:keydown={onBallInCourtKey}
+								placeholder="—"
+								disabled={savingBallInCourt}
+								aria-busy={savingBallInCourt}
+							/>
+							{#if savingBallInCourt}
+								<span class="bic-status" aria-live="polite">Saving…</span>
+							{:else if ballInCourtError}
+								<span class="bic-status error" role="alert">{ballInCourtError}</span>
+							{:else if ballInCourtSavedAt}
+								<span class="bic-status success" role="status">Saved</span>
+							{/if}
 						{/if}
 					</dd>
 				</div>
@@ -417,23 +428,27 @@
 						<label for={`bicnote-${deal.id}`}>Ball in court note</label>
 					</dt>
 					<dd>
-						<input
-							id={`bicnote-${deal.id}`}
-							class="bic-input"
-							type="text"
-							bind:value={ballInCourtNoteDraft}
-							on:blur={commitBallInCourtNote}
-							on:keydown={onBallInCourtNoteKey}
-							placeholder="—"
-							disabled={savingBallInCourtNote}
-							aria-busy={savingBallInCourtNote}
-						/>
-						{#if savingBallInCourtNote}
-							<span class="bic-status" aria-live="polite">Saving…</span>
-						{:else if ballInCourtNoteError}
-							<span class="bic-status error" role="alert">{ballInCourtNoteError}</span>
-						{:else if ballInCourtNoteSavedAt}
-							<span class="bic-status success" role="status">Saved</span>
+						{#if readonly}
+							<p class="bic-readonly">{deal.ballInCourtNote || '—'}</p>
+						{:else}
+							<input
+								id={`bicnote-${deal.id}`}
+								class="bic-input"
+								type="text"
+								bind:value={ballInCourtNoteDraft}
+								on:blur={commitBallInCourtNote}
+								on:keydown={onBallInCourtNoteKey}
+								placeholder="—"
+								disabled={savingBallInCourtNote}
+								aria-busy={savingBallInCourtNote}
+							/>
+							{#if savingBallInCourtNote}
+								<span class="bic-status" aria-live="polite">Saving…</span>
+							{:else if ballInCourtNoteError}
+								<span class="bic-status error" role="alert">{ballInCourtNoteError}</span>
+							{:else if ballInCourtNoteSavedAt}
+								<span class="bic-status success" role="status">Saved</span>
+							{/if}
 						{/if}
 					</dd>
 				</div>
@@ -444,80 +459,88 @@
 
 	{#if expanded}
 		<div class="body" id={`deal-${deal.id}-body`}>
-			<!-- 1. Composer -->
-			<form class="composer" on:submit={submitNote} aria-label="Add note">
-				<label for={`note-${deal.id}`} class="composer-label">Add a note</label>
-				<textarea
-					id={`note-${deal.id}`}
-					bind:this={composerTextarea}
-					bind:value={composerText}
-					on:keydown={onComposerKey}
-					rows="3"
-					placeholder="What's the latest? (Cmd/Ctrl+Enter to save)"
-					disabled={composerBusy}
-				></textarea>
-				<div class="composer-row">
-					<button
-						type="submit"
-						class="primary"
-						disabled={composerBusy || composerText.trim().length === 0}
-					>
-						{composerBusy ? 'Saving…' : 'Save note'}
-					</button>
-					<span class="composer-hint" aria-hidden="true">⌘/Ctrl + Enter</span>
-					{#if composerError}
-						<span class="error" role="alert">{composerError}</span>
-					{/if}
-				</div>
-			</form>
-
-			<!-- 2. Notes -->
-			<section class="history" aria-label="Notes">
-				<header class="history-head">
-					<h3>Notes</h3>
-					{#if notes.length > 3}
+			{#if readonly}
+				<p class="readonly-banner">Read-only for trade partners.</p>
+			{:else}
+				<!-- 1. Composer -->
+				<form class="composer" on:submit={submitNote} aria-label="Add note">
+					<label for={`note-${deal.id}`} class="composer-label">Add a note</label>
+					<textarea
+						id={`note-${deal.id}`}
+						bind:this={composerTextarea}
+						bind:value={composerText}
+						on:keydown={onComposerKey}
+						rows="3"
+						placeholder="What's the latest? (Cmd/Ctrl+Enter to save)"
+						disabled={composerBusy}
+					></textarea>
+					<div class="composer-row">
 						<button
-							type="button"
-							class="link"
-							on:click={() => (historyOpen = !historyOpen)}
-							aria-expanded={historyOpen}
+							type="submit"
+							class="primary"
+							disabled={composerBusy || composerText.trim().length === 0}
 						>
-							{historyOpen ? 'Show fewer' : `Show all ${notes.length}`}
+							{composerBusy ? 'Saving…' : 'Save note'}
 						</button>
+						<span class="composer-hint" aria-hidden="true">⌘/Ctrl + Enter</span>
+						{#if composerError}
+							<span class="error" role="alert">{composerError}</span>
+						{/if}
+					</div>
+				</form>
+
+				<!-- 2. Notes -->
+				<section class="history" aria-label="Notes">
+					<header class="history-head">
+						<h3>Notes</h3>
+						{#if notes.length > 3}
+							<button
+								type="button"
+								class="link"
+								on:click={() => (historyOpen = !historyOpen)}
+								aria-expanded={historyOpen}
+							>
+								{historyOpen ? 'Show fewer' : `Show all ${notes.length}`}
+							</button>
+						{/if}
+					</header>
+					{#if loadingNotes && notes.length === 0}
+						<p class="muted">Loading…</p>
+					{:else if notesError}
+						<p class="muted" role="alert">
+							{notesError} <button type="button" class="link" on:click={loadNotes}>Retry</button>
+						</p>
+					{:else if notes.length === 0}
+						<p class="muted">No notes yet. Add one above.</p>
+					{:else}
+						<ol class="history-list">
+							{#each (historyOpen ? notes : notes.slice(0, 3)) as note (note.id)}
+								<li>
+									<time
+										datetime={note.Created_Time ?? ''}
+										title={formatAbsoluteTimestamp(note.Created_Time)}
+									>
+										{formatCompactTimestamp(note.Created_Time)}
+									</time>
+									{#if note.owner_name}
+										<span class="author">· {note.owner_name}</span>
+									{/if}
+									<p>{formatCrmRichText(note.Note_Content)}</p>
+								</li>
+							{/each}
+						</ol>
 					{/if}
-				</header>
-				{#if loadingNotes && notes.length === 0}
-					<p class="muted">Loading…</p>
-				{:else if notesError}
-					<p class="muted" role="alert">
-						{notesError} <button type="button" class="link" on:click={loadNotes}>Retry</button>
-					</p>
-				{:else if notes.length === 0}
-					<p class="muted">No notes yet. Add one above.</p>
-				{:else}
-					<ol class="history-list">
-						{#each (historyOpen ? notes : notes.slice(0, 3)) as note (note.id)}
-							<li>
-								<time
-									datetime={note.Created_Time ?? ''}
-									title={formatAbsoluteTimestamp(note.Created_Time)}
-								>
-									{formatCompactTimestamp(note.Created_Time)}
-								</time>
-								{#if note.owner_name}
-									<span class="author">· {note.owner_name}</span>
-								{/if}
-								<p>{formatCrmRichText(note.Note_Content)}</p>
-							</li>
-						{/each}
-					</ol>
-				{/if}
-			</section>
+				</section>
+			{/if}
 
 			<!-- 3. Editable deal fields -->
 			<details class="fields-wrap">
 				<summary>Deal fields</summary>
-				<form class="fields" on:submit={saveFields} aria-label="Edit deal fields">
+				<form
+					class="fields"
+					on:submit={saveFields}
+					aria-label={readonly ? 'View deal fields' : 'Edit deal fields'}
+				>
 					{#each groupedFields as group}
 						<fieldset class="field-group">
 							<legend>{GROUP_LABEL[group.group]}</legend>
@@ -559,16 +582,18 @@
 							</div>
 						</fieldset>
 					{/each}
-					<div class="save-row">
-						<button type="submit" disabled={saving}>
-							{saving ? 'Saving…' : 'Save field changes'}
-						</button>
-						{#if saveError}
-							<span class="error" role="alert">{saveError}</span>
-						{:else if savedAt}
-							<span class="success" role="status">Saved</span>
-						{/if}
-					</div>
+					{#if !readonly}
+						<div class="save-row">
+							<button type="submit" disabled={saving}>
+								{saving ? 'Saving…' : 'Save field changes'}
+							</button>
+							{#if saveError}
+								<span class="error" role="alert">{saveError}</span>
+							{:else if savedAt}
+								<span class="success" role="status">Saved</span>
+							{/if}
+						</div>
+					{/if}
 				</form>
 			</details>
 
@@ -730,11 +755,27 @@
 		color: #047857;
 	}
 
+	.bic-readonly {
+		margin: 0;
+		color: #111827;
+		min-height: 1.4rem;
+	}
+
 	.body {
 		border-top: 1px solid #eef0f3;
 		padding: 1.25rem;
 		display: grid;
 		gap: 1.25rem;
+	}
+
+	.readonly-banner {
+		margin: 0;
+		padding: 0.75rem 0.9rem;
+		border-radius: 8px;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		color: #475569;
+		font-size: 0.9rem;
 	}
 
 	/* Composer */

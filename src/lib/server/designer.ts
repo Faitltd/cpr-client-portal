@@ -17,6 +17,7 @@ import {
 	type DesignerDealSummary,
 	type DesignerNote
 } from '$lib/types/designer';
+import { isDesignerStageInView, normalizeDesignerStageName } from '$lib/designer-view';
 
 const log = createLogger('designer');
 
@@ -239,29 +240,6 @@ export function summarizeDeal(raw: any): DesignerDealSummary | null {
  * `project created` lives on its own page, closed-out states are hidden
  * entirely.
  */
-const ACTIVE_VIEW_EXCLUDED_STAGES: ReadonlySet<string> = new Set([
-	'completed',
-	'on hold',
-	'lost',
-	'project created'
-]);
-
-const PROJECT_CREATED_STAGE = 'project created';
-const ON_HOLD_STAGE = 'on hold';
-
-function normalizeStageName(raw: unknown): string {
-	let value: unknown = raw;
-	if (value && typeof value === 'object') {
-		value = (value as any).name ?? (value as any).display_value ?? '';
-	}
-	if (typeof value !== 'string') return '';
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/\s*\(\s*\d+\s*%?\s*\)\s*/g, '')
-		.trim();
-}
-
 /**
  * Paginated fetch of all Deals, filtering each raw record through
  * `stagePredicate(normalizedStage)`. The predicate receives '' for stageless
@@ -289,7 +267,7 @@ async function paginateFilteredDeals(
 		const pageData = Array.isArray(response.data) ? response.data : [];
 		if (pageData.length === 0) break;
 		for (const raw of pageData) {
-			if (!stagePredicate(normalizeStageName(raw?.Stage))) continue;
+			if (!stagePredicate(normalizeDesignerStageName(raw?.Stage))) continue;
 			const summary = summarizeDeal(raw);
 			if (summary) summaries.push(summary);
 		}
@@ -314,7 +292,7 @@ async function paginateFilteredDeals(
  * Stageless deals remain visible so WIP records aren't accidentally hidden.
  */
 export async function getAllDeals(): Promise<DesignerDealSummary[]> {
-	return paginateFilteredDeals((stage) => !ACTIVE_VIEW_EXCLUDED_STAGES.has(stage));
+	return paginateFilteredDeals((stage) => isDesignerStageInView(stage, 'active'));
 }
 
 /**
@@ -322,7 +300,7 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
  * Stageless deals are NOT included here.
  */
 export async function getProjectCreatedDeals(): Promise<DesignerDealSummary[]> {
-	return paginateFilteredDeals((stage) => stage === PROJECT_CREATED_STAGE);
+	return paginateFilteredDeals((stage) => isDesignerStageInView(stage, 'project-created'));
 }
 
 /**
@@ -330,7 +308,7 @@ export async function getProjectCreatedDeals(): Promise<DesignerDealSummary[]> {
  * Stageless deals are NOT included here.
  */
 export async function getOnHoldDeals(): Promise<DesignerDealSummary[]> {
-	return paginateFilteredDeals((stage) => stage === ON_HOLD_STAGE);
+	return paginateFilteredDeals((stage) => isDesignerStageInView(stage, 'on-hold'));
 }
 
 /**

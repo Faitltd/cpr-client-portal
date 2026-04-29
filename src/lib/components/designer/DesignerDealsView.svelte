@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import DealCard from '$lib/components/designer/DealCard.svelte';
+	import {
+		DESIGNER_VIEW_TABS,
+		filterDesignerDealsForView,
+		getDesignerEmptyMessageForView,
+		type DesignerViewKey
+	} from '$lib/designer-view';
 	import type {
 		DealFieldDescriptor,
 		DesignerDealSummary
@@ -17,22 +23,37 @@
 	export let designerLabel: string;
 	export let heading: string;
 	export let emptyMessage = 'No deals found.';
+	export let readonly = false;
+	export let showHeader = true;
+	export let showTabs = true;
+	export let showSignOut = true;
+	export let tabMode: 'links' | 'inline' = 'links';
+	export let initialView: DesignerViewKey = 'active';
 
 	let localDeals: DesignerDealSummary[] = deals;
 	$: localDeals = deals;
 
 	let query = '';
 	let stageFilter = '';
+	let selectedInlineView: DesignerViewKey | null = null;
+
+	$: if (selectedInlineView === null) {
+		selectedInlineView = initialView;
+	}
+
+	$: activeInlineView = selectedInlineView ?? initialView;
+	$: scopedDeals =
+		tabMode === 'inline' ? filterDesignerDealsForView(localDeals, activeInlineView) : localDeals;
 
 	$: stages = Array.from(
 		new Set(
-			localDeals
+			scopedDeals
 				.map((d) => d.stage)
 				.filter((s): s is string => typeof s === 'string' && s.length > 0)
 		)
 	).sort();
 
-	$: filtered = localDeals.filter((deal) => {
+	$: filtered = scopedDeals.filter((deal) => {
 		if (stageFilter && deal.stage !== stageFilter) return false;
 		if (!query.trim()) return true;
 		const needle = query.trim().toLowerCase();
@@ -57,52 +78,91 @@
 	}
 
 	$: pathname = $page.url.pathname;
-	$: tabs = [
-		{ href: '/designer', label: 'Active Deals' },
-		{ href: '/designer/projects', label: 'Project Created' },
-		{ href: '/designer/on-hold', label: 'On Hold' }
-	];
+	$: tabs = DESIGNER_VIEW_TABS;
+	$: resolvedEmptyMessage =
+		tabMode === 'inline' ? getDesignerEmptyMessageForView(activeInlineView) : emptyMessage;
 </script>
 
-<main class="page">
-	<header class="page-header">
-		<div>
-			<h1>{heading}</h1>
-			<p class="muted">
-				Signed in as <strong>{designerLabel}</strong> ·
-				<a href="/api/logout">Sign out</a>
-			</p>
-		</div>
-		<div class="filters" role="search">
-			<label class="sr-only" for="deal-search">Search deals</label>
+<main class="page" class:embedded={!showHeader}>
+	{#if showHeader}
+		<header class="page-header">
+			<div>
+				<h1>{heading}</h1>
+				<p class="muted">
+					Signed in as <strong>{designerLabel}</strong>
+					{#if showSignOut}
+						· <a href="/api/logout">Sign out</a>
+					{/if}
+				</p>
+			</div>
+			<div class="filters" role="search">
+				<label class="sr-only" for="deal-search">Search deals</label>
+				<input
+					id="deal-search"
+					type="search"
+					placeholder="Search deals, clients, addresses…"
+					bind:value={query}
+				/>
+				<label class="sr-only" for="stage-filter">Filter by stage</label>
+				<select id="stage-filter" bind:value={stageFilter}>
+					<option value="">All stages</option>
+					{#each stages as stage}
+						<option value={stage}>{stage}</option>
+					{/each}
+				</select>
+			</div>
+		</header>
+	{:else}
+		<div class="filters embedded-filters" role="search">
+			<label class="sr-only" for="deal-search-embedded">Search deals</label>
 			<input
-				id="deal-search"
+				id="deal-search-embedded"
 				type="search"
 				placeholder="Search deals, clients, addresses…"
 				bind:value={query}
 			/>
-			<label class="sr-only" for="stage-filter">Filter by stage</label>
-			<select id="stage-filter" bind:value={stageFilter}>
+			<label class="sr-only" for="stage-filter-embedded">Filter by stage</label>
+			<select id="stage-filter-embedded" bind:value={stageFilter}>
 				<option value="">All stages</option>
 				{#each stages as stage}
 					<option value={stage}>{stage}</option>
 				{/each}
 			</select>
 		</div>
-	</header>
+	{/if}
 
-	<nav class="tabs" aria-label="Designer views">
-		{#each tabs as tab}
-			<a
-				class="tab"
-				class:active={pathname === tab.href}
-				href={tab.href}
-				aria-current={pathname === tab.href ? 'page' : undefined}
-			>
-				{tab.label}
-			</a>
-		{/each}
-	</nav>
+	{#if showTabs}
+		<nav class="tabs" aria-label="Designer views">
+			{#if tabMode === 'inline'}
+				{#each tabs as tab}
+					<button
+						type="button"
+						class="tab"
+						class:active={activeInlineView === tab.key}
+						aria-pressed={activeInlineView === tab.key}
+						on:click={() => {
+							selectedInlineView = tab.key;
+							query = '';
+							stageFilter = '';
+						}}
+					>
+						{tab.label}
+					</button>
+				{/each}
+			{:else}
+				{#each tabs as tab}
+					<a
+						class="tab"
+						class:active={pathname === tab.href}
+						href={tab.href}
+						aria-current={pathname === tab.href ? 'page' : undefined}
+					>
+						{tab.label}
+					</a>
+				{/each}
+			{/if}
+		</nav>
+	{/if}
 
 	{#if warning}
 		<p class="banner error" role="alert">{warning}</p>
@@ -110,12 +170,14 @@
 
 	<section aria-label="Deals" class="deals">
 		{#if localDeals.length === 0 && !warning}
-			<p class="muted empty">{emptyMessage}</p>
+			<p class="muted empty">{resolvedEmptyMessage}</p>
 		{:else if filtered.length === 0}
-			<p class="muted empty">No deals match the current filter.</p>
+			<p class="muted empty">
+				{query.trim() || stageFilter ? 'No deals match the current filter.' : resolvedEmptyMessage}
+			</p>
 		{:else}
 			{#each filtered as deal (deal.id)}
-				<DealCard {deal} {fieldDescriptors} on:dealUpdated={onDealUpdated} />
+				<DealCard {deal} {fieldDescriptors} {readonly} on:dealUpdated={onDealUpdated} />
 			{/each}
 		{/if}
 	</section>
@@ -128,6 +190,11 @@
 		padding: 1.5rem 1.25rem 4rem;
 		display: grid;
 		gap: 1.25rem;
+	}
+
+	.page.embedded {
+		max-width: none;
+		padding: 0;
 	}
 
 	.page-header {
@@ -155,6 +222,10 @@
 		flex-wrap: wrap;
 	}
 
+	.embedded-filters {
+		justify-content: flex-start;
+	}
+
 	.filters input,
 	.filters select {
 		border: 1px solid #d1d5db;
@@ -179,6 +250,15 @@
 		border-bottom: 2px solid transparent;
 		margin-bottom: -1px;
 		transition: color 0.15s ease, border-color 0.15s ease;
+	}
+
+	button.tab {
+		background: none;
+		border-left: 0;
+		border-right: 0;
+		border-top: 0;
+		cursor: pointer;
+		font: inherit;
 	}
 
 	.tab:hover {

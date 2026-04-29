@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import DesignerDealsView from '$lib/components/designer/DesignerDealsView.svelte';
 	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
+	import type { DealFieldDescriptor, DesignerDealSummary } from '$lib/types/designer';
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -14,7 +16,11 @@
 	let dealsLoading = true;
 	let dealsWarning = '';
 	let dealsSyncing = false;
+	let designerDeals: DesignerDealSummary[] = [];
+	let designerFieldDescriptors: DealFieldDescriptor[] = [];
 	let selectedDealId = '';
+	type DashboardTab = 'trade' | 'designer';
+	let activeTab: DashboardTab = 'trade';
 
 	onMount(async () => {
 		try {
@@ -23,11 +29,18 @@
 			if (res.ok) {
 				const body = await res.json().catch(() => ({}));
 				deals = Array.isArray(body.deals) ? body.deals : [];
+				designerDeals = Array.isArray(body.designerDeals) ? body.designerDeals : [];
+				designerFieldDescriptors = Array.isArray(body.designerFieldDescriptors)
+					? body.designerFieldDescriptors
+					: [];
 				dealsWarning = body.warning ?? '';
 				dealsSyncing = body.syncing ?? false;
 				if (deals.length > 0) selectedDealId = deals[0].id;
-				const paramId = new URLSearchParams(window.location.search).get('deal');
+				const params = new URLSearchParams(window.location.search);
+				const paramId = params.get('deal');
+				const paramTab = params.get('tab');
 				if (paramId && deals.find((d: any) => d.id === paramId)) selectedDealId = paramId;
+				if (paramTab === 'designer') activeTab = 'designer';
 			}
 		} catch { /* non-fatal */ } finally {
 			dealsLoading = false;
@@ -36,6 +49,32 @@
 	});
 
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
+
+	function setActiveTab(tab: DashboardTab) {
+		activeTab = tab;
+	}
+
+	function syncDashboardUrl() {
+		if (!browser) return;
+		const params = new URLSearchParams(window.location.search);
+		if (selectedDealId) {
+			params.set('deal', selectedDealId);
+		} else {
+			params.delete('deal');
+		}
+		if (activeTab === 'designer') {
+			params.set('tab', 'designer');
+		} else {
+			params.delete('tab');
+		}
+		const query = params.toString();
+		const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}`;
+		window.history.replaceState({}, '', nextUrl);
+	}
+
+	$: if (browser) {
+		syncDashboardUrl();
+	}
 
 	type FieldUpdate = {
 		id: string;
@@ -525,14 +564,39 @@
 			<h1>Dashboard</h1>
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
-		<a class="field-update-btn" href={fieldUpdateUrl}>
-			<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<rect x="3" y="2" width="14" height="16" rx="2"/>
-				<path d="M7 6h6M7 10h6M7 14h4"/>
-			</svg>
-			Submit Field Update
-		</a>
+		{#if activeTab === 'trade'}
+			<a class="field-update-btn" href={fieldUpdateUrl}>
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<rect x="3" y="2" width="14" height="16" rx="2"/>
+					<path d="M7 6h6M7 10h6M7 14h4"/>
+				</svg>
+				Submit Field Update
+			</a>
+		{/if}
 	</header>
+
+	<div class="dashboard-tabs" role="tablist" aria-label="Dashboard views">
+		<button
+			type="button"
+			class="dashboard-tab"
+			class:active={activeTab === 'trade'}
+			role="tab"
+			aria-selected={activeTab === 'trade'}
+			on:click={() => setActiveTab('trade')}
+		>
+			Trade Dashboard
+		</button>
+		<button
+			type="button"
+			class="dashboard-tab"
+			class:active={activeTab === 'designer'}
+			role="tab"
+			aria-selected={activeTab === 'designer'}
+			on:click={() => setActiveTab('designer')}
+		>
+			Designer Homepage
+		</button>
+	</div>
 
 	{#if dealsSyncing}
 		<div class="card syncing-banner" role="status" aria-live="polite">
@@ -556,6 +620,24 @@
 				<div class="skeleton-line w-56 mt"></div>
 			</div>
 		</div>
+	{:else if activeTab === 'designer'}
+		<div class="card readonly-note">
+			The designer homepage is available here in read-only mode. Trade partners cannot edit designer fields or notes from this tab.
+		</div>
+		<DesignerDealsView
+			deals={designerDeals}
+			warning={dealsWarning || ''}
+			fieldDescriptors={designerFieldDescriptors}
+			designerLabel={tradePartner.name || tradePartner.email}
+			heading="Designer Homepage"
+			emptyMessage="No designer deal data available."
+			readonly={true}
+			showHeader={false}
+			showTabs={true}
+			showSignOut={false}
+			tabMode="inline"
+			initialView="active"
+		/>
 	{:else if dealsWarning && !dealsSyncing}
 		<div class="card warning">{dealsWarning}</div>
 	{:else if deals.length === 0}
@@ -862,6 +944,34 @@
 		margin-bottom: 1.25rem;
 	}
 
+	.dashboard-tabs {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+		border-bottom: 1px solid #e5e7eb;
+		overflow-x: auto;
+		padding-bottom: 0.1rem;
+	}
+
+	.dashboard-tab {
+		appearance: none;
+		border: none;
+		background: none;
+		padding: 0.8rem 0.25rem;
+		margin: 0 0.75rem -1px 0;
+		border-bottom: 2px solid transparent;
+		color: #6b7280;
+		font-weight: 700;
+		white-space: nowrap;
+		cursor: pointer;
+		border-radius: 0;
+	}
+
+	.dashboard-tab.active {
+		color: #111827;
+		border-bottom-color: #b45309;
+	}
+
 	.dash-header-text h1 {
 		margin: 0 0 0.15rem;
 		font-size: 1.5rem;
@@ -900,6 +1010,12 @@
 		padding: 1.25rem;
 		background: #fff;
 		margin-bottom: 1rem;
+	}
+
+	.readonly-note {
+		color: #475569;
+		background: #f8fafc;
+		border-color: #e2e8f0;
 	}
 
 	/* Skeleton loader */

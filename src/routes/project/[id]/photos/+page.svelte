@@ -259,7 +259,7 @@
 
 {#if lightboxOpen && lightboxPhoto}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="lightbox-backdrop" on:click={closeLightbox} role="dialog" aria-modal="true" aria-label="Photo viewer">
+	<div class="lightbox-backdrop" on:click={closeLightbox} role="dialog" aria-modal="true" aria-label="Photo viewer" tabindex="-1">
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<div class="lightbox-content" on:click|stopPropagation role="document">

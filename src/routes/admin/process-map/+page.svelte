@@ -5,10 +5,36 @@
 	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </svelte:head>
 
-<script>
+<script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 
-	const PHASES = [
+	type Outcome = {
+		text: string;
+		color: string;
+	};
+
+	type Step = {
+		code: string;
+		name: string;
+		pct: string;
+		type: string;
+		outcomes: Outcome[];
+		automations: string[];
+	};
+
+	type Phase = {
+		name: string;
+		key: string;
+		color: string;
+		steps: Step[];
+	};
+
+	type NotesByStep = Record<string, string>;
+	type SaveStatus = '' | 'saving' | 'saved' | 'error';
+	type SaveStatusesByStep = Record<string, SaveStatus>;
+	type SaveTimersByStep = Record<string, ReturnType<typeof setTimeout>>;
+
+	const PHASES: Phase[] = [
 		{
 			name: "Phase 1: Lead Intake & Qualification",
 			key: "phase_1",
@@ -206,7 +232,7 @@
 		}
 	];
 
-	const INTEGRATIONS = [
+	const INTEGRATIONS: string[] = [
 		"Zoho CRM", "Zoho Projects", "Zoho Books", "Zoho Sign",
 		"Zoho WorkDrive", "Zoho Bookings", "Zoho Cliq", "Zoho Flow",
 		"n8n", "Matterport", "Client Portal (Hetzner)"
@@ -219,15 +245,15 @@
 	let phaseFilterValue = 'all';
 
 	/** Persisted notes keyed by step code */
-	let notes = {};
-	let saveTimers = {};
-	let saveStatus = {};
+	let notes: NotesByStep = {};
+	let saveTimers: SaveTimersByStep = {};
+	let saveStatus: SaveStatusesByStep = {};
 
 	async function loadNotes() {
 		try {
 			const res = await fetch('/api/admin/process-map-notes');
 			if (res.ok) {
-				const json = await res.json();
+				const json = (await res.json()) as { data?: NotesByStep };
 				notes = json.data ?? {};
 			}
 		} catch (e) {
@@ -235,7 +261,7 @@
 		}
 	}
 
-	function saveNote(stepCode) {
+	function saveNote(stepCode: string) {
 		if (saveTimers[stepCode]) clearTimeout(saveTimers[stepCode]);
 		saveStatus[stepCode] = 'saving';
 		saveTimers[stepCode] = setTimeout(async () => {
@@ -259,17 +285,19 @@
 		}, 600);
 	}
 
-	function handleNoteInput(stepCode, event) {
-		notes[stepCode] = event.target.value;
+	function handleNoteInput(stepCode: string, event: Event) {
+		const target = event.currentTarget;
+		if (!(target instanceof HTMLTextAreaElement)) return;
+		notes[stepCode] = target.value;
 		notes = notes;
 		saveNote(stepCode);
 	}
 
 	onDestroy(() => {
-		Object.values(saveTimers).forEach(t => clearTimeout(t));
+		Object.values(saveTimers).forEach((t) => clearTimeout(t));
 	});
 
-	function getTypeIcon(type) {
+	function getTypeIcon(type: string) {
 		switch (type) {
 			case 'Decision': return '\u25C6';
 			case 'Revision Loop': return '\u21BB';
@@ -278,17 +306,21 @@
 		}
 	}
 
-	function hexToRGBA(hex, alpha) {
+	function hexToRGBA(hex: string, alpha: number) {
 		const r = parseInt(hex.slice(1, 3), 16);
 		const g = parseInt(hex.slice(3, 5), 16);
 		const b = parseInt(hex.slice(5, 7), 16);
 		return `rgba(${r},${g},${b},${alpha})`;
 	}
 
-	function toggleCard(event, code) {
-		if (event.target.closest('.team-notes')) return;
-		const card = event.currentTarget.closest('.step-card');
-		const body = card.querySelector('.card-body');
+	function toggleCard(event: MouseEvent) {
+		const target = event.target;
+		if (target instanceof Element && target.closest('.team-notes')) return;
+		const currentTarget = event.currentTarget;
+		if (!(currentTarget instanceof HTMLElement)) return;
+		const card = currentTarget.closest('.step-card') as HTMLElement | null;
+		const body = card?.querySelector('.card-body') as HTMLElement | null;
+		if (!card || !body) return;
 		if (card.classList.contains('expanded')) {
 			body.style.maxHeight = '0px';
 			card.classList.remove('expanded');
@@ -300,9 +332,10 @@
 
 	function toggleAll() {
 		allExpanded = !allExpanded;
-		const cards = document.querySelectorAll('.step-card');
-		cards.forEach(card => {
-			const body = card.querySelector('.card-body');
+		const cards = document.querySelectorAll<HTMLElement>('.step-card');
+		cards.forEach((card) => {
+			const body = card.querySelector<HTMLElement>('.card-body');
+			if (!body) return;
 			if (allExpanded) {
 				card.classList.add('expanded');
 				body.style.maxHeight = body.scrollHeight + 200 + 'px';
@@ -313,28 +346,28 @@
 		});
 	}
 
-	function matchesSearch(step) {
+	function matchesSearch(step: Step) {
 		if (!searchQuery.trim()) return true;
 		const q = searchQuery.toLowerCase();
 		return step.name.toLowerCase().includes(q) ||
-			step.automations.some(a => a.toLowerCase().includes(q));
+			step.automations.some((automation) => automation.toLowerCase().includes(q));
 	}
 
-	function phaseHasVisibleSteps(phase) {
-		return phase.steps.some(s => matchesSearch(s));
+	function phaseHasVisibleSteps(phase: Phase) {
+		return phase.steps.some((step) => matchesSearch(step));
 	}
 
-	function isPhaseVisible(phase) {
+	function isPhaseVisible(phase: Phase) {
 		if (phaseFilterValue !== 'all' && phase.key !== phaseFilterValue) return false;
 		return phaseHasVisibleSteps(phase);
 	}
 
-	function isPhaseDimmed(phase) {
+	function isPhaseDimmed(phase: Phase) {
 		return phaseFilterValue !== 'all' && phase.key !== phaseFilterValue;
 	}
 
 	$: matchCount = searchQuery.trim()
-		? PHASES.reduce((sum, p) => sum + p.steps.filter(s => matchesSearch(s)).length, 0)
+		? PHASES.reduce((sum, phase) => sum + phase.steps.filter((step) => matchesSearch(step)).length, 0)
 		: 0;
 
 	onMount(() => {
@@ -345,17 +378,17 @@
 	});
 
 	function applyArrows() {
-		const grids = document.querySelectorAll('.card-grid');
-		grids.forEach(grid => {
-			grid.querySelectorAll('.card-grid-item').forEach(item => {
+		const grids = document.querySelectorAll<HTMLElement>('.card-grid');
+		grids.forEach((grid) => {
+			grid.querySelectorAll<HTMLElement>('.card-grid-item').forEach((item) => {
 				item.classList.remove('has-arrow-right', 'has-arrow-down', 'has-line-right', 'has-line-down');
 			});
 
-			const items = Array.from(grid.querySelectorAll('.card-grid-item:not(.hidden)'));
-			const phaseSection = grid.closest('.phase-section');
+			const items = Array.from(grid.querySelectorAll<HTMLElement>('.card-grid-item:not(.hidden)'));
+			const phaseSection = grid.closest('.phase-section') as HTMLElement | null;
 			if (!phaseSection) return;
 			const phaseKey = phaseSection.dataset.phaseKey;
-			const phase = PHASES.find(p => p.key === phaseKey);
+			const phase = PHASES.find((p) => p.key === phaseKey);
 			if (!phase) return;
 			const arrowColor = hexToRGBA(phase.color, 0.4);
 
@@ -428,7 +461,7 @@
 								<div class="step-card" data-code={step.code}>
 									<div class="card-accent" style="background: {phase.color};"></div>
 
-									<div class="card-header" on:click={(e) => toggleCard(e, step.code)}>
+									<button class="card-header" type="button" on:click={toggleCard}>
 										<div class="card-code-circle" style="background: {phase.color};">
 											{step.code.substring(0, 3)}
 										</div>
@@ -446,7 +479,7 @@
 											{/if}
 										</div>
 										<span class="card-chevron">&#9656;</span>
-									</div>
+									</button>
 
 									<div class="card-body">
 										<div class="card-body-inner">
@@ -695,6 +728,11 @@
 		align-items: center;
 		gap: 12px;
 		padding: 16px 16px 12px;
+		width: 100%;
+		border: 0;
+		background: transparent;
+		text-align: left;
+		font: inherit;
 		cursor: pointer;
 		user-select: none;
 	}
