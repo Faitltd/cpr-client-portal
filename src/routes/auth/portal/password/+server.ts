@@ -90,7 +90,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
 	// ── Client check ────────────────────────────────────────────────────
 	const client = await getClientAuthByEmail(email);
-	const clientPasswordValid = client ? verifyClientPasswordInput(password, client.password_hash) : false;
+	const clientPasswordValid = client
+		? await verifyClientPasswordInput(password, client.password_hash)
+		: false;
 	const repairedClient = !client || !clientPasswordValid ? await reconcileClientPhoneLogin(email, password) : null;
 	const effectiveClientId = repairedClient?.id || client?.id || '';
 
@@ -125,7 +127,11 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
 	// ── Designer check ──────────────────────────────────────────────────
 	const designer = await getDesignerAuthByEmail(email);
-	if (designer && designer.active !== false && verifyPassword(password, designer.password_hash)) {
+	if (
+		designer &&
+		designer.active !== false &&
+		(await verifyPassword(password, designer.password_hash))
+	) {
 		const sessionId = createHash('sha256')
 			.update(`${designer.id}:${Date.now()}:${Math.random()}`)
 			.digest('hex');

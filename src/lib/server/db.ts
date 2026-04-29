@@ -246,11 +246,20 @@ export async function getClientByEmail(email: string): Promise<Client | null> {
  * Fetch client auth details by email
  */
 export async function getClientAuthByEmail(email: string): Promise<ClientAuth | null> {
-	return findRecordByNormalizedEmail<ClientAuth>(
-		'clients',
-		'id, email, password_hash, portal_active',
-		email
-	);
+	const normalized = normalizeEmailAddress(email);
+	if (!normalized) return null;
+
+	const start = Date.now();
+	const { data, error } = await getSupabase()
+		.from('clients')
+		.select('id, email, password_hash, portal_active')
+		.eq('email', normalized)
+		.maybeSingle();
+
+	console.info('[client-auth] db lookup', { ms: Date.now() - start, hit: !!data });
+
+	if (error) throw new Error(`Client lookup failed: ${error.message}`);
+	return data ? normalizeAuthRecord(data as ClientAuth) : null;
 }
 
 /**
@@ -324,11 +333,20 @@ export async function deleteSession(sessionToken: string): Promise<void> {
  * Fetch trade partner auth details by email
  */
 export async function getTradePartnerAuthByEmail(email: string): Promise<TradePartnerAuth | null> {
-	return findRecordByNormalizedEmail<TradePartnerAuth>(
-		'trade_partners',
-		'id, email, password_hash, phone',
-		email
-	);
+	const normalized = normalizeEmailAddress(email);
+	if (!normalized) return null;
+
+	const start = Date.now();
+	const { data, error } = await getSupabase()
+		.from('trade_partners')
+		.select('id, email, password_hash, phone')
+		.eq('email', normalized)
+		.maybeSingle();
+
+	console.info('[trade-auth] db lookup', { ms: Date.now() - start, hit: !!data });
+
+	if (error) throw new Error(`Trade partner lookup failed: ${error.message}`);
+	return data ? normalizeAuthRecord(data as TradePartnerAuth) : null;
 }
 
 /**
@@ -357,7 +375,7 @@ export async function upsertTradePartner(tradePartner: Omit<TradePartner, 'id'>)
 			const { data: existing, error: fetchError } = await getSupabase()
 				.from('trade_partners')
 				.select('id')
-				.ilike('email', insertData.email)
+				.eq('email', insertData.email)
 				.single();
 
 		if (fetchError || !existing) {
@@ -497,11 +515,20 @@ export interface DesignerSession extends DesignerSessionRecord {
 }
 
 export async function getDesignerAuthByEmail(email: string): Promise<DesignerAuth | null> {
-	return findRecordByNormalizedEmail<DesignerAuth>(
-		'designers',
-		'id, email, password_hash, active',
-		email
-	);
+	const normalized = normalizeEmailAddress(email);
+	if (!normalized) return null;
+
+	const start = Date.now();
+	const { data, error } = await getSupabase()
+		.from('designers')
+		.select('id, email, password_hash, active')
+		.eq('email', normalized)
+		.maybeSingle();
+
+	console.info('[designer-auth] db lookup', { ms: Date.now() - start, hit: !!data });
+
+	if (error) throw new Error(`Designer lookup failed: ${error.message}`);
+	return data ? normalizeAuthRecord(data as DesignerAuth) : null;
 }
 
 export async function getDesignerById(id: string): Promise<Designer | null> {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createClientMock = vi.fn();
+let consoleInfoSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock('$env/dynamic/private', () => ({
 	env: {
@@ -56,6 +57,8 @@ async function loadDbModule(client: unknown) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	consoleInfoSpy?.mockRestore();
+	consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
 });
 
 describe('getTradePartnerAuthByEmail', () => {
@@ -89,9 +92,13 @@ describe('getTradePartnerAuthByEmail', () => {
 			}
 		]);
 		expect(calls.candidate).toEqual([]);
+		expect(consoleInfoSpy).toHaveBeenCalledWith(
+			'[trade-auth] db lookup',
+			expect.objectContaining({ ms: expect.any(Number), hit: true })
+		);
 	});
 
-	it('falls back to a narrow candidate query for whitespace-padded legacy emails', async () => {
+	it('returns null after an exact miss without issuing a fallback scan', async () => {
 		const { client, calls } = createSupabaseMock(
 			{ data: null, error: null },
 			{
@@ -109,39 +116,66 @@ describe('getTradePartnerAuthByEmail', () => {
 
 		const tradePartner = await getTradePartnerAuthByEmail('ray@example.com');
 
-		expect(tradePartner).toEqual({
-			id: 'tp-1',
-			email: 'ray@example.com',
-			password_hash: 'legacy-hash'
-		});
-		expect(calls.candidate).toEqual([
-			{
-				table: 'trade_partners',
-				select: 'id, email, password_hash, phone',
-				column: 'email',
-				pattern: '%ray@example.com%'
-			}
-		]);
+		expect(tradePartner).toBeNull();
+		expect(calls.candidate).toEqual([]);
 	});
 
-	it('returns null when neither the exact nor candidate query finds a match', async () => {
+	it('throws when the exact query fails', async () => {
 		const { client, calls } = createSupabaseMock(
-			{ data: null, error: null },
+			{ data: null, error: { message: 'boom' } },
 			{ data: [], error: null }
 		);
 		const { getTradePartnerAuthByEmail } = await loadDbModule(client);
 
-		const tradePartner = await getTradePartnerAuthByEmail('missing@example.com');
-
-		expect(tradePartner).toBeNull();
+		await expect(getTradePartnerAuthByEmail('missing@example.com')).rejects.toThrow(
+			'Trade partner lookup failed: boom'
+		);
 		expect(calls.exact).toHaveLength(1);
-		expect(calls.candidate).toEqual([
+		expect(calls.candidate).toEqual([]);
+	});
+});
+
+describe('auth email lookups', () => {
+	it.each([
+		{
+			label: 'client',
+			table: 'clients',
+			select: 'id, email, password_hash, portal_active'
+		},
+		{
+			label: 'designer',
+			table: 'designers',
+			select: 'id, email, password_hash, active'
+		},
+		{
+			label: 'trade partner',
+			table: 'trade_partners',
+			select: 'id, email, password_hash, phone'
+		}
+	])('does not issue an ilike fallback on $label auth misses', async ({ table, select }) => {
+		const { client, calls } = createSupabaseMock(
+			{ data: null, error: null },
+			{ data: [], error: null }
+		);
+		const db = await loadDbModule(client);
+		const lookup =
+			table === 'clients'
+				? db.getClientAuthByEmail
+				: table === 'designers'
+					? db.getDesignerAuthByEmail
+					: db.getTradePartnerAuthByEmail;
+
+		const record = await lookup('missing@example.com');
+
+		expect(record).toBeNull();
+		expect(calls.exact).toEqual([
 			{
-				table: 'trade_partners',
-				select: 'id, email, password_hash, phone',
+				table,
+				select,
 				column: 'email',
-				pattern: '%missing@example.com%'
+				value: 'missing@example.com'
 			}
 		]);
+		expect(calls.candidate).toEqual([]);
 	});
 });

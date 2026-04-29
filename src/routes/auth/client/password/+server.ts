@@ -41,7 +41,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	const client = await getClientAuthByEmail(email);
-	const passwordValid = client ? verifyClientPasswordInput(password, client.password_hash) : false;
+	const passwordValid = client
+		? await verifyClientPasswordInput(password, client.password_hash)
+		: false;
 	const repairedClient = !client || !passwordValid ? await reconcileClientPhoneLogin(email, password) : null;
 	const effectiveClientId = repairedClient?.id || client?.id || '';
 

@@ -1,6 +1,7 @@
 import { json, redirect } from '@sveltejs/kit';
 import { createHash } from 'crypto';
 import { dev } from '$app/environment';
+import { env } from '$env/dynamic/private';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { createTradeSession, getTradePartnerAuthByEmail } from '$lib/server/db';
 import { verifyTradePartnerLogin } from '$lib/server/trade-login';
@@ -14,7 +15,27 @@ const getFormValue = (formData: FormData, key: string) => {
 	return typeof value === 'string' ? value : '';
 };
 
-export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
+const TRADE_LOGIN_TIMEOUT_MS = (() => {
+	const parsed = Number(env.PORTAL_LOGIN_TIMEOUT_MS);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : 10000;
+})();
+
+function createTimeoutResponse() {
+	return json({ message: 'Login timed out, please retry.' }, { status: 503 });
+}
+
+function createTimeoutPromise() {
+	const signal = AbortSignal.timeout(TRADE_LOGIN_TIMEOUT_MS);
+	return new Promise<Response>((resolve) => {
+		signal.addEventListener('abort', () => resolve(createTimeoutResponse()), { once: true });
+	});
+}
+
+async function handleTradeLogin({
+	request,
+	cookies,
+	getClientAddress
+}: Parameters<RequestHandler>[0]) {
 	const expectsJson = isJsonRequest(request);
 	const credentials = expectsJson
 		? await request.json().catch(() => ({}))
@@ -74,4 +95,11 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	throw redirect(303, '/trade/dashboard');
+}
+
+export const POST: RequestHandler = async (event) => {
+	// Cloud Run cold starts still add latency before this code runs. Keep at
+	// least one warm instance, or ping a health endpoint, so crypto work is not
+	// stacked on top of a scale-to-zero startup penalty.
+	return Promise.race([handleTradeLogin(event), createTimeoutPromise()]);
 };

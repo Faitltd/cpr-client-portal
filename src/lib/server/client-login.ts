@@ -39,7 +39,7 @@ export async function reconcileClientPhoneLogin(email: string, password: string)
 		const existing = await getClientByEmail(email);
 		const normalizedExistingPhone = normalizeClientPhonePassword(existing?.phone);
 		if (existing && normalizedExistingPhone && normalizedExistingPhone === normalizedAttempt) {
-			await setClientPassword(existing.id, hashPassword(normalizedAttempt));
+			await setClientPassword(existing.id, await hashPassword(normalizedAttempt));
 			return existing;
 		}
 
@@ -60,7 +60,7 @@ export async function reconcileClientPhoneLogin(email: string, password: string)
 			portal_active: true
 		});
 
-		await setClientPassword(saved.id, hashPassword(normalizedAttempt));
+		await setClientPassword(saved.id, await hashPassword(normalizedAttempt));
 		return saved;
 	} catch (err) {
 		console.error('Failed to reconcile client phone login', { email, error: err });

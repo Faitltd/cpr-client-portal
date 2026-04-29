@@ -21,13 +21,13 @@ describe('normalizeClientPhonePassword', () => {
 });
 
 describe('verifyClientPasswordInput', () => {
-	it('accepts a stored normalized phone password when the input is formatted', () => {
-		const stored = hashPassword('5551234567');
-		expect(verifyClientPasswordInput('(555) 123-4567', stored)).toBe(true);
+	it('accepts a stored normalized phone password when the input is formatted', async () => {
+		const stored = await hashPassword('5551234567');
+		expect(await verifyClientPasswordInput('(555) 123-4567', stored)).toBe(true);
 	});
 
-	it('still accepts exact non-phone passwords', () => {
-		const stored = hashPassword('custom-password');
-		expect(verifyClientPasswordInput('custom-password', stored)).toBe(true);
+	it('still accepts exact non-phone passwords', async () => {
+		const stored = await hashPassword('custom-password');
+		expect(await verifyClientPasswordInput('custom-password', stored)).toBe(true);
 	});
 });

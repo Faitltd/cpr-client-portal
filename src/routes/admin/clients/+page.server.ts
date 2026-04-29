@@ -115,7 +115,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Password must be at least 8 characters.' });
 		}
 
-		await setClientPassword(clientId, hashPassword(password));
+		await setClientPassword(clientId, await hashPassword(password));
 		return { message: 'Password updated.' };
 	},
 	setTradePassword: async ({ request, cookies }) => {
@@ -131,7 +131,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Password must be at least 8 characters.' });
 		}
 
-		await setTradePartnerPassword(tradeId, hashPassword(password));
+		await setTradePartnerPassword(tradeId, await hashPassword(password));
 
 		return { message: 'Trade partner password updated.' };
 	},
@@ -148,7 +148,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Password must be at least 8 characters.' });
 		}
 
-		await setDesignerPassword(designerId, hashPassword(password));
+		await setDesignerPassword(designerId, await hashPassword(password));
 		return { message: 'Designer password updated.' };
 	},
 	sync: async ({ cookies }) => {
@@ -204,7 +204,7 @@ export const actions: Actions = {
 						synced += 1;
 						const phonePassword = normalizeClientPhonePassword(contact.phone);
 						if (phonePassword) {
-							await setClientPassword(saved.id, hashPassword(phonePassword));
+							await setClientPassword(saved.id, await hashPassword(phonePassword));
 							passwordSet += 1;
 						} else {
 							missingPhone += 1;

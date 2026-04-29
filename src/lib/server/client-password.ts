@@ -12,11 +12,14 @@ export function normalizeClientPhonePassword(value: string | null | undefined): 
 	return digits;
 }
 
-export function verifyClientPasswordInput(password: string, stored: string | null): boolean {
-	if (verifyPassword(password, stored)) return true;
+export async function verifyClientPasswordInput(
+	password: string,
+	stored: string | null
+): Promise<boolean> {
+	if (await verifyPassword(password, stored)) return true;
 
 	const normalizedPhone = normalizeClientPhonePassword(password);
 	if (!normalizedPhone || normalizedPhone === password) return false;
 
-	return verifyPassword(normalizedPhone, stored);
+	return await verifyPassword(normalizedPhone, stored);
 }

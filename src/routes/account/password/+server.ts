@@ -21,7 +21,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ message: 'Password must be at least 8 characters.' }, { status: 400 });
 	}
 
-	const hash = hashPassword(password);
+	const hash = await hashPassword(password);
 	await setClientPassword(session.client_id, hash);
 
 	return json({ message: 'Password updated.' });

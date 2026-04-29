@@ -6,20 +6,18 @@ export async function verifyTradePartnerLogin(
 	tradePartner: TradePartnerAuth,
 	password: string
 ): Promise<boolean> {
-	if (verifyPassword(password, tradePartner.password_hash)) return true;
+	if (typeof tradePartner.password_hash === 'string' && tradePartner.password_hash.trim()) {
+		return await verifyPassword(password, tradePartner.password_hash);
+	}
 
 	const normalizedAttempt = normalizeClientPhonePassword(password);
 	if (!normalizedAttempt) return false;
-
-	if (normalizedAttempt !== password && verifyPassword(normalizedAttempt, tradePartner.password_hash)) {
-		return true;
-	}
 
 	const normalizedStoredPhone = normalizeClientPhonePassword(tradePartner.phone);
 	if (!normalizedStoredPhone || normalizedStoredPhone !== normalizedAttempt) return false;
 
 	try {
-		await setTradePartnerPassword(tradePartner.id, hashPassword(normalizedAttempt));
+		await setTradePartnerPassword(tradePartner.id, await hashPassword(normalizedAttempt));
 		return true;
 	} catch (err) {
 		console.error('Failed to seed trade partner password from phone', {
