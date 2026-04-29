@@ -128,7 +128,8 @@ const TRADE_ACTIVE_DEAL_STAGES = new Set([
 
 const TRADE_PORTAL_VISIBLE_DEAL_STAGES = new Set([
 	'quoted',
-	'project created'
+	'project created',
+	'on hold'
 ]);
 
 const PASSWORD_SEED_DEAL_STAGES = new Set(['project started', 'project created']);

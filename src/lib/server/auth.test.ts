@@ -22,7 +22,12 @@ vi.mock('./zoho', () => ({
 }));
 
 import { zohoApiCall } from './zoho';
-import { DEAL_FIELD_KEYS, getTradePartnerDeals, normalizeDealRecord } from './auth';
+import {
+	DEAL_FIELD_KEYS,
+	getTradePartnerDeals,
+	isTradePortalVisibleStage,
+	normalizeDealRecord
+} from './auth';
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -130,5 +135,10 @@ describe('trade deal field coverage', () => {
 				Portal_Trade_Partners: [{ id: 'tp-1', name: 'Partner One' }]
 			}
 		]);
+	});
+
+	it('treats On Hold as visible in the trade partner portal', () => {
+		expect(isTradePortalVisibleStage('On Hold')).toBe(true);
+		expect(isTradePortalVisibleStage('On Hold (50%)')).toBe(true);
 	});
 });
