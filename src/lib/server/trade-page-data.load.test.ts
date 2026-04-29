@@ -28,6 +28,7 @@ vi.mock('$lib/server/auth', () => ({
 import * as db from '$lib/server/db';
 import * as zoho from '$lib/server/zoho';
 import * as auth from '$lib/server/auth';
+import * as cache from '$lib/server/api-cache';
 
 const VALID_SESSION = {
 	trade_partner: { zoho_trade_partner_id: 'tp-123', id: 'p-1' }
@@ -122,6 +123,31 @@ describe('loadTradePageContext', () => {
 
 		const result = await loadTradePageContext('valid-token', { includeDetailFields: true });
 
+		expect(result.deals.map((deal) => deal.id)).toEqual(['d1']);
+		expect(result.designerDeals?.map((deal) => deal.id)).toEqual(['d1', 'd2']);
+	});
+
+	it('bypasses legacy cache entries that do not include designerDeals', async () => {
+		const quotedDeal = { id: 'd1', Stage: 'Quoted', Deal_Name: 'Quoted Deal', Address: '123 Main' };
+		const contractDeal = {
+			id: 'd2',
+			Stage: 'Contract Needed',
+			Deal_Name: 'Contract Deal',
+			Address: '456 Oak'
+		};
+
+		vi.mocked(db.getTradeSession).mockResolvedValue(VALID_SESSION as any);
+		vi.mocked(db.getZohoTokens).mockResolvedValue(VALID_TOKENS as any);
+		vi.mocked(cache.getCache).mockResolvedValueOnce({
+			isStale: false,
+			data: { deals: [quotedDeal], warning: '' }
+		} as any);
+		vi.mocked(auth.getTradePartnerDeals).mockResolvedValue([quotedDeal, contractDeal] as any);
+		vi.mocked(auth.isTradePortalVisibleStage).mockImplementation((stage) => stage === 'Quoted');
+
+		const result = await loadTradePageContext('valid-token', { includeDetailFields: true });
+
+		expect(auth.getTradePartnerDeals).toHaveBeenCalledTimes(1);
 		expect(result.deals.map((deal) => deal.id)).toEqual(['d1']);
 		expect(result.designerDeals?.map((deal) => deal.id)).toEqual(['d1', 'd2']);
 	});

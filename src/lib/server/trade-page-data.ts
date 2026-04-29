@@ -265,7 +265,14 @@ async function fetchAndCacheDeals(
 
 	// Try cache first
 	const cached = await getCache(cacheKey);
-	if (cached) {
+	const hasDesignerDealsCache = Array.isArray(cached?.data?.designerDeals);
+	const canUseCachedPayload = !cached
+		? false
+		: includeDetailFields
+			? hasDesignerDealsCache
+			: true;
+
+	if (cached && canUseCachedPayload) {
 		if (!cached.isStale) {
 			// Fresh — return immediately, no background fetch needed
 			return {
