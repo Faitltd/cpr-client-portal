@@ -351,8 +351,6 @@ function findDealLookup(record: Record<string, any>) {
 export function normalizeDealRecord(deal: any) {
 	if (!deal || typeof deal !== 'object') return deal;
 	const lookup = findDealLookup(deal);
-	// Many Zoho related-list/junction records include their own `id` plus a Deal lookup field.
-	// We want the *Deal* id consistently so downstream endpoints can safely call `/Deals/:id/...`.
 	const inferredDealId =
 		deal.Deal?.id ||
 		deal?.Deal_Name?.id ||
@@ -380,7 +378,6 @@ export function normalizeDealRecord(deal: any) {
 		normalized.id = id;
 	}
 
-	// Normalize the display name to a plain string for consistent rendering.
 	if (name && (typeof normalized.Deal_Name !== 'string' || !normalized.Deal_Name)) {
 		normalized.Deal_Name = name;
 	} else if (!normalized.Deal_Name && name) {
@@ -710,7 +707,6 @@ export async function findContactByEmail(accessToken: string, email: string, api
 
 /**
  * Get Zoho Contact ID from access token (client-style OAuth)
- * Uses the /users?type=CurrentUser endpoint to identify the authenticated user
  */
 export async function getAuthenticatedContact(accessToken: string, apiDomain?: string): Promise<ClientProfileWithUser> {
 	try {
@@ -751,7 +747,6 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 	const perPage = 200;
 	const maxPages = 20;
 
-	// 1) Try search endpoint (most reliable without COQL)
 	try {
 		const criteria = `(Contact_Name:equals:${contactId})`;
 		const searchResults: any[] = [];
@@ -782,7 +777,6 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 		});
 	}
 
-	// 2) Try COQL if enabled
 	try {
 		const escapedContactId = contactId.replace(/'/g, "\\'");
 		const coqlResults: any[] = [];
@@ -819,7 +813,6 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 		});
 	}
 
-	// 3) Fallback to standard list + client-side filter
 	const allDeals: any[] = [];
 	for (let page = 1; page <= maxPages; page += 1) {
 		const deals = await zohoApiCall(
@@ -849,14 +842,31 @@ export async function getContactDeals(accessToken: string, contactId: string, ap
 
 /**
  * Fetch deals visible to a trade partner.
- * Current portal behavior is to show all deals to trade users.
+ * Uses scoped Portal_Trade_Partners search first (fast path).
+ * Falls back to full scan only if the search returns nothing,
+ * which handles orgs where the field is not populated.
  */
 export async function getTradePartnerDeals(
 	accessToken: string,
 	tradePartnerId?: string,
 	apiDomain?: string
 ): Promise<any[]> {
-	void tradePartnerId;
+	if (tradePartnerId) {
+		try {
+			const results = await fetchDealsByTradePartnerFieldSearch(
+				accessToken,
+				tradePartnerId,
+				apiDomain
+			);
+			if (results.length > 0) return results;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Trade partner scoped search failed, falling back to full scan', {
+				tradePartnerId,
+				error: message
+			});
+		}
+	}
 	return fetchAllDeals(accessToken, apiDomain);
 }
 
@@ -982,9 +992,6 @@ async function fetchTradePartnersByIds(
 	return results;
 }
 
-/**
- * Fetch all Trade Partners from Zoho (Custom Module)
- */
 type TradePartnerSyncStats = {
 	moduleName: string;
 	totalRecords: number;
@@ -1013,7 +1020,6 @@ export async function debugTradePartnerRecord(
 	tradePartnerId: string,
 	apiDomain?: string
 ): Promise<TradePartnerDebugInfo | null> {
-	// Try configured modules first, then alternative modules (Vendors, Contacts, Accounts)
 	const moduleNames = [
 		...(TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['CustomModule1']),
 		...ALTERNATIVE_TP_MODULES

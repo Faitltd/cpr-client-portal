@@ -1,20 +1,17 @@
 import { redirect } from '@sveltejs/kit';
-import { loadTradePageContext } from '$lib/server/trade-page-data';
+import { getTradeSession } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
 
+// Load only session data — no Zoho calls at all.
+// Deals are fetched client-side via GET /api/trade/deals after the page paints.
 export const load: PageServerLoad = async ({ cookies }) => {
-	const result = await loadTradePageContext(cookies.get('trade_session'), {
-		includeDetailFields: true
-	});
+	const sessionToken = cookies.get('trade_session');
+	if (!sessionToken) throw redirect(302, '/auth/trade');
 
-	if (result.redirectTo) {
-		throw redirect(302, result.redirectTo);
-	}
+	const session = await getTradeSession(sessionToken);
+	if (!session) throw redirect(302, '/auth/trade');
 
 	return {
-		tradePartner: result.tradePartner,
-		deals: result.deals,
-		warning: result.warning,
-		syncing: result.syncing ?? false
+		tradePartner: session.trade_partner
 	};
 };
