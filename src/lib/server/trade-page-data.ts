@@ -42,6 +42,11 @@ export type TradePageContext = {
 	syncing?: boolean;
 };
 
+function hasCachedTradeDeals(data: unknown) {
+	return Array.isArray((data as { deals?: unknown[] } | null | undefined)?.deals) &&
+		((data as { deals?: unknown[] }).deals?.length ?? 0) > 0;
+}
+
 function toSafeIso(value: unknown, fallback?: unknown) {
 	const date = new Date(value as any);
 	if (!Number.isNaN(date.getTime())) return date.toISOString();
@@ -243,6 +248,15 @@ async function fetchAndCacheDeals(
 	// Try cache first
 	const cached = await getCache(cacheKey);
 	if (cached) {
+		if (!hasCachedTradeDeals(cached.data)) {
+			return refreshDealsCache(
+				cacheKey,
+				accessToken,
+				tradePartnerZohoId,
+				includeDetailFields,
+				apiDomain
+			);
+		}
 		if (!cached.isStale) {
 			// Fresh — return immediately, no background fetch needed
 			return { deals: cached.data.deals ?? [], syncing: false, warning: cached.data.warning ?? '' };
