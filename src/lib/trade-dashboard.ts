@@ -54,11 +54,7 @@ export function readTradeDashboardCache(raw: string | null | undefined, now = Da
 		}
 
 		const normalized = normalizeTradeDealsPayload(parsed);
-		if (
-			normalized.deals.length === 0 &&
-			normalized.designerDeals.length === 0 &&
-			normalized.warning === ''
-		) {
+		if (normalized.deals.length === 0 && normalized.designerDeals.length === 0) {
 			return null;
 		}
 

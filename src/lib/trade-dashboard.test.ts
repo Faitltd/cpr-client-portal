@@ -75,4 +75,17 @@ describe('trade dashboard helpers', () => {
 			)
 		).toBeNull();
 	});
+
+	it('ignores cached empty warning payloads', () => {
+		const cached = createTradeDashboardCacheEntry(
+			{
+				deals: [],
+				designerDeals: [],
+				warning: 'No deals found for your account. Please try again later or contact your admin.'
+			},
+			1_000
+		);
+
+		expect(readTradeDashboardCache(JSON.stringify(cached), 1_500)).toBeNull();
+	});
 });
