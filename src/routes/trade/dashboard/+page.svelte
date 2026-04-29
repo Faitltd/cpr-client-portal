@@ -633,10 +633,9 @@
 			emptyMessage="No designer deal data available."
 			readonly={true}
 			showHeader={false}
-			showTabs={true}
+			showTabs={false}
 			showSignOut={false}
-			tabMode="inline"
-			initialView="active"
+			tabMode="sections"
 		/>
 	{:else if dealsWarning && !dealsSyncing}
 		<div class="card warning">{dealsWarning}</div>

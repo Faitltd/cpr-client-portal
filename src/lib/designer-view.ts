@@ -64,3 +64,10 @@ export function filterDesignerDealsForView<T extends { stage: unknown }>(
 export function getDesignerEmptyMessageForView(view: DesignerViewKey): string {
 	return DESIGNER_VIEW_TABS.find((tab) => tab.key === view)?.emptyMessage ?? 'No deals found.';
 }
+
+export function groupDesignerDealsByView<T extends { stage: unknown }>(deals: T[]) {
+	return DESIGNER_VIEW_TABS.map((tab) => ({
+		...tab,
+		deals: filterDesignerDealsForView(deals, tab.key)
+	}));
+}

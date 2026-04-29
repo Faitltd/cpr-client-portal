@@ -4,6 +4,7 @@
 	import {
 		DESIGNER_VIEW_TABS,
 		filterDesignerDealsForView,
+		groupDesignerDealsByView,
 		getDesignerEmptyMessageForView,
 		type DesignerViewKey
 	} from '$lib/designer-view';
@@ -27,7 +28,7 @@
 	export let showHeader = true;
 	export let showTabs = true;
 	export let showSignOut = true;
-	export let tabMode: 'links' | 'inline' = 'links';
+	export let tabMode: 'links' | 'inline' | 'sections' = 'links';
 	export let initialView: DesignerViewKey = 'active';
 
 	let localDeals: DesignerDealSummary[] = deals;
@@ -41,9 +42,11 @@
 		selectedInlineView = initialView;
 	}
 
+	$: isInlineMode = tabMode === 'inline';
+	$: isSectionMode = tabMode === 'sections';
 	$: activeInlineView = selectedInlineView ?? initialView;
 	$: scopedDeals =
-		tabMode === 'inline' ? filterDesignerDealsForView(localDeals, activeInlineView) : localDeals;
+		isInlineMode ? filterDesignerDealsForView(localDeals, activeInlineView) : localDeals;
 
 	$: stages = Array.from(
 		new Set(
@@ -53,8 +56,7 @@
 		)
 	).sort();
 
-	$: filtered = scopedDeals.filter((deal) => {
-		if (stageFilter && deal.stage !== stageFilter) return false;
+	function matchesQuery(deal: DesignerDealSummary) {
 		if (!query.trim()) return true;
 		const needle = query.trim().toLowerCase();
 		const hay = [
@@ -70,6 +72,11 @@
 			.join(' ')
 			.toLowerCase();
 		return hay.includes(needle);
+	}
+
+	$: filtered = scopedDeals.filter((deal) => {
+		if (!isSectionMode && stageFilter && deal.stage !== stageFilter) return false;
+		return matchesQuery(deal);
 	});
 
 	function onDealUpdated(event: CustomEvent<{ dealId: string; deal: DesignerDealSummary }>) {
@@ -80,7 +87,8 @@
 	$: pathname = $page.url.pathname;
 	$: tabs = DESIGNER_VIEW_TABS;
 	$: resolvedEmptyMessage =
-		tabMode === 'inline' ? getDesignerEmptyMessageForView(activeInlineView) : emptyMessage;
+		isInlineMode ? getDesignerEmptyMessageForView(activeInlineView) : emptyMessage;
+	$: groupedDeals = isSectionMode ? groupDesignerDealsByView(filtered) : [];
 </script>
 
 <main class="page" class:embedded={!showHeader}>
@@ -97,12 +105,13 @@
 			</div>
 			<div class="filters" role="search">
 				<label class="sr-only" for="deal-search">Search deals</label>
-				<input
-					id="deal-search"
-					type="search"
-					placeholder="Search deals, clients, addresses…"
-					bind:value={query}
-				/>
+			<input
+				id="deal-search"
+				type="search"
+				placeholder="Search deals, clients, addresses…"
+				bind:value={query}
+			/>
+			{#if !isSectionMode}
 				<label class="sr-only" for="stage-filter">Filter by stage</label>
 				<select id="stage-filter" bind:value={stageFilter}>
 					<option value="">All stages</option>
@@ -110,6 +119,7 @@
 						<option value={stage}>{stage}</option>
 					{/each}
 				</select>
+			{/if}
 			</div>
 		</header>
 	{:else}
@@ -121,19 +131,21 @@
 				placeholder="Search deals, clients, addresses…"
 				bind:value={query}
 			/>
-			<label class="sr-only" for="stage-filter-embedded">Filter by stage</label>
-			<select id="stage-filter-embedded" bind:value={stageFilter}>
-				<option value="">All stages</option>
-				{#each stages as stage}
-					<option value={stage}>{stage}</option>
-				{/each}
-			</select>
+			{#if !isSectionMode}
+				<label class="sr-only" for="stage-filter-embedded">Filter by stage</label>
+				<select id="stage-filter-embedded" bind:value={stageFilter}>
+					<option value="">All stages</option>
+					{#each stages as stage}
+						<option value={stage}>{stage}</option>
+					{/each}
+				</select>
+			{/if}
 		</div>
 	{/if}
 
-	{#if showTabs}
+	{#if showTabs && !isSectionMode}
 		<nav class="tabs" aria-label="Designer views">
-			{#if tabMode === 'inline'}
+			{#if isInlineMode}
 				{#each tabs as tab}
 					<button
 						type="button"
@@ -171,6 +183,30 @@
 	<section aria-label="Deals" class="deals">
 		{#if localDeals.length === 0 && !warning}
 			<p class="muted empty">{resolvedEmptyMessage}</p>
+		{:else if isSectionMode}
+			{#each groupedDeals as group (group.key)}
+				<details class="deal-section">
+					<summary class="deal-section-summary">
+						<span class="deal-section-title">{group.label}</span>
+						<span class="deal-section-count">{group.deals.length}</span>
+					</summary>
+					<div class="deal-section-body">
+						{#if group.deals.length === 0}
+							<p class="muted section-empty">
+								{query.trim()
+									? `No ${group.label.toLowerCase()} match the current search.`
+									: group.emptyMessage}
+							</p>
+						{:else}
+							<div class="deal-section-list">
+								{#each group.deals as deal (deal.id)}
+									<DealCard {deal} {fieldDescriptors} {readonly} on:dealUpdated={onDealUpdated} />
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</details>
+			{/each}
 		{:else if filtered.length === 0}
 			<p class="muted empty">
 				{query.trim() || stageFilter ? 'No deals match the current filter.' : resolvedEmptyMessage}
@@ -273,6 +309,77 @@
 	.deals {
 		display: grid;
 		gap: 0.75rem;
+	}
+
+	.deal-section {
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		background: #fff;
+		overflow: hidden;
+	}
+
+	.deal-section-summary {
+		list-style: none;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.95rem 1rem;
+		cursor: pointer;
+		font-weight: 700;
+		color: #111827;
+		background: #f8fafc;
+	}
+
+	.deal-section-summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.deal-section-summary::after {
+		content: '+';
+		font-size: 1.1rem;
+		line-height: 1;
+		color: #92400e;
+	}
+
+	.deal-section[open] .deal-section-summary::after {
+		content: '−';
+	}
+
+	.deal-section-title {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.deal-section-count {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.9rem;
+		height: 1.9rem;
+		padding: 0 0.55rem;
+		border-radius: 999px;
+		background: #fff7ed;
+		color: #9a3412;
+		font-size: 0.82rem;
+		font-weight: 700;
+	}
+
+	.deal-section-body {
+		padding: 0.85rem;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	.deal-section-list {
+		display: grid;
+		gap: 0.75rem;
+	}
+
+	.section-empty {
+		margin: 0;
+		padding: 0.25rem 0.15rem;
 	}
 
 	.banner.error {
