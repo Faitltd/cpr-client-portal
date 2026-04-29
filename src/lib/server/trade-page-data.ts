@@ -147,6 +147,12 @@ export function finalizeTradePageDeals(deals: any[], includeDetailFields = false
 	return displayable.length > 0 ? displayable : normalized;
 }
 
+export function filterTradePortalDeals(deals: any[], includeDetailFields = false) {
+	const visibleDeals = (deals || []).filter((deal) => isTradePortalVisibleStage(deal?.Stage));
+	const scopedDeals = visibleDeals.length > 0 ? visibleDeals : deals;
+	return finalizeTradePageDeals(scopedDeals, includeDetailFields);
+}
+
 /** Wraps a promise with a hard timeout. Rejects with Error('timeout') if exceeded. */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	return Promise.race([
@@ -306,8 +312,7 @@ async function refreshDealsCache(
 			}
 		}
 
-		const visibleDeals = hydratedDeals.filter((deal) => isTradePortalVisibleStage(deal?.Stage));
-		deals = finalizeTradePageDeals(visibleDeals, includeDetailFields);
+		deals = filterTradePortalDeals(hydratedDeals, includeDetailFields);
 
 		if (deals.length === 0) {
 			warning = 'No deals found for your account. Please try again later or contact your admin.';

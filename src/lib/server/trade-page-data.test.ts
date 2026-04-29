@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	finalizeTradePageDeals,
+	filterTradePortalDeals,
 	getTradeDealLabel,
 	isTradeDealDisplayable,
 	shouldHydrateTradeDeal
@@ -100,5 +101,18 @@ describe('trade page deal helpers', () => {
 		expect(isTradeDealDisplayable(deal, false)).toBe(false);
 		expect(isTradeDealDisplayable(deal, true)).toBe(true);
 		expect(getTradeDealLabel(deal)).toBe('Deal 3');
+	});
+
+	it('falls back to scoped deals when no returned stages match the visible stage set', () => {
+		expect(
+			filterTradePortalDeals(
+				[
+					{ id: '10', Deal_Name: 'Main House', Stage: 'Unexpected Stage', Address: '123 Main' }
+				],
+				true
+			)
+		).toEqual([
+			{ id: '10', Deal_Name: 'Main House', Stage: 'Unexpected Stage', Address: '123 Main' }
+		]);
 	});
 });
