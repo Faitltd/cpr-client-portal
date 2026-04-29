@@ -48,7 +48,30 @@ describe('trade page deal helpers', () => {
 			shouldHydrateTradeDeal(
 				{
 					...partialDeal,
-					Garage_Code: '1234'
+					Garage_Code: '1234',
+					Ball_In_Court: 'Designer',
+					Ball_In_Court_Note: 'Waiting on client'
+				},
+				true
+			)
+		).toBe(false);
+	});
+
+	it('rehydrates dashboard deals when ball-in-court fields are missing from detail fields', () => {
+		const partialDeal = {
+			id: '6',
+			Deal_Name: 'Pool House',
+			Stage: 'Project Created',
+			Garage_Code: '1234'
+		};
+
+		expect(shouldHydrateTradeDeal(partialDeal, true)).toBe(true);
+		expect(
+			shouldHydrateTradeDeal(
+				{
+					...partialDeal,
+					Ball_In_Court: 'Designer',
+					Ball_In_Court_Note: 'Waiting on client approval'
 				},
 				true
 			)

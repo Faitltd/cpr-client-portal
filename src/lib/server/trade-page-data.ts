@@ -90,6 +90,10 @@ function hasGarageCodeValue(value: unknown) {
 	return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined;
 }
 
+function hasDetailFieldValue(value: unknown) {
+	return value !== null && value !== undefined;
+}
+
 export function isTradeDealDisplayable(deal: any, includeDetailFields = false) {
 	const label = getTradeDealLabel(deal);
 	if (label && !isPlaceholderTradeDealName(label)) return true;
@@ -118,8 +122,15 @@ export function shouldHydrateTradeDeal(deal: any, includeDetailFields = false) {
 	if (!deal?.Stage) return true;
 	// Hydrate if the deal isn't displayable yet
 	if (!isTradeDealDisplayable(deal, includeDetailFields)) return true;
-	// For detail fields: only hydrate if Garage_Code key is absent (not just empty)
-	if (includeDetailFields && !('Garage_Code' in deal)) return true;
+	// For detail fields: hydrate whenever the related-list/search payload omits
+	// fields the trade dashboard depends on for its summary row.
+	if (includeDetailFields) {
+		if (!('Garage_Code' in deal) || !hasGarageCodeValue(deal?.Garage_Code)) return true;
+		if (!('Ball_In_Court' in deal) || !hasDetailFieldValue(deal?.Ball_In_Court)) return true;
+		if (!('Ball_In_Court_Note' in deal) || !hasDetailFieldValue(deal?.Ball_In_Court_Note)) {
+			return true;
+		}
+	}
 	return false;
 }
 
