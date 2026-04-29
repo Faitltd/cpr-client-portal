@@ -64,4 +64,71 @@ describe('trade deal field coverage', () => {
 			Ball_In_Court_Note: 'Waiting on measurements'
 		});
 	});
+
+	it('uses related-list fallback before scanning every deal', async () => {
+		vi.mocked(zohoApiCall).mockImplementation(async (_token, endpoint) => {
+			if (endpoint.startsWith('/Deals/search?criteria=')) {
+				return { data: [], info: { more_records: false } } as any;
+			}
+			if (endpoint.startsWith('/settings/related_lists?module=Trade_Partners')) {
+				return { related_lists: [{ api_name: 'Deals' }] } as any;
+			}
+			if (endpoint.startsWith('/Trade_Partners/tp-1/Deals?fields=')) {
+				return { data: [{ id: 'deal-rl-1', Deal_Name: 'Related List Deal' }] } as any;
+			}
+			if (endpoint.startsWith('/Deals?fields=')) {
+				throw new Error('full scan should not run when related-list lookup succeeds');
+			}
+			return { related_lists: [], data: [] } as any;
+		});
+
+		const result = await getTradePartnerDeals('token', 'tp-1', 'https://www.zohoapis.com');
+
+		expect(result).toEqual([{ id: 'deal-rl-1', Deal_Name: 'Related List Deal' }]);
+		expect(vi.mocked(zohoApiCall)).not.toHaveBeenCalledWith(
+			'token',
+			expect.stringMatching(/^\/Deals\?fields=/),
+			{},
+			'https://www.zohoapis.com'
+		);
+	});
+
+	it('filters the full-scan fallback down to the current trade partner only', async () => {
+		vi.mocked(zohoApiCall).mockImplementation(async (_token, endpoint) => {
+			if (endpoint.startsWith('/Deals/search?criteria=')) {
+				return { data: [], info: { more_records: false } } as any;
+			}
+			if (endpoint.startsWith('/settings/related_lists?module=')) {
+				return { related_lists: [] } as any;
+			}
+			if (endpoint.startsWith('/Deals?fields=')) {
+				return {
+					data: [
+						{
+							id: 'deal-1',
+							Deal_Name: 'Visible Deal',
+							Portal_Trade_Partners: [{ id: 'tp-1', name: 'Partner One' }]
+						},
+						{
+							id: 'deal-2',
+							Deal_Name: 'Hidden Deal',
+							Portal_Trade_Partners: [{ id: 'tp-2', name: 'Partner Two' }]
+						}
+					],
+					info: { more_records: false }
+				} as any;
+			}
+			return { data: [] } as any;
+		});
+
+		const result = await getTradePartnerDeals('token', 'tp-1', 'https://www.zohoapis.com');
+
+		expect(result).toEqual([
+			{
+				id: 'deal-1',
+				Deal_Name: 'Visible Deal',
+				Portal_Trade_Partners: [{ id: 'tp-1', name: 'Partner One' }]
+			}
+		]);
+	});
 });

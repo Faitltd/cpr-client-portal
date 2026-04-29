@@ -642,7 +642,10 @@ async function fetchDealsByTradePartnerRelatedLists(
 					relatedList,
 					apiDomain
 				);
-				if (data.length > 0) records.push(...data);
+				if (data.length > 0) {
+					records.push(...data);
+					return dedupeDeals(records);
+				}
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				if (
@@ -867,11 +870,43 @@ export async function getTradePartnerDeals(
 			if (results.length > 0) return results;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			log.warn('Trade partner scoped search failed, falling back to full scan', {
+			log.warn('Trade partner scoped search failed, trying scoped fallbacks', {
 				tradePartnerId,
 				error: message
 			});
 		}
+
+		try {
+			const relatedListResults = await fetchDealsByTradePartnerRelatedLists(
+				accessToken,
+				tradePartnerId,
+				apiDomain
+			);
+			if (relatedListResults.length > 0) return relatedListResults;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Trade partner related-list lookup failed, trying filtered full scan', {
+				tradePartnerId,
+				error: message
+			});
+		}
+
+		try {
+			const filteredResults = await fetchDealsByTradePartnerFieldFromList(
+				accessToken,
+				tradePartnerId,
+				apiDomain
+			);
+			if (filteredResults.length > 0) return filteredResults;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn('Trade partner filtered full scan failed', {
+				tradePartnerId,
+				error: message
+			});
+		}
+
+		return [];
 	}
 	return fetchAllDeals(accessToken, apiDomain);
 }

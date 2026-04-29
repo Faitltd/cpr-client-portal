@@ -3,8 +3,11 @@
 	import { browser } from '$app/environment';
 	import DesignerDealsView from '$lib/components/designer/DesignerDealsView.svelte';
 	import {
+		createTradeDashboardCacheEntry,
 		getTradeDealsSyncPollDelay,
-		normalizeTradeDealsPayload
+		getTradeDashboardCacheKey,
+		normalizeTradeDealsPayload,
+		readTradeDashboardCache
 	} from '$lib/trade-dashboard';
 	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
 	import type { DealFieldDescriptor, DesignerDealSummary } from '$lib/types/designer';
@@ -26,6 +29,7 @@
 	type DashboardTab = 'trade' | 'designer';
 	let activeTab: DashboardTab = 'trade';
 	let dealsSyncTimer: number | null = null;
+	const tradeDashboardCacheKey = getTradeDashboardCacheKey(tradePartner.email || '');
 
 	function clearDealsSyncTimer() {
 		if (dealsSyncTimer) {
@@ -49,6 +53,68 @@
 		showLoading?: boolean;
 	};
 
+	type ApplyDealsPayloadOptions = {
+		preferredDealId?: string | null;
+		preferredTab?: string | null;
+		syncOverride?: boolean;
+	};
+
+	function applyDealsPayload(
+		body: ReturnType<typeof normalizeTradeDealsPayload>,
+		{
+			preferredDealId = selectedDealId,
+			preferredTab,
+			syncOverride
+		}: ApplyDealsPayloadOptions = {}
+	) {
+		deals = body.deals;
+		designerDeals = body.designerDeals;
+		designerFieldDescriptors = body.designerFieldDescriptors;
+		dealsWarning = body.warning;
+		dealsSyncing = syncOverride ?? body.syncing;
+
+		const nextSelectedDealId =
+			preferredDealId && deals.find((deal: any) => deal.id === preferredDealId)
+				? preferredDealId
+				: deals[0]?.id ?? '';
+		selectedDealId = nextSelectedDealId;
+
+		if (preferredTab === 'designer') {
+			activeTab = 'designer';
+		}
+	}
+
+	function loadDealsFromCache({
+		preferredDealId,
+		preferredTab
+	}: Pick<LoadDealsOptions, 'preferredDealId' | 'preferredTab'> = {}) {
+		if (!browser) return false;
+
+		const cached = readTradeDashboardCache(sessionStorage.getItem(tradeDashboardCacheKey));
+		if (!cached) return false;
+
+		applyDealsPayload(cached, {
+			preferredDealId,
+			preferredTab,
+			syncOverride: true
+		});
+		dealsLoading = false;
+		return true;
+	}
+
+	function saveDealsToCache(body: ReturnType<typeof normalizeTradeDealsPayload>) {
+		if (!browser) return;
+
+		try {
+			sessionStorage.setItem(
+				tradeDashboardCacheKey,
+				JSON.stringify(createTradeDashboardCacheEntry(body))
+			);
+		} catch {
+			// storage full or unavailable
+		}
+	}
+
 	async function loadDeals({
 		preferredDealId = selectedDealId,
 		preferredTab,
@@ -62,28 +128,20 @@
 				window.location.href = '/auth/trade';
 				return;
 			}
-			if (!res.ok) return;
+			if (!res.ok) {
+				dealsSyncing = false;
+				clearDealsSyncTimer();
+				return;
+			}
 
 			const body = normalizeTradeDealsPayload(await res.json().catch(() => ({})));
-			deals = body.deals;
-			designerDeals = body.designerDeals;
-			designerFieldDescriptors = body.designerFieldDescriptors;
-			dealsWarning = body.warning;
-			dealsSyncing = body.syncing;
-
-			const nextSelectedDealId =
-				preferredDealId && deals.find((deal: any) => deal.id === preferredDealId)
-					? preferredDealId
-					: deals[0]?.id ?? '';
-			selectedDealId = nextSelectedDealId;
-
-			if (preferredTab === 'designer') {
-				activeTab = 'designer';
-			}
+			applyDealsPayload(body, { preferredDealId, preferredTab });
+			saveDealsToCache(body);
 
 			scheduleDealsSyncPoll();
 		} catch {
-			// non-fatal
+			dealsSyncing = false;
+			clearDealsSyncTimer();
 		} finally {
 			dealsLoading = false;
 		}
@@ -91,10 +149,13 @@
 
 	onMount(async () => {
 		const params = new URLSearchParams(window.location.search);
+		const preferredDealId = params.get('deal');
+		const preferredTab = params.get('tab');
+		const hadCachedDeals = loadDealsFromCache({ preferredDealId, preferredTab });
 		await loadDeals({
-			preferredDealId: params.get('deal'),
-			preferredTab: params.get('tab'),
-			showLoading: true
+			preferredDealId,
+			preferredTab,
+			showLoading: !hadCachedDeals
 		});
 		loadProjectsList();
 	});
