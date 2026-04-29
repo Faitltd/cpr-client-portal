@@ -24,9 +24,11 @@ type TradePartnerProfile = {
 	phone?: string | null;
 };
 
-const DEAL_FIELDS = [
+export const DEAL_FIELD_KEYS = [
 	'Deal_Name',
 	'Stage',
+	'Ball_In_Court',
+	'Ball_In_Court_Note',
 	'Amount',
 	'Closing_Date',
 	'Created_Time',
@@ -50,7 +52,9 @@ const DEAL_FIELDS = [
 	'Portal_Trade_Partners',
 	'Project_ID',
 	'Zoho_Projects_ID'
-].join(',');
+] as const;
+
+const DEAL_FIELDS = DEAL_FIELD_KEYS.join(',');
 
 const CONTACT_FIELDS = [
 	'First_Name',
@@ -391,6 +395,8 @@ export function normalizeDealRecord(deal: any) {
 		'City',
 		'State',
 		'Zip_Code',
+		'Ball_In_Court',
+		'Ball_In_Court_Note',
 		'Garage_Code',
 		'WiFi',
 		'Refined_Scope',
