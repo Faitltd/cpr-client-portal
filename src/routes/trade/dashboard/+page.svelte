@@ -5,22 +5,36 @@
 
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
-		deals: any[];
-		warning?: string;
-		syncing?: boolean;
 	};
 
 	const tradePartner = data?.tradePartner || { email: '' };
-	const deals = Array.isArray(data?.deals) ? data.deals : [];
-	let selectedDealId = deals[0]?.id || '';
 
-	onMount(() => {
-		const paramId = new URLSearchParams(window.location.search).get('deal');
-		if (paramId && deals.find((d) => d.id === paramId)) {
-			selectedDealId = paramId;
+	// Deals are fetched client-side after mount — no Zoho call blocks login
+	let deals: any[] = [];
+	let dealsLoading = true;
+	let dealsWarning = '';
+	let dealsSyncing = false;
+	let selectedDealId = '';
+
+	onMount(async () => {
+		try {
+			const res = await fetch('/api/trade/deals');
+			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
+			if (res.ok) {
+				const body = await res.json().catch(() => ({}));
+				deals = Array.isArray(body.deals) ? body.deals : [];
+				dealsWarning = body.warning ?? '';
+				dealsSyncing = body.syncing ?? false;
+				if (deals.length > 0) selectedDealId = deals[0].id;
+				const paramId = new URLSearchParams(window.location.search).get('deal');
+				if (paramId && deals.find((d: any) => d.id === paramId)) selectedDealId = paramId;
+			}
+		} catch { /* non-fatal */ } finally {
+			dealsLoading = false;
 		}
 		loadProjectsList();
 	});
+
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
 
 	type FieldUpdate = {
@@ -520,7 +534,7 @@
 		</a>
 	</header>
 
-	{#if data?.syncing}
+	{#if dealsSyncing}
 		<div class="card syncing-banner" role="status" aria-live="polite">
 			<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
 				<path d="M4 10a6 6 0 1 0 1.5-3.9"/>
@@ -530,9 +544,21 @@
 		</div>
 	{/if}
 
-	{#if data?.warning && !data?.syncing}
-		<div class="card warning">{data.warning}</div>
-	{:else if deals.length === 0 && !data?.syncing}
+	{#if dealsLoading}
+		<div class="skeleton-stack" aria-busy="true" aria-label="Loading projects…">
+			<div class="card skeleton-card">
+				<div class="skeleton-line w-40"></div>
+				<div class="skeleton-line w-64 mt"></div>
+			</div>
+			<div class="card skeleton-card">
+				<div class="skeleton-line w-full"></div>
+				<div class="skeleton-line w-48 mt"></div>
+				<div class="skeleton-line w-56 mt"></div>
+			</div>
+		</div>
+	{:else if dealsWarning && !dealsSyncing}
+		<div class="card warning">{dealsWarning}</div>
+	{:else if deals.length === 0}
 		<div class="card">
 			<p>No deals found for your account yet.</p>
 		</div>
@@ -714,7 +740,7 @@
 											{:else}
 												<span class="task-status-badge task-status-{getTaskStatusValue(task)}">
 													{TASK_STATUSES.find(s => s.value === getTaskStatusValue(task))?.label ?? getTaskStatus(task)}
-												</span>
+											</span>
 											{/if}
 										</div>
 									{/each}
@@ -874,6 +900,36 @@
 		padding: 1.25rem;
 		background: #fff;
 		margin-bottom: 1rem;
+	}
+
+	/* Skeleton loader */
+	.skeleton-stack {
+		display: grid;
+		gap: 1rem;
+	}
+
+	.skeleton-card {
+		padding: 1.25rem;
+	}
+
+	.skeleton-line {
+		height: 14px;
+		border-radius: 6px;
+		background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+		background-size: 200% 100%;
+		animation: shimmer 1.4s infinite;
+	}
+
+	.skeleton-line.mt { margin-top: 0.75rem; }
+	.skeleton-line.w-40 { width: 40%; }
+	.skeleton-line.w-48 { width: 48%; }
+	.skeleton-line.w-56 { width: 56%; }
+	.skeleton-line.w-64 { width: 64%; }
+	.skeleton-line.w-full { width: 100%; }
+
+	@keyframes shimmer {
+		0%   { background-position: 200% 0; }
+		100% { background-position: -200% 0; }
 	}
 
 	.syncing-banner {
