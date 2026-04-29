@@ -163,4 +163,9 @@ describe('trade deal field coverage', () => {
 		expect(isTradePortalVisibleStage('On Hold')).toBe(true);
 		expect(isTradePortalVisibleStage('On Hold (50%)')).toBe(true);
 	});
+
+	it('treats Project Started as visible in the trade partner portal', () => {
+		expect(isTradePortalVisibleStage('Project Started')).toBe(true);
+		expect(isTradePortalVisibleStage('Project Started (25%)')).toBe(true);
+	});
 });

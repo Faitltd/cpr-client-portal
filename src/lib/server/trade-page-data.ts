@@ -296,7 +296,7 @@ async function refreshDealsCache(
 		deals = finalizeTradePageDeals(visibleDeals, includeDetailFields);
 
 		if (deals.length === 0) {
-			warning = 'No deals found in Quoted or Project Created. Please try again later or contact your admin.';
+			warning = 'No deals found for your account. Please try again later or contact your admin.';
 		}
 
 		// Write to cache (non-blocking fire-and-forget on errors)

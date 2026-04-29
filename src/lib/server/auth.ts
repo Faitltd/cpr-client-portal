@@ -129,6 +129,7 @@ const TRADE_ACTIVE_DEAL_STAGES = new Set([
 const TRADE_PORTAL_VISIBLE_DEAL_STAGES = new Set([
 	'quoted',
 	'project created',
+	'project started',
 	'on hold'
 ]);
 
