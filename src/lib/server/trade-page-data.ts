@@ -38,6 +38,7 @@ export type TradePageContext = {
 	redirectTo: string | null;
 	tradePartner: TradePartner | null;
 	deals: any[];
+	designerDeals?: any[];
 	warning: string;
 	syncing?: boolean;
 };
@@ -259,7 +260,7 @@ async function fetchAndCacheDeals(
 	tradePartnerZohoId: string,
 	includeDetailFields: boolean,
 	apiDomain: string | undefined
-): Promise<{ deals: any[]; syncing: boolean; warning: string }> {
+): Promise<{ deals: any[]; designerDeals: any[]; syncing: boolean; warning: string }> {
 	const cacheKey = buildCacheKey('trade:deals', tradePartnerZohoId, includeDetailFields ? 'detail' : 'base');
 
 	// Try cache first
@@ -267,11 +268,21 @@ async function fetchAndCacheDeals(
 	if (cached) {
 		if (!cached.isStale) {
 			// Fresh — return immediately, no background fetch needed
-			return { deals: cached.data.deals ?? [], syncing: false, warning: cached.data.warning ?? '' };
+			return {
+				deals: cached.data.deals ?? [],
+				designerDeals: cached.data.designerDeals ?? cached.data.deals ?? [],
+				syncing: false,
+				warning: cached.data.warning ?? ''
+			};
 		}
 		// Stale — return cached data immediately, revalidate in background
 		refreshDealsCache(cacheKey, accessToken, tradePartnerZohoId, includeDetailFields, apiDomain).catch(() => {});
-		return { deals: cached.data.deals ?? [], syncing: true, warning: '' };
+		return {
+			deals: cached.data.deals ?? [],
+			designerDeals: cached.data.designerDeals ?? cached.data.deals ?? [],
+			syncing: true,
+			warning: ''
+		};
 	}
 
 	// Cache miss — fetch live
@@ -284,8 +295,9 @@ async function refreshDealsCache(
 	tradePartnerZohoId: string,
 	includeDetailFields: boolean,
 	apiDomain: string | undefined
-): Promise<{ deals: any[]; syncing: boolean; warning: string }> {
+): Promise<{ deals: any[]; designerDeals: any[]; syncing: boolean; warning: string }> {
 	let deals: any[] = [];
+	let designerDeals: any[] = [];
 	let warning = '';
 
 	try {
@@ -314,6 +326,7 @@ async function refreshDealsCache(
 			}
 		}
 
+		designerDeals = finalizeTradePageDeals(hydratedDeals, includeDetailFields);
 		const visibleDeals = hydratedDeals.filter((deal) => isTradePortalVisibleStage(deal?.Stage));
 		deals = finalizeTradePageDeals(visibleDeals, includeDetailFields);
 
@@ -322,14 +335,21 @@ async function refreshDealsCache(
 		}
 
 		// Write to cache (non-blocking fire-and-forget on errors)
-		setCache(cacheKey, { deals, warning }, { staleSec: DEALS_CACHE_STALE_SEC }).catch(() => {});
+		setCache(cacheKey, { deals, designerDeals, warning }, { staleSec: DEALS_CACHE_STALE_SEC }).catch(() => {});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		console.error(`[trade-page-data] refreshDealsCache failed: ${message}`);
-		warning = 'Unable to load deals at this time. Please try again later or contact your admin.';
+		const isSyncingState =
+			message.includes('401') ||
+			message.toLowerCase().includes('invalid_oauthtoken') ||
+			message.includes('timed out');
+		warning = isSyncingState
+			? 'Syncing latest project data…'
+			: 'Unable to load deals at this time. Please try again later or contact your admin.';
+		return { deals, designerDeals, syncing: isSyncingState, warning };
 	}
 
-	return { deals, syncing: false, warning };
+	return { deals, designerDeals, syncing: false, warning };
 }
 
 export async function loadTradePageContext(
@@ -391,12 +411,14 @@ export async function loadTradePageContext(
 	}
 
 	let deals: any[] = [];
+	let designerDeals: any[] = [];
 	let warning = '';
 	let syncing = false;
 
 	try {
 		const result = await fetchAndCacheDeals(accessToken, tradePartnerZohoId, includeDetailFields, apiDomain);
 		deals = result.deals;
+		designerDeals = result.designerDeals ?? result.deals;
 		warning = result.warning;
 		syncing = result.syncing;
 	} catch (err) {
@@ -415,6 +437,7 @@ export async function loadTradePageContext(
 		redirectTo: null,
 		tradePartner: session.trade_partner,
 		deals,
+		designerDeals,
 		warning,
 		syncing
 	};

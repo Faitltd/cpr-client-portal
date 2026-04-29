@@ -13,6 +13,12 @@ vi.mock('$lib/server/zoho', () => ({
 	zohoApiCall: vi.fn()
 }));
 
+vi.mock('$lib/server/api-cache', () => ({
+	buildCacheKey: vi.fn((...parts: string[]) => parts.join(':')),
+	getCache: vi.fn().mockResolvedValue(null),
+	setCache: vi.fn().mockResolvedValue(undefined)
+}));
+
 vi.mock('$lib/server/auth', () => ({
 	getTradePartnerDeals: vi.fn(),
 	isTradePortalVisibleStage: vi.fn(() => true),
@@ -98,5 +104,25 @@ describe('loadTradePageContext', () => {
 		const result = await loadTradePageContext('valid-token', { includeDetailFields: true });
 		expect(result.deals.length).toBeGreaterThan(0);
 		expect(result.syncing).toBeFalsy();
+	});
+
+	it('preserves all trade-partner deals for the designer view while filtering the main trade list', async () => {
+		const quotedDeal = { id: 'd1', Stage: 'Quoted', Deal_Name: 'Quoted Deal', Address: '123 Main' };
+		const contractDeal = {
+			id: 'd2',
+			Stage: 'Contract Needed',
+			Deal_Name: 'Contract Deal',
+			Address: '456 Oak'
+		};
+
+		vi.mocked(db.getTradeSession).mockResolvedValue(VALID_SESSION as any);
+		vi.mocked(db.getZohoTokens).mockResolvedValue(VALID_TOKENS as any);
+		vi.mocked(auth.getTradePartnerDeals).mockResolvedValue([quotedDeal, contractDeal] as any);
+		vi.mocked(auth.isTradePortalVisibleStage).mockImplementation((stage) => stage === 'Quoted');
+
+		const result = await loadTradePageContext('valid-token', { includeDetailFields: true });
+
+		expect(result.deals.map((deal) => deal.id)).toEqual(['d1']);
+		expect(result.designerDeals?.map((deal) => deal.id)).toEqual(['d1', 'd2']);
 	});
 });

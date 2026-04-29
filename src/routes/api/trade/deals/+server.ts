@@ -32,7 +32,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		return json({ message: 'Not authenticated' }, { status: 401 });
 	}
 
-	const designerDeals = result.deals
+	const designerDeals = (result.designerDeals ?? result.deals)
 		.map((deal) => summarizeDeal(deal))
 		.filter((deal): deal is DesignerDealSummary => Boolean(deal));
 
