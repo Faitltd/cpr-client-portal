@@ -119,6 +119,39 @@
 	// ── Designs: External_Link (immediate) + lazy Attachments fallback ───────
 	$: externalLinks = parseExternalLinks(selectedDeal?.External_Link);
 
+	// Lazy scope links fetch — triggered when Scope section opens
+	const scopeLinksCache = new Map<string, Array<{ label: string; url: string }>>();
+	let scopeLinks: Array<{ label: string; url: string }> = [];
+	let scopeLinksLoading = false;
+	let scopeLinksError = '';
+	let lastScopeDealId = '';
+
+	const loadScopeLinks = async (dealId: string) => {
+		if (!dealId) return;
+		if (scopeLinksCache.has(dealId)) {
+			scopeLinks = scopeLinksCache.get(dealId)!;
+			return;
+		}
+		scopeLinksLoading = true;
+		scopeLinksError = '';
+		try {
+			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/scope`);
+			if (res.status === 401) throw new Error('Please login again');
+			if (!res.ok) throw new Error(`Failed to load scope links (${res.status})`);
+			const payload = await res.json().catch(() => ({}));
+			const fresh: Array<{ label: string; url: string }> = Array.isArray(payload?.data)
+				? payload.data
+				: [];
+			scopeLinksCache.set(dealId, fresh);
+			if (dealId === selectedDealId) scopeLinks = fresh;
+		} catch (err) {
+			scopeLinksError = err instanceof Error ? err.message : 'Failed to load scope links';
+			if (!scopeLinksCache.has(dealId)) scopeLinks = [];
+		} finally {
+			scopeLinksLoading = false;
+		}
+	};
+
 	// Lazy attachments fetch — triggered when Designs section opens
 	const attachmentsCache = new Map<string, Array<{ name: string; url: string }>>();
 	let attachments: Array<{ name: string; url: string }> = [];
@@ -166,6 +199,17 @@
 	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastAttachmentsDealId) {
 		lastAttachmentsDealId = selectedDealId;
 		loadAttachments(selectedDealId);
+	}
+
+	// When scope section opens, also kick off scope link fetch for current deal
+	$: if (browser && scopeOpen && selectedDealId && selectedDealId !== lastScopeDealId) {
+		lastScopeDealId = selectedDealId;
+		loadScopeLinks(selectedDealId);
+	}
+
+	// Reset scope links when deal changes so stale data isn't shown while loading
+	$: if (selectedDealId !== lastScopeDealId && !scopeLinksCache.has(selectedDealId)) {
+		scopeLinks = [];
 	}
 
 	// Reset attachments when deal changes so stale data isn't shown while loading
@@ -708,7 +752,24 @@
 
 				{#if scopeOpen}
 					<div class="collapsible-body">
-						<p class="scope-text">{formatCrmRichText(selectedDeal.Refined_Scope) || 'Not available'}</p>
+						{#if scopeLinksLoading && scopeLinks.length === 0}
+							<p class="muted">Loading scope files...</p>
+						{:else if scopeLinksError && scopeLinks.length === 0}
+							<div class="field-updates-error">
+								<p class="error-text">{scopeLinksError}</p>
+								<button class="retry" type="button" on:click={() => { scopeLinksCache.delete(selectedDealId); lastScopeDealId = ''; loadScopeLinks(selectedDealId); }}>Retry</button>
+							</div>
+						{:else if scopeLinks.length > 0}
+							<ul class="file-list">
+								{#each scopeLinks as file}
+									<li>
+										<a class="file-link" href={file.url} target="_blank" rel="noreferrer">{file.label}</a>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="muted">No scope files on file for this project.</p>
+						{/if}
 					</div>
 				{/if}
 			</div>

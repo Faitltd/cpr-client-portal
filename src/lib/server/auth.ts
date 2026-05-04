@@ -278,14 +278,7 @@ function coerceText(value: any): string | null {
 	return null;
 }
 
-function extractLookup(value: any): { id: string; name: string | null } | null {
-	if (Array.isArray(value)) {
-		for (const item of value) {
-			const lookup: { id: string; name: string | null } | null = extractLookup(item);
-			if (lookup) return lookup;
-		}
-		return null;
-	}
+function extractLookup(value: any) {
 	if (!value || typeof value !== 'object') return null;
 	const id = value.id || value.ID || value.Id;
 	if (!id) return null;
@@ -304,20 +297,11 @@ function findDealLookup(record: Record<string, any>) {
 		'Deal_Name',
 		'Deal',
 		'Deals',
-		'Potential_Name',
 		'Portal_Deal',
 		'Portal_Deals',
 		'Portal_Deals1',
 		'Portal_Deals2',
-		'Portal_Deals3',
-		'Parent_Id',
-		'What_Id',
-		'Related_Record',
-		'Related_Record_Id',
-		'Entity',
-		'Entity_Id',
-		'Record',
-		'Record_Id'
+		'Portal_Deals3'
 	];
 	for (const key of preferredKeys) {
 		const lookup = extractLookup(record[key]);
@@ -325,7 +309,7 @@ function findDealLookup(record: Record<string, any>) {
 	}
 
 	for (const [key, value] of Object.entries(record)) {
-		if (!/(deal|potential|parent|entity|record|what)/i.test(key)) continue;
+		if (!/deal/i.test(key)) continue;
 		const lookup = extractLookup(value);
 		if (lookup) return { ...lookup, key };
 	}
@@ -438,21 +422,13 @@ async function fetchAllDeals(accessToken: string, apiDomain?: string): Promise<a
 
 function dealContainsTradePartner(deal: any, tradePartnerId: string) {
 	const field = deal?.Portal_Trade_Partners;
-	const matches = (value: any): boolean => {
-		if (value === null || value === undefined) return false;
-		if (typeof value === 'string' || typeof value === 'number') {
-			return String(value).trim() === tradePartnerId;
-		}
-		if (Array.isArray(value)) {
-			return value.some((item) => matches(item));
-		}
-		if (typeof value === 'object') {
-			if (String(value?.id || value?.ID || value?.Id || '').trim() === tradePartnerId) return true;
-			return Object.values(value).some((item) => matches(item));
-		}
-		return false;
-	};
-	return matches(field);
+	if (Array.isArray(field)) {
+		return field.some((item: any) => String(item?.id || '').trim() === tradePartnerId);
+	}
+	if (field && typeof field === 'object') {
+		return String(field?.id || '').trim() === tradePartnerId;
+	}
+	return false;
 }
 
 async function fetchDealsByTradePartnerFieldSearch(
@@ -483,7 +459,7 @@ async function fetchDealsByTradePartnerFieldSearch(
 	return dedupeDeals(matches);
 }
 
-async function fetchDealsByTradePartnerFieldFromList(
+async function fetchDealsByTradePartnerField(
 	accessToken: string,
 	tradePartnerId: string,
 	apiDomain?: string
@@ -620,7 +596,10 @@ async function fetchDealsByTradePartnerRelatedLists(
 					relatedList,
 					apiDomain
 				);
-				if (data.length > 0) records.push(...data);
+				if (data.length > 0) {
+					records.push(...data);
+					return dedupeDeals(records);
+				}
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				if (
@@ -835,23 +814,62 @@ export async function getTradePartnerDeals(
 	tradePartnerId?: string,
 	apiDomain?: string
 ): Promise<any[]> {
-	if (tradePartnerId) {
-		try {
-			const results = await fetchDealsByTradePartnerFieldSearch(
-				accessToken,
-				tradePartnerId,
-				apiDomain
-			);
-			if (results.length > 0) return results;
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			log.warn('Trade partner scoped search failed, falling back to full scan', {
-				tradePartnerId,
-				error: message
-			});
-		}
+	const normalizedTradePartnerId = String(tradePartnerId || '').trim();
+	if (!normalizedTradePartnerId) return [];
+
+	try {
+		const directSearchDeals = await fetchDealsByTradePartnerFieldSearch(
+			accessToken,
+			normalizedTradePartnerId,
+			apiDomain
+		);
+		if (directSearchDeals.length > 0) return directSearchDeals;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		log.warn('Trade partner deal search failed', {
+			tradePartnerId: normalizedTradePartnerId,
+			apiDomain: apiDomain || 'default',
+			error: message
+		});
 	}
-	return fetchAllDeals(accessToken, apiDomain);
+
+	try {
+		const relatedListDeals = await fetchDealsByTradePartnerRelatedLists(
+			accessToken,
+			normalizedTradePartnerId,
+			apiDomain
+		);
+		if (relatedListDeals.length > 0) return relatedListDeals;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		log.warn('Trade partner related-list deal lookup failed', {
+			tradePartnerId: normalizedTradePartnerId,
+			apiDomain: apiDomain || 'default',
+			error: message
+		});
+	}
+
+	try {
+		const filteredDeals = await fetchDealsByTradePartnerField(
+			accessToken,
+			normalizedTradePartnerId,
+			apiDomain
+		);
+		if (filteredDeals.length > 0) return filteredDeals;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		log.warn('Trade partner fallback deal filtering failed', {
+			tradePartnerId: normalizedTradePartnerId,
+			apiDomain: apiDomain || 'default',
+			error: message
+		});
+	}
+
+	if (dev && PORTAL_DEV_SHOW_ALL === 'true') {
+		return fetchAllDeals(accessToken, apiDomain);
+	}
+
+	return [];
 }
 
 /**
