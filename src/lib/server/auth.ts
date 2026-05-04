@@ -873,37 +873,40 @@ export async function getTradePartnerDeals(
 	const normalizedTradePartnerId = String(tradePartnerId || '').trim();
 	if (!normalizedTradePartnerId) return [];
 
-	try {
-		const directSearchDeals = await fetchDealsByTradePartnerFieldSearch(
-			accessToken,
-			normalizedTradePartnerId,
-			apiDomain
-		);
-		if (directSearchDeals.length > 0) return directSearchDeals;
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
+	const merged: any[] = [];
+
+	const [searchResult, relatedListResult] = await Promise.allSettled([
+		fetchDealsByTradePartnerFieldSearch(accessToken, normalizedTradePartnerId, apiDomain),
+		fetchDealsByTradePartnerRelatedLists(accessToken, normalizedTradePartnerId, apiDomain)
+	]);
+
+	if (searchResult.status === 'fulfilled') {
+		merged.push(...searchResult.value);
+	} else {
 		log.warn('Trade partner deal search failed', {
 			tradePartnerId: normalizedTradePartnerId,
 			apiDomain: apiDomain || 'default',
-			error: message
+			error:
+				searchResult.reason instanceof Error
+					? searchResult.reason.message
+					: String(searchResult.reason)
 		});
 	}
 
-	try {
-		const relatedListDeals = await fetchDealsByTradePartnerRelatedLists(
-			accessToken,
-			normalizedTradePartnerId,
-			apiDomain
-		);
-		if (relatedListDeals.length > 0) return relatedListDeals;
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
+	if (relatedListResult.status === 'fulfilled') {
+		merged.push(...relatedListResult.value);
+	} else {
 		log.warn('Trade partner related-list deal lookup failed', {
 			tradePartnerId: normalizedTradePartnerId,
 			apiDomain: apiDomain || 'default',
-			error: message
+			error:
+				relatedListResult.reason instanceof Error
+					? relatedListResult.reason.message
+					: String(relatedListResult.reason)
 		});
 	}
+
+	if (merged.length > 0) return dedupeDeals(merged);
 
 	try {
 		const filteredDeals = await fetchDealsByTradePartnerField(
