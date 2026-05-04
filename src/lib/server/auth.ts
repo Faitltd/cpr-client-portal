@@ -431,32 +431,63 @@ function dealContainsTradePartner(deal: any, tradePartnerId: string) {
 	return false;
 }
 
+/**
+ * The Deal field `Portal_Trade_Partners` is a multiselectlookup, which Zoho's
+ * Records Search API rejects with INVALID_QUERY ("field is not available for
+ * search"). Instead, query the linking module directly via COQL, then fetch
+ * the actual deal records by ID with the full DEAL_FIELDS set.
+ *
+ * Linking module: Deals_X_Trade_Partners
+ *   - Portal_Trade_Partners → Trade_Partners.id
+ *   - Portal_Deals          → Deals.id
+ */
 async function fetchDealsByTradePartnerFieldSearch(
 	accessToken: string,
 	tradePartnerId: string,
 	apiDomain?: string
 ): Promise<any[]> {
-	const perPage = 200;
-	const maxPages = 20;
-	const matches: any[] = [];
-	const criteria = `(Portal_Trade_Partners:equals:${tradePartnerId})`;
+	const dealIds = await fetchTradePartnerDealIdsViaCoql(accessToken, tradePartnerId, apiDomain);
+	if (dealIds.length === 0) return [];
+	return fetchDealsByIds(accessToken, dealIds, apiDomain);
+}
 
-	for (let page = 1; page <= maxPages; page += 1) {
+async function fetchTradePartnerDealIdsViaCoql(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<string[]> {
+	const pageSize = 200;
+	const maxPages = 20;
+	const ids = new Set<string>();
+
+	for (let page = 0; page < maxPages; page += 1) {
+		const offset = page * pageSize;
+		const query = `select Portal_Deals.id from Deals_X_Trade_Partners where Portal_Trade_Partners = '${tradePartnerId}' limit ${offset}, ${pageSize}`;
 		const response = await zohoApiCall(
 			accessToken,
-			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
-			{},
+			'/coql',
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ select_query: query })
+			},
 			apiDomain
 		);
-		const pageData = Array.isArray(response.data) ? response.data : [];
-		if (pageData.length === 0) break;
-		matches.push(...pageData);
-		const hasMore = response.info?.more_records;
-		if (hasMore === false) break;
-		if (hasMore !== true && pageData.length < perPage) break;
+		const rows = Array.isArray(response.data) ? response.data : [];
+		if (rows.length === 0) break;
+		for (const row of rows) {
+			const dealId =
+				row?.['Portal_Deals.id'] ??
+				row?.Portal_Deals?.id ??
+				row?.Portal_Deals;
+			if (dealId) ids.add(String(dealId).trim());
+		}
+		const more = response.info?.more_records;
+		if (more === false) break;
+		if (more !== true && rows.length < pageSize) break;
 	}
 
-	return dedupeDeals(matches);
+	return Array.from(ids).filter(Boolean);
 }
 
 async function fetchDealsByTradePartnerField(
@@ -568,6 +599,30 @@ async function fetchTradePartnerRelatedListRecords(
 	throw lastError instanceof Error ? lastError : new Error('Failed to fetch trade partner related list');
 }
 
+/**
+ * Some trade-partner related lists (e.g. `Deals3`) point at a multiselect linking
+ * module (Deals_X_Trade_Partners) rather than the Deals module itself. The
+ * returned rows have the actual deal as `Portal_Deals.{id,name}`. Detect that
+ * shape, extract the deal IDs, and fetch the real deal records.
+ */
+async function unwrapLinkingModuleRows(
+	rows: any[],
+	accessToken: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const dealIds: string[] = [];
+	let linkingShape = false;
+	for (const row of rows) {
+		const portalDeal = row?.Portal_Deals;
+		if (portalDeal && typeof portalDeal === 'object' && portalDeal.id) {
+			linkingShape = true;
+			dealIds.push(String(portalDeal.id));
+		}
+	}
+	if (!linkingShape) return rows;
+	return fetchDealsByIds(accessToken, dealIds, apiDomain);
+}
+
 async function fetchDealsByTradePartnerRelatedLists(
 	accessToken: string,
 	tradePartnerId: string,
@@ -589,13 +644,14 @@ async function fetchDealsByTradePartnerRelatedLists(
 		);
 		for (const relatedList of relatedListApiNames) {
 			try {
-				const data = await fetchTradePartnerRelatedListRecords(
+				const rawData = await fetchTradePartnerRelatedListRecords(
 					accessToken,
 					moduleName,
 					tradePartnerId,
 					relatedList,
 					apiDomain
 				);
+				const data = await unwrapLinkingModuleRows(rawData, accessToken, apiDomain);
 				if (data.length > 0) {
 					records.push(...data);
 					return dedupeDeals(records);
