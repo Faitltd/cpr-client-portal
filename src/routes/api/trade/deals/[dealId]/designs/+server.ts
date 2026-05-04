@@ -19,6 +19,9 @@ import type { RequestHandler } from './$types';
 const log = createLogger('trade-designs');
 const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
 const DESIGN_FOLDER_NAMES = ['design and planning', 'design & planning', 'designs and planning', 'designs', 'design'];
+const DESIGN_CONTAINER_FOLDER_NAMES = new Set(
+	['design and planning', 'design & planning', 'designs and planning'].map(normalizeName)
+);
 /** Standard subfolder names found inside every project folder */
 const PROJECT_SUBFOLDER_NAMES = ['client portal', 'photos', 'permits', 'job costing'];
 
@@ -64,6 +67,24 @@ function findDesignFolder(items: { id: string; name: string; type: string }[]) {
 		if (match) return match;
 	}
 	return null;
+}
+
+function shouldDrillIntoDesignFolder(folder: { name: string } | null) {
+	return !!folder && DESIGN_CONTAINER_FOLDER_NAMES.has(normalizeName(folder.name));
+}
+
+async function resolveLeafDesignFolder(
+	accessToken: string,
+	designFolder: { id: string; name: string; type: string } | null,
+	apiDomain?: string
+) {
+	if (!designFolder || !shouldDrillIntoDesignFolder(designFolder)) return designFolder;
+	try {
+		const childItems = await listWorkDriveFolder(accessToken, designFolder.id, apiDomain);
+		return findDesignFolder(childItems) || designFolder;
+	} catch {
+		return designFolder;
+	}
 }
 
 /**
@@ -301,7 +322,8 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	// ── Step 5: Find "Design and Planning" subfolder ────────────────────
 	const items = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 	const subfolders = items.filter((i) => i.type === 'folder').map((i) => i.name);
-	const designFolder = findDesignFolder(items);
+	let designFolder = findDesignFolder(items);
+	designFolder = await resolveLeafDesignFolder(accessToken, designFolder, apiDomain);
 
 	log.info('Design folder: subfolder search', {
 		dealId,
