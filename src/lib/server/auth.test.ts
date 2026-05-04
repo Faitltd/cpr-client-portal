@@ -50,18 +50,28 @@ describe('getTradePartnerDeals', () => {
 		expect(String(zohoApiCallMock.mock.calls[0]?.[1] || '')).toContain('/Deals/search?criteria=');
 		expect(String(zohoApiCallMock.mock.calls[0]?.[1] || '')).toContain('Ball_In_Court');
 		expect(String(zohoApiCallMock.mock.calls[0]?.[1] || '')).toContain('Ball_In_Court_Note');
+		expect(
+			zohoApiCallMock.mock.calls.some(([, path]) =>
+				String(path).startsWith('/Deals?fields=')
+			)
+		).toBe(false);
 	});
 
-	it('requests ball-in-court fields on the full-scan fallback endpoint', async () => {
+	it('falls back to trade-partner related lists when field search fails, without scanning all deals', async () => {
 		zohoApiCallMock.mockImplementation(async (_token: string, path: string) => {
 			if (path.startsWith('/Deals/search?criteria=')) {
 				throw new Error('INVALID_QUERY');
 			}
 
-			if (path.startsWith('/Deals?fields=')) {
+			if (path === '/settings/related_lists?module=Trade_Partners') {
 				return {
-					data: [{ id: 'deal-2', Deal_Name: 'Bath Remodel', Stage: 'Quoted' }],
-					info: { more_records: false }
+					related_lists: [{ api_name: 'Portal_Deals3', display_label: 'Deals' }]
+				};
+			}
+
+			if (path.startsWith('/Trade_Partners/tp-1/Portal_Deals3')) {
+				return {
+					data: [{ id: 'deal-2', Deal_Name: 'Bath Remodel', Stage: 'Quoted' }]
 				};
 			}
 
@@ -73,6 +83,68 @@ describe('getTradePartnerDeals', () => {
 
 		expect(deals).toHaveLength(1);
 		expect(deals[0].id).toBe('deal-2');
+		expect(
+			zohoApiCallMock.mock.calls.some(([, path]) =>
+				String(path).startsWith('/Trade_Partners/tp-1/Portal_Deals3')
+			)
+		).toBe(true);
+		expect(
+			zohoApiCallMock.mock.calls.some(([, path]) =>
+				String(path).startsWith('/Deals?fields=')
+			)
+		).toBe(false);
+	});
+
+	it('returns no deals when the trade partner id is missing', async () => {
+		const { getTradePartnerDeals } = await loadAuthModule();
+		const deals = await getTradePartnerDeals('access-token', '', 'https://www.zohoapis.com');
+
+		expect(deals).toEqual([]);
+		expect(zohoApiCallMock).not.toHaveBeenCalled();
+	});
+
+	it('requests ball-in-court fields on the full-scan filtered fallback endpoint', async () => {
+		zohoApiCallMock.mockImplementation(async (_token: string, path: string) => {
+			if (path.startsWith('/Deals/search?criteria=')) {
+				throw new Error('INVALID_QUERY');
+			}
+
+			if (path === '/settings/related_lists?module=Trade_Partners') {
+				return {
+					related_lists: [{ api_name: 'Portal_Deals3', display_label: 'Deals' }]
+				};
+			}
+
+			if (path.startsWith('/Trade_Partners/tp-1/Portal_Deals3')) {
+				throw new Error('record not found');
+			}
+
+			if (path.startsWith('/Deals?fields=')) {
+				return {
+					data: [
+						{
+							id: 'deal-3',
+							Deal_Name: 'Fallback Match',
+							Portal_Trade_Partners: [{ id: 'tp-1' }]
+						},
+						{
+							id: 'deal-4',
+							Deal_Name: 'Different Trade Partner',
+							Portal_Trade_Partners: [{ id: 'tp-2' }]
+						}
+					],
+					info: { more_records: false }
+				};
+			}
+
+			throw new Error(`Unexpected path ${path}`);
+		});
+
+		const { getTradePartnerDeals } = await loadAuthModule();
+		const deals = await getTradePartnerDeals('access-token', 'tp-1', 'https://www.zohoapis.com');
+
+		expect(deals).toHaveLength(1);
+		expect(deals[0].id).toBe('deal-3');
 		const fullScanPath = zohoApiCallMock.mock.calls.find(([, path]) =>
 			String(path).startsWith('/Deals?fields=')
 		)?.[1];
