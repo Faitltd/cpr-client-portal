@@ -19,6 +19,9 @@ import type { RequestHandler } from './$types';
 const log = createLogger('client-designs');
 const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
 const DESIGN_FOLDER_NAMES = ['design and planning', 'design & planning', 'designs and planning', 'designs', 'design'];
+const DESIGN_CONTAINER_FOLDER_NAMES = new Set(
+	['design and planning', 'design & planning', 'designs and planning'].map(normalizeName)
+);
 const PROJECT_SUBFOLDER_NAMES = ['client portal', 'photos', 'permits', 'job costing'];
 
 function getRootFolderId() {
@@ -63,6 +66,25 @@ function findDesignFolder(items: { id: string; name: string; type: string }[]) {
 		if (match) return match;
 	}
 	return null;
+}
+
+function shouldDrillIntoDesignFolder(folder: { name: string } | null) {
+	return !!folder && DESIGN_CONTAINER_FOLDER_NAMES.has(normalizeName(folder.name));
+}
+
+async function resolveLeafDesignFolder(
+	accessToken: string,
+	designFolder: { id: string; name: string; type: string } | null,
+	apiDomain?: string
+) {
+	if (!designFolder || !shouldDrillIntoDesignFolder(designFolder)) return designFolder;
+
+	try {
+		const childItems = await listWorkDriveFolder(accessToken, designFolder.id, apiDomain);
+		return findDesignFolder(childItems) || designFolder;
+	} catch {
+		return designFolder;
+	}
 }
 
 function looksLikeProjectContents(items: { name: string; type: string }[]) {
@@ -266,6 +288,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		// List contents and look for the design subfolder
 		const items = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
 		let designFolder = findDesignFolder(items);
+		designFolder = await resolveLeafDesignFolder(accessToken, designFolder, apiDomain);
 
 		// If not found, the CRM field may point to a sibling folder (e.g. "Client Portal")
 		// rather than the project root. Navigate up to the parent and search there.
@@ -275,6 +298,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 			if (parentId) {
 				const parentItems = await listWorkDriveFolder(accessToken, parentId, apiDomain);
 				designFolder = findDesignFolder(parentItems);
+				designFolder = await resolveLeafDesignFolder(accessToken, designFolder, apiDomain);
 				if (designFolder) {
 					log.info('Client designs: found in parent folder', { dealId, parentId, designFolder: designFolder.name });
 				}
