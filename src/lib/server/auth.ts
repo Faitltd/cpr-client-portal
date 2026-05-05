@@ -460,8 +460,20 @@ const FALLBACK_TP_LINKING_TARGETS: TradePartnerLinkingTarget[] = [
 		linkingModule: 'Deals_X_Trade_Partners',
 		dealLookupField: 'Portal_Deals',
 		tpLookupField: 'Portal_Trade_Partners'
+	},
+	{
+		// Companion linking module for the `Assigned_Subs` multiselectlookup on Deal.
+		// Field names follow the same pattern Zoho used for Deals_X_Trade_Partners:
+		// connected_lookup_field shares the name of the originating multiselect field
+		// on the Deal record. A wrong guess fails silently in COQL and is logged.
+		linkingModule: 'Deals_X_Trade_Partners2',
+		dealLookupField: 'Portal_Deals',
+		tpLookupField: 'Assigned_Subs'
 	}
 ];
+
+const TP_LINKING_MODULE_NAME_PATTERN =
+	/(trade.?partner|vendor|subcontract|sub_contract|_subs(?:$|[^a-z]))/i;
 
 function getTradePartnerModuleSet() {
 	return new Set([
@@ -500,15 +512,28 @@ async function discoverTradePartnerLinkingTargets(
 			const dealLookupField = ld?.lookup_field?.api_name;
 			const tpLookupField = ld?.connected_lookup_field?.api_name;
 			const connectedModule = cd?.module?.api_name;
-			if (!linkingModule || !dealLookupField || !tpLookupField || !connectedModule) {
+			if (!linkingModule || !dealLookupField || !tpLookupField) {
 				continue;
 			}
-			if (!tpModules.has(connectedModule)) continue;
+			// Accept the field if either:
+			//   (a) connected_details points at a known trade-partner module, OR
+			//   (b) the linking module name matches a trade-partner-ish pattern
+			//       (catches custom Vendors / Subcontractor modules that aren't in our set).
+			const moduleMatchesTp = connectedModule ? tpModules.has(connectedModule) : false;
+			const linkingNameMatchesTp = TP_LINKING_MODULE_NAME_PATTERN.test(linkingModule);
+			if (!moduleMatchesTp && !linkingNameMatchesTp) continue;
 			const key = `${linkingModule}|${dealLookupField}|${tpLookupField}`;
 			if (seen.has(key)) continue;
 			seen.add(key);
 			discovered.push({ linkingModule, dealLookupField, tpLookupField });
 		}
+		log.info('Trade partner linking-target discovery', {
+			apiDomain: apiDomain || 'default',
+			discoveredCount: discovered.length,
+			targets: discovered.map(
+				(t) => `${t.linkingModule}.${t.tpLookupField}->${t.dealLookupField}`
+			)
+		});
 	} catch (err) {
 		log.warn('Trade partner linking-target discovery failed', {
 			apiDomain: apiDomain || 'default',
