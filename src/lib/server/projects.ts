@@ -95,19 +95,11 @@ function getConfiguredProjectsApiBase() {
 }
 
 function getProjectsApiBaseCandidates() {
-	// If ZOHO_PROJECTS_API_BASE is set OR a base has already been auto-discovered,
-	// use ONLY that. Otherwise probe the full known list of regions.
-	// Probing every region per request is wasteful and floods logs with INVALID_OAUTHTOKEN
-	// 401s for regions the account doesn't use.
-	const explicitConfigured = normalizeProjectsApiBase(env.ZOHO_PROJECTS_API_BASE || '');
-	const discovered = discoveredProjectsApiBaseCache?.base
-		? normalizeProjectsApiBase(discoveredProjectsApiBaseCache.base)
-		: '';
-
-	const preferredOnly = discovered || explicitConfigured;
-	const candidates = preferredOnly
-		? [preferredOnly]
-		: [getConfiguredProjectsApiBase(), ...KNOWN_PROJECTS_API_BASES];
+	const candidates = [
+		discoveredProjectsApiBaseCache?.base,
+		getConfiguredProjectsApiBase(),
+		...KNOWN_PROJECTS_API_BASES
+	].filter(Boolean) as string[];
 
 	const unique: string[] = [];
 	const seen = new Set<string>();

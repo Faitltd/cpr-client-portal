@@ -119,40 +119,7 @@
 	// ── Designs: External_Link (immediate) + lazy Attachments fallback ───────
 	$: externalLinks = parseExternalLinks(selectedDeal?.External_Link);
 
-	// Lazy scope links fetch — triggered when Scope section opens
-	const scopeLinksCache = new Map<string, Array<{ label: string; url: string }>>();
-	let scopeLinks: Array<{ label: string; url: string }> = [];
-	let scopeLinksLoading = false;
-	let scopeLinksError = '';
-	let lastScopeDealId = '';
-
-	const loadScopeLinks = async (dealId: string) => {
-		if (!dealId) return;
-		if (scopeLinksCache.has(dealId)) {
-			scopeLinks = scopeLinksCache.get(dealId)!;
-			return;
-		}
-		scopeLinksLoading = true;
-		scopeLinksError = '';
-		try {
-			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/scope`);
-			if (res.status === 401) throw new Error('Please login again');
-			if (!res.ok) throw new Error(`Failed to load scope links (${res.status})`);
-			const payload = await res.json().catch(() => ({}));
-			const fresh: Array<{ label: string; url: string }> = Array.isArray(payload?.data)
-				? payload.data
-				: [];
-			scopeLinksCache.set(dealId, fresh);
-			if (dealId === selectedDealId) scopeLinks = fresh;
-		} catch (err) {
-			scopeLinksError = err instanceof Error ? err.message : 'Failed to load scope links';
-			if (!scopeLinksCache.has(dealId)) scopeLinks = [];
-		} finally {
-			scopeLinksLoading = false;
-		}
-	};
-
-	// Lazy attachments fetch — triggered when Designs section opens
+	// Lazy attachments fetch — triggered when Details section opens
 	const attachmentsCache = new Map<string, Array<{ name: string; url: string }>>();
 	let attachments: Array<{ name: string; url: string }> = [];
 	let attachmentsLoading = false;
@@ -185,36 +152,63 @@
 		}
 	};
 
-	// Combined design files: External_Link first, then attachments (deduped by url)
+	// Lazy SOW (Scopes) folder URL fetch — Project > Design and Planning > SOW
+	const sowUrlCache = new Map<string, string>();
+	let sowUrl = '';
+	let sowLoading = false;
+	let lastSowDealId = '';
+
+	const loadSowUrl = async (dealId: string) => {
+		if (!dealId) return;
+		if (sowUrlCache.has(dealId)) {
+			sowUrl = sowUrlCache.get(dealId)!;
+			return;
+		}
+		sowLoading = true;
+		try {
+			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/sow`);
+			if (!res.ok) throw new Error(`Failed to load scopes (${res.status})`);
+			const payload = await res.json().catch(() => ({}));
+			const fresh = typeof payload?.url === 'string' ? payload.url : '';
+			sowUrlCache.set(dealId, fresh);
+			if (dealId === selectedDealId) sowUrl = fresh;
+		} catch {
+			if (!sowUrlCache.has(dealId)) sowUrl = '';
+		} finally {
+			sowLoading = false;
+		}
+	};
+
+	// Combined design files: Scopes link first, then External_Link, then attachments (deduped by url)
 	$: designFiles = (() => {
 		const seen = new Set<string>();
 		const combined: Array<{ name: string; url: string }> = [];
+		if (sowUrl) {
+			combined.push({ name: 'Scopes', url: sowUrl });
+			seen.add(sowUrl);
+		}
 		for (const f of [...externalLinks, ...attachments]) {
 			if (f.url && !seen.has(f.url)) { seen.add(f.url); combined.push(f); }
 		}
 		return combined;
 	})();
 
-	// When designs section opens, also kick off attachments fetch for current deal
+	// When details section opens, kick off attachments + SOW URL fetches for current deal
 	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastAttachmentsDealId) {
 		lastAttachmentsDealId = selectedDealId;
 		loadAttachments(selectedDealId);
 	}
-
-	// When scope section opens, also kick off scope link fetch for current deal
-	$: if (browser && scopeOpen && selectedDealId && selectedDealId !== lastScopeDealId) {
-		lastScopeDealId = selectedDealId;
-		loadScopeLinks(selectedDealId);
+	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastSowDealId) {
+		lastSowDealId = selectedDealId;
+		loadSowUrl(selectedDealId);
 	}
 
-	// Reset scope links when deal changes so stale data isn't shown while loading
-	$: if (selectedDealId !== lastScopeDealId && !scopeLinksCache.has(selectedDealId)) {
-		scopeLinks = [];
-	}
-
-	// Reset attachments when deal changes so stale data isn't shown while loading
+	// Reset attachments/SOW when deal changes so stale data isn't shown while loading
 	$: if (selectedDealId !== lastAttachmentsDealId && !attachmentsCache.has(selectedDealId)) {
 		attachments = [];
+	}
+	$: if (selectedDealId !== lastSowDealId && !sowUrlCache.has(selectedDealId)) {
+		sowUrl = '';
 	}
 
 	const getDealLabel = (deal: any) => {
@@ -525,7 +519,6 @@
 	let fieldUpdatesController: AbortController | null = null;
 
 	// Collapsible state — collapsed by default
-	let scopeOpen = false;
 	let designsOpen = false;
 	let tasksOpen = false;
 	let fieldUpdatesOpen = false;
@@ -731,50 +724,7 @@
 					</div>
 			</div>
 
-			<!-- Scope collapsible -->
-			<div class="card collapsible-card">
-				<button
-					class="collapsible-toggle"
-					type="button"
-					on:click={() => (scopeOpen = !scopeOpen)}
-					aria-expanded={scopeOpen}
-				>
-					<span class="collapsible-title">
-						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-							<path d="M3 4h14M3 8h10M3 12h12M3 16h8"/>
-						</svg>
-						Scope
-					</span>
-					<svg class="chevron" class:rotated={scopeOpen} width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-						<path d="M5 8l5 5 5-5"/>
-					</svg>
-				</button>
-
-				{#if scopeOpen}
-					<div class="collapsible-body">
-						{#if scopeLinksLoading && scopeLinks.length === 0}
-							<p class="muted">Loading scope files...</p>
-						{:else if scopeLinksError && scopeLinks.length === 0}
-							<div class="field-updates-error">
-								<p class="error-text">{scopeLinksError}</p>
-								<button class="retry" type="button" on:click={() => { scopeLinksCache.delete(selectedDealId); lastScopeDealId = ''; loadScopeLinks(selectedDealId); }}>Retry</button>
-							</div>
-						{:else if scopeLinks.length > 0}
-							<ul class="file-list">
-								{#each scopeLinks as file}
-									<li>
-										<a class="file-link" href={file.url} target="_blank" rel="noreferrer">{file.label}</a>
-									</li>
-								{/each}
-							</ul>
-						{:else}
-							<p class="muted">No scope files on file for this project.</p>
-						{/if}
-					</div>
-				{/if}
-			</div>
-
-			<!-- Designs collapsible -->
+			<!-- Details collapsible -->
 			<div class="card collapsible-card">
 				<button
 					class="collapsible-toggle"
@@ -788,7 +738,7 @@
 							<path d="M4 16l4-5 3 3 2-2 3 4"/>
 							<circle cx="13" cy="8" r="1.5"/>
 						</svg>
-						Designs
+						Details
 					</span>
 					<svg class="chevron" class:rotated={designsOpen} width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
 						<path d="M5 8l5 5 5-5"/>
@@ -797,8 +747,8 @@
 
 				{#if designsOpen}
 					<div class="collapsible-body">
-						{#if attachmentsLoading && attachments.length === 0 && externalLinks.length === 0}
-							<p class="muted">Loading design files...</p>
+						{#if (attachmentsLoading || sowLoading) && designFiles.length === 0}
+							<p class="muted">Loading details...</p>
 						{:else if attachmentsError && designFiles.length === 0}
 							<div class="field-updates-error">
 								<p class="error-text">{attachmentsError}</p>

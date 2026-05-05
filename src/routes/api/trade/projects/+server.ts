@@ -142,8 +142,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
       accessToken,
       session.trade_partner.zoho_trade_partner_id
     );
-    // Stage filter intentionally disabled while we debug visibility.
-    deals = allDeals;
+    deals = allDeals.filter((deal) => isTradePortalVisibleStage(deal?.Stage));
   } catch (err) {
     console.error('Failed to fetch trade partner deals for projects:', err);
     throw error(500, 'Failed to fetch projects');

@@ -334,13 +334,11 @@ async function refreshDealsCache(
 		}
 
 		designerDeals = finalizeTradePageDeals(hydratedDeals, includeDetailFields);
-		// Stage filter intentionally disabled while we debug visibility — show every
-		// deal the trade-partner lookup finds, regardless of Stage.
-		// TODO: re-enable an explicit stage filter once the correct visible set is known.
-		deals = designerDeals;
+		const visibleDeals = hydratedDeals.filter((deal) => isTradePortalVisibleStage(deal?.Stage));
+		deals = finalizeTradePageDeals(visibleDeals, includeDetailFields);
 
 		if (deals.length === 0) {
-			warning = 'No deals found for this trade partner. Please try again later or contact your admin.';
+			warning = 'No deals found in Quoted or Project Created. Please try again later or contact your admin.';
 		}
 
 		// Write to cache (non-blocking fire-and-forget on errors)
