@@ -460,15 +460,6 @@ const FALLBACK_TP_LINKING_TARGETS: TradePartnerLinkingTarget[] = [
 		linkingModule: 'Deals_X_Trade_Partners',
 		dealLookupField: 'Portal_Deals',
 		tpLookupField: 'Portal_Trade_Partners'
-	},
-	{
-		// Companion linking module for the `Assigned_Subs` multiselectlookup on Deal.
-		// Field names follow the same pattern Zoho used for Deals_X_Trade_Partners:
-		// connected_lookup_field shares the name of the originating multiselect field
-		// on the Deal record. A wrong guess fails silently in COQL and is logged.
-		linkingModule: 'Deals_X_Trade_Partners2',
-		dealLookupField: 'Portal_Deals',
-		tpLookupField: 'Assigned_Subs'
 	}
 ];
 
