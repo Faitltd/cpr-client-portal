@@ -170,7 +170,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const accessibleDeal = dealList.find((item: any) => String(item?.id || '').trim() === dealId);
 	if (!accessibleDeal) throw error(403, 'Access denied to this project');
 
-	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link';
+	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link,SOW_External_Link';
 	const dealResponse = await zohoApiCall(
 		accessToken,
 		`/Deals/${dealId}?fields=${encodeURIComponent(dealFields)}`,
@@ -179,6 +179,14 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	);
 	const deal = dealResponse?.data?.[0];
 	const dealName = deal?.Deal_Name || accessibleDeal?.Deal_Name || '';
+
+	// Prefer the SOW_External_Link custom field if populated. Admins paste a manually-created
+	// WorkDrive external share URL there because the /links API rejects automated share creation.
+	const sowExternalLink = String(deal?.SOW_External_Link || '').trim();
+	if (sowExternalLink && /^https?:\/\//i.test(sowExternalLink)) {
+		log.info('SOW: using SOW_External_Link from CRM', { dealId });
+		return json({ url: sowExternalLink });
+	}
 
 	log.info('SOW folder lookup', {
 		dealId,
