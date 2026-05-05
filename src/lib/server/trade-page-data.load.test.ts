@@ -107,7 +107,7 @@ describe('loadTradePageContext', () => {
 		expect(result.syncing).toBeFalsy();
 	});
 
-	it('returns every trade-partner deal in both the main and designer lists (stage filter currently disabled)', async () => {
+	it('preserves all trade-partner deals for the designer view while filtering the main trade list', async () => {
 		const quotedDeal = { id: 'd1', Stage: 'Quoted', Deal_Name: 'Quoted Deal', Address: '123 Main' };
 		const contractDeal = {
 			id: 'd2',
@@ -119,10 +119,11 @@ describe('loadTradePageContext', () => {
 		vi.mocked(db.getTradeSession).mockResolvedValue(VALID_SESSION as any);
 		vi.mocked(db.getZohoTokens).mockResolvedValue(VALID_TOKENS as any);
 		vi.mocked(auth.getTradePartnerDeals).mockResolvedValue([quotedDeal, contractDeal] as any);
+		vi.mocked(auth.isTradePortalVisibleStage).mockImplementation((stage) => stage === 'Quoted');
 
 		const result = await loadTradePageContext('valid-token', { includeDetailFields: true });
 
-		expect(result.deals.map((deal) => deal.id)).toEqual(['d1', 'd2']);
+		expect(result.deals.map((deal) => deal.id)).toEqual(['d1']);
 		expect(result.designerDeals?.map((deal) => deal.id)).toEqual(['d1', 'd2']);
 	});
 
@@ -142,11 +143,12 @@ describe('loadTradePageContext', () => {
 			data: { deals: [quotedDeal], warning: '' }
 		} as any);
 		vi.mocked(auth.getTradePartnerDeals).mockResolvedValue([quotedDeal, contractDeal] as any);
+		vi.mocked(auth.isTradePortalVisibleStage).mockImplementation((stage) => stage === 'Quoted');
 
 		const result = await loadTradePageContext('valid-token', { includeDetailFields: true });
 
 		expect(auth.getTradePartnerDeals).toHaveBeenCalledTimes(1);
-		expect(result.deals.map((deal) => deal.id)).toEqual(['d1', 'd2']);
+		expect(result.deals.map((deal) => deal.id)).toEqual(['d1']);
 		expect(result.designerDeals?.map((deal) => deal.id)).toEqual(['d1', 'd2']);
 	});
 });
