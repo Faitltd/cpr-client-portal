@@ -421,14 +421,128 @@ async function fetchAllDeals(accessToken: string, apiDomain?: string): Promise<a
 }
 
 function dealContainsTradePartner(deal: any, tradePartnerId: string) {
-	const field = deal?.Portal_Trade_Partners;
-	if (Array.isArray(field)) {
-		return field.some((item: any) => String(item?.id || '').trim() === tradePartnerId);
-	}
-	if (field && typeof field === 'object') {
-		return String(field?.id || '').trim() === tradePartnerId;
+	for (const fieldName of ['Portal_Trade_Partners', 'Assigned_Subs']) {
+		const field = deal?.[fieldName];
+		if (Array.isArray(field)) {
+			if (field.some((item: any) => String(item?.id || '').trim() === tradePartnerId)) {
+				return true;
+			}
+		} else if (field && typeof field === 'object') {
+			if (String(field?.id || '').trim() === tradePartnerId) return true;
+		}
 	}
 	return false;
+}
+
+/**
+ * Multi-select lookup fields on Deal (e.g. `Portal_Trade_Partners`, `Assigned_Subs`)
+ * each have their own linking module (`Deals_X_Trade_Partners`,
+ * `Deals_X_Trade_Partners2`, etc). A deal can be linked to a trade partner via any
+ * of them, so we discover every multiselectlookup whose connected module is a
+ * trade-partner module, then COQL each linking module and union the results.
+ *
+ * This is robust to new multiselects being added in Zoho without code changes.
+ */
+type TradePartnerLinkingTarget = {
+	linkingModule: string;
+	dealLookupField: string;
+	tpLookupField: string;
+};
+
+const TP_LINKING_TARGETS_TTL_MS = 10 * 60 * 1000;
+const tpLinkingTargetsCache = new Map<
+	string,
+	{ fetchedAt: number; targets: TradePartnerLinkingTarget[] }
+>();
+
+const FALLBACK_TP_LINKING_TARGETS: TradePartnerLinkingTarget[] = [
+	{
+		linkingModule: 'Deals_X_Trade_Partners',
+		dealLookupField: 'Portal_Deals',
+		tpLookupField: 'Portal_Trade_Partners'
+	}
+];
+
+const TP_LINKING_MODULE_NAME_PATTERN =
+	/(trade.?partner|vendor|subcontract|sub_contract|_subs(?:$|[^a-z]))/i;
+
+function getTradePartnerModuleSet() {
+	return new Set([
+		...(TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['Trade_Partners']),
+		...ALTERNATIVE_TP_MODULES
+	]);
+}
+
+async function discoverTradePartnerLinkingTargets(
+	accessToken: string,
+	apiDomain?: string
+): Promise<TradePartnerLinkingTarget[]> {
+	const cacheKey = apiDomain || 'default';
+	const cached = tpLinkingTargetsCache.get(cacheKey);
+	if (cached && Date.now() - cached.fetchedAt < TP_LINKING_TARGETS_TTL_MS) {
+		return cached.targets;
+	}
+
+	const tpModules = getTradePartnerModuleSet();
+	const discovered: TradePartnerLinkingTarget[] = [];
+	const seen = new Set<string>();
+
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			'/settings/fields?module=Deals',
+			{},
+			apiDomain
+		);
+		const fields = (response?.fields || response?.data || []) as any[];
+		for (const field of fields) {
+			if (field?.data_type !== 'multiselectlookup') continue;
+			const ld = field?.multiselectlookup?.linking_details;
+			const cd = field?.multiselectlookup?.connected_details;
+			const linkingModule = ld?.module?.api_name;
+			const dealLookupField = ld?.lookup_field?.api_name;
+			const tpLookupField = ld?.connected_lookup_field?.api_name;
+			const connectedModule = cd?.module?.api_name;
+			if (!linkingModule || !dealLookupField || !tpLookupField) {
+				continue;
+			}
+			// Accept the field if either:
+			//   (a) connected_details points at a known trade-partner module, OR
+			//   (b) the linking module name matches a trade-partner-ish pattern
+			//       (catches custom Vendors / Subcontractor modules that aren't in our set).
+			const moduleMatchesTp = connectedModule ? tpModules.has(connectedModule) : false;
+			const linkingNameMatchesTp = TP_LINKING_MODULE_NAME_PATTERN.test(linkingModule);
+			if (!moduleMatchesTp && !linkingNameMatchesTp) continue;
+			const key = `${linkingModule}|${dealLookupField}|${tpLookupField}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			discovered.push({ linkingModule, dealLookupField, tpLookupField });
+		}
+		log.info('Trade partner linking-target discovery', {
+			apiDomain: apiDomain || 'default',
+			discoveredCount: discovered.length,
+			targets: discovered.map(
+				(t) => `${t.linkingModule}.${t.tpLookupField}->${t.dealLookupField}`
+			)
+		});
+	} catch (err) {
+		log.warn('Trade partner linking-target discovery failed', {
+			apiDomain: apiDomain || 'default',
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+
+	// Always include the known default as a safety net so a metadata fetch failure
+	// can't regress the prior behavior.
+	for (const fallback of FALLBACK_TP_LINKING_TARGETS) {
+		const key = `${fallback.linkingModule}|${fallback.dealLookupField}|${fallback.tpLookupField}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		discovered.push(fallback);
+	}
+
+	tpLinkingTargetsCache.set(cacheKey, { fetchedAt: Date.now(), targets: discovered });
+	return discovered;
 }
 
 async function fetchDealsByTradePartnerFieldSearch(
@@ -436,27 +550,87 @@ async function fetchDealsByTradePartnerFieldSearch(
 	tradePartnerId: string,
 	apiDomain?: string
 ): Promise<any[]> {
-	const perPage = 200;
-	const maxPages = 20;
-	const matches: any[] = [];
-	const criteria = `(Portal_Trade_Partners:equals:${tradePartnerId})`;
+	const dealIds = await fetchTradePartnerDealIdsViaCoql(accessToken, tradePartnerId, apiDomain);
+	if (dealIds.length === 0) return [];
+	return fetchDealsByIds(accessToken, dealIds, apiDomain);
+}
 
-	for (let page = 1; page <= maxPages; page += 1) {
-		const response = await zohoApiCall(
-			accessToken,
-			`/Deals/search?criteria=${encodeURIComponent(criteria)}&fields=${encodeURIComponent(DEAL_FIELDS)}&per_page=${perPage}&page=${page}`,
-			{},
-			apiDomain
-		);
-		const pageData = Array.isArray(response.data) ? response.data : [];
-		if (pageData.length === 0) break;
-		matches.push(...pageData);
-		const hasMore = response.info?.more_records;
-		if (hasMore === false) break;
-		if (hasMore !== true && pageData.length < perPage) break;
+async function fetchTradePartnerDealIdsViaCoql(
+	accessToken: string,
+	tradePartnerId: string,
+	apiDomain?: string
+): Promise<string[]> {
+	const targets = await discoverTradePartnerLinkingTargets(accessToken, apiDomain);
+	const ids = new Set<string>();
+
+	for (const target of targets) {
+		try {
+			const targetIds = await coqlDealIdsForLinkingTarget(
+				accessToken,
+				tradePartnerId,
+				target,
+				apiDomain
+			);
+			log.info('Trade partner COQL result', {
+				linkingModule: target.linkingModule,
+				tpLookupField: target.tpLookupField,
+				dealLookupField: target.dealLookupField,
+				tradePartnerId,
+				dealIdCount: targetIds.length
+			});
+			for (const id of targetIds) ids.add(id);
+		} catch (err) {
+			log.warn('Trade partner COQL on linking module failed', {
+				linkingModule: target.linkingModule,
+				tradePartnerId,
+				apiDomain: apiDomain || 'default',
+				error: err instanceof Error ? err.message : String(err)
+			});
+		}
 	}
 
-	return dedupeDeals(matches);
+	return Array.from(ids).filter(Boolean);
+}
+
+async function coqlDealIdsForLinkingTarget(
+	accessToken: string,
+	tradePartnerId: string,
+	target: TradePartnerLinkingTarget,
+	apiDomain?: string
+): Promise<string[]> {
+	const pageSize = 200;
+	const maxPages = 20;
+	const ids = new Set<string>();
+	const dealIdSelector = `${target.dealLookupField}.id`;
+
+	for (let page = 0; page < maxPages; page += 1) {
+		const offset = page * pageSize;
+		const query = `select ${dealIdSelector} from ${target.linkingModule} where ${target.tpLookupField} = '${tradePartnerId}' limit ${offset}, ${pageSize}`;
+		const response = await zohoApiCall(
+			accessToken,
+			'/coql',
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ select_query: query })
+			},
+			apiDomain
+		);
+		const rows = Array.isArray(response.data) ? response.data : [];
+		if (rows.length === 0) break;
+		for (const row of rows) {
+			const dealId =
+				row?.[dealIdSelector] ??
+				row?.[target.dealLookupField]?.id ??
+				row?.[target.dealLookupField];
+			if (dealId) ids.add(String(dealId).trim());
+		}
+		const more = response.info?.more_records;
+		if (more === false) break;
+		if (more !== true && rows.length < pageSize) break;
+	}
+
+	return Array.from(ids).filter(Boolean);
 }
 
 async function fetchDealsByTradePartnerField(
@@ -568,6 +742,30 @@ async function fetchTradePartnerRelatedListRecords(
 	throw lastError instanceof Error ? lastError : new Error('Failed to fetch trade partner related list');
 }
 
+/**
+ * Some trade-partner related lists (e.g. `Deals3`) point at a multiselect linking
+ * module (Deals_X_Trade_Partners) rather than the Deals module itself. The
+ * returned rows have the actual deal as `Portal_Deals.{id,name}`. Detect that
+ * shape, extract the deal IDs, and fetch the real deal records.
+ */
+async function unwrapLinkingModuleRows(
+	rows: any[],
+	accessToken: string,
+	apiDomain?: string
+): Promise<any[]> {
+	const dealIds: string[] = [];
+	let linkingShape = false;
+	for (const row of rows) {
+		const portalDeal = row?.Portal_Deals;
+		if (portalDeal && typeof portalDeal === 'object' && portalDeal.id) {
+			linkingShape = true;
+			dealIds.push(String(portalDeal.id));
+		}
+	}
+	if (!linkingShape) return rows;
+	return fetchDealsByIds(accessToken, dealIds, apiDomain);
+}
+
 async function fetchDealsByTradePartnerRelatedLists(
 	accessToken: string,
 	tradePartnerId: string,
@@ -589,13 +787,14 @@ async function fetchDealsByTradePartnerRelatedLists(
 		);
 		for (const relatedList of relatedListApiNames) {
 			try {
-				const data = await fetchTradePartnerRelatedListRecords(
+				const rawData = await fetchTradePartnerRelatedListRecords(
 					accessToken,
 					moduleName,
 					tradePartnerId,
 					relatedList,
 					apiDomain
 				);
+				const data = await unwrapLinkingModuleRows(rawData, accessToken, apiDomain);
 				if (data.length > 0) {
 					records.push(...data);
 					return dedupeDeals(records);
@@ -830,7 +1029,10 @@ export async function getTradePartnerDeals(
 		log.warn('Trade partner deal search failed', {
 			tradePartnerId: normalizedTradePartnerId,
 			apiDomain: apiDomain || 'default',
-			error: searchResult.reason instanceof Error ? searchResult.reason.message : String(searchResult.reason)
+			error:
+				searchResult.reason instanceof Error
+					? searchResult.reason.message
+					: String(searchResult.reason)
 		});
 	}
 
