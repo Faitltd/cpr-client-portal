@@ -571,6 +571,13 @@ async function fetchTradePartnerDealIdsViaCoql(
 				target,
 				apiDomain
 			);
+			log.info('Trade partner COQL result', {
+				linkingModule: target.linkingModule,
+				tpLookupField: target.tpLookupField,
+				dealLookupField: target.dealLookupField,
+				tradePartnerId,
+				dealIdCount: targetIds.length
+			});
 			for (const id of targetIds) ids.add(id);
 		} catch (err) {
 			log.warn('Trade partner COQL on linking module failed', {
