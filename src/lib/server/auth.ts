@@ -421,26 +421,114 @@ async function fetchAllDeals(accessToken: string, apiDomain?: string): Promise<a
 }
 
 function dealContainsTradePartner(deal: any, tradePartnerId: string) {
-	const field = deal?.Portal_Trade_Partners;
-	if (Array.isArray(field)) {
-		return field.some((item: any) => String(item?.id || '').trim() === tradePartnerId);
-	}
-	if (field && typeof field === 'object') {
-		return String(field?.id || '').trim() === tradePartnerId;
+	for (const fieldName of ['Portal_Trade_Partners', 'Assigned_Subs']) {
+		const field = deal?.[fieldName];
+		if (Array.isArray(field)) {
+			if (field.some((item: any) => String(item?.id || '').trim() === tradePartnerId)) {
+				return true;
+			}
+		} else if (field && typeof field === 'object') {
+			if (String(field?.id || '').trim() === tradePartnerId) return true;
+		}
 	}
 	return false;
 }
 
 /**
- * The Deal field `Portal_Trade_Partners` is a multiselectlookup, which Zoho's
- * Records Search API rejects with INVALID_QUERY ("field is not available for
- * search"). Instead, query the linking module directly via COQL, then fetch
- * the actual deal records by ID with the full DEAL_FIELDS set.
+ * Multi-select lookup fields on Deal (e.g. `Portal_Trade_Partners`, `Assigned_Subs`)
+ * each have their own linking module (`Deals_X_Trade_Partners`,
+ * `Deals_X_Trade_Partners2`, etc). A deal can be linked to a trade partner via any
+ * of them, so we discover every multiselectlookup whose connected module is a
+ * trade-partner module, then COQL each linking module and union the results.
  *
- * Linking module: Deals_X_Trade_Partners
- *   - Portal_Trade_Partners → Trade_Partners.id
- *   - Portal_Deals          → Deals.id
+ * This is robust to new multiselects being added in Zoho without code changes.
  */
+type TradePartnerLinkingTarget = {
+	linkingModule: string;
+	dealLookupField: string;
+	tpLookupField: string;
+};
+
+const TP_LINKING_TARGETS_TTL_MS = 10 * 60 * 1000;
+const tpLinkingTargetsCache = new Map<
+	string,
+	{ fetchedAt: number; targets: TradePartnerLinkingTarget[] }
+>();
+
+const FALLBACK_TP_LINKING_TARGETS: TradePartnerLinkingTarget[] = [
+	{
+		linkingModule: 'Deals_X_Trade_Partners',
+		dealLookupField: 'Portal_Deals',
+		tpLookupField: 'Portal_Trade_Partners'
+	}
+];
+
+function getTradePartnerModuleSet() {
+	return new Set([
+		...(TRADE_PARTNERS_MODULES.length ? TRADE_PARTNERS_MODULES : ['Trade_Partners']),
+		...ALTERNATIVE_TP_MODULES
+	]);
+}
+
+async function discoverTradePartnerLinkingTargets(
+	accessToken: string,
+	apiDomain?: string
+): Promise<TradePartnerLinkingTarget[]> {
+	const cacheKey = apiDomain || 'default';
+	const cached = tpLinkingTargetsCache.get(cacheKey);
+	if (cached && Date.now() - cached.fetchedAt < TP_LINKING_TARGETS_TTL_MS) {
+		return cached.targets;
+	}
+
+	const tpModules = getTradePartnerModuleSet();
+	const discovered: TradePartnerLinkingTarget[] = [];
+	const seen = new Set<string>();
+
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			'/settings/fields?module=Deals',
+			{},
+			apiDomain
+		);
+		const fields = (response?.fields || response?.data || []) as any[];
+		for (const field of fields) {
+			if (field?.data_type !== 'multiselectlookup') continue;
+			const ld = field?.multiselectlookup?.linking_details;
+			const cd = field?.multiselectlookup?.connected_details;
+			const linkingModule = ld?.module?.api_name;
+			const dealLookupField = ld?.lookup_field?.api_name;
+			const tpLookupField = ld?.connected_lookup_field?.api_name;
+			const connectedModule = cd?.module?.api_name;
+			if (!linkingModule || !dealLookupField || !tpLookupField || !connectedModule) {
+				continue;
+			}
+			if (!tpModules.has(connectedModule)) continue;
+			const key = `${linkingModule}|${dealLookupField}|${tpLookupField}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			discovered.push({ linkingModule, dealLookupField, tpLookupField });
+		}
+	} catch (err) {
+		log.warn('Trade partner linking-target discovery failed', {
+			apiDomain: apiDomain || 'default',
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+
+	// Always include the known default as a safety net so a metadata fetch failure
+	// can't regress the prior behavior.
+	for (const fallback of FALLBACK_TP_LINKING_TARGETS) {
+		const key = `${fallback.linkingModule}|${fallback.dealLookupField}|${fallback.tpLookupField}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		discovered.push(fallback);
+	}
+
+	tpLinkingTargetsCache.set(cacheKey, { fetchedAt: Date.now(), targets: discovered });
+	return discovered;
+}
+
 async function fetchDealsByTradePartnerFieldSearch(
 	accessToken: string,
 	tradePartnerId: string,
@@ -456,13 +544,45 @@ async function fetchTradePartnerDealIdsViaCoql(
 	tradePartnerId: string,
 	apiDomain?: string
 ): Promise<string[]> {
+	const targets = await discoverTradePartnerLinkingTargets(accessToken, apiDomain);
+	const ids = new Set<string>();
+
+	for (const target of targets) {
+		try {
+			const targetIds = await coqlDealIdsForLinkingTarget(
+				accessToken,
+				tradePartnerId,
+				target,
+				apiDomain
+			);
+			for (const id of targetIds) ids.add(id);
+		} catch (err) {
+			log.warn('Trade partner COQL on linking module failed', {
+				linkingModule: target.linkingModule,
+				tradePartnerId,
+				apiDomain: apiDomain || 'default',
+				error: err instanceof Error ? err.message : String(err)
+			});
+		}
+	}
+
+	return Array.from(ids).filter(Boolean);
+}
+
+async function coqlDealIdsForLinkingTarget(
+	accessToken: string,
+	tradePartnerId: string,
+	target: TradePartnerLinkingTarget,
+	apiDomain?: string
+): Promise<string[]> {
 	const pageSize = 200;
 	const maxPages = 20;
 	const ids = new Set<string>();
+	const dealIdSelector = `${target.dealLookupField}.id`;
 
 	for (let page = 0; page < maxPages; page += 1) {
 		const offset = page * pageSize;
-		const query = `select Portal_Deals.id from Deals_X_Trade_Partners where Portal_Trade_Partners = '${tradePartnerId}' limit ${offset}, ${pageSize}`;
+		const query = `select ${dealIdSelector} from ${target.linkingModule} where ${target.tpLookupField} = '${tradePartnerId}' limit ${offset}, ${pageSize}`;
 		const response = await zohoApiCall(
 			accessToken,
 			'/coql',
@@ -477,9 +597,9 @@ async function fetchTradePartnerDealIdsViaCoql(
 		if (rows.length === 0) break;
 		for (const row of rows) {
 			const dealId =
-				row?.['Portal_Deals.id'] ??
-				row?.Portal_Deals?.id ??
-				row?.Portal_Deals;
+				row?.[dealIdSelector] ??
+				row?.[target.dealLookupField]?.id ??
+				row?.[target.dealLookupField];
 			if (dealId) ids.add(String(dealId).trim());
 		}
 		const more = response.info?.more_records;
