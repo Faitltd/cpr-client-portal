@@ -18,10 +18,7 @@ import type { RequestHandler } from './$types';
 
 const log = createLogger('trade-sow');
 const WORKDRIVE_ROOT_FOLDER_VALUE = env.ZOHO_WORKDRIVE_ROOT_FOLDER_ID || '';
-const DESIGN_FOLDER_NAMES = ['design and planning', 'design & planning', 'designs and planning', 'designs', 'design'];
-const DESIGN_CONTAINER_FOLDER_NAMES = new Set(
-	['design and planning', 'design & planning', 'designs and planning'].map(normalizeName)
-);
+const DESIGN_FOLDER_NAMES = ['design and planning', 'design & planning', 'designs and planning'];
 const SOW_FOLDER_NAMES = ['sow', 'scope of work', 'scopes', 'scope'];
 const PROJECT_SUBFOLDER_NAMES = ['client portal', 'photos', 'permits', 'job costing'];
 
@@ -70,24 +67,6 @@ function findFolderByNames(
 		if (match) return match;
 	}
 	return null;
-}
-
-function shouldDrillIntoDesignFolder(folder: { name: string } | null) {
-	return !!folder && DESIGN_CONTAINER_FOLDER_NAMES.has(normalizeName(folder.name));
-}
-
-async function resolveLeafDesignFolder(
-	accessToken: string,
-	designFolder: { id: string; name: string; type: string } | null,
-	apiDomain?: string
-) {
-	if (!designFolder || !shouldDrillIntoDesignFolder(designFolder)) return designFolder;
-	try {
-		const childItems = await listWorkDriveFolder(accessToken, designFolder.id, apiDomain);
-		return findFolderByNames(childItems, DESIGN_FOLDER_NAMES) || designFolder;
-	} catch {
-		return designFolder;
-	}
 }
 
 function looksLikeProjectContents(items: { name: string; type: string }[]) {
@@ -288,9 +267,9 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	}
 
 	// ── Step 2: Find "Design and Planning" subfolder ────────────────────
+	// Do NOT drill into "Designs" subfolder — SOW lives directly under Design and Planning.
 	const projectItems = await listWorkDriveFolder(accessToken, projectFolderId, apiDomain);
-	let designFolder = findFolderByNames(projectItems, DESIGN_FOLDER_NAMES);
-	designFolder = await resolveLeafDesignFolder(accessToken, designFolder, apiDomain);
+	const designFolder = findFolderByNames(projectItems, DESIGN_FOLDER_NAMES);
 
 	if (!designFolder) {
 		log.info('SOW: Design and Planning folder not found', { dealId });
