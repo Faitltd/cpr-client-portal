@@ -116,46 +116,14 @@
 			.filter((f) => f.url.startsWith('http'));
 	}
 
-	// ── Designs: External_Link (immediate) + lazy Attachments fallback ───────
+	// ── Details: External_Link (immediate) + lazy Scopes (SOW) link ──────────
 	$: externalLinks = parseExternalLinks(selectedDeal?.External_Link);
-
-	// Lazy attachments fetch — triggered when Details section opens
-	const attachmentsCache = new Map<string, Array<{ name: string; url: string }>>();
-	let attachments: Array<{ name: string; url: string }> = [];
-	let attachmentsLoading = false;
-	let attachmentsError = '';
-	let lastAttachmentsDealId = '';
-
-	const loadAttachments = async (dealId: string) => {
-		if (!dealId) return;
-		if (attachmentsCache.has(dealId)) {
-			attachments = attachmentsCache.get(dealId)!;
-			return;
-		}
-		attachmentsLoading = true;
-		attachmentsError = '';
-		try {
-			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/attachments`);
-			if (res.status === 401) throw new Error('Please login again');
-			if (!res.ok) throw new Error(`Failed to load attachments (${res.status})`);
-			const payload = await res.json().catch(() => ({}));
-			const fresh: Array<{ name: string; url: string }> = Array.isArray(payload?.data)
-				? payload.data
-				: [];
-			attachmentsCache.set(dealId, fresh);
-			if (dealId === selectedDealId) attachments = fresh;
-		} catch (err) {
-			attachmentsError = err instanceof Error ? err.message : 'Failed to load attachments';
-			if (!attachmentsCache.has(dealId)) attachments = [];
-		} finally {
-			attachmentsLoading = false;
-		}
-	};
 
 	// Lazy SOW (Scopes) folder URL fetch — Project > Design and Planning > SOW
 	const sowUrlCache = new Map<string, string>();
 	let sowUrl = '';
 	let sowLoading = false;
+	let sowError = '';
 	let lastSowDealId = '';
 
 	const loadSowUrl = async (dealId: string) => {
@@ -165,6 +133,7 @@
 			return;
 		}
 		sowLoading = true;
+		sowError = '';
 		try {
 			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/sow`);
 			if (!res.ok) throw new Error(`Failed to load scopes (${res.status})`);
@@ -172,14 +141,15 @@
 			const fresh = typeof payload?.url === 'string' ? payload.url : '';
 			sowUrlCache.set(dealId, fresh);
 			if (dealId === selectedDealId) sowUrl = fresh;
-		} catch {
+		} catch (err) {
+			sowError = err instanceof Error ? err.message : 'Failed to load scopes';
 			if (!sowUrlCache.has(dealId)) sowUrl = '';
 		} finally {
 			sowLoading = false;
 		}
 	};
 
-	// Combined design files: Scopes link first, then External_Link, then attachments (deduped by url)
+	// Combined details list: Scopes link first, then External_Link entries (deduped by url)
 	$: designFiles = (() => {
 		const seen = new Set<string>();
 		const combined: Array<{ name: string; url: string }> = [];
@@ -187,26 +157,19 @@
 			combined.push({ name: 'Scopes', url: sowUrl });
 			seen.add(sowUrl);
 		}
-		for (const f of [...externalLinks, ...attachments]) {
+		for (const f of externalLinks) {
 			if (f.url && !seen.has(f.url)) { seen.add(f.url); combined.push(f); }
 		}
 		return combined;
 	})();
 
-	// When details section opens, kick off attachments + SOW URL fetches for current deal
-	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastAttachmentsDealId) {
-		lastAttachmentsDealId = selectedDealId;
-		loadAttachments(selectedDealId);
-	}
+	// When details section opens, kick off Scopes URL fetch for current deal
 	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastSowDealId) {
 		lastSowDealId = selectedDealId;
 		loadSowUrl(selectedDealId);
 	}
 
-	// Reset attachments/SOW when deal changes so stale data isn't shown while loading
-	$: if (selectedDealId !== lastAttachmentsDealId && !attachmentsCache.has(selectedDealId)) {
-		attachments = [];
-	}
+	// Reset SOW when deal changes so stale data isn't shown while loading
 	$: if (selectedDealId !== lastSowDealId && !sowUrlCache.has(selectedDealId)) {
 		sowUrl = '';
 	}
@@ -747,13 +710,8 @@
 
 				{#if designsOpen}
 					<div class="collapsible-body">
-						{#if (attachmentsLoading || sowLoading) && designFiles.length === 0}
+						{#if sowLoading && designFiles.length === 0}
 							<p class="muted">Loading details...</p>
-						{:else if attachmentsError && designFiles.length === 0}
-							<div class="field-updates-error">
-								<p class="error-text">{attachmentsError}</p>
-								<button class="retry" type="button" on:click={() => { attachmentsCache.delete(selectedDealId); lastAttachmentsDealId = ''; loadAttachments(selectedDealId); }}>Retry</button>
-							</div>
 						{:else if designFiles.length > 0}
 							<ul class="file-list">
 								{#each designFiles as file}
@@ -762,8 +720,13 @@
 									</li>
 								{/each}
 							</ul>
+						{:else if sowError}
+							<div class="field-updates-error">
+								<p class="error-text">{sowError}</p>
+								<button class="retry" type="button" on:click={() => { sowUrlCache.delete(selectedDealId); lastSowDealId = ''; loadSowUrl(selectedDealId); }}>Retry</button>
+							</div>
 						{:else}
-							<p class="muted">No design files on file for this project.</p>
+							<p class="muted">No links available for this project.</p>
 						{/if}
 					</div>
 				{/if}
