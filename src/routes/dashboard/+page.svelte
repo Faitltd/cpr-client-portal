@@ -609,11 +609,11 @@
 		{/if}
 	</section>
 
-	<!-- Documents (external link to Client Portal folder) -->
+	<!-- Documents (external link to Client Portal subfolder) -->
 	<section class="section">
 		<div class="section-header section-header-link">
 			<span class="section-header-left">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 2h7l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M12 2v5h4"/></svg>
 				Documents
 			</span>
 			{#if clientPortalUrl}
