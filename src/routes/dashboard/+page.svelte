@@ -29,7 +29,7 @@
 	let invoicesOpen = true;
 	let changeOrdersOpen = false;
 	let emailUpdatesOpen = false;
-	let decisionsOpen = false;
+	let documentsOpen = false;
 	let accountOpen = false;
 
 	// Photos
@@ -61,12 +61,13 @@
 	let contracts: any[] = [];
 	let contractsLoading = true;
 	let contractError = '';
-	let documents: any[] = [];
-	let documentsLoading = true;
-	let documentsOpen = false;
+	let projectDocuments: any[] = [];
+	let projectDocumentsLoading = true;
+	let contractsOpen = false;
+	let clientPortalUrl: string | null = null;
 	let accessProjectId = '';
 	let wifiInput = '';
-	let doorCodeInput = '';
+	let doorCodeInput = ''
 	let accessMessage = '';
 	let accessError = '';
 	let accessUpdating = false;
@@ -133,6 +134,13 @@
 		const dealId = String(deal?.id || '').trim();
 		if (!dealId) return '';
 		return `/project/${encodeURIComponent(dealId)}/photos`;
+	};
+	const getClientPortalUrl = (deal: any): string | null => {
+		const link = deal?.Client_Portal_Folder;
+		if (typeof link === 'string' && /^https?:\/\//i.test(link.trim())) {
+			return link.trim();
+		}
+		return null;
 	};
 	const formatInvoiceDate = (invoice: any) => {
 		const raw =
@@ -269,10 +277,11 @@
 					const detail = await detailRes.json();
 					wifiInput = detail.deal?.WiFi || '';
 					doorCodeInput = detail.deal?.Garage_Code || '';
-					documents = detail.documents || [];
+					projectDocuments = detail.documents || [];
+					clientPortalUrl = getClientPortalUrl(detail.deal);
 				}
 			}
-			documentsLoading = false;
+			projectDocumentsLoading = false;
 
 			loadDesignLink();
 		} catch (err) {
@@ -544,17 +553,17 @@
 		</section>
 {/if}
 
-	<!-- Documents -->
+	<!-- Contracts -->
 	<section class="section">
-		<button class="section-header" type="button" on:click={() => (documentsOpen = !documentsOpen)}>
+		<button class="section-header" type="button" on:click={() => (contractsOpen = !contractsOpen)}>
 			<span class="section-header-left">
 				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h8l5 5v11a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M12 2v5h5"/></svg>
-				Documents
+				Contracts
 			</span>
-			<span class="toggle-icon">{documentsOpen ? '−' : '+'}</span>
+			<span class="toggle-icon">{contractsOpen ? '−' : '+'}</span>
 		</button>
-		{#if documentsOpen}
-			{#if contractsLoading || documentsLoading}
+		{#if contractsOpen}
+			{#if contractsLoading || projectDocumentsLoading}
 				<p class="muted-text">Loading...</p>
 			{:else}
 				{#if contractError}
@@ -583,9 +592,9 @@
 						{/each}
 					</div>
 				{/if}
-				{#if documents.length > 0}
+				{#if projectDocuments.length > 0}
 					<div class="doc-list">
-						{#each documents as doc}
+						{#each projectDocuments as doc}
 							<div class="doc-item">
 								<a href={`/api/project/${accessProjectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank" class="doc-link">{doc.File_Name}</a>
 								<span class="meta-text">{new Date(doc.Created_Time).toLocaleDateString()}</span>
@@ -593,24 +602,37 @@
 						{/each}
 					</div>
 				{/if}
-				{#if !contractError && contracts.length === 0 && documents.length === 0}
-					<p class="muted-text">No documents found.</p>
+				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0}
+					<p class="muted-text">No contracts found.</p>
 				{/if}
 			{/if}
 		{/if}
 	</section>
 
-	<!-- Decisions -->
+	<!-- Documents (external link to Client Portal folder) -->
 	<section class="section">
-		<button class="section-header" type="button" on:click={() => (decisionsOpen = !decisionsOpen)}>
+		<div class="section-header section-header-link">
 			<span class="section-header-left">
 				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
-				Decisions
+				Documents
 			</span>
-			<span class="toggle-icon">{decisionsOpen ? '−' : '+'}</span>
-		</button>
-		{#if decisionsOpen}
-			<p class="muted-text coming-soon">Coming soon.</p>
+			{#if clientPortalUrl}
+				<a
+					href={clientPortalUrl}
+					target="_blank"
+					rel="noreferrer noopener"
+					class="section-external-link"
+					aria-label="Open Documents in new tab"
+				>
+					<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 3h4v4M17 3l-9 9M8 5H5a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-3"/></svg>
+					Open
+				</a>
+			{:else}
+				<span class="toggle-icon section-unavailable">—</span>
+			{/if}
+		</div>
+		{#if !clientPortalUrl && !loading}
+			<p class="muted-text">No documents folder linked to this project yet.</p>
 		{/if}
 	</section>
 
@@ -723,6 +745,15 @@
 		background: #eef2f7;
 	}
 
+	/* Non-interactive header variant for external-link sections */
+	.section-header-link {
+		cursor: default;
+	}
+
+	.section-header-link:hover {
+		background: #f8fafc;
+	}
+
 	.section-header-left {
 		display: flex;
 		align-items: center;
@@ -738,6 +769,33 @@
 		font-size: 1.25rem;
 		line-height: 1;
 		color: #9ca3af;
+	}
+
+	.section-unavailable {
+		font-size: 1rem;
+		color: #d1d5db;
+	}
+
+	/* External link button inside section header */
+	.section-external-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem 0.75rem;
+		background: #111827;
+		color: #fff;
+		text-decoration: none;
+		border-radius: 7px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		min-height: 34px;
+		flex-shrink: 0;
+		transition: background 0.15s;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.section-external-link:hover {
+		background: #1f2937;
 	}
 
 	/* ── State cards ──────────────────────────────────── */
