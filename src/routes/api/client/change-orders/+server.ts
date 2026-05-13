@@ -170,35 +170,6 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			return json({ error: message }, { status: 502 });
 		}
 
-		// ── Step A2: direct Cliq chat post (best-effort) ────────────────────────
-		const submitterDisplay =
-			session.client.full_name ||
-			[session.client.first_name, session.client.last_name]
-				.filter(Boolean)
-				.join(' ')
-				.trim() ||
-			session.client.email;
-		const cliqLines = [
-			`🛠️ *Change Order Request*`,
-			`*Project:* ${dealName || dealId}`,
-			`*Submitted by:* ${submitterDisplay} (${session.client.email})`,
-			'',
-			note
-		];
-		if (Array.isArray(photoIds) && photoIds.length > 0) {
-			cliqLines.push('', `_${photoIds.length} attachment${photoIds.length === 1 ? '' : 's'} uploaded._`);
-		}
-		const cliqResult = await postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, {
-			text: cliqLines.join('\n')
-		});
-		if (!cliqResult.ok) {
-			console.error(
-				`[client/change-orders] Cliq post failed (${cliqResult.via}):`,
-				cliqResult.status,
-				cliqResult.error
-			);
-		}
-
 		// ── Step B: Books estimate (quote) draft ────────────────────────────────
 		let booksEstimateId: string | null = null;
 		let booksSkippedReason: string | null = null;
@@ -278,6 +249,46 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			});
 		} catch (err) {
 			console.error('[client/change-orders] Supabase create failed:', err);
+		}
+
+		// ── Step E: direct Cliq post (best-effort, with all links assembled) ────
+		const submitterDisplay =
+			session.client.full_name ||
+			[session.client.first_name, session.client.last_name]
+				.filter(Boolean)
+				.join(' ')
+				.trim() ||
+			session.client.email;
+		const booksUrl =
+			booksEstimateId && env.ZOHO_BOOKS_ORG_ID
+				? `https://books.zoho.com/app/${encodeURIComponent(env.ZOHO_BOOKS_ORG_ID)}#/estimates/${encodeURIComponent(booksEstimateId)}`
+				: null;
+		const cliqLines = [
+			`🛠️ *Change Order Request*`,
+			`*Project:* ${dealName || dealId}`,
+			`*Submitted by:* ${submitterDisplay} (${session.client.email})`,
+			'',
+			note
+		];
+		if (Array.isArray(photoIds) && photoIds.length > 0) {
+			const label = `${photoIds.length} attachment${photoIds.length === 1 ? '' : 's'}`;
+			if (booksUrl) {
+				cliqLines.push('', `📎 ${label} — [view on the draft quote](${booksUrl})`);
+			} else {
+				cliqLines.push('', `📎 ${label} uploaded (no draft quote — office to follow up manually).`);
+			}
+		} else if (booksUrl) {
+			cliqLines.push('', `[Open the draft quote in Books](${booksUrl})`);
+		}
+		const cliqResult = await postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, {
+			text: cliqLines.join('\n')
+		});
+		if (!cliqResult.ok) {
+			console.error(
+				`[client/change-orders] Cliq post failed (${cliqResult.via}):`,
+				cliqResult.status,
+				cliqResult.error
+			);
 		}
 
 		return json(
