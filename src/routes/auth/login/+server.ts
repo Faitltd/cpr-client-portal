@@ -29,7 +29,7 @@ const REQUIRED_ZOHO_SCOPES = [
 	'ZohoFiles.files.READ'
 ] as const;
 
-const OPTIONAL_ZOHO_SCOPES = ['ZohoBooks.fullaccess.ALL', 'ZohoSign.documents.ALL'] as const;
+const OPTIONAL_ZOHO_SCOPES = ['ZohoBooks.fullaccess.ALL', 'ZohoSign.documents.ALL', 'ZohoCliq.Channels.MESSAGE'] as const;
 
 const ALLOWED_ZOHO_SCOPES = new Set<string>([...REQUIRED_ZOHO_SCOPES, ...OPTIONAL_ZOHO_SCOPES]);
 
