@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import {
 	createChangeOrder,
 	getChangeOrdersForDeal,
@@ -17,7 +18,10 @@ import {
 	createBooksEstimateDraft,
 	getBooksCustomerByEmail
 } from '$lib/server/books';
+import { postCliqChatMessage } from '$lib/server/cliq';
 import type { RequestHandler } from './$types';
+
+const CLIQ_CO_CHAT_ID = env.ZOHO_CLIQ_CO_CHAT_ID || 'O5797744000003118001';
 
 const FILE_MIME_MAP: Record<string, string> = {
 	jpg: 'image/jpeg',
@@ -164,6 +168,32 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			console.error('[client/change-orders] Field_Updates write failed:', err);
 			const message = err instanceof Error ? err.message : 'Failed to notify office';
 			return json({ error: message }, { status: 502 });
+		}
+
+		// ── Step A2: direct Cliq chat post (best-effort) ────────────────────────
+		const submitterDisplay =
+			session.client.full_name ||
+			[session.client.first_name, session.client.last_name]
+				.filter(Boolean)
+				.join(' ')
+				.trim() ||
+			session.client.email;
+		const cliqLines = [
+			`🛠️ *Change Order Request*`,
+			`*Project:* ${dealName || dealId}`,
+			`*Submitted by:* ${submitterDisplay} (${session.client.email})`,
+			'',
+			note
+		];
+		if (Array.isArray(photoIds) && photoIds.length > 0) {
+			cliqLines.push('', `_${photoIds.length} attachment${photoIds.length === 1 ? '' : 's'} uploaded._`);
+		}
+		try {
+			await postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, {
+				text: cliqLines.join('\n')
+			});
+		} catch (err) {
+			console.error('[client/change-orders] Cliq post failed (non-fatal):', err);
 		}
 
 		// ── Step B: Books estimate (quote) draft ────────────────────────────────
