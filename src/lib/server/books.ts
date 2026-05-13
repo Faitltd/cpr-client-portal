@@ -52,3 +52,65 @@ export async function listInvoicesForCustomer(accessToken: string, customerId: s
 	);
 	return response.invoices || [];
 }
+
+export interface EstimateDraftPayload {
+	customer_id: string;
+	reference_number?: string;
+	customer_notes?: string;
+	line_items: Array<{
+		description: string;
+		quantity?: number;
+		rate?: number;
+	}>;
+}
+
+/**
+ * Create a Zoho Books estimate (quote) in draft status. Returns the new estimate object.
+ */
+export async function createBooksEstimateDraft(
+	accessToken: string,
+	payload: EstimateDraftPayload
+) {
+	if (!ZOHO_BOOKS_ORG_ID) {
+		throw new Error('Missing ZOHO_BOOKS_ORG_ID');
+	}
+	const response = await zohoBooksApiCall(
+		accessToken,
+		`/estimates?organization_id=${encodeURIComponent(ZOHO_BOOKS_ORG_ID)}`,
+		{
+			method: 'POST',
+			body: JSON.stringify(payload)
+		}
+	);
+	return response.estimate || null;
+}
+
+/**
+ * Upload a file as an attachment on a Books estimate.
+ * Books accepts multipart/form-data with field name `attachment`.
+ */
+export async function attachFileToBooksEstimate(
+	accessToken: string,
+	estimateId: string,
+	file: { name: string; mimeType: string; bytes: ArrayBuffer }
+) {
+	if (!ZOHO_BOOKS_ORG_ID) {
+		throw new Error('Missing ZOHO_BOOKS_ORG_ID');
+	}
+	const base = ZOHO_BOOKS_API_BASE || DEFAULT_BOOKS_BASE;
+	const url = `${base}/estimates/${encodeURIComponent(estimateId)}/attachment?organization_id=${encodeURIComponent(
+		ZOHO_BOOKS_ORG_ID
+	)}`;
+	const form = new FormData();
+	form.append('attachment', new Blob([file.bytes], { type: file.mimeType }), file.name);
+	const response = await fetch(url, {
+		method: 'POST',
+		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+		body: form
+	});
+	if (!response.ok) {
+		const errorText = await response.text().catch(() => '');
+		throw new Error(`Books attachment upload failed: ${response.status} ${errorText}`);
+	}
+	return response.json().catch(() => null);
+}

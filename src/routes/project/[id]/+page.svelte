@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { formatCrmRichText } from '$lib/html';
+	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 
 	let project: any = null;
 	let documents: any[] = [];
@@ -15,6 +16,107 @@
 	let updateMessage = '';
 	let updateError = '';
 	let updating = false;
+
+	// --- Change Orders ---
+	let changeOrders: any[] = [];
+	let coLoading = true;
+	let coLoadError = '';
+	let coPanelOpen = false;
+	let coNote = '';
+	let coPhotoUploadRef: PhotoUpload;
+	let coSubmitting = false;
+	let coSuccess = '';
+	let coSubmitError = '';
+	let coBooksWarning = '';
+
+	const CHANGE_ORDER_STATUS_LABELS: Record<string, string> = {
+		identified: 'Submitted',
+		scoped: 'In review',
+		sent: 'Quote sent',
+		approved: 'Approved',
+		billed: 'Billed',
+		rejected: 'Declined'
+	};
+
+	const loadChangeOrders = async (dealId: string) => {
+		coLoading = true;
+		coLoadError = '';
+		try {
+			const res = await fetch(`/api/client/change-orders?dealId=${encodeURIComponent(dealId)}`);
+			if (!res.ok) {
+				if (res.status === 401) {
+					coLoadError = 'Please sign in again to view change orders.';
+				} else {
+					const payload = await res.json().catch(() => ({}));
+					coLoadError = payload?.error || 'Failed to load change orders';
+				}
+				return;
+			}
+			const payload = await res.json();
+			changeOrders = Array.isArray(payload?.data) ? payload.data : [];
+		} catch {
+			coLoadError = 'Failed to load change orders';
+		} finally {
+			coLoading = false;
+		}
+	};
+
+	const openChangeOrderPanel = () => {
+		coPanelOpen = true;
+		coSuccess = '';
+		coSubmitError = '';
+		coBooksWarning = '';
+	};
+
+	const closeChangeOrderPanel = () => {
+		coPanelOpen = false;
+		coNote = '';
+		coPhotoUploadRef?.reset();
+		coSubmitError = '';
+	};
+
+	const submitChangeOrder = async () => {
+		if (!coNote.trim()) {
+			coSubmitError = 'Please describe the change you would like to request.';
+			return;
+		}
+		coSubmitting = true;
+		coSubmitError = '';
+		coSuccess = '';
+		coBooksWarning = '';
+		try {
+			const photoIds = coPhotoUploadRef?.getPhotoIds() ?? [];
+			const res = await fetch('/api/client/change-orders', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					deal_id: projectId,
+					note: coNote.trim(),
+					photo_ids: photoIds.length > 0 ? photoIds : null
+				})
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				coSubmitError = payload?.error || `Request failed (${res.status})`;
+				return;
+			}
+			coSuccess = 'Change order request submitted. The office team has been notified.';
+			if (payload?.data?.books_skipped_reason) {
+				coBooksWarning =
+					payload.data.books_skipped_reason === 'no_customer'
+						? 'Note: a draft quote was not auto-created (no Books contact on file). The office will set this up manually.'
+						: 'Note: a draft quote was not auto-created. The office will set this up manually.';
+			}
+			coNote = '';
+			coPhotoUploadRef?.reset();
+			coPanelOpen = false;
+			await loadChangeOrders(projectId);
+		} catch (err) {
+			coSubmitError = err instanceof Error ? err.message : 'Failed to submit change order';
+		} finally {
+			coSubmitting = false;
+		}
+	};
 	const getProgressPhotosLink = (deal: any) => {
 		// Prefer the direct WorkDrive external share link stored in the CRM field.
 		// This opens the WorkDrive folder view directly, same as trade partner links.
@@ -28,7 +130,7 @@
 		return `/project/${encodeURIComponent(dealId)}/photos`;
 	};
 
-	const projectId = $page.params.id;
+	const projectId = $page.params.id ?? '';
 
 	onMount(async () => {
 		try {
@@ -57,6 +159,8 @@
 			} else if (contractsRes.status !== 401) {
 				contractError = 'Failed to fetch contracts';
 			}
+
+			loadChangeOrders(projectId);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -240,6 +344,92 @@
 				</ul>
 			</section>
 		{/if}
+
+		<section class="change-orders">
+			<div class="change-orders-head">
+				<h2>Change Orders</h2>
+				{#if !coPanelOpen}
+					<button class="primary-btn" type="button" on:click={openChangeOrderPanel}>
+						Request a Change Order
+					</button>
+				{/if}
+			</div>
+
+			{#if coSuccess}
+				<div class="co-banner co-banner-success">{coSuccess}</div>
+			{/if}
+			{#if coBooksWarning}
+				<div class="co-banner co-banner-warning">{coBooksWarning}</div>
+			{/if}
+
+			{#if coPanelOpen}
+				<div class="co-panel">
+					<div class="form-field">
+						<label for="co-note">Describe the change you would like</label>
+						<textarea
+							id="co-note"
+							rows="6"
+							bind:value={coNote}
+							placeholder="What would you like changed or added? Add as much detail as you can."
+						></textarea>
+					</div>
+
+					<div class="form-field">
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label>Photos / videos (optional)</label>
+						<PhotoUpload bind:this={coPhotoUploadRef} maxFiles={5} />
+					</div>
+
+					{#if coSubmitError}
+						<div class="co-banner co-banner-error">{coSubmitError}</div>
+					{/if}
+
+					<div class="co-actions">
+						<button
+							class="primary-btn"
+							type="button"
+							on:click={submitChangeOrder}
+							disabled={coSubmitting || !coNote.trim()}
+						>
+							{coSubmitting ? 'Submitting…' : 'Submit request'}
+						</button>
+						<button
+							class="ghost-btn"
+							type="button"
+							on:click={closeChangeOrderPanel}
+							disabled={coSubmitting}
+						>
+							Cancel
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			{#if coLoading}
+				<p class="section-empty">Loading change orders…</p>
+			{:else if coLoadError}
+				<p class="section-error">{coLoadError}</p>
+			{:else if changeOrders.length === 0}
+				<p class="section-empty">No change order requests yet.</p>
+			{:else}
+				<ul class="co-list">
+					{#each changeOrders as order}
+						<li class="co-item">
+							<div class="co-item-head">
+								<span class="co-item-title">{order.title}</span>
+								<span class="co-item-status">{CHANGE_ORDER_STATUS_LABELS[order.status] || order.status}</span>
+							</div>
+							{#if order.description}
+								<p class="co-item-desc">{order.description}</p>
+							{/if}
+							<p class="co-item-date">
+								Submitted {new Date(order.created_at).toLocaleDateString()}
+							</p>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
 
 		{#if notes.length > 0}
 			<section class="timeline">
@@ -465,6 +655,185 @@
 
 	.section-error {
 		color: #c00;
+	}
+
+	.section-empty {
+		color: #6b7280;
+	}
+
+	.change-orders-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 1rem;
+	}
+
+	.change-orders-head h2 {
+		margin: 0;
+	}
+
+	.primary-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #0066cc;
+		color: #fff;
+		border: none;
+		border-radius: 8px;
+		padding: 0.7rem 1.1rem;
+		min-height: 44px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		cursor: pointer;
+	}
+
+	.primary-btn:hover:not(:disabled) {
+		background: #0052a3;
+	}
+
+	.primary-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.ghost-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		color: #1a1a1a;
+		border: 1px solid #d0d0d0;
+		border-radius: 8px;
+		padding: 0.7rem 1.1rem;
+		min-height: 44px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		cursor: pointer;
+	}
+
+	.ghost-btn:hover:not(:disabled) {
+		background: #f5f5f5;
+	}
+
+	.ghost-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.co-panel {
+		background: #f9fafb;
+		border: 1px solid #e0e0e0;
+		border-radius: 10px;
+		padding: 1.25rem;
+		margin-bottom: 1.5rem;
+		display: grid;
+		gap: 1rem;
+	}
+
+	.co-panel .form-field {
+		display: grid;
+		gap: 0.4rem;
+	}
+
+	.co-panel label {
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: #111827;
+	}
+
+	.co-panel textarea {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 0.6rem 0.75rem;
+		border-radius: 6px;
+		border: 1px solid #d1d5db;
+		font-family: inherit;
+		font-size: 1rem;
+		min-height: 120px;
+		resize: vertical;
+		line-height: 1.5;
+	}
+
+	.co-actions {
+		display: flex;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.co-banner {
+		padding: 0.85rem 1rem;
+		border-radius: 8px;
+		font-size: 0.95rem;
+		margin-bottom: 1rem;
+	}
+
+	.co-banner-success {
+		background: #ecfdf5;
+		border: 1px solid #a7f3d0;
+		color: #065f46;
+	}
+
+	.co-banner-warning {
+		background: #fffbeb;
+		border: 1px solid #fde68a;
+		color: #92400e;
+	}
+
+	.co-banner-error {
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		color: #b91c1c;
+	}
+
+	.co-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: grid;
+		gap: 0.75rem;
+	}
+
+	.co-item {
+		background: #fff;
+		border: 1px solid #e0e0e0;
+		border-radius: 8px;
+		padding: 1rem 1.1rem;
+	}
+
+	.co-item-head {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.75rem;
+		align-items: center;
+		margin-bottom: 0.35rem;
+		flex-wrap: wrap;
+	}
+
+	.co-item-title {
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.co-item-status {
+		font-size: 0.85rem;
+		color: #4b5563;
+		background: #f3f4f6;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+	}
+
+	.co-item-desc {
+		color: #374151;
+		margin: 0.35rem 0;
+		white-space: pre-wrap;
+	}
+
+	.co-item-date {
+		color: #6b7280;
+		font-size: 0.85rem;
+		margin: 0;
 	}
 
 	.btn-secondary {
