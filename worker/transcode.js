@@ -11,7 +11,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { spawn } from 'child_process';
-import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
+import { createWriteStream, openAsBlob } from 'fs';
+import { unlink, mkdir, stat } from 'fs/promises';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -28,6 +31,16 @@ const POLL_INTERVAL_MS = 15_000;
 const MAX_ATTEMPTS = 3;
 const ZOHO_ATTACHMENT_SIZE_LIMIT = 20 * 1024 * 1024; // 20 MB
 
+// Hard guards against OOM on the worker. Inputs above either cap are marked
+// `failed` immediately and never reach FFmpeg.
+const MAX_INPUT_BYTES = Number(process.env.MAX_INPUT_BYTES || 200 * 1024 * 1024); // 200 MB
+const MAX_INPUT_PIXELS = 8_300_000; // 3840 * 2160 ≈ 4K
+
+// Anything stuck in `processing` longer than this is presumed dead (typically
+// an OOM kill) and gets swept back to `pending`, or to `failed` if it has
+// already exhausted MAX_ATTEMPTS.
+const STALE_JOB_MS = 10 * 60 * 1000;
+
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 	console.error('[worker] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY — exiting');
 	process.exit(1);
@@ -37,20 +50,29 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 	auth: { persistSession: false }
 });
 
+// Marker for "this job will never succeed — don't retry."
+class JobRejection extends Error {
+	constructor(message) {
+		super(message);
+		this.name = 'JobRejection';
+	}
+}
+
 // ---------------------------------------------------------------------------
-// FFmpeg transcoding
+// FFmpeg / FFprobe
 // ---------------------------------------------------------------------------
 
 /**
- * Probe video duration in seconds using ffprobe.
- * Returns null if it can't be determined.
+ * Probe duration + dimensions + codec from the input file.
+ * Returns null fields if anything can't be determined.
  */
-function probeDuration(inputPath) {
+function probeMedia(inputPath) {
 	return new Promise((resolve) => {
 		const proc = spawn('ffprobe', [
 			'-v', 'quiet',
 			'-print_format', 'json',
 			'-show_format',
+			'-show_streams',
 			inputPath
 		], { stdio: ['ignore', 'pipe', 'ignore'] });
 		const out = [];
@@ -58,13 +80,19 @@ function probeDuration(inputPath) {
 		proc.on('close', () => {
 			try {
 				const json = JSON.parse(Buffer.concat(out).toString());
-				const dur = parseFloat(json?.format?.duration);
-				resolve(isNaN(dur) ? null : dur);
+				const duration = parseFloat(json?.format?.duration);
+				const v = (json?.streams || []).find((s) => s.codec_type === 'video');
+				resolve({
+					duration: isNaN(duration) ? null : duration,
+					width: v?.width ?? null,
+					height: v?.height ?? null,
+					codec: v?.codec_name ?? null
+				});
 			} catch {
-				resolve(null);
+				resolve({ duration: null, width: null, height: null, codec: null });
 			}
 		});
-		proc.on('error', () => resolve(null));
+		proc.on('error', () => resolve({ duration: null, width: null, height: null, codec: null }));
 	});
 }
 
@@ -80,15 +108,27 @@ function transcodeToMp4(inputPath, outputPath, durationSecs) {
 			videoBitrateKbps = Math.max(200, Math.round(totalKbps - AUDIO_KBPS));
 		}
 
+		// Memory-bounded encode for a small Render instance. `-threads 1`
+		// appears twice on purpose: before `-i` it caps the HEVC decoder's
+		// DPB replication, after `-i` it caps libx264's frame parallelism.
+		// Locally this took 4K HEVC → 1080p H.264 from ~1.05 GB peak RSS
+		// down to ~390 MB. The `-x264-params` line ensures x264 doesn't
+		// sneak threads back in via sliced/lookahead workers, and trims
+		// rc-lookahead from the 40-frame default to 10 frames.
 		const args = [
+			'-threads', '1',
 			'-i', inputPath,
+			'-vf', "scale='min(1920,iw)':-2",
+			'-pix_fmt', 'yuv420p',
 			'-c:v', 'libx264',
+			'-preset', 'fast',
+			'-threads', '1',
+			'-x264-params', 'threads=1:lookahead_threads=1:sliced_threads=0:rc-lookahead=10',
 			'-b:v', `${videoBitrateKbps}k`,
 			'-maxrate', `${videoBitrateKbps * 2}k`,
 			'-bufsize', `${videoBitrateKbps * 4}k`,
 			'-c:a', 'aac',
 			'-b:a', `${AUDIO_KBPS}k`,
-			'-preset', 'fast',
 			'-movflags', '+faststart',
 			'-y',
 			outputPath
@@ -161,16 +201,16 @@ function getApiBase(apiDomain) {
 	}
 }
 
-async function uploadToZoho(accessToken, apiDomain, module, recordId, buffer, fileName) {
-	if (buffer.byteLength > ZOHO_ATTACHMENT_SIZE_LIMIT) {
-		console.info(`[worker] Skipping Zoho upload for ${fileName} — ${(buffer.byteLength / 1024 / 1024).toFixed(1)}MB exceeds 20MB limit`);
+async function uploadToZoho(accessToken, apiDomain, module, recordId, blob, fileName) {
+	if (blob.size > ZOHO_ATTACHMENT_SIZE_LIMIT) {
+		console.info(`[worker] Skipping Zoho upload for ${fileName} — ${(blob.size / 1024 / 1024).toFixed(1)}MB exceeds 20MB limit`);
 		return;
 	}
 
 	const base = getApiBase(apiDomain);
 	const url = `${base}/${encodeURIComponent(module)}/${encodeURIComponent(recordId)}/Attachments`;
 	const form = new FormData();
-	form.append('file', new Blob([buffer], { type: 'video/mp4' }), fileName);
+	form.append('file', blob, fileName);
 
 	const res = await fetch(url, {
 		method: 'POST',
@@ -189,6 +229,27 @@ async function uploadToZoho(accessToken, apiDomain, module, recordId, buffer, fi
 // ---------------------------------------------------------------------------
 // Job processing
 // ---------------------------------------------------------------------------
+
+async function sweepStaleJobs() {
+	const cutoff = new Date(Date.now() - STALE_JOB_MS).toISOString();
+	const { data: stale } = await supabase
+		.from('transcoding_jobs')
+		.select('id, attempts')
+		.eq('status', 'processing')
+		.lt('updated_at', cutoff);
+
+	if (!stale?.length) return;
+
+	for (const row of stale) {
+		const isFinal = (row.attempts ?? 0) >= MAX_ATTEMPTS;
+		await supabase.from('transcoding_jobs').update({
+			status: isFinal ? 'failed' : 'pending',
+			error: isFinal ? 'Worker died mid-job (likely OOM); attempts exhausted' : null,
+			updated_at: new Date().toISOString()
+		}).eq('id', row.id);
+		console.warn(`[worker] Swept stale job ${row.id} — ${isFinal ? 'marked failed' : 'requeued'}`);
+	}
+}
 
 async function claimNextJob() {
 	// Find the oldest pending job under the attempt limit
@@ -230,41 +291,60 @@ async function processJob(job) {
 	const outputFile = join(tmpDir, 'output.mp4');
 
 	try {
-		// 1. Download original from Supabase
+		// 1. Download original from Supabase, streamed to disk to avoid
+		//    materializing the full file in the JS heap.
 		const { data: blob, error: dlErr } = await supabase.storage.from(BUCKET).download(job.original_path);
 		if (dlErr || !blob) throw new Error(`Download failed: ${dlErr?.message}`);
-		await writeFile(inputFile, Buffer.from(await blob.arrayBuffer()));
+		if (blob.size > MAX_INPUT_BYTES) {
+			throw new JobRejection(
+				`Input file too large: ${(blob.size / 1024 / 1024).toFixed(1)}MB exceeds ${(MAX_INPUT_BYTES / 1024 / 1024).toFixed(0)}MB cap`
+			);
+		}
+		await pipeline(Readable.fromWeb(blob.stream()), createWriteStream(inputFile));
 		console.info(`[worker] Downloaded ${job.original_path} (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
 
-		// 2. Probe duration then transcode
-		const duration = await probeDuration(inputFile);
-		console.info(`[worker] Duration: ${duration ? duration.toFixed(1) + 's' : 'unknown'} — transcoding...`);
-		await transcodeToMp4(inputFile, outputFile, duration);
-		console.info(`[worker] Transcoded to H.264 MP4`);
+		// 2. Probe — reject inputs above the resolution cap before paying
+		//    the transcode cost.
+		const { duration, width, height, codec } = await probeMedia(inputFile);
+		console.info(`[worker] Probed: ${width ?? '?'}x${height ?? '?'} ${codec ?? '?'} ${duration ? duration.toFixed(1) + 's' : 'unknown duration'}`);
+		if (width && height && width * height > MAX_INPUT_PIXELS) {
+			throw new JobRejection(
+				`Input resolution ${width}x${height} exceeds 4K cap (${MAX_INPUT_PIXELS.toLocaleString()} pixels). Re-encode at source before upload.`
+			);
+		}
 
-		// 3. Upload transcoded file to Supabase
-		const mp4Buffer = await readFile(outputFile);
+		// 3. Transcode
+		console.info('[worker] Transcoding...');
+		await transcodeToMp4(inputFile, outputFile, duration);
+
+		// 4. Wrap the output file in a file-backed Blob — no heap copy, and
+		//    the same Blob can be passed to both Supabase and Zoho uploads.
+		const outputStat = await stat(outputFile);
+		const mp4Blob = await openAsBlob(outputFile, { type: 'video/mp4' });
+		console.info(`[worker] Transcoded to H.264 MP4 (${(outputStat.size / 1024 / 1024).toFixed(1)}MB)`);
+
+		// 5. Upload transcoded file to Supabase
 		const outputPath = job.original_path.replace(/\.[^.]+$/, '.mp4');
-		const { error: upErr } = await supabase.storage.from(BUCKET).upload(outputPath, mp4Buffer, {
+		const { error: upErr } = await supabase.storage.from(BUCKET).upload(outputPath, mp4Blob, {
 			contentType: 'video/mp4',
 			upsert: true
 		});
 		if (upErr) throw new Error(`Supabase upload failed: ${upErr.message}`);
 		console.info(`[worker] Uploaded transcoded file to ${outputPath}`);
 
-		// 4. Upload to Zoho as attachment if we have a record ID
+		// 6. Upload to Zoho as attachment if we have a record ID
 		if (job.zoho_record_id) {
 			try {
 				const { accessToken, apiDomain } = await getZohoAccessToken();
 				const fileName = outputPath.split('/').pop() || 'video.mp4';
-				await uploadToZoho(accessToken, apiDomain, job.zoho_module, job.zoho_record_id, mp4Buffer, fileName);
+				await uploadToZoho(accessToken, apiDomain, job.zoho_module, job.zoho_record_id, mp4Blob, fileName);
 			} catch (zohoErr) {
 				// Non-fatal — video is in Supabase regardless
-				console.warn(`[worker] Zoho upload failed (non-fatal):`, zohoErr.message);
+				console.warn('[worker] Zoho upload failed (non-fatal):', zohoErr.message);
 			}
 		}
 
-		// 5. Update field_update to point to transcoded file
+		// 7. Update field_update to point to transcoded file
 		if (job.field_update_id) {
 			const { data: fu } = await supabase
 				.from('field_updates')
@@ -277,7 +357,7 @@ async function processJob(job) {
 			}
 		}
 
-		// 6. Mark job done
+		// 8. Mark job done
 		await supabase.from('transcoding_jobs').update({
 			status: 'done',
 			output_path: outputPath,
@@ -288,15 +368,22 @@ async function processJob(job) {
 		console.info(`[worker] Job ${job.id} completed`);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		const stack = err instanceof Error ? err.stack : undefined;
 		console.error(`[worker] Job ${job.id} failed:`, message);
+		if (stack) console.error(stack);
 
-		const { data: current } = await supabase
-			.from('transcoding_jobs')
-			.select('attempts')
-			.eq('id', job.id)
-			.single();
+		// JobRejection means the input can never succeed — skip the retry path.
+		const isRejection = err instanceof JobRejection;
+		let isFinal = isRejection;
+		if (!isFinal) {
+			const { data: current } = await supabase
+				.from('transcoding_jobs')
+				.select('attempts')
+				.eq('id', job.id)
+				.single();
+			isFinal = (current?.attempts ?? 0) >= MAX_ATTEMPTS;
+		}
 
-		const isFinal = (current?.attempts ?? 0) >= MAX_ATTEMPTS;
 		await supabase.from('transcoding_jobs').update({
 			status: isFinal ? 'failed' : 'pending',
 			error: message,
@@ -321,6 +408,7 @@ async function poll() {
 	if (running) return;
 	running = true;
 	try {
+		await sweepStaleJobs();
 		// Claim and process jobs one at a time until queue is empty
 		while (true) {
 			const job = await claimNextJob();
@@ -333,6 +421,17 @@ async function poll() {
 		running = false;
 	}
 }
+
+// Last-resort logging — without these, an OOM or unhandled rejection produces
+// no application-level error line in the Render logs.
+process.on('uncaughtException', (err) => {
+	console.error('[worker] uncaughtException:', err?.stack || err);
+	process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+	console.error('[worker] unhandledRejection:', reason);
+	process.exit(1);
+});
 
 console.info('[worker] Transcoding worker started — polling every', POLL_INTERVAL_MS / 1000, 's');
 poll(); // Run immediately on startup
