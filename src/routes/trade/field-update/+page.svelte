@@ -67,15 +67,6 @@
 	// --- Field Update / Materials / Schedule Change shared note ---
 	let fuNote = '';
 
-	// --- Daily-log-style fields (shown under Field Update) ---
-	const today = new Date().toISOString().split('T')[0];
-	let dlLogDate = today;
-	let dlHoursWorked: number | '' = '';
-	let dlWorkCompleted = '';
-	let dlWorkPlanned = '';
-	let dlIssuesEncountered = '';
-	let dlWeatherDelay = false;
-
 	// --- Report Problem fields ---
 	let rpIssueType: string = 'damaged_material';
 	let rpSeverity: string = 'medium';
@@ -96,12 +87,6 @@
 	type UnifiedDraft = {
 		submissionType: SubmissionType;
 		fuNote: string;
-		dlLogDate: string;
-		dlHoursWorked: number | '';
-		dlWorkCompleted: string;
-		dlWorkPlanned: string;
-		dlIssuesEncountered: string;
-		dlWeatherDelay: boolean;
 		rpIssueType: string;
 		rpSeverity: string;
 		rpTitle: string;
@@ -117,15 +102,12 @@
 
 	const getDraftData = (): UnifiedDraft => ({
 		submissionType, fuNote,
-		dlLogDate, dlHoursWorked, dlWorkCompleted, dlWorkPlanned, dlIssuesEncountered, dlWeatherDelay,
 		rpIssueType, rpSeverity, rpTitle, rpDescription,
 		coScope, coCost
 	});
 
 	const isDraftEmpty = (d: UnifiedDraft) => {
-		const fuEmpty = !d.fuNote.trim()
-			&& !d.dlWorkCompleted.trim() && !d.dlWorkPlanned.trim() && !d.dlIssuesEncountered.trim()
-			&& d.dlHoursWorked === '' && !d.dlWeatherDelay && d.dlLogDate === today;
+		const fuEmpty = !d.fuNote.trim();
 		const rpEmpty = !d.rpTitle.trim() && !d.rpDescription.trim()
 			&& d.rpIssueType === 'damaged_material' && d.rpSeverity === 'medium';
 		const coEmpty = !d.coScope.trim() && d.coCost === '';
@@ -135,12 +117,6 @@
 	const restoreDraft = (d: UnifiedDraft) => {
 		submissionType = d.submissionType;
 		fuNote = d.fuNote;
-		dlLogDate = d.dlLogDate;
-		dlHoursWorked = d.dlHoursWorked;
-		dlWorkCompleted = d.dlWorkCompleted;
-		dlWorkPlanned = d.dlWorkPlanned;
-		dlIssuesEncountered = d.dlIssuesEncountered;
-		dlWeatherDelay = d.dlWeatherDelay;
 		rpIssueType = d.rpIssueType;
 		rpSeverity = d.rpSeverity;
 		rpTitle = d.rpTitle;
@@ -184,12 +160,6 @@
 	// --- Submission ---
 	const resetForm = () => {
 		fuNote = '';
-		dlLogDate = today;
-		dlHoursWorked = '';
-		dlWorkCompleted = '';
-		dlWorkPlanned = '';
-		dlIssuesEncountered = '';
-		dlWeatherDelay = false;
 		rpIssueType = 'damaged_material';
 		rpSeverity = 'medium';
 		rpTitle = '';
@@ -197,17 +167,6 @@
 		coScope = '';
 		coCost = '';
 		photoUploadRef?.reset();
-	};
-
-	const buildFieldUpdateNote = () => {
-		const lines: string[] = [];
-		if (fuNote.trim()) lines.push(fuNote.trim());
-		if (dlHoursWorked !== '') lines.push(`Hours worked: ${dlHoursWorked}`);
-		if (dlWorkCompleted.trim()) lines.push(`Work completed: ${dlWorkCompleted.trim()}`);
-		if (dlWorkPlanned.trim()) lines.push(`Work planned: ${dlWorkPlanned.trim()}`);
-		if (dlIssuesEncountered.trim()) lines.push(`Issues / blockers: ${dlIssuesEncountered.trim()}`);
-		if (dlWeatherDelay) lines.push('Weather delayed work today.');
-		return lines.length > 0 ? lines.join('\n\n') : null;
 	};
 
 	const handleSubmit = async () => {
@@ -225,14 +184,13 @@
 			const photoIdsOrNull = photoIds.length > 0 ? photoIds : null;
 
 			if (submissionType === 'field_update') {
-				const note = buildFieldUpdateNote();
 				const fuRes = await fetch('/api/trade/field-updates', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						deal_id: selectedDealId,
 						update_type: 'progress',
-						note,
+						note: fuNote.trim() || null,
 						photo_ids: photoIdsOrNull
 					})
 				});
@@ -240,34 +198,7 @@
 					const payload = await fuRes.json().catch(() => ({}));
 					throw new Error(payload?.error || `Request failed (${fuRes.status})`);
 				}
-
-				let dailyLogWarning = '';
-				try {
-					const dlRes = await fetch('/api/trade/daily-log', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({
-							dealId: selectedDealId,
-							logDate: dlLogDate,
-							hoursWorked: dlHoursWorked === '' ? undefined : dlHoursWorked,
-							workCompleted: dlWorkCompleted,
-							workPlanned: dlWorkPlanned,
-							issuesEncountered: dlIssuesEncountered,
-							weatherDelay: dlWeatherDelay,
-							photoIds: photoIds.length > 0 ? photoIds : undefined
-						})
-					});
-					if (!dlRes.ok) {
-						const payload = await dlRes.json().catch(() => ({}));
-						dailyLogWarning = payload?.message || payload?.error || `Request failed (${dlRes.status})`;
-					}
-				} catch (dlErr) {
-					dailyLogWarning = dlErr instanceof Error ? dlErr.message : 'Daily-log record failed';
-				}
-
-				successMessage = dailyLogWarning
-					? `Field update submitted (office notified). Daily-log record failed: ${dailyLogWarning}`
-					: 'Field update submitted successfully!';
+				successMessage = 'Field update submitted successfully!';
 			} else if (submissionType === 'materials' || submissionType === 'schedule_change') {
 				const updateType =
 					submissionType === 'materials' ? 'material_delivery' : 'schedule_change';
@@ -435,64 +366,12 @@
 			<form on:submit|preventDefault={handleSubmit}>
 				{#if submissionType === 'field_update'}
 					<div class="form-field">
-						<label for="log-date">Date</label>
-						<input id="log-date" type="date" bind:value={dlLogDate} required />
-					</div>
-
-					<div class="form-field">
-						<label for="hours-worked">Hours Worked</label>
-						<input
-							id="hours-worked"
-							type="number"
-							step="0.5"
-							min="0"
-							max="24"
-							bind:value={dlHoursWorked}
-							placeholder="e.g. 8"
-						/>
-					</div>
-
-					<div class="form-field">
-						<label for="work-completed">Work Completed</label>
-						<textarea
-							id="work-completed"
-							bind:value={dlWorkCompleted}
-							placeholder="What did you accomplish today?"
-						></textarea>
-					</div>
-
-					<div class="form-field">
-						<label for="work-planned">Work Planned</label>
-						<textarea
-							id="work-planned"
-							bind:value={dlWorkPlanned}
-							placeholder="What's planned for tomorrow?"
-						></textarea>
-					</div>
-
-					<div class="form-field">
-						<label for="issues-encountered">Issues / Blockers</label>
-						<textarea
-							id="issues-encountered"
-							bind:value={dlIssuesEncountered}
-							placeholder="Any issues or blockers? (optional)"
-						></textarea>
-					</div>
-
-					<div class="form-field form-field-checkbox">
-						<label class="checkbox-label">
-							<input type="checkbox" bind:checked={dlWeatherDelay} />
-							Weather delayed work today
-						</label>
-					</div>
-
-					<div class="form-field">
-						<label for="update-note">Additional Note</label>
+						<label for="update-note">Note</label>
 						<textarea
 							id="update-note"
 							bind:value={fuNote}
-							rows="3"
-							placeholder="Anything else the office should know? (optional)"
+							rows="6"
+							placeholder="Describe the update..."
 						></textarea>
 					</div>
 				{:else if submissionType === 'materials'}
@@ -696,7 +575,6 @@
 
 	select,
 	input[type='text'],
-	input[type='date'],
 	input[type='number'],
 	textarea {
 		width: 100%;
@@ -714,26 +592,6 @@
 		resize: vertical;
 		min-height: 100px;
 		line-height: 1.5;
-	}
-
-	.form-field-checkbox {
-		gap: 0;
-	}
-
-	.checkbox-label {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		font-size: 1rem;
-		color: #111827;
-		cursor: pointer;
-		min-height: 44px;
-	}
-
-	.checkbox-label input[type='checkbox'] {
-		width: 1.1rem;
-		height: 1.1rem;
-		cursor: pointer;
 	}
 
 	.severity-fieldset {
