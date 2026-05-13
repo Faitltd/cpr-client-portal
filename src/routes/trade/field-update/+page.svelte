@@ -20,24 +20,6 @@
 		{ value: 'change_order', label: 'Change Order Request' }
 	];
 
-	// --- Report Issue types ---
-	const ISSUE_TYPE_OPTIONS = [
-		{ value: 'damaged_material', label: 'Damaged Material' },
-		{ value: 'field_conflict', label: 'Field Conflict' },
-		{ value: 'missing_info', label: 'Missing Info' },
-		{ value: 'access_issue', label: 'Access Issue' },
-		{ value: 'design_conflict', label: 'Design Conflict' },
-		{ value: 'unexpected_condition', label: 'Unexpected Condition' },
-		{ value: 'safety', label: 'Safety' }
-	] as const;
-
-	const SEVERITY_OPTIONS = [
-		{ value: 'low', label: 'Low' },
-		{ value: 'medium', label: 'Medium' },
-		{ value: 'high', label: 'High' },
-		{ value: 'critical', label: 'Critical' }
-	] as const;
-
 	// --- Data from server ---
 	export let data: {
 		tradePartner: { name?: string | null; email: string };
@@ -68,10 +50,7 @@
 	let fuNote = '';
 
 	// --- Report Problem fields ---
-	let rpIssueType: string = 'damaged_material';
-	let rpSeverity: string = 'medium';
-	let rpTitle = '';
-	let rpDescription = '';
+	let rpNote = '';
 
 	// --- Change Order Request fields ---
 	let coScope = '';
@@ -87,10 +66,7 @@
 	type UnifiedDraft = {
 		submissionType: SubmissionType;
 		fuNote: string;
-		rpIssueType: string;
-		rpSeverity: string;
-		rpTitle: string;
-		rpDescription: string;
+		rpNote: string;
 		coScope: string;
 		coCost: number | '';
 	};
@@ -101,15 +77,12 @@
 	let draftSavedAt = 0;
 
 	const getDraftData = (): UnifiedDraft => ({
-		submissionType, fuNote,
-		rpIssueType, rpSeverity, rpTitle, rpDescription,
-		coScope, coCost
+		submissionType, fuNote, rpNote, coScope, coCost
 	});
 
 	const isDraftEmpty = (d: UnifiedDraft) => {
 		const fuEmpty = !d.fuNote.trim();
-		const rpEmpty = !d.rpTitle.trim() && !d.rpDescription.trim()
-			&& d.rpIssueType === 'damaged_material' && d.rpSeverity === 'medium';
+		const rpEmpty = !d.rpNote.trim();
 		const coEmpty = !d.coScope.trim() && d.coCost === '';
 		return fuEmpty && rpEmpty && coEmpty && d.submissionType === 'field_update';
 	};
@@ -117,10 +90,7 @@
 	const restoreDraft = (d: UnifiedDraft) => {
 		submissionType = d.submissionType;
 		fuNote = d.fuNote;
-		rpIssueType = d.rpIssueType;
-		rpSeverity = d.rpSeverity;
-		rpTitle = d.rpTitle;
-		rpDescription = d.rpDescription;
+		rpNote = d.rpNote;
 		coScope = d.coScope;
 		coCost = d.coCost;
 		draftRestorable = false;
@@ -160,10 +130,7 @@
 	// --- Submission ---
 	const resetForm = () => {
 		fuNote = '';
-		rpIssueType = 'damaged_material';
-		rpSeverity = 'medium';
-		rpTitle = '';
-		rpDescription = '';
+		rpNote = '';
 		coScope = '';
 		coCost = '';
 		photoUploadRef?.reset();
@@ -199,15 +166,13 @@
 					throw new Error(payload?.error || `Request failed (${fuRes.status})`);
 				}
 				successMessage = 'Field update submitted successfully!';
-			} else if (submissionType === 'materials' || submissionType === 'schedule_change') {
-				const updateType =
-					submissionType === 'materials' ? 'material_delivery' : 'schedule_change';
+			} else if (submissionType === 'materials') {
 				const res = await fetch('/api/trade/field-updates', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						deal_id: selectedDealId,
-						update_type: updateType,
+						update_type: 'material_delivery',
 						note: fuNote.trim() || null,
 						photo_ids: photoIdsOrNull
 					})
@@ -216,10 +181,23 @@
 					const payload = await res.json().catch(() => ({}));
 					throw new Error(payload?.error || `Request failed (${res.status})`);
 				}
-				successMessage =
-					submissionType === 'materials'
-						? 'Materials update submitted successfully!'
-						: 'Schedule change submitted successfully!';
+				successMessage = 'Materials update submitted successfully!';
+			} else if (submissionType === 'schedule_change') {
+				const res = await fetch('/api/trade/field-updates', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						deal_id: selectedDealId,
+						update_type: 'schedule_change',
+						note: fuNote.trim() || null,
+						photo_ids: null
+					})
+				});
+				if (!res.ok) {
+					const payload = await res.json().catch(() => ({}));
+					throw new Error(payload?.error || `Request failed (${res.status})`);
+				}
+				successMessage = 'Schedule change submitted successfully!';
 			} else if (submissionType === 'change_order') {
 				if (!coScope.trim()) {
 					errorMessage = 'Please describe the scope of the change.';
@@ -252,26 +230,19 @@
 				}
 				successMessage = 'Change order request submitted successfully!';
 			} else if (submissionType === 'report_problem') {
-				if (!rpTitle.trim()) {
-					errorMessage = 'Please enter a title for the issue.';
-					submitting = false;
-					return;
-				}
-				const res = await fetch('/api/trade/field-issues', {
+				const res = await fetch('/api/trade/field-updates', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						deal_id: selectedDealId,
-						issue_type: rpIssueType,
-						severity: rpSeverity,
-						title: rpTitle.trim(),
-						description: rpDescription.trim() || undefined,
-						photo_ids: photoIds.length > 0 ? photoIds : undefined
+						update_type: 'issue',
+						note: rpNote.trim() || null,
+						photo_ids: photoIdsOrNull
 					})
 				});
 				if (!res.ok) {
 					const payload = await res.json().catch(() => ({}));
-					throw new Error(payload?.error || payload?.message || `Request failed (${res.status})`);
+					throw new Error(payload?.error || `Request failed (${res.status})`);
 				}
 				successMessage = 'Issue reported successfully!';
 			}
@@ -298,7 +269,7 @@
 
 	$: canSubmit = (() => {
 		if (!selectedDealId) return false;
-		if (submissionType === 'report_problem' && !rpTitle.trim()) return false;
+		if (submissionType === 'report_problem' && !rpNote.trim()) return false;
 		if (
 			submissionType === 'change_order' &&
 			(!coScope.trim() || coCost === '' || !Number.isFinite(coCost) || (coCost as number) <= 0)
@@ -420,53 +391,24 @@
 					</div>
 				{:else if submissionType === 'report_problem'}
 					<div class="form-field">
-						<label for="issue-type">Issue Type</label>
-						<select id="issue-type" bind:value={rpIssueType}>
-							{#each ISSUE_TYPE_OPTIONS as option}
-								<option value={option.value}>{option.label}</option>
-							{/each}
-						</select>
-					</div>
-
-					<fieldset class="form-field severity-fieldset">
-						<legend>Severity</legend>
-						<div class="severity-grid">
-							{#each SEVERITY_OPTIONS as option}
-								<label class="severity-option" class:is-selected={rpSeverity === option.value}>
-									<input type="radio" bind:group={rpSeverity} value={option.value} />
-									<span>{option.label}</span>
-								</label>
-							{/each}
-						</div>
-					</fieldset>
-
-					<div class="form-field">
-						<label for="issue-title">Title</label>
-						<input
-							id="issue-title"
-							type="text"
-							bind:value={rpTitle}
-							placeholder="Short summary of the issue"
-							required
-						/>
-					</div>
-
-					<div class="form-field">
-						<label for="issue-description">Description</label>
+						<label for="problem-note">Note</label>
 						<textarea
-							id="issue-description"
-							rows="4"
-							bind:value={rpDescription}
-							placeholder="Add details that will help the office team review the issue"
+							id="problem-note"
+							bind:value={rpNote}
+							rows="6"
+							placeholder="Describe the problem..."
+							required
 						></textarea>
 					</div>
 				{/if}
 
-				<div class="form-field">
-					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label>Photos</label>
-					<PhotoUpload bind:this={photoUploadRef} maxFiles={5} />
-				</div>
+				{#if submissionType !== 'schedule_change'}
+					<div class="form-field">
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label>Photos</label>
+						<PhotoUpload bind:this={photoUploadRef} maxFiles={5} />
+					</div>
+				{/if}
 
 				<div class="form-footer">
 					<button class="submit-button" type="submit" disabled={submitting || !canSubmit}>
@@ -574,7 +516,6 @@
 	}
 
 	select,
-	input[type='text'],
 	input[type='number'],
 	textarea {
 		width: 100%;
@@ -592,54 +533,6 @@
 		resize: vertical;
 		min-height: 100px;
 		line-height: 1.5;
-	}
-
-	.severity-fieldset {
-		border: 0;
-		padding: 0;
-		margin: 0;
-	}
-
-	.severity-fieldset legend {
-		padding: 0;
-		margin-bottom: 0.4rem;
-		font-weight: 600;
-		font-size: 0.95rem;
-		color: #111827;
-	}
-
-	.severity-grid {
-		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
-		gap: 0.75rem;
-	}
-
-	.severity-option {
-		display: flex;
-		align-items: center;
-		gap: 0.65rem;
-		padding: 0.85rem 1rem;
-		border: 1px solid #d1d5db;
-		border-radius: 8px;
-		background: #f9fafb;
-		cursor: pointer;
-		min-height: 44px;
-		box-sizing: border-box;
-	}
-
-	.severity-option input[type='radio'] {
-		margin: 0;
-		flex-shrink: 0;
-	}
-
-	.severity-option span {
-		font-weight: 600;
-		color: #111827;
-	}
-
-	.severity-option.is-selected {
-		border-color: #0066cc;
-		background: #eff6ff;
 	}
 
 	.submit-button {
@@ -735,10 +628,6 @@
 
 		.card {
 			padding: 1.1rem;
-		}
-
-		.severity-grid {
-			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 
 		.submit-button {
