@@ -261,7 +261,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			session.client.email;
 		const booksUrl =
 			booksEstimateId && env.ZOHO_BOOKS_ORG_ID
-				? `https://books.zoho.com/app/${encodeURIComponent(env.ZOHO_BOOKS_ORG_ID)}#/estimates/${encodeURIComponent(booksEstimateId)}`
+				? `https://books.zoho.com/app/${encodeURIComponent(env.ZOHO_BOOKS_ORG_ID)}#/quotes/${encodeURIComponent(booksEstimateId)}`
 				: null;
 		const cliqLines = [
 			`🛠️ *Change Order Request*`,
