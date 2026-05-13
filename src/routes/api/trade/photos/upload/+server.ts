@@ -1,6 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { supabase } from '$lib/server/db';
-import { getTradeSession } from '$lib/server/db';
+import { supabase, getTradeSession, getSession } from '$lib/server/db';
 import type { RequestHandler } from './$types';
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;  // 10MB
@@ -10,16 +9,35 @@ const BUCKET = 'trade-photos';
 
 const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
 
+type ResolvedSubmitter =
+	| { kind: 'trade'; id: string }
+	| { kind: 'client'; id: string };
+
+async function resolveSubmitter(cookies: {
+	get: (name: string) => string | undefined;
+}): Promise<ResolvedSubmitter | null> {
+	const tradeToken = cookies.get('trade_session');
+	if (tradeToken) {
+		const session = await getTradeSession(tradeToken).catch(() => null);
+		if (session && new Date(session.expires_at) > new Date()) {
+			return { kind: 'trade', id: session.trade_partner_id };
+		}
+	}
+	const portalToken = cookies.get('portal_session');
+	if (portalToken) {
+		const session = await getSession(portalToken).catch(() => null);
+		if (session && new Date(session.expires_at) > new Date()) {
+			return { kind: 'client', id: session.client.id };
+		}
+	}
+	return null;
+}
+
 export const POST: RequestHandler = async ({ cookies, request }) => {
-	const token = cookies.get('trade_session');
-	if (!token) return json({ error: 'Unauthorized' }, { status: 401 });
+	const submitter = await resolveSubmitter(cookies);
+	if (!submitter) return json({ error: 'Unauthorized' }, { status: 401 });
 
 	try {
-		const session = await getTradeSession(token);
-		if (!session || new Date(session.expires_at) < new Date()) {
-			return json({ error: 'Unauthorized' }, { status: 401 });
-		}
-
 		const formData = await request.formData();
 		const files = formData.getAll('files') as File[];
 
@@ -32,6 +50,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		}
 
 		const uploaded: { id: string; url: string; name: string }[] = [];
+		const prefix = submitter.kind === 'client' ? `clients/${submitter.id}` : submitter.id;
 
 		for (const file of files) {
 			if (!(file instanceof File)) {
@@ -57,7 +76,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 
 			const timestamp = Date.now();
 			const random = Math.random().toString(36).slice(2, 8);
-			const storagePath = `${session.trade_partner_id}/${timestamp}-${random}.${ext}`;
+			const storagePath = `${prefix}/${timestamp}-${random}.${ext}`;
 
 			const arrayBuffer = await file.arrayBuffer();
 			const { error: uploadError } = await supabase.storage

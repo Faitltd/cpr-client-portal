@@ -1,262 +1,12 @@
 import { json } from '@sveltejs/kit';
-import {
-	createFieldUpdate,
-	createTranscodingJob,
-	getTradeSession,
-	getZohoTokens,
-	supabase,
-	upsertZohoTokens
-} from '$lib/server/db';
+import { createFieldUpdate, getTradeSession } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { refreshAccessToken, zohoApiCall, getZohoApiBase } from '$lib/server/zoho';
-import { env } from '$env/dynamic/private';
+import {
+	VALID_UPDATE_TYPES,
+	createCrmFieldUpdate,
+	getAccessTokenAndDomain
+} from '$lib/server/zoho-field-updates';
 import type { RequestHandler } from './$types';
-
-// ---------------------------------------------------------------------------
-// Module / field configuration
-// ---------------------------------------------------------------------------
-
-const ZOHO_FIELD_UPDATES_MODULE = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
-/** Explicit override — set this in your env to skip auto-discovery entirely */
-const ZOHO_FIELD_UPDATES_DEAL_FIELD = env.ZOHO_FIELD_UPDATES_DEAL_FIELD || '';
-const ZOHO_TIMEOUT_MS = 15_000;
-
-const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
-function isVideoPath(storagePath: string) {
-	const ext = storagePath.split('.').pop()?.toLowerCase() || '';
-	return VIDEO_EXTS.has(ext);
-}
-
-/** Map internal update_type values to Zoho-friendly display labels */
-const UPDATE_TYPE_LABELS: Record<string, string> = {
-	progress: 'Site Visit/Progress Update',
-	issue: 'Issue',
-	material_delivery: 'Material Delivery',
-	inspection: 'Inspection',
-	weather_delay: 'Weather Delay',
-	schedule_change: 'Schedule Change',
-	completed_work: 'Completed Work',
-	change_order: 'Change Order Request',
-	other: 'Other'
-};
-
-const VALID_UPDATE_TYPES = new Set(Object.keys(UPDATE_TYPE_LABELS));
-
-function pickSubmitterDisplayName(tradePartner: {
-	name?: string | null;
-	company?: string | null;
-	email?: string | null;
-}) {
-	return (
-		String(tradePartner?.name || '').trim() ||
-		String(tradePartner?.company || '').trim() ||
-		String(tradePartner?.email || '').trim() ||
-		'Trade Partner'
-	);
-}
-
-function buildZohoFieldUpdateNote(note: string | null, submitterName: string) {
-	const trimmed = String(note || '').trim();
-	const prefix = `Submitted by: ${submitterName}`;
-	if (!trimmed) return prefix;
-	if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) return trimmed;
-	return `${prefix}\n\n${trimmed}`;
-}
-
-function buildZohoFieldUpdateName(label: string, submitterName: string, now = new Date()) {
-	return `${label} — ${submitterName} — ${now.toLocaleDateString()}`;
-}
-
-// ---------------------------------------------------------------------------
-// Zoho access-token helper
-// ---------------------------------------------------------------------------
-
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) {
-		return date.toISOString();
-	}
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) {
-			return fallbackDate.toISOString();
-		}
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
-async function getAccessTokenAndDomain(): Promise<{ accessToken: string; apiDomain?: string }> {
-	const tokens = await getZohoTokens();
-	if (!tokens) {
-		throw new Error('Zoho tokens not configured');
-	}
-
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
-
-	return { accessToken, apiDomain: tokens.api_domain || undefined };
-}
-
-// ---------------------------------------------------------------------------
-// Auto-discover the deal-lookup field on the Field_Updates module (cached)
-// ---------------------------------------------------------------------------
-
-let cachedDealField: string | null = null;
-let cachedDealFieldAt = 0;
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
-
-async function discoverDealLookupField(
-	accessToken: string,
-	apiDomain?: string
-): Promise<string | null> {
-	// Return cached value if fresh
-	if (cachedDealField && Date.now() - cachedDealFieldAt < CACHE_TTL_MS) {
-		return cachedDealField;
-	}
-
-	try {
-		const base = apiDomain
-			? `${apiDomain.replace(/\/$/, '')}/crm/v2`
-			: 'https://www.zohoapis.com/crm/v2';
-		const url = `${base}/settings/fields?module=${encodeURIComponent(ZOHO_FIELD_UPDATES_MODULE)}`;
-		const response = await fetch(url, {
-			method: 'GET',
-			signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS),
-			headers: {
-				Authorization: `Zoho-oauthtoken ${accessToken}`,
-				'Content-Type': 'application/json'
-			}
-		});
-
-		if (!response.ok) {
-			console.error('Zoho settings/fields call failed:', response.status, await response.text().catch(() => ''));
-			return null;
-		}
-
-		const body = await response.json();
-		const fields = (body.fields || body.data || []) as any[];
-
-		for (const field of fields) {
-			const apiName = String(field?.api_name || field?.apiName || '').trim();
-			if (!apiName) continue;
-
-			const dataType = String(field?.data_type || field?.dataType || field?.json_type || '')
-				.toLowerCase()
-				.trim();
-			const label = String(field?.field_label || field?.display_label || field?.fieldLabel || '')
-				.toLowerCase()
-				.trim();
-
-			const lookup = field?.lookup || field?.lookup_details || field?.lookupDetails || null;
-			const lookupModule =
-				lookup?.module?.api_name ||
-				lookup?.module?.apiName ||
-				lookup?.module ||
-				lookup?.module_name ||
-				lookup?.moduleName ||
-				lookup?.module_api_name ||
-				lookup?.moduleApiName ||
-				null;
-			const lookupModuleName = String(lookupModule || '').toLowerCase();
-
-			// A lookup field that points to the Deals module
-			if (dataType.includes('lookup') && lookupModuleName.includes('deals')) {
-				cachedDealField = apiName;
-				cachedDealFieldAt = Date.now();
-				console.info(`Discovered deal lookup field for ${ZOHO_FIELD_UPDATES_MODULE}: ${apiName}`);
-				return apiName;
-			}
-
-			// Fallback: a lookup whose label contains "deal"
-			if (dataType.includes('lookup') && label.includes('deal')) {
-				cachedDealField = apiName;
-				cachedDealFieldAt = Date.now();
-				console.info(`Discovered deal lookup field (label match) for ${ZOHO_FIELD_UPDATES_MODULE}: ${apiName}`);
-				return apiName;
-			}
-		}
-	} catch (err) {
-		console.error('Failed to discover deal lookup field:', err);
-	}
-
-	return null;
-}
-
-// ---------------------------------------------------------------------------
-// Zoho CRM attachment upload (non-fatal — best effort)
-// ---------------------------------------------------------------------------
-
-const ZOHO_ATTACHMENT_SIZE_LIMIT = 20 * 1024 * 1024; // 20MB Zoho CRM limit
-
-const FILE_MIME_MAP: Record<string, string> = {
-	jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
-	webp: 'image/webp', heic: 'image/heic', heif: 'image/heif',
-	mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
-	webm: 'video/webm', mkv: 'video/x-matroska', wmv: 'video/x-ms-wmv'
-};
-
-async function uploadAttachmentsToZoho(
-	accessToken: string,
-	moduleApiName: string,
-	recordId: string,
-	photoIds: string[],
-	apiDomain?: string
-): Promise<void> {
-	const base = getZohoApiBase(apiDomain);
-	for (const storagePath of photoIds) {
-		try {
-			const { data, error } = await supabase.storage.from('trade-photos').download(storagePath);
-			if (error || !data) {
-				console.warn(`[field-updates] Could not download ${storagePath} from Supabase:`, error?.message);
-				continue;
-			}
-
-			const arrayBuffer = await data.arrayBuffer();
-			if (arrayBuffer.byteLength > ZOHO_ATTACHMENT_SIZE_LIMIT) {
-				console.info(`[field-updates] Skipping immediate Zoho upload for ${storagePath} — ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB exceeds 20MB limit; transcoding worker will attach a compressed version`);
-				continue;
-			}
-
-			const fileName = storagePath.split('/').pop() || 'attachment';
-			const ext = fileName.split('.').pop()?.toLowerCase() || '';
-			const mimeType = FILE_MIME_MAP[ext] || 'application/octet-stream';
-
-			const form = new FormData();
-			form.append('file', new Blob([arrayBuffer], { type: mimeType }), fileName);
-
-			const url = `${base}/${encodeURIComponent(moduleApiName)}/${encodeURIComponent(recordId)}/Attachments`;
-			const res = await fetch(url, {
-				method: 'POST',
-				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-				body: form,
-				signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS)
-			});
-
-			if (!res.ok) {
-				const text = await res.text().catch(() => '');
-				console.warn(`[field-updates] Zoho attachment upload failed for ${storagePath}: ${res.status} ${text}`);
-			} else {
-				console.info(`[field-updates] Uploaded attachment to Zoho: ${storagePath}`);
-			}
-		} catch (err) {
-			console.warn(`[field-updates] Attachment upload error for ${storagePath}:`, err);
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Authorization check
-// ---------------------------------------------------------------------------
 
 async function isDealAuthorizedForTradePartner(
 	accessToken: string,
@@ -266,10 +16,6 @@ async function isDealAuthorizedForTradePartner(
 	const dealList = await getTradePartnerDeals(accessToken, zohoTradePartnerId);
 	return dealList.some((deal: any) => String(deal?.id || '') === dealId);
 }
-
-// ---------------------------------------------------------------------------
-// POST handler
-// ---------------------------------------------------------------------------
 
 export const POST: RequestHandler = async ({ cookies, request }) => {
 	const token = cookies.get('trade_session');
@@ -314,7 +60,6 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			return json({ error: 'Trade partner is missing Zoho ID' }, { status: 400 });
 		}
 
-		// Get a fresh Zoho access token
 		const { accessToken, apiDomain } = await getAccessTokenAndDomain();
 
 		const authorized = await isDealAuthorizedForTradePartner(
@@ -326,74 +71,24 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			return json({ error: 'Deal not authorized for this trade partner' }, { status: 403 });
 		}
 
-		// ── 1. Write to Zoho CRM (primary — triggers Cliq workflow) ──────────
-		const dealField = ZOHO_FIELD_UPDATES_DEAL_FIELD || await discoverDealLookupField(accessToken, apiDomain);
-		if (!dealField) {
-			console.error(`Could not discover deal lookup field on ${ZOHO_FIELD_UPDATES_MODULE}. Set ZOHO_FIELD_UPDATES_DEAL_FIELD env var to the exact API field name.`);
-			return json(
-				{ error: 'Unable to save: field update module configuration issue. Please contact the office.' },
-				{ status: 502 }
-			);
+		let zohoRecordId: string | null = null;
+		try {
+			const result = await createCrmFieldUpdate({
+				accessToken,
+				apiDomain,
+				dealId,
+				updateType,
+				note,
+				submitter: session.trade_partner,
+				photoIds: Array.isArray(photoIds) ? photoIds : null
+			});
+			zohoRecordId = result.zohoRecordId;
+		} catch (err) {
+			console.error('createCrmFieldUpdate failed:', err);
+			const message = err instanceof Error ? err.message : 'Failed to save field update';
+			return json({ error: message }, { status: 502 });
 		}
 
-		const zohoRecord: Record<string, unknown> = {
-			Note: buildZohoFieldUpdateNote(note, pickSubmitterDisplayName(session.trade_partner)),
-			Update_Type: UPDATE_TYPE_LABELS[updateType] || updateType,
-			Name: buildZohoFieldUpdateName(
-				UPDATE_TYPE_LABELS[updateType] || updateType,
-				pickSubmitterDisplayName(session.trade_partner)
-			),
-			[dealField]: { id: dealId }
-		};
-
-		const zohoResponse = await zohoApiCall(
-			accessToken,
-			`/${encodeURIComponent(ZOHO_FIELD_UPDATES_MODULE)}`,
-			{
-				method: 'POST',
-				body: JSON.stringify({ data: [zohoRecord] }),
-				signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS)
-			},
-			apiDomain
-		);
-
-		const firstResult = zohoResponse?.data?.[0];
-		if (firstResult?.code !== 'SUCCESS' && firstResult?.status !== 'success') {
-			const errDetail = firstResult?.message || firstResult?.code || 'Unknown Zoho error';
-			console.error('Zoho Field_Updates create failed:', JSON.stringify(firstResult));
-			return json(
-				{ error: `Failed to save field update: ${errDetail}` },
-				{ status: 502 }
-			);
-		}
-
-		const zohoRecordId = firstResult?.details?.id || null;
-
-		// ── 2. Handle photos/videos ───────────────────────────────────────────
-		if (Array.isArray(photoIds) && photoIds.length > 0) {
-			const photos = photoIds.filter((p: string) => !isVideoPath(p));
-			const videos = photoIds.filter((p: string) => isVideoPath(p));
-
-			// Upload photos to Zoho immediately. Videos are intentionally skipped
-			// here — the transcoding worker uploads the single H.264 version once
-			// it's ready, avoiding duplicate attachments in Zoho.
-			if (zohoRecordId && photos.length > 0) {
-				uploadAttachmentsToZoho(accessToken, ZOHO_FIELD_UPDATES_MODULE, zohoRecordId, photos, apiDomain)
-					.catch((err) => console.error('[field-updates] Attachment upload error:', err));
-			}
-
-			// Queue videos for background transcoding; the worker will upload the
-			// compressed H.264 version to Zoho when done.
-			for (const videoPath of videos) {
-				createTranscodingJob({
-					original_path: videoPath,
-					zoho_record_id: zohoRecordId ?? undefined,
-					zoho_module: ZOHO_FIELD_UPDATES_MODULE
-				}).catch((err) => console.warn('[field-updates] Could not queue transcoding job (worker may not be set up yet):', err));
-			}
-		}
-
-		// ── 3. Write to Supabase (backup / local record) ─────────────────────
 		let created: any = null;
 		try {
 			created = await createFieldUpdate({
@@ -401,18 +96,15 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				trade_partner_id: session.trade_partner_id,
 				update_type: updateType,
 				note: note || null,
-				photo_ids: photoIds ?? null
+				photo_ids: Array.isArray(photoIds) ? photoIds : null
 			});
 		} catch (supaErr) {
-			// Non-fatal: the Zoho record (the important one) was already created
 			console.error('Supabase backup write failed (Zoho record saved):', supaErr);
 		}
 
 		let photo_urls: string[] | null = null;
 		if (created?.photo_ids?.length) {
-			photo_urls = created.photo_ids.map(
-				(id: string) => `/api/trade/photos/storage/${id}`
-			);
+			photo_urls = created.photo_ids.map((id: string) => `/api/trade/photos/storage/${id}`);
 		}
 
 		return json(
