@@ -36,6 +36,7 @@ const UPDATE_TYPE_LABELS: Record<string, string> = {
 	weather_delay: 'Weather Delay',
 	schedule_change: 'Schedule Change',
 	completed_work: 'Completed Work',
+	change_order: 'Change Order Request',
 	other: 'Other'
 };
 
@@ -296,7 +297,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			return json(
 				{
 					error:
-						'Invalid update_type. Must be one of: progress, issue, material_delivery, inspection, weather_delay, schedule_change, completed_work, other'
+						'Invalid update_type. Must be one of: progress, issue, material_delivery, inspection, weather_delay, schedule_change, completed_work, change_order, other'
 				},
 				{ status: 400 }
 			);
