@@ -4,25 +4,20 @@
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import { createDraft, type DraftHandle } from '$lib/stores/draftStore';
 
-	// --- Report type definitions ---
-	type ReportType = 'field_update' | 'daily_log' | 'report_problem';
+	// --- Submission type definitions ---
+	type SubmissionType =
+		| 'field_update'
+		| 'report_problem'
+		| 'materials'
+		| 'schedule_change'
+		| 'change_order';
 
-	const REPORT_TYPES: { value: ReportType; label: string }[] = [
+	const SUBMISSION_TYPES: { value: SubmissionType; label: string }[] = [
 		{ value: 'field_update', label: 'Field Update' },
-		{ value: 'daily_log', label: 'Daily Log' },
-		{ value: 'report_problem', label: 'Report a Problem' }
-	];
-
-	// --- Field Update types ---
-	const UPDATE_TYPES = [
-		{ value: 'progress', label: 'Progress Update' },
-		{ value: 'issue', label: 'Issue' },
-		{ value: 'material_delivery', label: 'Material Delivery' },
-		{ value: 'inspection', label: 'Inspection' },
-		{ value: 'weather_delay', label: 'Weather Delay' },
+		{ value: 'report_problem', label: 'Report a Problem' },
+		{ value: 'materials', label: 'Materials' },
 		{ value: 'schedule_change', label: 'Schedule Change' },
-		{ value: 'completed_work', label: 'Completed Work' },
-		{ value: 'other', label: 'Other' }
+		{ value: 'change_order', label: 'Change Order Request' }
 	];
 
 	// --- Report Issue types ---
@@ -53,7 +48,7 @@
 	const deals = Array.isArray(data?.deals) ? data.deals : [];
 	const tradePartnerName = data?.tradePartner?.name || data?.tradePartner?.email || 'Trade Partner';
 	let selectedDealId = deals[0]?.id || '';
-	let reportType: ReportType = 'field_update';
+	let submissionType: SubmissionType = 'field_update';
 
 	const getDealLabel = (deal: any) => {
 		return (
@@ -69,11 +64,10 @@
 		);
 	};
 
-	// --- Field Update fields ---
-	let fuUpdateType = 'progress';
+	// --- Field Update / Materials / Schedule Change shared note ---
 	let fuNote = '';
 
-	// --- Daily Log fields ---
+	// --- Daily-log-style fields (shown under Field Update) ---
 	const today = new Date().toISOString().split('T')[0];
 	let dlLogDate = today;
 	let dlHoursWorked: number | '' = '';
@@ -88,6 +82,10 @@
 	let rpTitle = '';
 	let rpDescription = '';
 
+	// --- Change Order Request fields ---
+	let coScope = '';
+	let coCost: number | '' = '';
+
 	// --- Shared state ---
 	let photoUploadRef: PhotoUpload;
 	let submitting = false;
@@ -96,8 +94,7 @@
 
 	// --- Draft saving ---
 	type UnifiedDraft = {
-		reportType: ReportType;
-		fuUpdateType: string;
+		submissionType: SubmissionType;
 		fuNote: string;
 		dlLogDate: string;
 		dlHoursWorked: number | '';
@@ -109,6 +106,8 @@
 		rpSeverity: string;
 		rpTitle: string;
 		rpDescription: string;
+		coScope: string;
+		coCost: number | '';
 	};
 
 	let draft: DraftHandle<UnifiedDraft> | null = null;
@@ -117,23 +116,24 @@
 	let draftSavedAt = 0;
 
 	const getDraftData = (): UnifiedDraft => ({
-		reportType, fuUpdateType, fuNote,
+		submissionType, fuNote,
 		dlLogDate, dlHoursWorked, dlWorkCompleted, dlWorkPlanned, dlIssuesEncountered, dlWeatherDelay,
-		rpIssueType, rpSeverity, rpTitle, rpDescription
+		rpIssueType, rpSeverity, rpTitle, rpDescription,
+		coScope, coCost
 	});
 
 	const isDraftEmpty = (d: UnifiedDraft) => {
-		const fuEmpty = !d.fuNote.trim() && d.fuUpdateType === 'progress';
-		const dlEmpty = !d.dlWorkCompleted.trim() && !d.dlWorkPlanned.trim() && !d.dlIssuesEncountered.trim()
+		const fuEmpty = !d.fuNote.trim()
+			&& !d.dlWorkCompleted.trim() && !d.dlWorkPlanned.trim() && !d.dlIssuesEncountered.trim()
 			&& d.dlHoursWorked === '' && !d.dlWeatherDelay && d.dlLogDate === today;
 		const rpEmpty = !d.rpTitle.trim() && !d.rpDescription.trim()
 			&& d.rpIssueType === 'damaged_material' && d.rpSeverity === 'medium';
-		return fuEmpty && dlEmpty && rpEmpty && d.reportType === 'field_update';
+		const coEmpty = !d.coScope.trim() && d.coCost === '';
+		return fuEmpty && rpEmpty && coEmpty && d.submissionType === 'field_update';
 	};
 
 	const restoreDraft = (d: UnifiedDraft) => {
-		reportType = d.reportType;
-		fuUpdateType = d.fuUpdateType;
+		submissionType = d.submissionType;
 		fuNote = d.fuNote;
 		dlLogDate = d.dlLogDate;
 		dlHoursWorked = d.dlHoursWorked;
@@ -145,6 +145,8 @@
 		rpSeverity = d.rpSeverity;
 		rpTitle = d.rpTitle;
 		rpDescription = d.rpDescription;
+		coScope = d.coScope;
+		coCost = d.coCost;
 		draftRestorable = false;
 	};
 
@@ -181,7 +183,6 @@
 
 	// --- Submission ---
 	const resetForm = () => {
-		fuUpdateType = 'progress';
 		fuNote = '';
 		dlLogDate = today;
 		dlHoursWorked = '';
@@ -193,7 +194,20 @@
 		rpSeverity = 'medium';
 		rpTitle = '';
 		rpDescription = '';
+		coScope = '';
+		coCost = '';
 		photoUploadRef?.reset();
+	};
+
+	const buildFieldUpdateNote = () => {
+		const lines: string[] = [];
+		if (fuNote.trim()) lines.push(fuNote.trim());
+		if (dlHoursWorked !== '') lines.push(`Hours worked: ${dlHoursWorked}`);
+		if (dlWorkCompleted.trim()) lines.push(`Work completed: ${dlWorkCompleted.trim()}`);
+		if (dlWorkPlanned.trim()) lines.push(`Work planned: ${dlWorkPlanned.trim()}`);
+		if (dlIssuesEncountered.trim()) lines.push(`Issues / blockers: ${dlIssuesEncountered.trim()}`);
+		if (dlWeatherDelay) lines.push('Weather delayed work today.');
+		return lines.length > 0 ? lines.join('\n\n') : null;
 	};
 
 	const handleSubmit = async () => {
@@ -208,44 +222,105 @@
 
 		try {
 			const photoIds = photoUploadRef?.getPhotoIds() ?? [];
+			const photoIdsOrNull = photoIds.length > 0 ? photoIds : null;
 
-			if (reportType === 'field_update') {
+			if (submissionType === 'field_update') {
+				const note = buildFieldUpdateNote();
+				const fuRes = await fetch('/api/trade/field-updates', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						deal_id: selectedDealId,
+						update_type: 'progress',
+						note,
+						photo_ids: photoIdsOrNull
+					})
+				});
+				if (!fuRes.ok) {
+					const payload = await fuRes.json().catch(() => ({}));
+					throw new Error(payload?.error || `Request failed (${fuRes.status})`);
+				}
+
+				let dailyLogWarning = '';
+				try {
+					const dlRes = await fetch('/api/trade/daily-log', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							dealId: selectedDealId,
+							logDate: dlLogDate,
+							hoursWorked: dlHoursWorked === '' ? undefined : dlHoursWorked,
+							workCompleted: dlWorkCompleted,
+							workPlanned: dlWorkPlanned,
+							issuesEncountered: dlIssuesEncountered,
+							weatherDelay: dlWeatherDelay,
+							photoIds: photoIds.length > 0 ? photoIds : undefined
+						})
+					});
+					if (!dlRes.ok) {
+						const payload = await dlRes.json().catch(() => ({}));
+						dailyLogWarning = payload?.message || payload?.error || `Request failed (${dlRes.status})`;
+					}
+				} catch (dlErr) {
+					dailyLogWarning = dlErr instanceof Error ? dlErr.message : 'Daily-log record failed';
+				}
+
+				successMessage = dailyLogWarning
+					? `Field update submitted (office notified). Daily-log record failed: ${dailyLogWarning}`
+					: 'Field update submitted successfully!';
+			} else if (submissionType === 'materials' || submissionType === 'schedule_change') {
+				const updateType =
+					submissionType === 'materials' ? 'material_delivery' : 'schedule_change';
 				const res = await fetch('/api/trade/field-updates', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						deal_id: selectedDealId,
-						update_type: fuUpdateType,
+						update_type: updateType,
 						note: fuNote.trim() || null,
-						photo_ids: photoIds.length > 0 ? photoIds : null
+						photo_ids: photoIdsOrNull
 					})
 				});
 				if (!res.ok) {
 					const payload = await res.json().catch(() => ({}));
 					throw new Error(payload?.error || `Request failed (${res.status})`);
 				}
-				successMessage = 'Field update submitted successfully!';
-			} else if (reportType === 'daily_log') {
-				const res = await fetch('/api/trade/daily-log', {
+				successMessage =
+					submissionType === 'materials'
+						? 'Materials update submitted successfully!'
+						: 'Schedule change submitted successfully!';
+			} else if (submissionType === 'change_order') {
+				if (!coScope.trim()) {
+					errorMessage = 'Please describe the scope of the change.';
+					submitting = false;
+					return;
+				}
+				if (coCost === '' || !Number.isFinite(coCost) || (coCost as number) <= 0) {
+					errorMessage = 'Please enter an estimated cost greater than 0.';
+					submitting = false;
+					return;
+				}
+				const costFmt = (coCost as number).toLocaleString(undefined, {
+					minimumFractionDigits: 2,
+					maximumFractionDigits: 2
+				});
+				const note = `Scope: ${coScope.trim()}\n\nEstimated Cost: $${costFmt}`;
+				const res = await fetch('/api/trade/field-updates', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
-						dealId: selectedDealId,
-						logDate: dlLogDate,
-						hoursWorked: dlHoursWorked === '' ? undefined : dlHoursWorked,
-						workCompleted: dlWorkCompleted,
-						workPlanned: dlWorkPlanned,
-						issuesEncountered: dlIssuesEncountered,
-						weatherDelay: dlWeatherDelay,
-						photoIds: photoIds.length > 0 ? photoIds : undefined
+						deal_id: selectedDealId,
+						update_type: 'change_order',
+						note,
+						photo_ids: photoIdsOrNull
 					})
 				});
 				if (!res.ok) {
 					const payload = await res.json().catch(() => ({}));
-					throw new Error(payload?.message || payload?.error || `Request failed (${res.status})`);
+					throw new Error(payload?.error || `Request failed (${res.status})`);
 				}
-				successMessage = 'Daily log submitted successfully!';
-			} else if (reportType === 'report_problem') {
+				successMessage = 'Change order request submitted successfully!';
+			} else if (submissionType === 'report_problem') {
 				if (!rpTitle.trim()) {
 					errorMessage = 'Please enter a title for the issue.';
 					submitting = false;
@@ -280,15 +355,25 @@
 		}
 	};
 
-	$: submitLabel = reportType === 'field_update'
-		? 'Submit Update'
-		: reportType === 'daily_log'
-			? 'Submit Daily Log'
-			: 'Submit Issue';
+	const SUBMIT_LABELS: Record<SubmissionType, string> = {
+		field_update: 'Submit Update',
+		report_problem: 'Submit Issue',
+		materials: 'Submit Materials Note',
+		schedule_change: 'Submit Schedule Change',
+		change_order: 'Submit Change Order'
+	};
+
+	$: submitLabel = SUBMIT_LABELS[submissionType];
 
 	$: canSubmit = (() => {
 		if (!selectedDealId) return false;
-		if (reportType === 'report_problem' && !rpTitle.trim()) return false;
+		if (submissionType === 'report_problem' && !rpTitle.trim()) return false;
+		if (
+			submissionType === 'change_order' &&
+			(!coScope.trim() || coCost === '' || !Number.isFinite(coCost) || (coCost as number) <= 0)
+		) {
+			return false;
+		}
 		return true;
 	})();
 
@@ -322,10 +407,10 @@
 
 		<div class="card form-card">
 			<div class="form-field">
-				<label for="report-type">Report Type</label>
-				<select id="report-type" bind:value={reportType}>
-					{#each REPORT_TYPES as rt}
-						<option value={rt.value}>{rt.label}</option>
+				<label for="submission-type">Type</label>
+				<select id="submission-type" bind:value={submissionType}>
+					{#each SUBMISSION_TYPES as st}
+						<option value={st.value}>{st.label}</option>
 					{/each}
 				</select>
 			</div>
@@ -348,26 +433,7 @@
 			{/if}
 
 			<form on:submit|preventDefault={handleSubmit}>
-				{#if reportType === 'field_update'}
-					<div class="form-field">
-						<label for="update-type">Update Type</label>
-						<select id="update-type" bind:value={fuUpdateType}>
-							{#each UPDATE_TYPES as opt}
-								<option value={opt.value}>{opt.label}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="form-field">
-						<label for="update-note">Note</label>
-						<textarea
-							id="update-note"
-							bind:value={fuNote}
-							rows="4"
-							placeholder="Describe the update..."
-						></textarea>
-					</div>
-				{:else if reportType === 'daily_log'}
+				{#if submissionType === 'field_update'}
 					<div class="form-field">
 						<label for="log-date">Date</label>
 						<input id="log-date" type="date" bind:value={dlLogDate} required />
@@ -419,7 +485,61 @@
 							Weather delayed work today
 						</label>
 					</div>
-				{:else if reportType === 'report_problem'}
+
+					<div class="form-field">
+						<label for="update-note">Additional Note</label>
+						<textarea
+							id="update-note"
+							bind:value={fuNote}
+							rows="3"
+							placeholder="Anything else the office should know? (optional)"
+						></textarea>
+					</div>
+				{:else if submissionType === 'materials'}
+					<div class="form-field">
+						<label for="materials-note">Note</label>
+						<textarea
+							id="materials-note"
+							bind:value={fuNote}
+							rows="4"
+							placeholder="Materials delivered, expected, or short — describe here..."
+						></textarea>
+					</div>
+				{:else if submissionType === 'schedule_change'}
+					<div class="form-field">
+						<label for="schedule-note">Note</label>
+						<textarea
+							id="schedule-note"
+							bind:value={fuNote}
+							rows="4"
+							placeholder="Describe the schedule change (new dates, reason, impact)..."
+						></textarea>
+					</div>
+				{:else if submissionType === 'change_order'}
+					<div class="form-field">
+						<label for="co-scope">Scope</label>
+						<textarea
+							id="co-scope"
+							bind:value={coScope}
+							rows="4"
+							placeholder="Describe the scope of the change..."
+							required
+						></textarea>
+					</div>
+
+					<div class="form-field">
+						<label for="co-cost">Estimated Cost ($)</label>
+						<input
+							id="co-cost"
+							type="number"
+							step="0.01"
+							min="0"
+							bind:value={coCost}
+							placeholder="e.g. 450.00"
+							required
+						/>
+					</div>
+				{:else if submissionType === 'report_problem'}
 					<div class="form-field">
 						<label for="issue-type">Issue Type</label>
 						<select id="issue-type" bind:value={rpIssueType}>
