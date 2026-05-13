@@ -188,12 +188,15 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		if (Array.isArray(photoIds) && photoIds.length > 0) {
 			cliqLines.push('', `_${photoIds.length} attachment${photoIds.length === 1 ? '' : 's'} uploaded._`);
 		}
-		try {
-			await postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, {
-				text: cliqLines.join('\n')
-			});
-		} catch (err) {
-			console.error('[client/change-orders] Cliq post failed (non-fatal):', err);
+		const cliqResult = await postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, {
+			text: cliqLines.join('\n')
+		});
+		if (!cliqResult.ok) {
+			console.error(
+				`[client/change-orders] Cliq post failed (${cliqResult.via}):`,
+				cliqResult.status,
+				cliqResult.error
+			);
 		}
 
 		// ── Step B: Books estimate (quote) draft ────────────────────────────────
@@ -283,7 +286,15 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 					...(created || {}),
 					zoho_record_id: zohoRecordId,
 					books_estimate_id: booksEstimateId,
-					books_skipped_reason: booksSkippedReason
+					books_skipped_reason: booksSkippedReason,
+					cliq: cliqResult.ok
+						? { ok: true, via: cliqResult.via }
+						: {
+								ok: false,
+								via: cliqResult.via,
+								status: cliqResult.status ?? null,
+								error: cliqResult.error
+							}
 				}
 			},
 			{ status: 201 }

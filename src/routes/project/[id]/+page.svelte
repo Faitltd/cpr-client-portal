@@ -101,11 +101,20 @@
 				return;
 			}
 			coSuccess = 'Change order request submitted. The office team has been notified.';
+			const warningParts: string[] = [];
 			if (payload?.data?.books_skipped_reason) {
-				coBooksWarning =
+				warningParts.push(
 					payload.data.books_skipped_reason === 'no_customer'
-						? 'Note: a draft quote was not auto-created (no Books contact on file). The office will set this up manually.'
-						: 'Note: a draft quote was not auto-created. The office will set this up manually.';
+						? 'A draft quote was not auto-created (no Books contact on file).'
+						: 'A draft quote was not auto-created.'
+				);
+			}
+			if (payload?.data?.cliq && payload.data.cliq.ok === false) {
+				const cliqErr = payload.data.cliq.error || `HTTP ${payload.data.cliq.status ?? '?'}`;
+				warningParts.push(`Direct Cliq post failed: ${cliqErr}`);
+			}
+			if (warningParts.length > 0) {
+				coBooksWarning = `Note: ${warningParts.join(' ')} The office will follow up manually.`;
 			}
 			coNote = '';
 			coPhotoUploadRef?.reset();
