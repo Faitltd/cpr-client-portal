@@ -3,18 +3,22 @@ import { env } from '$env/dynamic/private';
 const DEFAULT_CLIQ_BASE = 'https://cliq.zoho.com/api/v2';
 const CLIQ_TIMEOUT_MS = 10_000;
 
+export type CliqPostVia = 'rest_chat' | 'rest_channel' | 'webhook';
 export type CliqPostResult =
-	| { ok: true; via: 'rest' | 'webhook'; response?: any }
-	| { ok: false; via: 'rest' | 'webhook'; status?: number; error: string };
+	| { ok: true; via: CliqPostVia; response?: any }
+	| { ok: false; via: CliqPostVia; status?: number; error: string };
 
 function getCliqBase() {
 	return (env.ZOHO_CLIQ_API_BASE || DEFAULT_CLIQ_BASE).replace(/\/$/, '');
 }
 
 /**
- * Post a plain-text message to a Zoho Cliq chat/channel via REST.
- * Uses {base}/chats/{chat_id}/message (works for chats and channel chats).
- * Requires OAuth scope ZohoCliq.Messages.CREATE.
+ * Post a plain-text message to a Zoho Cliq chat by chat ID.
+ *   POST {base}/chats/{chat_id}/message
+ * Requires scope: ZohoCliq.Messages.CREATE
+ *
+ * NOTE: This uses the *chat* ID (e.g. CT_1424...), NOT the channel ID
+ * (e.g. O5797...). They are different identifiers in Cliq.
  */
 export async function postCliqChatViaRest(
 	accessToken: string,
@@ -38,18 +42,60 @@ export async function postCliqChatViaRest(
 			const errorText = await response.text().catch(() => '');
 			return {
 				ok: false,
-				via: 'rest',
+				via: 'rest_chat',
 				status: response.status,
 				error: errorText || `HTTP ${response.status}`
 			};
 		}
-
 		const body = await response.json().catch(() => null);
-		return { ok: true, via: 'rest', response: body };
+		return { ok: true, via: 'rest_chat', response: body };
 	} catch (err) {
 		return {
 			ok: false,
-			via: 'rest',
+			via: 'rest_chat',
+			error: err instanceof Error ? err.message : String(err)
+		};
+	}
+}
+
+/**
+ * Post a plain-text message to a Zoho Cliq *channel* by its unique name.
+ *   POST {base}/channelsbyname/{name}/message
+ * Requires scope: ZohoCliq.Channels.MESSAGE or ZohoCliq.Messages.CREATE (varies by Zoho doc revision).
+ */
+export async function postCliqChannelByName(
+	accessToken: string,
+	channelName: string,
+	message: { text: string }
+): Promise<CliqPostResult> {
+	const base = getCliqBase();
+	const url = `${base}/channelsbyname/${encodeURIComponent(channelName)}/message`;
+	try {
+		const response = await fetch(url, {
+			method: 'POST',
+			headers: {
+				Authorization: `Zoho-oauthtoken ${accessToken}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify(message),
+			signal: AbortSignal.timeout(CLIQ_TIMEOUT_MS)
+		});
+
+		if (!response.ok) {
+			const errorText = await response.text().catch(() => '');
+			return {
+				ok: false,
+				via: 'rest_channel',
+				status: response.status,
+				error: errorText || `HTTP ${response.status}`
+			};
+		}
+		const body = await response.json().catch(() => null);
+		return { ok: true, via: 'rest_channel', response: body };
+	} catch (err) {
+		return {
+			ok: false,
+			via: 'rest_channel',
 			error: err instanceof Error ? err.message : String(err)
 		};
 	}
@@ -58,7 +104,6 @@ export async function postCliqChatViaRest(
 /**
  * Post a plain-text message to a Zoho Cliq incoming webhook URL.
  * Does NOT need OAuth — the webhook URL itself authorizes the post.
- * Cliq incoming webhooks accept { text: "..." } in the body.
  */
 export async function postCliqChatViaWebhook(
 	webhookUrl: string,
@@ -81,7 +126,6 @@ export async function postCliqChatViaWebhook(
 				error: errorText || `HTTP ${response.status}`
 			};
 		}
-
 		const body = await response.json().catch(() => null);
 		return { ok: true, via: 'webhook', response: body };
 	} catch (err) {
@@ -94,11 +138,13 @@ export async function postCliqChatViaWebhook(
 }
 
 /**
- * Try the webhook first if one is configured (no OAuth dependency); otherwise
- * fall back to the REST API call using the supplied access token.
+ * Default Cliq post — tries the best available channel for the configuration:
+ *   1. If ZOHO_CLIQ_CO_WEBHOOK_URL is set → use it (no OAuth needed)
+ *   2. Else if ZOHO_CLIQ_CO_CHANNEL_NAME is set → use channelsbyname endpoint
+ *   3. Else fall back to the chat-ID endpoint with the supplied chatId
  *
- * Returns a structured result rather than throwing, so callers can include
- * the outcome in their response payload for debugging.
+ * Returns a structured result so callers can include the outcome in their
+ * response payload.
  */
 export async function postCliqChatMessage(
 	accessToken: string,
@@ -111,5 +157,11 @@ export async function postCliqChatMessage(
 		if (result.ok) return result;
 		console.warn('[cliq] webhook post failed, falling back to REST:', result.error);
 	}
+
+	const channelName = env.ZOHO_CLIQ_CO_CHANNEL_NAME;
+	if (channelName) {
+		return postCliqChannelByName(accessToken, channelName, message);
+	}
+
 	return postCliqChatViaRest(accessToken, chatId, message);
 }
