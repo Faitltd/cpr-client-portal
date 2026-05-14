@@ -21,23 +21,28 @@ async function isDealAuthorizedForTradePartner(
 	return dealList.some((deal: any) => String(deal?.id || '') === dealId);
 }
 
-async function fetchDealName(
+async function fetchDealMeta(
 	accessToken: string,
 	apiDomain: string | undefined,
 	dealId: string
-): Promise<string | null> {
+): Promise<{ dealName: string | null; cliqChannel: string | null }> {
 	try {
 		const response = await zohoApiCall(
 			accessToken,
-			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name`,
+			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Cliq_Channel`,
 			{},
 			apiDomain
 		);
-		const name = response?.data?.[0]?.Deal_Name;
-		return typeof name === 'string' && name.trim() ? name.trim() : null;
+		const record = response?.data?.[0] ?? {};
+		const name = typeof record.Deal_Name === 'string' ? record.Deal_Name.trim() : '';
+		const channel = typeof record.Cliq_Channel === 'string' ? record.Cliq_Channel.trim() : '';
+		return {
+			dealName: name || null,
+			cliqChannel: channel || null
+		};
 	} catch (err) {
-		console.warn('[trade/field-updates] Failed to fetch deal name:', err);
-		return null;
+		console.warn('[trade/field-updates] Failed to fetch deal meta:', err);
+		return { dealName: null, cliqChannel: null };
 	}
 }
 
@@ -139,7 +144,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			error: 'not attempted'
 		};
 		try {
-			const dealName = await fetchDealName(accessToken, apiDomain, dealId);
+			const { dealName, cliqChannel } = await fetchDealMeta(accessToken, apiDomain, dealId);
 			const cliqResult = await postFieldUpdateNotification({
 				accessToken,
 				updateType,
@@ -150,6 +155,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				submitterRole: 'trade',
 				note,
 				photoIds: Array.isArray(photoIds) ? photoIds : null,
+				dealChannelName: cliqChannel,
 				crmRecordUrl: buildCrmRecordUrl(ZOHO_FIELD_UPDATES_MODULE, zohoRecordId)
 			});
 			if (cliqResult.ok) {
