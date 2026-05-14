@@ -1,10 +1,32 @@
 import { env } from '$env/dynamic/private';
 import { supabase } from '$lib/server/db';
-import { postCliqChatMessage, type CliqMessage, type CliqPostResult } from '$lib/server/cliq';
+import {
+	postCliqChatMessage,
+	postCliqChatViaWebhook,
+	type CliqMessage,
+	type CliqPostResult
+} from '$lib/server/cliq';
 import { isVideoPath, UPDATE_TYPE_LABELS } from '$lib/server/zoho-field-updates';
 
 const SIGNED_URL_TTL_SEC = 60 * 60 * 24 * 7; // 7 days — Cliq fetches the image at post time
 const CLIQ_CO_CHAT_ID = env.ZOHO_CLIQ_CO_CHAT_ID || 'O5797744000003118001';
+
+/**
+ * Pick the Cliq webhook URL based on the update_type. Allows us to route
+ * Change Order Requests to a different channel (#Change Orders) than the
+ * day-to-day Field Updates / Materials / Schedule Change / Report a Problem
+ * (#Field Update).
+ *
+ * Env vars (any can be unset; we fall back to the other one):
+ *   - ZOHO_CLIQ_CO_WEBHOOK_URL          → change_order
+ *   - ZOHO_CLIQ_FIELD_UPDATE_WEBHOOK_URL → everything else
+ */
+function pickWebhookForUpdateType(updateType: string): string | undefined {
+	if (updateType === 'change_order') {
+		return env.ZOHO_CLIQ_CO_WEBHOOK_URL || env.ZOHO_CLIQ_FIELD_UPDATE_WEBHOOK_URL;
+	}
+	return env.ZOHO_CLIQ_FIELD_UPDATE_WEBHOOK_URL || env.ZOHO_CLIQ_CO_WEBHOOK_URL;
+}
 
 /**
  * Emoji prefix for each update_type — kept in one place so the Cliq messages
@@ -151,5 +173,13 @@ export async function postFieldUpdateNotification(
 		];
 	}
 
+	// Route to the channel that matches the update type — bypasses
+	// postCliqChatMessage's env-var lookup so we can target a specific webhook.
+	const webhookUrl = pickWebhookForUpdateType(updateType);
+	if (webhookUrl) {
+		return postCliqChatViaWebhook(webhookUrl, message);
+	}
+
+	// No webhook env vars configured at all — fall back to the OAuth REST path.
 	return postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, message);
 }
