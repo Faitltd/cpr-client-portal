@@ -128,6 +128,15 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		// Direct Cliq post with inline images. Runs alongside the existing CRM
 		// workflow's Cliq card; once the workflow is disabled on the Zoho side,
 		// this becomes the sole Cliq notification path.
+		let cliqDiag:
+			| { ok: true; via: string }
+			| { ok: false; via: string; status: number | null; error: string }
+			| { ok: false; via: 'threw'; error: string } = {
+			ok: false,
+			via: 'unsent',
+			status: null,
+			error: 'not attempted'
+		};
 		try {
 			const dealName = await fetchDealName(accessToken, apiDomain, dealId);
 			const cliqResult = await postFieldUpdateNotification({
@@ -141,7 +150,15 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				note,
 				photoIds: Array.isArray(photoIds) ? photoIds : null
 			});
-			if (!cliqResult.ok) {
+			if (cliqResult.ok) {
+				cliqDiag = { ok: true, via: cliqResult.via };
+			} else {
+				cliqDiag = {
+					ok: false,
+					via: cliqResult.via,
+					status: cliqResult.status ?? null,
+					error: cliqResult.error
+				};
 				console.error(
 					`[trade/field-updates] Cliq post failed (${cliqResult.via}):`,
 					cliqResult.status,
@@ -149,6 +166,11 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				);
 			}
 		} catch (cliqErr) {
+			cliqDiag = {
+				ok: false,
+				via: 'threw',
+				error: cliqErr instanceof Error ? cliqErr.message : String(cliqErr)
+			};
 			console.error('[trade/field-updates] Cliq notification threw:', cliqErr);
 		}
 
@@ -158,7 +180,14 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		}
 
 		return json(
-			{ data: { ...(created || {}), photo_urls, zoho_record_id: zohoRecordId } },
+			{
+				data: {
+					...(created || {}),
+					photo_urls,
+					zoho_record_id: zohoRecordId,
+					cliq: cliqDiag
+				}
+			},
 			{ status: 201 }
 		);
 	} catch (err) {
