@@ -1,11 +1,14 @@
 import { json } from '@sveltejs/kit';
 import { createFieldUpdate, getTradeSession } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
+import { zohoApiCall } from '$lib/server/zoho';
 import {
 	VALID_UPDATE_TYPES,
 	createCrmFieldUpdate,
-	getAccessTokenAndDomain
+	getAccessTokenAndDomain,
+	pickSubmitterDisplayName
 } from '$lib/server/zoho-field-updates';
+import { postFieldUpdateNotification } from '$lib/server/cliq-notifications';
 import type { RequestHandler } from './$types';
 
 async function isDealAuthorizedForTradePartner(
@@ -15,6 +18,26 @@ async function isDealAuthorizedForTradePartner(
 ) {
 	const dealList = await getTradePartnerDeals(accessToken, zohoTradePartnerId);
 	return dealList.some((deal: any) => String(deal?.id || '') === dealId);
+}
+
+async function fetchDealName(
+	accessToken: string,
+	apiDomain: string | undefined,
+	dealId: string
+): Promise<string | null> {
+	try {
+		const response = await zohoApiCall(
+			accessToken,
+			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name`,
+			{},
+			apiDomain
+		);
+		const name = response?.data?.[0]?.Deal_Name;
+		return typeof name === 'string' && name.trim() ? name.trim() : null;
+	} catch (err) {
+		console.warn('[trade/field-updates] Failed to fetch deal name:', err);
+		return null;
+	}
 }
 
 export const POST: RequestHandler = async ({ cookies, request }) => {
@@ -100,6 +123,33 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			});
 		} catch (supaErr) {
 			console.error('Supabase backup write failed (Zoho record saved):', supaErr);
+		}
+
+		// Direct Cliq post with inline images. Runs alongside the existing CRM
+		// workflow's Cliq card; once the workflow is disabled on the Zoho side,
+		// this becomes the sole Cliq notification path.
+		try {
+			const dealName = await fetchDealName(accessToken, apiDomain, dealId);
+			const cliqResult = await postFieldUpdateNotification({
+				accessToken,
+				updateType,
+				dealName,
+				dealId,
+				submitterName: pickSubmitterDisplayName(session.trade_partner),
+				submitterEmail: session.trade_partner?.email ?? null,
+				submitterRole: 'trade',
+				note,
+				photoIds: Array.isArray(photoIds) ? photoIds : null
+			});
+			if (!cliqResult.ok) {
+				console.error(
+					`[trade/field-updates] Cliq post failed (${cliqResult.via}):`,
+					cliqResult.status,
+					cliqResult.error
+				);
+			}
+		} catch (cliqErr) {
+			console.error('[trade/field-updates] Cliq notification threw:', cliqErr);
 		}
 
 		let photo_urls: string[] | null = null;
