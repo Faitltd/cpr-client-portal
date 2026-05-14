@@ -8,7 +8,7 @@ import {
 	getAccessTokenAndDomain,
 	pickSubmitterDisplayName
 } from '$lib/server/zoho-field-updates';
-import { buildCrmRecordUrl, postFieldUpdateNotification } from '$lib/server/cliq-notifications';
+import { buildCrmRecordUrl, parseCliqChannelUrl, postFieldUpdateNotification } from '$lib/server/cliq-notifications';
 import { ZOHO_FIELD_UPDATES_MODULE } from '$lib/server/zoho-field-updates';
 import type { RequestHandler } from './$types';
 
@@ -29,13 +29,22 @@ async function fetchDealMeta(
 	try {
 		const response = await zohoApiCall(
 			accessToken,
-			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Cliq_Channel`,
+			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Cliq_Internal_Channel_ID,Cliq_Channel`,
 			{},
 			apiDomain
 		);
 		const record = response?.data?.[0] ?? {};
 		const name = typeof record.Deal_Name === 'string' ? record.Deal_Name.trim() : '';
-		const channel = typeof record.Cliq_Channel === 'string' ? record.Cliq_Channel.trim() : '';
+		// Prefer Cliq_Internal_Channel_ID (Guikema URL format, populated by the
+		// Lead-Qualified function in CRM). Fall back to legacy Cliq_Channel
+		// field (raw channel name, populated by the older WD-Folder function).
+		const internalUrl =
+			typeof record.Cliq_Internal_Channel_ID === 'string'
+				? record.Cliq_Internal_Channel_ID.trim()
+				: '';
+		const legacyChannel =
+			typeof record.Cliq_Channel === 'string' ? record.Cliq_Channel.trim() : '';
+		const channel = parseCliqChannelUrl(internalUrl) ?? legacyChannel;
 		return {
 			dealName: name || null,
 			cliqChannel: channel || null
