@@ -54,9 +54,38 @@ export interface FieldUpdateCliqNotification {
 	submitterRole: 'client' | 'trade';
 	note: string | null;
 	photoIds: string[] | null;
+	/**
+	 * If set, override the channel name segment in the picked webhook URL so
+	 * the message lands in the deal's per-project Cliq channel instead of the
+	 * shared #Change Orders / #Field Update channel. Pass the value of the
+	 * Deal's Cliq_Channel field (e.g. "cpr-client-mark-guikema"). Leave
+	 * undefined to use the shared channels.
+	 */
+	dealChannelName?: string | null;
 	/** Optional links — included beneath the message if provided */
 	booksUrl?: string | null;
 	crmRecordUrl?: string | null;
+}
+
+/**
+ * Given a webhook URL of the form
+ *   https://cliq.zoho.com/.../channelsbyname/{name}/message?zapikey=...
+ * replace the {name} segment with the supplied channelName, preserving the
+ * rest of the URL (host, version path, query string). Returns the original
+ * URL unchanged if the path doesn't match the expected shape.
+ */
+function rewriteWebhookForChannel(webhookUrl: string, channelName: string): string {
+	try {
+		const url = new URL(webhookUrl);
+		const parts = url.pathname.split('/');
+		const idx = parts.indexOf('channelsbyname');
+		if (idx === -1 || idx + 1 >= parts.length) return webhookUrl;
+		parts[idx + 1] = encodeURIComponent(channelName);
+		url.pathname = parts.join('/');
+		return url.toString();
+	} catch {
+		return webhookUrl;
+	}
 }
 
 /**
@@ -98,6 +127,7 @@ export async function postFieldUpdateNotification(
 		submitterRole,
 		note,
 		photoIds,
+		dealChannelName,
 		booksUrl,
 		crmRecordUrl
 	} = opts;
@@ -187,8 +217,17 @@ export async function postFieldUpdateNotification(
 
 	// Route to the channel that matches the update type — bypasses
 	// postCliqChatMessage's env-var lookup so we can target a specific webhook.
-	const webhookUrl = pickWebhookForUpdateType(updateType);
+	let webhookUrl = pickWebhookForUpdateType(updateType);
 	if (webhookUrl) {
+		// If the Deal has a Cliq_Channel value, swap the channel name segment
+		// of the URL with the per-deal channel so the message lands there
+		// instead of the shared #Change Orders / #Field Update channel.
+		// The zapikey is user-level and authorizes posting to any channel in
+		// the org, so the same token works for per-deal channels too.
+		const trimmedDealChannel = (dealChannelName || '').trim();
+		if (trimmedDealChannel) {
+			webhookUrl = rewriteWebhookForChannel(webhookUrl, trimmedDealChannel);
+		}
 		return postCliqChatViaWebhook(webhookUrl, message);
 	}
 

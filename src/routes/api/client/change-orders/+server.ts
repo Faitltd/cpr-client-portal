@@ -45,19 +45,28 @@ function formatTimestampForReference(now = new Date()) {
 	return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
 }
 
-async function fetchDealName(accessToken: string, apiDomain: string | undefined, dealId: string) {
+async function fetchDealMeta(
+	accessToken: string,
+	apiDomain: string | undefined,
+	dealId: string
+): Promise<{ dealName: string | null; cliqChannel: string | null }> {
 	try {
 		const response = await zohoApiCall(
 			accessToken,
-			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name`,
+			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Cliq_Channel`,
 			{},
 			apiDomain
 		);
-		const name = response?.data?.[0]?.Deal_Name;
-		return typeof name === 'string' && name.trim() ? name.trim() : null;
+		const record = response?.data?.[0] ?? {};
+		const name = typeof record.Deal_Name === 'string' ? record.Deal_Name.trim() : '';
+		const channel = typeof record.Cliq_Channel === 'string' ? record.Cliq_Channel.trim() : '';
+		return {
+			dealName: name || null,
+			cliqChannel: channel || null
+		};
 	} catch (err) {
-		console.warn('[client/change-orders] Failed to fetch deal name:', err);
-		return null;
+		console.warn('[client/change-orders] Failed to fetch deal meta:', err);
+		return { dealName: null, cliqChannel: null };
 	}
 }
 
@@ -138,7 +147,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 		}
 
 		const { accessToken, apiDomain } = await getAccessTokenAndDomain();
-		const dealName = await fetchDealName(accessToken, apiDomain, dealId);
+		const { dealName, cliqChannel } = await fetchDealMeta(accessToken, apiDomain, dealId);
 
 		// ── Step A: write Field_Updates record → triggers Cliq workflow ────────
 		let zohoRecordId: string | null = null;
@@ -273,6 +282,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			submitterRole: 'client',
 			note,
 			photoIds: Array.isArray(photoIds) ? photoIds : null,
+			dealChannelName: cliqChannel,
 			booksUrl,
 			crmRecordUrl: buildCrmRecordUrl(ZOHO_FIELD_UPDATES_MODULE, zohoRecordId)
 		});
