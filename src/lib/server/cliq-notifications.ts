@@ -68,6 +68,29 @@ export interface FieldUpdateCliqNotification {
 }
 
 /**
+ * Parse a Cliq channel URL of the form
+ *   https://cliq.zoho.com/company/{org_id}/channels/{unique_name}
+ * and return the {unique_name} segment. Returns null if the URL is empty,
+ * not a Cliq URL, or doesn't match the expected shape.
+ *
+ * Written for the new `Cliq_Internal_Channel_ID` field on Deals which stores
+ * the channel as a full URL (Guikema format).
+ */
+export function parseCliqChannelUrl(url: string | null | undefined): string | null {
+	if (!url) return null;
+	try {
+		const parsed = new URL(url);
+		const parts = parsed.pathname.split('/').filter(Boolean);
+		const idx = parts.indexOf('channels');
+		if (idx === -1 || idx + 1 >= parts.length) return null;
+		const slug = parts[idx + 1];
+		return slug || null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Given a webhook URL of the form
  *   https://cliq.zoho.com/.../channelsbyname/{name}/message?zapikey=...
  * replace the {name} segment with the supplied channelName, preserving the
