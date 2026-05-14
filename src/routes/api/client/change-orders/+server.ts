@@ -270,19 +270,60 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			'',
 			note
 		];
+		// Build image gallery for Cliq — Supabase signed URLs (7 days, generous
+		// since Cliq fetches the image at post time and stores its own copy).
+		const SIGNED_URL_TTL_SEC = 60 * 60 * 24 * 7;
+		const imagePaths = Array.isArray(photoIds)
+			? photoIds.filter((p) => !isVideoPath(p))
+			: [];
+		const videoCount = Array.isArray(photoIds)
+			? photoIds.filter((p) => isVideoPath(p)).length
+			: 0;
+		const signedImageUrls: string[] = [];
+		for (const path of imagePaths) {
+			try {
+				const { data, error } = await supabase.storage
+					.from('trade-photos')
+					.createSignedUrl(path, SIGNED_URL_TTL_SEC);
+				if (error || !data?.signedUrl) {
+					console.warn(`[client/change-orders] signed URL failed for ${path}:`, error?.message);
+					continue;
+				}
+				signedImageUrls.push(data.signedUrl);
+			} catch (err) {
+				console.warn(`[client/change-orders] signed URL exception for ${path}:`, err);
+			}
+		}
+
 		if (Array.isArray(photoIds) && photoIds.length > 0) {
-			const label = `${photoIds.length} attachment${photoIds.length === 1 ? '' : 's'}`;
+			const photoCount = photoIds.length;
+			const label = `${photoCount} attachment${photoCount === 1 ? '' : 's'}`;
 			if (booksUrl) {
 				cliqLines.push('', `📎 ${label} — [view on the draft quote](${booksUrl})`);
 			} else {
 				cliqLines.push('', `📎 ${label} uploaded (no draft quote — office to follow up manually).`);
 			}
+			if (videoCount > 0) {
+				cliqLines.push(`_(${videoCount} video${videoCount === 1 ? '' : 's'} not previewed inline — see attachments.)_`);
+			}
 		} else if (booksUrl) {
 			cliqLines.push('', `[Open the draft quote in Books](${booksUrl})`);
 		}
-		const cliqResult = await postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, {
+
+		const cliqMessage: Parameters<typeof postCliqChatMessage>[2] = {
 			text: cliqLines.join('\n')
-		});
+		};
+		if (signedImageUrls.length > 0) {
+			cliqMessage.slides = [
+				{
+					type: 'images',
+					title: signedImageUrls.length === 1 ? 'Attachment' : `Attachments (${signedImageUrls.length})`,
+					data: signedImageUrls
+				}
+			];
+		}
+
+		const cliqResult = await postCliqChatMessage(accessToken, CLIQ_CO_CHAT_ID, cliqMessage);
 		if (!cliqResult.ok) {
 			console.error(
 				`[client/change-orders] Cliq post failed (${cliqResult.via}):`,

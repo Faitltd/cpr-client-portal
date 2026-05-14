@@ -8,12 +8,31 @@ export type CliqPostResult =
 	| { ok: true; via: CliqPostVia; response?: any }
 	| { ok: false; via: CliqPostVia; status?: number; error: string };
 
+/**
+ * Cliq message payload. `text` is required; everything else is optional
+ * rich-content (slides, card, bot identity).
+ *
+ * Slides with type='images' embed inline image galleries into the channel.
+ * Each URL in `data` must be publicly fetchable at post time — Cliq pulls
+ * the image server-side when delivering the message.
+ */
+export interface CliqMessage {
+	text: string;
+	slides?: Array<
+		| { type: 'images'; title?: string; data: string[] }
+		| { type: 'video'; title?: string; data: string }
+		| { type: 'label'; title?: string; data: Record<string, string> }
+	>;
+	card?: { title?: string; thumbnail?: string; theme?: string };
+	bot?: { name?: string; image?: string };
+}
+
 function getCliqBase() {
 	return (env.ZOHO_CLIQ_API_BASE || DEFAULT_CLIQ_BASE).replace(/\/$/, '');
 }
 
 /**
- * Post a plain-text message to a Zoho Cliq chat by chat ID.
+ * Post a message to a Zoho Cliq chat by chat ID.
  *   POST {base}/chats/{chat_id}/message
  * Requires scope: ZohoCliq.Messages.CREATE
  *
@@ -23,7 +42,7 @@ function getCliqBase() {
 export async function postCliqChatViaRest(
 	accessToken: string,
 	chatId: string,
-	message: { text: string }
+	message: CliqMessage
 ): Promise<CliqPostResult> {
 	const base = getCliqBase();
 	const url = `${base}/chats/${encodeURIComponent(chatId)}/message`;
@@ -59,14 +78,13 @@ export async function postCliqChatViaRest(
 }
 
 /**
- * Post a plain-text message to a Zoho Cliq *channel* by its unique name.
+ * Post a message to a Zoho Cliq *channel* by its unique name.
  *   POST {base}/channelsbyname/{name}/message
- * Requires scope: ZohoCliq.Channels.MESSAGE or ZohoCliq.Messages.CREATE (varies by Zoho doc revision).
  */
 export async function postCliqChannelByName(
 	accessToken: string,
 	channelName: string,
-	message: { text: string }
+	message: CliqMessage
 ): Promise<CliqPostResult> {
 	const base = getCliqBase();
 	const url = `${base}/channelsbyname/${encodeURIComponent(channelName)}/message`;
@@ -102,12 +120,11 @@ export async function postCliqChannelByName(
 }
 
 /**
- * Post a plain-text message to a Zoho Cliq incoming webhook URL.
- * Does NOT need OAuth — the webhook URL itself authorizes the post.
+ * Post to a Zoho Cliq incoming webhook URL — does NOT need OAuth.
  */
 export async function postCliqChatViaWebhook(
 	webhookUrl: string,
-	message: { text: string }
+	message: CliqMessage
 ): Promise<CliqPostResult> {
 	try {
 		const response = await fetch(webhookUrl, {
@@ -138,18 +155,15 @@ export async function postCliqChatViaWebhook(
 }
 
 /**
- * Default Cliq post — tries the best available channel for the configuration:
- *   1. If ZOHO_CLIQ_CO_WEBHOOK_URL is set → use it (no OAuth needed)
- *   2. Else if ZOHO_CLIQ_CO_CHANNEL_NAME is set → use channelsbyname endpoint
- *   3. Else fall back to the chat-ID endpoint with the supplied chatId
- *
- * Returns a structured result so callers can include the outcome in their
- * response payload.
+ * Default Cliq post — picks the best available channel for the config:
+ *   1. ZOHO_CLIQ_CO_WEBHOOK_URL → webhook
+ *   2. ZOHO_CLIQ_CO_CHANNEL_NAME → channelsbyname
+ *   3. fall back to chats/{chatId}/message
  */
 export async function postCliqChatMessage(
 	accessToken: string,
 	chatId: string,
-	message: { text: string }
+	message: CliqMessage
 ): Promise<CliqPostResult> {
 	const webhook = env.ZOHO_CLIQ_CO_WEBHOOK_URL;
 	if (webhook) {
