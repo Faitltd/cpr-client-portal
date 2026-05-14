@@ -11,14 +11,15 @@ import { zohoApiCall } from '$lib/server/zoho';
 import {
 	createCrmFieldUpdate,
 	getAccessTokenAndDomain,
-	isVideoPath
+	isVideoPath,
+	ZOHO_FIELD_UPDATES_MODULE
 } from '$lib/server/zoho-field-updates';
 import {
 	attachFileToBooksEstimate,
 	createBooksEstimateDraft,
 	getBooksCustomerByEmail
 } from '$lib/server/books';
-import { postFieldUpdateNotification } from '$lib/server/cliq-notifications';
+import { buildCrmRecordUrl, postFieldUpdateNotification } from '$lib/server/cliq-notifications';
 import type { RequestHandler } from './$types';
 
 const FILE_MIME_MAP: Record<string, string> = {
@@ -272,7 +273,8 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			submitterRole: 'client',
 			note,
 			photoIds: Array.isArray(photoIds) ? photoIds : null,
-			booksUrl
+			booksUrl,
+			crmRecordUrl: buildCrmRecordUrl(ZOHO_FIELD_UPDATES_MODULE, zohoRecordId)
 		});
 		if (!cliqResult.ok) {
 			console.error(

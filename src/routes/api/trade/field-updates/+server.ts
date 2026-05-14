@@ -8,7 +8,8 @@ import {
 	getAccessTokenAndDomain,
 	pickSubmitterDisplayName
 } from '$lib/server/zoho-field-updates';
-import { postFieldUpdateNotification } from '$lib/server/cliq-notifications';
+import { buildCrmRecordUrl, postFieldUpdateNotification } from '$lib/server/cliq-notifications';
+import { ZOHO_FIELD_UPDATES_MODULE } from '$lib/server/zoho-field-updates';
 import type { RequestHandler } from './$types';
 
 async function isDealAuthorizedForTradePartner(
@@ -148,7 +149,8 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 				submitterEmail: session.trade_partner?.email ?? null,
 				submitterRole: 'trade',
 				note,
-				photoIds: Array.isArray(photoIds) ? photoIds : null
+				photoIds: Array.isArray(photoIds) ? photoIds : null,
+				crmRecordUrl: buildCrmRecordUrl(ZOHO_FIELD_UPDATES_MODULE, zohoRecordId)
 			});
 			if (cliqResult.ok) {
 				cliqDiag = { ok: true, via: cliqResult.via };

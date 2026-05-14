@@ -60,6 +60,18 @@ export interface FieldUpdateCliqNotification {
 }
 
 /**
+ * Build a Zoho CRM deep link to a record in the given module.
+ * Format: https://crm.zoho.com/crm/{org_id}/tab/{module_api_name}/{record_id}
+ * Returns null if the CRM org ID isn't configured.
+ */
+export function buildCrmRecordUrl(moduleApiName: string, recordId: string | null): string | null {
+	if (!recordId) return null;
+	const orgId = env.ZOHO_CRM_ORG_ID || env.ZOHO_BOOKS_ORG_ID;
+	if (!orgId) return null;
+	return `https://crm.zoho.com/crm/${encodeURIComponent(orgId)}/tab/${encodeURIComponent(moduleApiName)}/${encodeURIComponent(recordId)}`;
+}
+
+/**
  * Post a Field Update notification to Cliq with inline image previews.
  *
  * Builds a rich message containing:
@@ -140,8 +152,6 @@ export async function postFieldUpdateNotification(
 		const attachLabel = `${totalAttachments} attachment${totalAttachments === 1 ? '' : 's'}`;
 		if (booksUrl) {
 			lines.push('', `📎 ${attachLabel} — [view on the draft quote](${booksUrl})`);
-		} else if (crmRecordUrl) {
-			lines.push('', `📎 ${attachLabel} — [view in CRM](${crmRecordUrl})`);
 		} else {
 			lines.push('', `📎 ${attachLabel} uploaded.`);
 		}
@@ -150,13 +160,15 @@ export async function postFieldUpdateNotification(
 				`_(${videoCount} video${videoCount === 1 ? '' : 's'} not previewed inline — see attachments.)_`
 			);
 		}
-	} else {
-		// No attachments — still surface the relevant link if we have one.
-		if (booksUrl) {
-			lines.push('', `[Open the draft quote in Books](${booksUrl})`);
-		} else if (crmRecordUrl) {
-			lines.push('', `[Open in CRM](${crmRecordUrl})`);
-		}
+	} else if (booksUrl) {
+		// No attachments but a Books quote exists — surface that link.
+		lines.push('', `[Open the draft quote in Books](${booksUrl})`);
+	}
+
+	// Always include the CRM record link if we have one — replaces the
+	// separate "View in CRM" card that the legacy Zoho workflow used to post.
+	if (crmRecordUrl) {
+		lines.push('', `[View in CRM](${crmRecordUrl})`);
 	}
 
 	const message: CliqMessage = { text: lines.join('\n') };
