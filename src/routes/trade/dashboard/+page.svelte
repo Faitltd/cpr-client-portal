@@ -96,9 +96,10 @@
 			if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
 				try { items = JSON.parse(trimmed); } catch { /* fall through */ }
 				if (!Array.isArray(items)) items = items ? [items] : [];
-			} else if (trimmed.startsWith('http')) {
-				return [{ name: 'Design Files', url: trimmed }];
 			} else {
+				// Plain URL in External_Link points to the project's client folder root,
+				// not the Designs subfolder — skip it. The Designs link is fetched
+				// separately via /api/trade/deals/[dealId]/designs.
 				return [];
 			}
 		} else if (Array.isArray(raw)) {
@@ -116,7 +117,7 @@
 			.filter((f) => f.url.startsWith('http'));
 	}
 
-	// ── Details: External_Link (immediate) + lazy Scopes (SOW) link ──────────
+	// ── Details: External_Link (immediate) + lazy Scopes / Designs links ──────
 	$: externalLinks = parseExternalLinks(selectedDeal?.External_Link);
 
 	// Lazy SOW (Scopes) folder URL fetch — Project > Design and Planning > SOW
@@ -149,7 +150,37 @@
 		}
 	};
 
-	// Combined details list: Scopes link first, then External_Link entries (deduped by url)
+	// Lazy Designs folder URL fetch — Project > Design and Planning > Designs
+	const designsUrlCache = new Map<string, string>();
+	let designsUrl = '';
+	let designsLoading = false;
+	let designsError = '';
+	let lastDesignsDealId = '';
+
+	const loadDesignsUrl = async (dealId: string) => {
+		if (!dealId) return;
+		if (designsUrlCache.has(dealId)) {
+			designsUrl = designsUrlCache.get(dealId)!;
+			return;
+		}
+		designsLoading = true;
+		designsError = '';
+		try {
+			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/designs`);
+			if (!res.ok) throw new Error(`Failed to load designs (${res.status})`);
+			const payload = await res.json().catch(() => ({}));
+			const fresh = typeof payload?.url === 'string' ? payload.url : '';
+			designsUrlCache.set(dealId, fresh);
+			if (dealId === selectedDealId) designsUrl = fresh;
+		} catch (err) {
+			designsError = err instanceof Error ? err.message : 'Failed to load designs';
+			if (!designsUrlCache.has(dealId)) designsUrl = '';
+		} finally {
+			designsLoading = false;
+		}
+	};
+
+	// Combined details list: Scopes, Designs, then any structured External_Link entries (deduped)
 	$: designFiles = (() => {
 		const seen = new Set<string>();
 		const combined: Array<{ name: string; url: string }> = [];
@@ -157,19 +188,30 @@
 			combined.push({ name: 'Scopes', url: sowUrl });
 			seen.add(sowUrl);
 		}
+		if (designsUrl) {
+			combined.push({ name: 'Designs', url: designsUrl });
+			seen.add(designsUrl);
+		}
 		for (const f of externalLinks) {
 			if (f.url && !seen.has(f.url)) { seen.add(f.url); combined.push(f); }
 		}
 		return combined;
 	})();
 
-	// When details section opens, kick off Scopes URL fetch for current deal
+	// When details section opens, kick off Scopes + Designs URL fetches for current deal
 	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastSowDealId) {
 		lastSowDealId = selectedDealId;
 		loadSowUrl(selectedDealId);
 	}
+	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastDesignsDealId) {
+		lastDesignsDealId = selectedDealId;
+		loadDesignsUrl(selectedDealId);
+	}
 
-	// Reset SOW when deal changes so stale data isn't shown while loading
+	// Reset SOW / Designs URLs when deal changes so stale data isn't shown while loading
+	$: if (selectedDealId !== lastDesignsDealId && !designsUrlCache.has(selectedDealId)) {
+		designsUrl = '';
+	}
 	$: if (selectedDealId !== lastSowDealId && !sowUrlCache.has(selectedDealId)) {
 		sowUrl = '';
 	}
@@ -710,7 +752,7 @@
 
 				{#if designsOpen}
 					<div class="collapsible-body">
-						{#if sowLoading && designFiles.length === 0}
+						{#if (sowLoading || designsLoading) && designFiles.length === 0}
 							<p class="muted">Loading details...</p>
 						{:else if designFiles.length > 0}
 							<ul class="file-list">
@@ -720,10 +762,13 @@
 									</li>
 								{/each}
 							</ul>
-						{:else if sowError}
+						{:else if sowError || designsError}
 							<div class="field-updates-error">
-								<p class="error-text">{sowError}</p>
-								<button class="retry" type="button" on:click={() => { sowUrlCache.delete(selectedDealId); lastSowDealId = ''; loadSowUrl(selectedDealId); }}>Retry</button>
+								<p class="error-text">{sowError || designsError}</p>
+								<button class="retry" type="button" on:click={() => {
+									sowUrlCache.delete(selectedDealId); lastSowDealId = ''; loadSowUrl(selectedDealId);
+									designsUrlCache.delete(selectedDealId); lastDesignsDealId = ''; loadDesignsUrl(selectedDealId);
+								}}>Retry</button>
 							</div>
 						{:else}
 							<p class="muted">No links available for this project.</p>
