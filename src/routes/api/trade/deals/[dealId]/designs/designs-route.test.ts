@@ -107,7 +107,8 @@ describe('GET /api/trade/deals/:dealId/designs', () => {
 					id: 'deal-1',
 					Deal_Name: 'Kitchen Remodel',
 					Client_Portal_Folder: 'project-folder',
-					External_Link: ''
+					External_Link: '',
+					Designs_External_Link: ''
 				}
 			]
 		});
@@ -126,7 +127,36 @@ describe('GET /api/trade/deals/:dealId/designs', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('returns the leaf Designs folder URL when the first match is a planning container', async () => {
+	it('returns Designs_External_Link from CRM when populated, skipping auto-discovery', async () => {
+		mocks.zohoApiCall.mockResolvedValueOnce({
+			data: [
+				{
+					id: 'deal-1',
+					Deal_Name: 'Kitchen Remodel',
+					Client_Portal_Folder: 'project-folder',
+					External_Link: '',
+					Designs_External_Link: 'https://workdrive.zohoexternal.com/external/abc123'
+				}
+			]
+		});
+
+		const response = await GET({
+			cookies: makeCookies({ trade_session: 'valid-session' }),
+			params: { dealId: 'deal-1' }
+		} as any);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			url: 'https://workdrive.zohoexternal.com/external/abc123'
+		});
+		expect(mocks.listWorkDriveFolder).not.toHaveBeenCalled();
+	});
+
+	it('returns null (no link) when auto-share creation fails and Designs_External_Link is empty', async () => {
+		// Auto-discovery resolves to a leaf Designs folder, but createExternalShareLink fails
+		// (fetch is mocked to return ok: false in beforeEach), so the endpoint must NOT fall back
+		// to https://workdrive.zoho.com/folder/<id> — that URL redirects unauthenticated trade
+		// partners to the client folder.
 		mocks.listWorkDriveFolder
 			.mockResolvedValueOnce([
 				{ id: 'container-folder', name: 'Design and Planning', type: 'folder' },
@@ -143,9 +173,8 @@ describe('GET /api/trade/deals/:dealId/designs', () => {
 		} as any);
 
 		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual({
-			url: 'https://workdrive.zoho.com/folder/leaf-designs'
-		});
+		const payload = await response.json();
+		expect(payload.url).toBeNull();
 		expect(mocks.listWorkDriveFolder).toHaveBeenNthCalledWith(
 			1,
 			'access-token',
