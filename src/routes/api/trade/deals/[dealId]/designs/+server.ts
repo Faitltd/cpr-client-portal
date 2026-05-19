@@ -199,7 +199,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (!accessibleDeal) throw error(403, 'Access denied to this project');
 
 	// Fetch the deal directly from Zoho with the fields we need
-	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link';
+	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link,Designs_External_Link';
 	const dealResponse = await zohoApiCall(
 		accessToken,
 		`/Deals/${dealId}?fields=${encodeURIComponent(dealFields)}`,
@@ -208,6 +208,14 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	);
 	const deal = dealResponse?.data?.[0];
 	const dealName = deal?.Deal_Name || accessibleDeal?.Deal_Name || '';
+
+	// Prefer the Designs_External_Link custom field if populated. Admins paste a manually-created
+	// WorkDrive external share URL there because the /links API rejects automated share creation.
+	const designsExternalLink = String(deal?.Designs_External_Link || '').trim();
+	if (designsExternalLink && /^https?:\/\//i.test(designsExternalLink)) {
+		log.info('Design folder: using Designs_External_Link from CRM', { dealId });
+		return json({ url: designsExternalLink });
+	}
 
 	log.info('Design folder lookup', {
 		dealId,
@@ -343,14 +351,20 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		try { await setCachedFolder(dealId, 'root', projectFolderId); } catch {}
 	}
 
-	// ── Step 6: Create external share link or use fallback ──────────────
+	// ── Step 6: Create external share link ──────────────────────────────
+	// No fallback to https://workdrive.zoho.com/folder/<id> — that URL requires Zoho auth and,
+	// for unauthenticated trade partners, silently redirects to the client folder share. If
+	// auto-share creation fails, admins must populate Designs_External_Link on the Deal in CRM
+	// with a manually-created external share URL (same workaround as SOW_External_Link).
 	const shareLink = await createExternalShareLink(accessToken, designFolder.id, apiDomain);
 	if (shareLink) {
 		log.info('Design folder: share link created', { dealId, folderId: designFolder.id });
 		return json({ url: shareLink });
 	}
 
-	const fallbackUrl = `https://workdrive.zoho.com/folder/${designFolder.id}`;
-	log.info('Design folder: using fallback URL', { dealId, folderId: designFolder.id });
-	return json({ url: fallbackUrl });
+	log.info('Design folder: share link creation failed; Designs_External_Link not populated', {
+		dealId,
+		folderId: designFolder.id
+	});
+	return json({ url: null, message: 'Designs share link unavailable; populate Designs_External_Link on the Deal' });
 };
