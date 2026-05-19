@@ -170,7 +170,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const accessibleDeal = dealList.find((item: any) => String(item?.id || '').trim() === dealId);
 	if (!accessibleDeal) throw error(403, 'Access denied to this project');
 
-	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link,SOW_External_Link';
+	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link,WD_SOW';
 	const dealResponse = await zohoApiCall(
 		accessToken,
 		`/Deals/${dealId}?fields=${encodeURIComponent(dealFields)}`,
@@ -180,12 +180,13 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const deal = dealResponse?.data?.[0];
 	const dealName = deal?.Deal_Name || accessibleDeal?.Deal_Name || '';
 
-	// Prefer the SOW_External_Link custom field if populated. Admins paste a manually-created
-	// WorkDrive external share URL there because the /links API rejects automated share creation.
-	const sowExternalLink = String(deal?.SOW_External_Link || '').trim();
-	if (sowExternalLink && /^https?:\/\//i.test(sowExternalLink)) {
-		log.info('SOW: using SOW_External_Link from CRM', { dealId });
-		return json({ url: sowExternalLink });
+	// Prefer the WD_SOW URL field if populated. Admins paste a manually-created WorkDrive
+	// external share URL for the Scopes subfolder there, because the /links API rejects automated
+	// share creation. Part of the standard WD_* per-folder URL set (WD_Designs, WD_Change_Orders, etc.).
+	const wdSow = String(deal?.WD_SOW || '').trim();
+	if (wdSow && /^https?:\/\//i.test(wdSow)) {
+		log.info('SOW: using WD_SOW from CRM', { dealId });
+		return json({ url: wdSow });
 	}
 
 	log.info('SOW folder lookup', {
@@ -294,14 +295,20 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 		return json({ url: null, message: 'SOW folder not found', subfolders });
 	}
 
-	// ── Step 4: Create external share link or fallback ──────────────────
+	// ── Step 4: Create external share link ──────────────────────────────
+	// No fallback to https://workdrive.zoho.com/folder/<id> — that URL requires Zoho auth and,
+	// for unauthenticated trade partners, silently redirects to the client folder share. If
+	// auto-share creation fails, admins must populate WD_SOW on the Deal in CRM with a
+	// manually-created external share URL for the Scopes subfolder.
 	const shareLink = await createExternalShareLink(accessToken, sowFolder.id, apiDomain);
 	if (shareLink) {
 		log.info('SOW: share link created', { dealId, folderId: sowFolder.id });
 		return json({ url: shareLink });
 	}
 
-	const fallbackUrl = `https://workdrive.zoho.com/folder/${sowFolder.id}`;
-	log.info('SOW: using fallback URL', { dealId, folderId: sowFolder.id });
-	return json({ url: fallbackUrl });
+	log.info('SOW: share link creation failed; WD_SOW not populated', {
+		dealId,
+		folderId: sowFolder.id
+	});
+	return json({ url: null, message: 'Scopes share link unavailable; populate WD_SOW on the Deal' });
 };
