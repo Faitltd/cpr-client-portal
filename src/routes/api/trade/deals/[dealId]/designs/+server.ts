@@ -199,7 +199,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (!accessibleDeal) throw error(403, 'Access denied to this project');
 
 	// Fetch the deal directly from Zoho with the fields we need
-	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link,Designs_External_Link';
+	const dealFields = 'Deal_Name,Client_Portal_Folder,External_Link,WD_Designs';
 	const dealResponse = await zohoApiCall(
 		accessToken,
 		`/Deals/${dealId}?fields=${encodeURIComponent(dealFields)}`,
@@ -209,12 +209,14 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	const deal = dealResponse?.data?.[0];
 	const dealName = deal?.Deal_Name || accessibleDeal?.Deal_Name || '';
 
-	// Prefer the Designs_External_Link custom field if populated. Admins paste a manually-created
-	// WorkDrive external share URL there because the /links API rejects automated share creation.
-	const designsExternalLink = String(deal?.Designs_External_Link || '').trim();
-	if (designsExternalLink && /^https?:\/\//i.test(designsExternalLink)) {
-		log.info('Design folder: using Designs_External_Link from CRM', { dealId });
-		return json({ url: designsExternalLink });
+	// Prefer the WD_Designs URL field if populated. Admins paste a manually-created WorkDrive
+	// external share URL for the Designs subfolder there, because the /links API rejects
+	// automated share creation. This is part of the standard WD_* per-folder URL set on Deals
+	// (WD_Photos, WD_Permits, WD_Invoices, etc.).
+	const wdDesigns = String(deal?.WD_Designs || '').trim();
+	if (wdDesigns && /^https?:\/\//i.test(wdDesigns)) {
+		log.info('Design folder: using WD_Designs from CRM', { dealId });
+		return json({ url: wdDesigns });
 	}
 
 	log.info('Design folder lookup', {
@@ -354,17 +356,17 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	// ── Step 6: Create external share link ──────────────────────────────
 	// No fallback to https://workdrive.zoho.com/folder/<id> — that URL requires Zoho auth and,
 	// for unauthenticated trade partners, silently redirects to the client folder share. If
-	// auto-share creation fails, admins must populate Designs_External_Link on the Deal in CRM
-	// with a manually-created external share URL (same workaround as SOW_External_Link).
+	// auto-share creation fails, admins must populate WD_Designs on the Deal in CRM with a
+	// manually-created external share URL for the Designs subfolder.
 	const shareLink = await createExternalShareLink(accessToken, designFolder.id, apiDomain);
 	if (shareLink) {
 		log.info('Design folder: share link created', { dealId, folderId: designFolder.id });
 		return json({ url: shareLink });
 	}
 
-	log.info('Design folder: share link creation failed; Designs_External_Link not populated', {
+	log.info('Design folder: share link creation failed; WD_Designs not populated', {
 		dealId,
 		folderId: designFolder.id
 	});
-	return json({ url: null, message: 'Designs share link unavailable; populate Designs_External_Link on the Deal' });
+	return json({ url: null, message: 'Designs share link unavailable; populate WD_Designs on the Deal' });
 };

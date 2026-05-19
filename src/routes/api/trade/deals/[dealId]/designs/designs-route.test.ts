@@ -108,7 +108,7 @@ describe('GET /api/trade/deals/:dealId/designs', () => {
 					Deal_Name: 'Kitchen Remodel',
 					Client_Portal_Folder: 'project-folder',
 					External_Link: '',
-					Designs_External_Link: ''
+					WD_Designs: ''
 				}
 			]
 		});
@@ -127,7 +127,7 @@ describe('GET /api/trade/deals/:dealId/designs', () => {
 		vi.unstubAllGlobals();
 	});
 
-	it('returns Designs_External_Link from CRM when populated, skipping auto-discovery', async () => {
+	it('returns WD_Designs from CRM when populated, skipping auto-discovery', async () => {
 		mocks.zohoApiCall.mockResolvedValueOnce({
 			data: [
 				{
@@ -135,10 +135,11 @@ describe('GET /api/trade/deals/:dealId/designs', () => {
 					Deal_Name: 'Kitchen Remodel',
 					Client_Portal_Folder: 'project-folder',
 					External_Link: '',
-					Designs_External_Link: 'https://workdrive.zohoexternal.com/external/abc123'
+					WD_Designs: 'https://workdrive.zohoexternal.com/external/abc123'
 				}
 			]
 		});
+
 
 		const response = await GET({
 			cookies: makeCookies({ trade_session: 'valid-session' }),
@@ -152,7 +153,7 @@ describe('GET /api/trade/deals/:dealId/designs', () => {
 		expect(mocks.listWorkDriveFolder).not.toHaveBeenCalled();
 	});
 
-	it('returns null (no link) when auto-share creation fails and Designs_External_Link is empty', async () => {
+	it('returns null (no link) when auto-share creation fails and WD_Designs is empty', async () => {
 		// Auto-discovery resolves to a leaf Designs folder, but createExternalShareLink fails
 		// (fetch is mocked to return ok: false in beforeEach), so the endpoint must NOT fall back
 		// to https://workdrive.zoho.com/folder/<id> — that URL redirects unauthenticated trade
