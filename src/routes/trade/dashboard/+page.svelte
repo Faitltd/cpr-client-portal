@@ -180,7 +180,7 @@
 		}
 	};
 
-	// Combined details list: Scopes, Designs, then any structured External_Link entries (deduped)
+	// Combined details list: Scopes, Designs, Change Orders, then any structured External_Link entries (deduped)
 	$: designFiles = (() => {
 		const seen = new Set<string>();
 		const combined: Array<{ name: string; url: string }> = [];
@@ -191,6 +191,11 @@
 		if (designsUrl) {
 			combined.push({ name: 'Designs', url: designsUrl });
 			seen.add(designsUrl);
+		}
+		const changeOrdersUrl = String(selectedDeal?.WD_Change_Orders || '').trim();
+		if (changeOrdersUrl && /^https?:\/\//i.test(changeOrdersUrl) && !seen.has(changeOrdersUrl)) {
+			combined.push({ name: 'Change Orders', url: changeOrdersUrl });
+			seen.add(changeOrdersUrl);
 		}
 		for (const f of externalLinks) {
 			if (f.url && !seen.has(f.url)) { seen.add(f.url); combined.push(f); }
