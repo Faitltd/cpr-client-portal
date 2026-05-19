@@ -32,7 +32,8 @@ const DEAL_FIELDS = Array.from(
 		'Closing_Date',
 		'Description',
 		'External_Link',
-		'Client_Portal_Folder'
+		'Client_Portal_Folder',
+		'WD_Change_Orders'
 	])
 ).join(',');
 
