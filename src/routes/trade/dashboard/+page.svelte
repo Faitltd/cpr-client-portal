@@ -645,16 +645,6 @@
 		</button>
 	</div>
 
-	{#if dealsSyncing}
-		<div class="card syncing-banner" role="status" aria-live="polite">
-			<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-				<path d="M4 10a6 6 0 1 0 1.5-3.9"/>
-				<path d="M4 6v4h4"/>
-			</svg>
-			Syncing latest project data…
-		</div>
-	{/if}
-
 	{#if dealsLoading}
 		<div class="skeleton-stack" aria-busy="true" aria-label="Loading projects…">
 			<div class="card skeleton-card">
@@ -1069,18 +1059,6 @@
 	@keyframes shimmer {
 		0%   { background-position: 200% 0; }
 		100% { background-position: -200% 0; }
-	}
-
-	.syncing-banner {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		border-color: #fcd34d;
-		background: #fffbeb;
-		color: #92400e;
-		font-size: 0.9rem;
-		font-weight: 500;
-		padding: 0.75rem 1rem;
 	}
 
 	.warning {
