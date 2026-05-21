@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import DesignerDealsView from '$lib/components/designer/DesignerDealsView.svelte';
+	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
 	import type { DealFieldDescriptor, DesignerDealSummary } from '$lib/types/designer';
 
@@ -600,6 +601,70 @@
 		? `/trade/field-update?deal=${encodeURIComponent(selectedDealId)}`
 		: '/trade/field-update';
 
+	// --- Change Order request form ---
+	let changeOrdersOpen = false;
+	let coPanelOpen = false;
+	let coNote = '';
+	let coPhotoUploadRef: PhotoUpload;
+	let coSubmitting = false;
+	let coSuccess = '';
+	let coSubmitError = '';
+
+	const openChangeOrderPanel = () => {
+		coPanelOpen = true;
+		coSuccess = '';
+		coSubmitError = '';
+	};
+
+	const closeChangeOrderPanel = () => {
+		coPanelOpen = false;
+		coNote = '';
+		coPhotoUploadRef?.reset();
+		coSubmitError = '';
+	};
+
+	const submitChangeOrder = async () => {
+		if (!selectedDealId) {
+			coSubmitError = 'Please choose a project.';
+			return;
+		}
+		if (!coNote.trim()) {
+			coSubmitError = 'Please describe the change you would like to request.';
+			return;
+		}
+		coSubmitting = true;
+		coSubmitError = '';
+		coSuccess = '';
+		try {
+			const photoIds = coPhotoUploadRef?.getPhotoIds() ?? [];
+			const res = await fetch('/api/trade/field-updates', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					deal_id: selectedDealId,
+					update_type: 'change_order',
+					note: coNote.trim(),
+					photo_ids: photoIds.length > 0 ? photoIds : null
+				})
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				coSubmitError = payload?.error || `Request failed (${res.status})`;
+				return;
+			}
+			coSuccess = 'Change order request submitted. The office team has been notified.';
+			coNote = '';
+			coPhotoUploadRef?.reset();
+			coPanelOpen = false;
+			// Refresh the field updates list so the new entry shows up.
+			loadFieldUpdates(selectedDealId);
+		} catch (err) {
+			coSubmitError = err instanceof Error ? err.message : 'Failed to submit change order';
+		} finally {
+			coSubmitting = false;
+		}
+	};
+
 	onDestroy(() => {
 		fieldUpdatesController?.abort();
 	});
@@ -933,6 +998,101 @@
 								{/each}
 							</div>
 						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!-- Change Orders -->
+			<div class="card collapsible-card">
+				<button
+					class="collapsible-toggle"
+					type="button"
+					on:click={() => (changeOrdersOpen = !changeOrdersOpen)}
+					aria-expanded={changeOrdersOpen}
+				>
+					<span class="collapsible-title">
+						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+							<path d="M12 2l6 6-10 10H2v-6L12 2z"/>
+							<path d="M9 5l6 6"/>
+						</svg>
+						Change Orders
+					</span>
+					<svg
+						class="chevron"
+						class:rotated={changeOrdersOpen}
+						width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+						aria-hidden="true"
+					>
+						<path d="M5 8l5 5 5-5"/>
+					</svg>
+				</button>
+
+				{#if changeOrdersOpen}
+					<div class="collapsible-body">
+						<div class="co-request-area">
+							{#if coSuccess}
+								<div class="co-banner co-banner-success">{coSuccess}</div>
+							{/if}
+
+							{#if !coPanelOpen}
+								<button class="co-request-btn" type="button" on:click={openChangeOrderPanel}>
+									Request a Change Order
+								</button>
+							{:else}
+								<div class="co-panel">
+									{#if deals.length > 1}
+										<div class="co-field">
+											<label for="co-deal-select">Project</label>
+											<select id="co-deal-select" bind:value={selectedDealId}>
+												<option value="" disabled>Select a project…</option>
+												{#each deals as deal}
+													<option value={deal.id}>{getDealLabel(deal)}</option>
+												{/each}
+											</select>
+										</div>
+									{/if}
+
+									<div class="co-field">
+										<label for="co-note">Describe the change you would like</label>
+										<textarea
+											id="co-note"
+											rows="6"
+											bind:value={coNote}
+											placeholder="What would you like changed or added? Add as much detail as you can."
+										></textarea>
+									</div>
+
+									<div class="co-field">
+										<!-- svelte-ignore a11y_label_has_associated_control -->
+										<label>Photos / videos (optional)</label>
+										<PhotoUpload bind:this={coPhotoUploadRef} maxFiles={5} />
+									</div>
+
+									{#if coSubmitError}
+										<div class="co-banner co-banner-error">{coSubmitError}</div>
+									{/if}
+
+									<div class="co-actions">
+										<button
+											class="co-submit-btn"
+											type="button"
+											on:click={submitChangeOrder}
+											disabled={coSubmitting || !coNote.trim() || !selectedDealId}
+										>
+											{coSubmitting ? 'Submitting…' : 'Submit request'}
+										</button>
+										<button
+											class="co-cancel-btn"
+											type="button"
+											on:click={closeChangeOrderPanel}
+											disabled={coSubmitting}
+										>
+											Cancel
+										</button>
+									</div>
+								</div>
+							{/if}
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -1456,5 +1616,141 @@
 		.collapsible-body {
 			padding: 0 1.5rem 1.5rem;
 		}
+	}
+
+	/* ── Change-order request form ────────────────────── */
+	.co-request-area {
+		padding: 0.25rem 0;
+	}
+
+	.co-request-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #0066cc;
+		color: #fff;
+		border: none;
+		border-radius: 8px;
+		padding: 0.7rem 1.1rem;
+		min-height: 44px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		cursor: pointer;
+	}
+
+	.co-request-btn:hover {
+		background: #0052a3;
+	}
+
+	.co-panel {
+		display: grid;
+		gap: 1rem;
+		background: #f9fafb;
+		border: 1px solid #e0e0e0;
+		border-radius: 10px;
+		padding: 1.1rem;
+	}
+
+	.co-field {
+		display: grid;
+		gap: 0.4rem;
+	}
+
+	.co-field label {
+		font-weight: 600;
+		font-size: 0.92rem;
+		color: #111827;
+	}
+
+	.co-panel textarea,
+	.co-panel select {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 0.6rem 0.75rem;
+		border-radius: 6px;
+		border: 1px solid #d1d5db;
+		font-family: inherit;
+		font-size: 1rem;
+		min-height: 44px;
+		background: #fff;
+	}
+
+	.co-panel textarea {
+		resize: vertical;
+		min-height: 120px;
+		line-height: 1.5;
+	}
+
+	.co-actions {
+		display: flex;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.co-submit-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: #0066cc;
+		color: #fff;
+		border: none;
+		border-radius: 8px;
+		padding: 0.7rem 1.1rem;
+		min-height: 44px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		cursor: pointer;
+	}
+
+	.co-submit-btn:hover:not(:disabled) {
+		background: #0052a3;
+	}
+
+	.co-submit-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.co-cancel-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		color: #1a1a1a;
+		border: 1px solid #d0d0d0;
+		border-radius: 8px;
+		padding: 0.7rem 1.1rem;
+		min-height: 44px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		cursor: pointer;
+	}
+
+	.co-cancel-btn:hover:not(:disabled) {
+		background: #f5f5f5;
+	}
+
+	.co-cancel-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.co-banner {
+		padding: 0.75rem 1rem;
+		border-radius: 8px;
+		font-size: 0.95rem;
+		margin-bottom: 0.85rem;
+	}
+
+	.co-banner-success {
+		background: #ecfdf5;
+		border: 1px solid #a7f3d0;
+		color: #065f46;
+	}
+
+	.co-banner-error {
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		color: #b91c1c;
 	}
 </style>
