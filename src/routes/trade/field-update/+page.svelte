@@ -406,7 +406,7 @@
 					<div class="form-field">
 						<!-- svelte-ignore a11y_label_has_associated_control -->
 						<label>Photos</label>
-						<PhotoUpload bind:this={photoUploadRef} maxFiles={5} />
+						<PhotoUpload bind:this={photoUploadRef} maxFiles={20} />
 					</div>
 				{/if}
 
