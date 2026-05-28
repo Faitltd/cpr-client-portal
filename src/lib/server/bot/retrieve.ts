@@ -1,0 +1,239 @@
+import { supabase } from '$lib/server/db';
+import { embed } from './embeddings';
+
+export interface RetrievedChunk {
+	chunk_id: string;
+	document_id: string;
+	content: string;
+	source: string;
+	subject: string | null;
+	author: string | null;
+	occurred_at: string;
+	source_url: string | null;
+	similarity: number;
+}
+
+const TIME_KEYWORDS: RegExp[] = [
+	/\btoday\b/i,
+	/\byesterday\b/i,
+	/\b(this|last|past)\s+(week|day|month|hour)/i,
+	/\brecent\b/i,
+	/\brecently\b/i,
+	/\blatest\b/i,
+	/\bnewest\b/i,
+	/\bcurrent\b/i,
+	/\bin\s+the\s+last\s+\d+\s+(day|week|month|hour)s?/i,
+	/\bnow\b/i
+];
+
+function detectTimeWindow(query: string): number | null {
+	const lower = query.toLowerCase();
+	if (/\btoday\b|\bnow\b/.test(lower)) return 1;
+	if (/\byesterday\b/.test(lower)) return 2;
+	const explicit = lower.match(/last\s+(\d+)\s+(day|week|month)s?/);
+	if (explicit) {
+		const n = parseInt(explicit[1], 10);
+		const unit = explicit[2];
+		if (Number.isFinite(n)) {
+			if (unit === 'day') return n;
+			if (unit === 'week') return n * 7;
+			if (unit === 'month') return n * 30;
+		}
+	}
+	if (/(this|last|past)\s+week/.test(lower)) return 7;
+	if (/(this|last|past)\s+month/.test(lower)) return 30;
+	for (const re of TIME_KEYWORDS) if (re.test(query)) return 14;
+	return null;
+}
+
+async function fetchRecentChunks(opts: {
+	dealId: string;
+	days: number;
+	limit: number;
+	source?: string;
+}): Promise<RetrievedChunk[]> {
+	const cutoff = new Date(Date.now() - opts.days * 24 * 60 * 60 * 1000).toISOString();
+	let query = supabase
+		.from('bot_documents')
+		.select('id, source, subject, author, occurred_at, source_url, bot_chunks!inner(id, content)')
+		.eq('deal_id', opts.dealId)
+		.gte('occurred_at', cutoff)
+		.order('occurred_at', { ascending: false })
+		.limit(opts.limit);
+	if (opts.source) query = query.eq('source', opts.source);
+
+	const { data, error } = await query;
+	if (error) {
+		console.warn('[bot/retrieve] recency fetch failed:', error.message);
+		return [];
+	}
+	const out: RetrievedChunk[] = [];
+	for (const doc of data ?? []) {
+		const chunks = Array.isArray(doc.bot_chunks) ? doc.bot_chunks : [];
+		const firstChunk = chunks[0];
+		if (!firstChunk) continue;
+		out.push({
+			chunk_id: firstChunk.id,
+			document_id: doc.id,
+			content: firstChunk.content,
+			source: doc.source,
+			subject: doc.subject ?? null,
+			author: doc.author ?? null,
+			occurred_at: doc.occurred_at,
+			source_url: doc.source_url ?? null,
+			similarity: 0 // recency hits don't carry a similarity score
+		});
+	}
+	return out;
+}
+
+function mergeChunks(...lists: RetrievedChunk[][]): RetrievedChunk[] {
+	const seen = new Set<string>();
+	const out: RetrievedChunk[] = [];
+	for (const list of lists) {
+		for (const c of list) {
+			if (seen.has(c.chunk_id)) continue;
+			seen.add(c.chunk_id);
+			out.push(c);
+		}
+	}
+	return out;
+}
+
+/**
+ * Two-pass diversification:
+ *  1. Take the top `perSource` chunks from each source (in similarity order)
+ *  2. Fill the rest of `cap` with the next-best overall chunks regardless of source
+ *
+ * Prevents one chatty source (Cliq) from drowning out smaller-but-relevant
+ * sources (Books, WorkDrive, Mail).
+ */
+function diversifyBySource(
+	chunks: RetrievedChunk[],
+	cap: number,
+	perSource: number
+): RetrievedChunk[] {
+	const bySource = new Map<string, RetrievedChunk[]>();
+	for (const c of chunks) {
+		const list = bySource.get(c.source) ?? [];
+		list.push(c);
+		bySource.set(c.source, list);
+	}
+	const picked: RetrievedChunk[] = [];
+	const seen = new Set<string>();
+	for (const list of bySource.values()) {
+		for (const c of list.slice(0, perSource)) {
+			if (seen.has(c.chunk_id)) continue;
+			seen.add(c.chunk_id);
+			picked.push(c);
+		}
+	}
+	// Fill remaining slots with the next-best overall (regardless of source).
+	for (const c of chunks) {
+		if (picked.length >= cap) break;
+		if (seen.has(c.chunk_id)) continue;
+		seen.add(c.chunk_id);
+		picked.push(c);
+	}
+	return picked.slice(0, cap);
+}
+
+/**
+ * Hybrid retrieval. Always runs vector search. If the question has time
+ * keywords ("last week", "today", "recent"), ALSO pulls the most recent
+ * documents within that window so time-bounded questions don't depend on
+ * semantic similarity ranking the right items.
+ */
+export async function retrieveRelevant(opts: {
+	dealId: string;
+	query: string;
+	k?: number;
+}): Promise<RetrievedChunk[]> {
+	const query = opts.query.trim();
+	if (!query) return [];
+
+	const k = opts.k ?? 12;
+
+	const semanticPromise = (async () => {
+		const [embedding] = await embed([query]);
+		// pgvector requires the input as the literal `[n,n,...]` string.
+		const vectorLiteral = `[${embedding.join(',')}]`;
+
+		// Try the per-source RPC first — guarantees every source gets up to
+		// `perSource` chunks regardless of how chatty Cliq is. Fall back to
+		// the original unfiltered match if the new RPC isn't installed yet.
+		const perSource = 3;
+		const perSourceRes = await supabase.rpc('bot_match_chunks_per_source', {
+			p_deal_id: opts.dealId,
+			p_query_embedding: vectorLiteral,
+			p_per_source: perSource
+		});
+
+		if (!perSourceRes.error) {
+			const rows = (perSourceRes.data ?? []) as RetrievedChunk[];
+			return rows.slice(0, Math.max(k * 2, 16));
+		}
+
+		console.warn(
+			'[bot/retrieve] per_source RPC failed, falling back:',
+			perSourceRes.error.message
+		);
+		const { data, error } = await supabase.rpc('bot_match_chunks', {
+			p_deal_id: opts.dealId,
+			p_query_embedding: vectorLiteral,
+			p_k: k * 4
+		});
+		if (error) throw new Error(`bot_match_chunks failed: ${error.message}`);
+		const all = (data ?? []) as RetrievedChunk[];
+		return diversifyBySource(all, k, 3);
+	})();
+
+	const windowDays = detectTimeWindow(query);
+	const recencyPromise = windowDays
+		? fetchRecentChunks({ dealId: opts.dealId, days: windowDays, limit: 12 })
+		: Promise.resolve([] as RetrievedChunk[]);
+
+	const [semantic, recent] = await Promise.all([semanticPromise, recencyPromise]);
+
+	// Recency results lead so the LLM sees the actually-recent context first;
+	// semantic hits fill in the rest. Cap at 2× k so we don't blow context.
+	return mergeChunks(recent, semantic).slice(0, Math.max(k * 2, 16));
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+	zoho_mail: 'Email',
+	zoho_cliq_internal: 'Cliq · internal',
+	zoho_cliq_external: 'Cliq · external',
+	zoho_crm_note: 'CRM note',
+	zoho_crm_field: 'Deal field',
+	transcript: 'Transcript',
+	sms: 'SMS'
+};
+
+function formatDate(iso: string): string {
+	try {
+		const d = new Date(iso);
+		return d.toISOString().slice(0, 16).replace('T', ' ');
+	} catch {
+		return iso;
+	}
+}
+
+/**
+ * Render retrieved chunks as a numbered context block for the system prompt.
+ * Each entry gets a [#N] tag the LLM can cite back. Returns null if there's
+ * nothing to render.
+ */
+export function renderRetrievedContextBlock(chunks: RetrievedChunk[]): string | null {
+	if (chunks.length === 0) return null;
+
+	const lines: string[] = [];
+	chunks.forEach((c, i) => {
+		const tag = `[#${i + 1}]`;
+		const label = SOURCE_LABEL[c.source] ?? c.source;
+		const meta = [label, c.author, formatDate(c.occurred_at)].filter(Boolean).join(' · ');
+		const subject = c.subject ? `\n  Subject: ${c.subject}` : '';
+		lines.push(`${tag} ${meta}${subject}\n  ${c.content.replace(/\n/g, ' ')}`);
+	});
+	return lines.join('\n\n');
+}

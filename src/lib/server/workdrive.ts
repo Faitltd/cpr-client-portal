@@ -492,3 +492,34 @@ export function findPhotosFolder(items: WorkDriveItem[]) {
 	}
 	return best;
 }
+
+/**
+ * Download a WorkDrive file's binary content by file id.
+ * Tries the documented download host first, then falls back to the older
+ * /api/v1/download path. Returns a Buffer on success.
+ */
+export async function downloadWorkDriveFile(
+	accessToken: string,
+	fileId: string,
+	apiDomain?: string
+): Promise<Buffer> {
+	const candidates = Array.from(getWorkDriveDownloadCandidates(apiDomain));
+	let lastError = '';
+	for (const base of candidates) {
+		const url = `${base.replace(/\/$/, '')}/${encodeURIComponent(fileId)}`;
+		try {
+			const response = await fetch(url, {
+				method: 'GET',
+				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
+			});
+			if (response.status === 200) {
+				const ab = await response.arrayBuffer();
+				return Buffer.from(ab);
+			}
+			lastError = `${url} -> HTTP ${response.status}`;
+		} catch (err) {
+			lastError = `${url} -> ${err instanceof Error ? err.message : 'fetch failed'}`;
+		}
+	}
+	throw new Error(`WorkDrive download failed for ${fileId}: ${lastError}`);
+}

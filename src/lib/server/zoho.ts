@@ -69,12 +69,32 @@ export async function refreshAccessToken(refreshToken: string): Promise<ZohoToke
 		body: params
 	});
 
+	const text = await response.text();
 	if (!response.ok) {
-		const error = await response.text();
-		throw new Error(`Token refresh failed: ${error}`);
+		throw new Error(`Token refresh failed (HTTP ${response.status}): ${text}`);
 	}
 
-	const data: ZohoTokenResponse = await response.json();
+	let data: any;
+	try {
+		data = JSON.parse(text);
+	} catch {
+		throw new Error(`Token refresh failed: non-JSON response: ${text.slice(0, 200)}`);
+	}
+
+	// Zoho often returns 200 OK with an `error` field in the body for rate
+	// limits and revoked refresh tokens. Treat any such response as a failure
+	// instead of poisoning the stored row with NaN expires_at.
+	if (data?.error) {
+		const desc = data.error_description ?? data.error;
+		throw new Error(`Token refresh failed: ${desc}`);
+	}
+
+	if (typeof data.access_token !== 'string' || typeof data.expires_in !== 'number') {
+		throw new Error(
+			`Token refresh failed: malformed response: ${text.slice(0, 200)}`
+		);
+	}
+
 	return {
 		access_token: data.access_token,
 		refresh_token: refreshToken,
@@ -92,11 +112,26 @@ export async function getTokenInfo(accessToken: string) {
 		access_token: accessToken
 	}).toString()}`;
 	const response = await fetch(url, { method: 'GET' });
+	const text = await response.text();
 	if (!response.ok) {
-		const error = await response.text();
-		throw new Error(`Token info failed: ${error}`);
+		throw new Error(`Token info failed (HTTP ${response.status}): ${text.slice(0, 200)}`);
 	}
-	return response.json();
+	// Zoho sometimes serves an HTML login page on this endpoint when the
+	// origin sniffs the request as a browser. Don't crash; return null so the
+	// caller can fall back to the env scope.
+	const contentType = response.headers.get('content-type') ?? '';
+	if (!contentType.includes('json')) {
+		console.warn(
+			`[zoho] token/info returned non-JSON (${contentType || 'no content-type'}); skipping`
+		);
+		return null;
+	}
+	try {
+		return JSON.parse(text);
+	} catch {
+		console.warn('[zoho] token/info JSON parse failed; skipping');
+		return null;
+	}
 }
 
 /**

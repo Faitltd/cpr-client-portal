@@ -38,9 +38,11 @@ export const GET: RequestHandler = async ({ url }) => {
 			null;
 
 		let userId = tokenUserId as string | null;
+		let userEmail: string | null = null;
 		try {
 			const user = await getZohoCurrentUser(tokens.access_token, tokens.api_domain);
 			userId = user.id;
+			userEmail = (user as any).email || (user as any).primary_email || null;
 		} catch (userErr) {
 			const message = userErr instanceof Error ? userErr.message : String(userErr);
 			if (!userId) {
@@ -58,10 +60,11 @@ export const GET: RequestHandler = async ({ url }) => {
 			access_token: tokens.access_token,
 			refresh_token: tokens.refresh_token,
 			expires_at: new Date(tokens.expires_at).toISOString(),
-			scope: tokenInfo?.scope || ZOHO_SCOPE
+			scope: tokenInfo?.scope || ZOHO_SCOPE,
+			user_email: userEmail
 		});
 
-    throw redirect(302, '/admin/connected');
+    throw redirect(302, '/admin/bot/users');
   } catch (err) {
     if (isRedirect(err)) {
       throw err;

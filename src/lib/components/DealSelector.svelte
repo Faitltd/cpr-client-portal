@@ -9,6 +9,10 @@
 		contact_name: string;
 	}
 
+	// Override the default deals endpoint (used by the bot to show all stages,
+	// not just Contract Sent + Project Created).
+	export let endpoint: string = '/api/admin/deals';
+
 	const dispatch = createEventDispatcher<{ select: { id: string; label: string } }>();
 
 	let deals: DealOption[] = [];
@@ -33,7 +37,7 @@
 		if (stored) value = stored;
 
 		try {
-			const res = await fetch('/api/admin/deals');
+			const res = await fetch(endpoint);
 			const json = await res.json();
 			if (!res.ok) throw new Error(json.message || 'Failed to load deals');
 			deals = json.data ?? [];

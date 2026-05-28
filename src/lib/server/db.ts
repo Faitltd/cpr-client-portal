@@ -175,6 +175,8 @@ export interface ZohoTokens {
 	expires_at: string;
 	scope?: string | null;
 	api_domain?: string | null;
+	user_email?: string | null;
+	is_primary?: boolean;
 }
 
 
@@ -630,63 +632,148 @@ export async function listDesigners(): Promise<DesignerListItem[]> {
 /**
  * Fetch latest Zoho tokens
  */
+const TOKEN_SELECT =
+	'id, user_id, user_email, is_primary, access_token, refresh_token, expires_at, scope';
+
+/**
+ * Get the primary Zoho token — used for CRM, Cliq, Books, and any operation
+ * that doesn't need a specific user's mailbox. Falls back to the most recent
+ * row if no row is flagged primary.
+ */
 export async function getZohoTokens(): Promise<ZohoTokens | null> {
-	const { data, error } = await getSupabase()
+	const supabase = getSupabase();
+	const primary = await supabase
 		.from('zoho_tokens')
-		.select('id, user_id, access_token, refresh_token, expires_at, scope')
+		.select(TOKEN_SELECT)
+		.eq('is_primary', true)
+		.limit(1)
+		.maybeSingle();
+	if (primary.data) return primary.data as ZohoTokens;
+
+	const fallback = await supabase
+		.from('zoho_tokens')
+		.select(TOKEN_SELECT)
 		.order('updated_at', { ascending: false })
 		.limit(1)
 		.maybeSingle();
+	if (fallback.error || !fallback.data) return null;
+	return fallback.data as ZohoTokens;
+}
 
+/**
+ * Get the token belonging to a specific Zoho user_id. Used to fetch email
+ * bodies that are private to that user.
+ */
+export async function getZohoTokenByUserId(userId: string): Promise<ZohoTokens | null> {
+	const { data, error } = await getSupabase()
+		.from('zoho_tokens')
+		.select(TOKEN_SELECT)
+		.eq('user_id', userId)
+		.maybeSingle();
 	if (error || !data) return null;
 	return data as ZohoTokens;
 }
 
 /**
+ * List all connected Zoho users (one token per user).
+ */
+export async function listZohoTokens(): Promise<ZohoTokens[]> {
+	const { data, error } = await getSupabase()
+		.from('zoho_tokens')
+		.select(TOKEN_SELECT)
+		.order('is_primary', { ascending: false })
+		.order('updated_at', { ascending: false });
+	if (error || !data) return [];
+	return data as ZohoTokens[];
+}
+
+/**
  * Store or update Zoho tokens (single row)
  */
-export async function upsertZohoTokens(tokens: Omit<ZohoTokens, 'id'>): Promise<ZohoTokens> {
-	const existing = await getZohoTokens();
-	const userId = tokens.user_id || existing?.user_id;
-
-	if (!userId) {
+/**
+ * Multi-user upsert keyed by Zoho user_id. Preserves existing rows for OTHER
+ * users. Fields not passed in keep their existing values. The first row ever
+ * inserted is automatically the primary; subsequent inserts are non-primary
+ * unless explicitly promoted.
+ */
+export async function upsertZohoTokens(
+	tokens: Omit<ZohoTokens, 'id' | 'is_primary'> & { is_primary?: boolean }
+): Promise<ZohoTokens> {
+	const supabase = getSupabase();
+	if (!tokens.user_id) {
 		throw new Error('Zoho token insert failed: missing user_id');
 	}
 
-	if (existing?.id) {
-			const { data, error } = await getSupabase()
-				.from('zoho_tokens')
-				.update({
-					user_id: userId,
-					access_token: tokens.access_token,
+	const existingByUser = await supabase
+		.from('zoho_tokens')
+		.select(TOKEN_SELECT)
+		.eq('user_id', tokens.user_id)
+		.maybeSingle();
+
+	if (existingByUser.data) {
+		const existing = existingByUser.data as ZohoTokens;
+		const { data, error } = await supabase
+			.from('zoho_tokens')
+			.update({
+				access_token: tokens.access_token,
 				refresh_token: tokens.refresh_token,
 				expires_at: tokens.expires_at,
 				scope: tokens.scope ?? existing.scope,
+				user_email: tokens.user_email ?? existing.user_email ?? null,
+				...(tokens.is_primary !== undefined ? { is_primary: tokens.is_primary } : {}),
 				updated_at: new Date().toISOString()
 			})
 			.eq('id', existing.id)
-			.select()
+			.select(TOKEN_SELECT)
 			.single();
-
 		if (error) throw new Error(`Zoho token update failed: ${error.message}`);
 		return data as ZohoTokens;
 	}
 
-	const { data, error } = await getSupabase()
+	// First row ever? Auto-mark primary.
+	const { count } = await supabase
+		.from('zoho_tokens')
+		.select('id', { count: 'exact', head: true });
+	const isFirst = !count || count === 0;
+
+	const { data, error } = await supabase
 		.from('zoho_tokens')
 		.insert({
-			user_id: userId,
+			user_id: tokens.user_id,
 			access_token: tokens.access_token,
 			refresh_token: tokens.refresh_token,
 			expires_at: tokens.expires_at,
 			scope: tokens.scope ?? null,
+			user_email: tokens.user_email ?? null,
+			is_primary: tokens.is_primary ?? isFirst,
 			updated_at: new Date().toISOString()
 		})
-		.select()
+		.select(TOKEN_SELECT)
 		.single();
-
 	if (error) throw new Error(`Zoho token insert failed: ${error.message}`);
 	return data as ZohoTokens;
+}
+
+/**
+ * Delete a user's token by id. Used by the bot users management UI.
+ */
+export async function deleteZohoToken(tokenId: string): Promise<void> {
+	const { error } = await getSupabase().from('zoho_tokens').delete().eq('id', tokenId);
+	if (error) throw new Error(`Zoho token delete failed: ${error.message}`);
+}
+
+/**
+ * Promote a specific row to primary. Demotes all others.
+ */
+export async function setPrimaryZohoToken(tokenId: string): Promise<void> {
+	const supabase = getSupabase();
+	const demote = await supabase.from('zoho_tokens').update({ is_primary: false }).neq('id', tokenId);
+	if (demote.error) throw new Error(`demote failed: ${demote.error.message}`);
+	const promote = await supabase
+		.from('zoho_tokens')
+		.update({ is_primary: true })
+		.eq('id', tokenId);
+	if (promote.error) throw new Error(`promote failed: ${promote.error.message}`);
 }
 
 /**

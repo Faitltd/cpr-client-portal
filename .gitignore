@@ -7,3 +7,4 @@ build
 CPR Logo (3).png
 HANDOFF_integrity_check_local_fix.md
 vite.config.js.timestamp-*.mjs
+.claude/
