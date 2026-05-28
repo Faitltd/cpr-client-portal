@@ -22,7 +22,6 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@rollup/rollup-linux-arm64-gnu": "^4.60.4",
     "@supabase/supabase-js": "^2.39.0",
     "mammoth": "^1.8.0",
     "openai": "^4.0.0",
