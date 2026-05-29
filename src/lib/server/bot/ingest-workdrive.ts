@@ -75,7 +75,7 @@ async function fetchDealFolder(
 }> {
 	const res = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Contact_Name,WorkDrive_Folder_ID,External_Link,Client_Portal_Folder`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Contact_Name,WorkDrive_Folder_ID,WorkDrive_Internal_URL,External_Link,Client_Portal_Folder`,
 		{},
 		apiDomain
 	);
@@ -90,9 +90,13 @@ async function fetchDealFolder(
 		return { folderId: directId, folderUrl: null, source: 'field' };
 	}
 
-	// Fall back to URL-based fields, in priority order: External_Link (root
-	// share link) → Client_Portal_Folder (client-facing only).
+	// Fall back to URL-based fields, in priority order:
+	//   1. WorkDrive_Internal_URL — internal team-folder URL to the project root
+	//      (the one CPR's Zoho automation populates on every Deal)
+	//   2. External_Link — root share link
+	//   3. Client_Portal_Folder — client-facing subset only
 	const url =
+		(typeof rec.WorkDrive_Internal_URL === 'string' && rec.WorkDrive_Internal_URL) ||
 		(typeof rec.External_Link === 'string' && rec.External_Link) ||
 		(typeof rec.Client_Portal_Folder === 'string' && rec.Client_Portal_Folder) ||
 		null;
