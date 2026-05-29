@@ -172,9 +172,10 @@ export async function postCliqBotMessage(chatId: string, message: CliqMessage): 
  *
  * Returns { text, sender_id } or null if nothing is fetchable.
  */
-export async function fetchLatestChatMessage(
-	chatId: string
-): Promise<{ text: string; senderId: string | null } | null> {
+export async function fetchLatestChatMessage(chatId: string): Promise<{
+	text: string;
+	sender: { id: string | null; name: string | null; type: string | null; email: string | null };
+} | null> {
 	if (!chatId) return null;
 	const { accessToken } = await getValidAccessToken();
 	const url = `${CLIQ_API_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=1`;
@@ -194,8 +195,16 @@ export async function fetchLatestChatMessage(
 			(typeof first?.content?.text === 'string' && first.content.text) ||
 			(typeof first?.text === 'string' && first.text) ||
 			'';
-		const senderId = first?.sender?.id ?? first?.sender_id ?? null;
-		return { text, senderId: senderId ? String(senderId) : null };
+		const senderRaw = first?.sender ?? {};
+		return {
+			text,
+			sender: {
+				id: senderRaw.id ?? first?.sender_id ?? null,
+				name: senderRaw.name ?? null,
+				type: senderRaw.type ?? null,
+				email: senderRaw.email ?? senderRaw.email_id ?? null
+			}
+		};
 	} catch (err) {
 		console.warn(
 			'[cliq-bot] fetch latest message failed:',
@@ -208,6 +217,26 @@ export async function fetchLatestChatMessage(
 export function isBotSenderId(senderId: string | null): boolean {
 	if (!senderId || !BOT_USER_ID) return false;
 	return senderId === BOT_USER_ID;
+}
+
+/**
+ * More defensive: take whatever sender info is available (id, name, type, email)
+ * and return true if it looks like our bot — to avoid self-loops without needing
+ * the exact bot user id.
+ */
+export function isBotSender(sender: {
+	id?: string | null;
+	name?: string | null;
+	type?: string | null;
+	email?: string | null;
+}): boolean {
+	if (sender.id && BOT_USER_ID && sender.id === BOT_USER_ID) return true;
+	if (sender.type && sender.type.toLowerCase() === 'bot') return true;
+	const botName = (env.ZOHO_CLIQ_BOT_NAME ?? '').toLowerCase().trim();
+	if (botName && sender.name && sender.name.toLowerCase().trim() === botName) return true;
+	const email = (sender.email ?? '').toLowerCase();
+	if (email.includes('bot@') || email.startsWith('cprbot@')) return true;
+	return false;
 }
 
 /**

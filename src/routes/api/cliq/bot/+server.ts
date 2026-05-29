@@ -5,7 +5,7 @@ import {
 	fetchLatestChatMessage,
 	findDealByCliqChannelId,
 	findDealsByNameFragment,
-	isBotSenderId,
+	isBotSender,
 	postCliqBotMessage,
 	stripBotMention,
 	type ChannelDealMatch
@@ -83,7 +83,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!rawText && chatId) {
 		const latest = await fetchLatestChatMessage(chatId);
 		if (latest) {
-			if (isBotSenderId(latest.senderId)) {
+			if (isBotSender(latest.sender)) {
 				// Self-triggered — ignore to avoid infinite loops.
 				return json({});
 			}
