@@ -101,7 +101,8 @@ async function fetchDealsViaCoql(accessToken: string, apiDomain?: string): Promi
 
 	for (let page = 0; page < COQL_MAX_PAGES; page += 1) {
 		const offset = page * COQL_PAGE_SIZE;
-		const selectQuery = `SELECT id, Deal_Name, Stage, Contact_Name FROM Deals ${whereClause} ORDER BY Modified_Time DESC LIMIT ${COQL_PAGE_SIZE} OFFSET ${offset}`;
+		// COQL requires dot notation for lookup fields (Contact_Name.name).
+		const selectQuery = `SELECT id, Deal_Name, Stage, Contact_Name.name FROM Deals ${whereClause} ORDER BY Modified_Time DESC LIMIT ${COQL_PAGE_SIZE} OFFSET ${offset}`;
 
 		const response = await zohoApiCall(
 			accessToken,
@@ -123,11 +124,16 @@ async function fetchDealsViaCoql(accessToken: string, apiDomain?: string): Promi
 			// Belt-and-suspenders local filter — only show whitelisted stages.
 			if (!includeLower.has(stage.toLowerCase())) continue;
 			seen.add(id);
+			// COQL returns lookup fields as either nested objects or flat
+			// "Contact_Name.name" keys depending on the response format.
+			const contactName =
+				extractContactName(d['Contact_Name']) ||
+				String(d['Contact_Name.name'] || '');
 			out.push({
 				id,
 				deal_name: String(d.Deal_Name || ''),
 				stage,
-				contact_name: extractContactName(d.Contact_Name)
+				contact_name: contactName
 			});
 		}
 
