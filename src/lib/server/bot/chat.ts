@@ -206,3 +206,59 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 		}
 	});
 }
+
+/**
+ * Non-streaming variant for the Cliq bot. Returns the full assistant reply
+ * text once OpenAI finishes. Uses the same Deal context + retrieval pipeline
+ * as runChat, but skips the SSE wrapping since Cliq just needs final text.
+ */
+export async function runChatNonStreaming(opts: RunChatOptions): Promise<string> {
+	const lastUser = opts.messages.at(-1);
+	if (!lastUser || lastUser.role !== 'user') {
+		throw new Error('Last message must be a user turn');
+	}
+
+	const [ctx, retrieved] = await Promise.all([
+		getDealContext(opts.dealId),
+		retrieveRelevant({ dealId: opts.dealId, query: lastUser.content, k: 12 }).catch((err) => {
+			console.warn('[bot] retrieval failed:', err);
+			return [];
+		})
+	]);
+
+	const dealBlock = renderDealContextBlock(ctx);
+	const retrievedBlock = renderRetrievedContextBlock(retrieved);
+	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
+
+	const promptParts = [
+		SYSTEM_PROMPT,
+		'\n# Deal context\n' + dealBlock,
+		'\n# Sources searched for this question\n' + sourcesSearchedBlock
+	];
+	if (retrievedBlock) {
+		promptParts.push('\n# Retrieved context (cite as [#N])\n' + retrievedBlock);
+	} else {
+		promptParts.push(
+			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
+		);
+	}
+	const systemPrompt = promptParts.join('\n');
+
+	await ensureThread(opts, lastUser.content.slice(0, 80));
+	await persistMessage(opts.threadId, 'user', lastUser.content);
+
+	const openai = getOpenAI();
+	const completion = await openai.chat.completions.create({
+		model: CHAT_MODEL,
+		stream: false,
+		temperature: 0.2,
+		messages: [
+			{ role: 'system', content: systemPrompt },
+			...opts.messages.map((m) => ({ role: m.role, content: m.content }))
+		]
+	});
+
+	const reply = completion.choices?.[0]?.message?.content ?? '';
+	await persistMessage(opts.threadId, 'assistant', reply);
+	return reply;
+}
