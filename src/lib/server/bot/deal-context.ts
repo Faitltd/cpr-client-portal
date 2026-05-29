@@ -44,15 +44,63 @@ const DEAL_FIELDS = [
 	'Zip_Code',
 	'Garage_Code',
 	'WiFi',
+	'Access_Notes',
+	'Access_Code',
+	'Door_Code',
+	'Lockbox',
+	'Alarm_Code',
+	'Pet_Notes',
+	'Site_Notes',
 	'Ball_In_Court',
 	'Ball_In_Court_Note',
 	'Description',
 	'Refined_Scope',
+	'Project_Notes',
 	'Client_Portal_Folder',
 	'External_Link',
+	'WorkDrive_Internal_URL',
 	'Created_Time',
 	'Modified_Time'
 ].join(',');
+
+// Standard Zoho/system fields we don't bother showing in the "extras" dump.
+const HIDE_RAW_FIELDS = new Set([
+	'id',
+	'$approved',
+	'$approval',
+	'$editable',
+	'$in_merge',
+	'$line_tax',
+	'$process_flow',
+	'$orchestration',
+	'$converted',
+	'$converted_detail',
+	'$state',
+	'$pathfinder',
+	'$locked_for_me',
+	'$has_more',
+	'$wizard_connection_path',
+	'$canvas_id',
+	'$followers',
+	'$following',
+	'$review_process',
+	'$review',
+	'$sharing_permission',
+	'$layout_id',
+	'$module',
+	'$share_permissions',
+	'$tag',
+	'Tag',
+	'Created_By',
+	'Modified_By',
+	'Last_Activity_Time',
+	'Lead_Conversion_Time',
+	'Probability',
+	'Expected_Revenue',
+	'Layout',
+	'Currency',
+	'Exchange_Rate'
+]);
 
 const CONTACT_FIELDS = ['Full_Name', 'Email', 'Phone', 'Mobile'].join(',');
 
@@ -232,6 +280,27 @@ function truncate(s: string, max: number): string {
 	return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+function renderRawFieldValue(value: unknown): string | null {
+	if (value == null) return null;
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		if (!trimmed) return null;
+		return truncate(stripHtml(trimmed), 800);
+	}
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	if (typeof value === 'object') {
+		const obj = value as Record<string, unknown>;
+		if ('name' in obj && typeof obj.name === 'string') return obj.name;
+		if (Array.isArray(value)) {
+			const items = value
+				.map((v) => renderRawFieldValue(v))
+				.filter((s): s is string => Boolean(s));
+			return items.length ? items.join(', ') : null;
+		}
+	}
+	return null;
+}
+
 export function renderDealContextBlock(ctx: DealContext): string {
 	const lines: string[] = [];
 	lines.push(`Deal: ${ctx.name} (Zoho id=${ctx.id})`);
@@ -254,6 +323,51 @@ export function renderDealContextBlock(ctx: DealContext): string {
 	if (ctx.garage_code) lines.push(`Garage code: ${ctx.garage_code}`);
 	if (ctx.wifi) lines.push(`Wi-Fi: ${ctx.wifi}`);
 	if (ctx.workdrive_url) lines.push(`WorkDrive folder: ${ctx.workdrive_url}`);
+
+	// Dump any remaining fields from the live Deal record so the bot can match
+	// on whatever names the user uses (e.g. "access code" → Access_Notes).
+	const renderedKeys = new Set([
+		'Deal_Name',
+		'Stage',
+		'Amount',
+		'Closing_Date',
+		'Owner',
+		'Contact_Name',
+		'Account_Name',
+		'Address',
+		'Address_Line_2',
+		'Street',
+		'City',
+		'State',
+		'Zip_Code',
+		'Garage_Code',
+		'WiFi',
+		'Ball_In_Court',
+		'Ball_In_Court_Note',
+		'Refined_Scope',
+		'Description',
+		'Client_Portal_Folder',
+		'External_Link',
+		'WorkDrive_Internal_URL',
+		'Created_Time',
+		'Modified_Time'
+	]);
+	const extras: string[] = [];
+	for (const [key, raw] of Object.entries(ctx.raw_fields)) {
+		if (renderedKeys.has(key)) continue;
+		if (HIDE_RAW_FIELDS.has(key)) continue;
+		if (key.startsWith('$')) continue;
+		const rendered = renderRawFieldValue(raw);
+		if (!rendered) continue;
+		const label = key.replace(/_/g, ' ');
+		extras.push(`${label}: ${rendered}`);
+	}
+	if (extras.length > 0) {
+		lines.push('');
+		lines.push('Other Deal fields:');
+		for (const e of extras) lines.push(`- ${e}`);
+	}
+
 	if (ctx.refined_scope) {
 		lines.push('');
 		lines.push('Refined scope:');
