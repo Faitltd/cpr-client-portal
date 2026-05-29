@@ -60,10 +60,12 @@ export async function findDealByCliqChannelId(
 			stage: String(d.Stage ?? '')
 		};
 	} catch (err) {
-		console.warn(
-			'[cliq-bot] channel→deal lookup failed:',
-			err instanceof Error ? err.message : err
-		);
+		const msg = err instanceof Error ? err.message : String(err);
+		// The Cliq_Internal_Channel_ID field is not always searchable in CRM —
+		// silently fall back to shared-channel name parsing when that happens.
+		if (!/not available for search/i.test(msg)) {
+			console.warn('[cliq-bot] channel→deal lookup failed:', msg);
+		}
 		return null;
 	}
 }
