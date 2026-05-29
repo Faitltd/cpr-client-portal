@@ -125,44 +125,28 @@ export const POST: RequestHandler = async ({ request }) => {
 		askText = questionPart;
 	}
 
-	const resolvedMatch = match;
-	const resolvedQuestion = askText;
-
-	// Fire-and-forget the chat; reply async via Cliq REST.
-	// We do NOT await this — Cliq's webhook timeout would fire.
-	(async () => {
-		try {
-			const reply = await runChatNonStreaming({
-				dealId: resolvedMatch.dealId,
-				// Use a per-channel thread id so each Cliq channel keeps its own
-				// conversation history server-side.
-				threadId: `cliq:${chatId}`,
-				adminEmail: user.email || 'cliq-bot',
-				messages: [{ role: 'user', content: resolvedQuestion }]
-			});
-			await postCliqBotMessage(chatId, {
-				text: reply || '(no response generated)',
-				bot: { name: env.ZOHO_CLIQ_BOT_NAME || 'CRMBot' }
-			});
-		} catch (err) {
-			console.warn(
-				'[cliq-bot] async reply failed:',
-				err instanceof Error ? err.message : err
-			);
-			try {
-				await postCliqBotMessage(chatId, {
-					text: `Bot error: ${err instanceof Error ? err.message : 'unknown'}`,
-					bot: { name: env.ZOHO_CLIQ_BOT_NAME || 'CRMBot' }
-				});
-			} catch {
-				/* best effort */
-			}
-		}
-	})();
-
-	// Immediate ack so Cliq shows "thinking…" promptly.
-	return json({
-		text: `Thinking about *${resolvedMatch.dealName}*…`,
-		bot: { name: env.ZOHO_CLIQ_BOT_NAME || 'CRMBot' }
-	});
+	// Synchronous reply — Cliq's Deluge `invokeurl` can wait up to ~2 minutes,
+	// and our chat completes in ~10s. Doing this synchronously avoids the
+	// scope-error mess of posting back via OAuth.
+	try {
+		const reply = await runChatNonStreaming({
+			dealId: match.dealId,
+			threadId: `cliq:${chatId}`,
+			adminEmail: user.email || 'cliq-bot',
+			messages: [{ role: 'user', content: askText }]
+		});
+		return json({
+			text: `*${match.dealName}*\n\n${reply || '(no response generated)'}`,
+			bot: { name: env.ZOHO_CLIQ_BOT_NAME || 'CRMBot' }
+		});
+	} catch (err) {
+		console.warn(
+			'[cliq-bot] chat run failed:',
+			err instanceof Error ? err.message : err
+		);
+		return json({
+			text: `Bot error: ${err instanceof Error ? err.message : 'unknown'}`,
+			bot: { name: env.ZOHO_CLIQ_BOT_NAME || 'CRMBot' }
+		});
+	}
 };
