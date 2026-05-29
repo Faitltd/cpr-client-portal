@@ -90,8 +90,10 @@ async function ensureAccessToken(): Promise<{ accessToken: string; apiDomain?: s
 async function fetchDealsViaCoql(accessToken: string, apiDomain?: string): Promise<DealItem[]> {
 	if (INCLUDE_STAGES.length === 0) return [];
 
-	const inList = INCLUDE_STAGES.map((s) => `'${escapeCoqlString(s)}'`).join(', ');
-	const whereClause = `WHERE Stage IN (${inList})`;
+	// Zoho COQL only supports `=` and `!=` on picklist columns (not IN / NOT IN).
+	// Chain `Stage = '...'` clauses with OR for the whitelist.
+	const orClauses = INCLUDE_STAGES.map((s) => `Stage = '${escapeCoqlString(s)}'`).join(' OR ');
+	const whereClause = `WHERE (${orClauses})`;
 	const includeLower = new Set(INCLUDE_STAGES.map((s) => s.toLowerCase()));
 
 	const out: DealItem[] = [];
