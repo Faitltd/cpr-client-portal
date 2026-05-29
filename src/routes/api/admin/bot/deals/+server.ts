@@ -12,8 +12,33 @@ interface DealItem {
 	contact_name: string;
 }
 
-const EXCLUDE_STAGES = (env.BOT_SYNC_EXCLUDE_STAGES ?? 'Lost,On Hold,Completed')
-	.split(',')
+// Whitelist of ACTIVE Deal stages. Anything not in this list is hidden from
+// the bot dropdown (Completed, On Hold, Lost, and any future stage will be
+// excluded by default until you add it to this env var).
+const DEFAULT_INCLUDE_STAGES = [
+	'Ballpark Needed',
+	'Ballpark Revision',
+	'Ballpark Review Needed',
+	'Ballpark Review Booked',
+	'PDA Needed',
+	'PDA Sent',
+	'Design Needed',
+	'Design Review Booked',
+	'Redesign Needed',
+	'Estimate Needed',
+	'Estimate Review Needed',
+	'Estimate Review Booked',
+	'Estimate Revision Needed',
+	'Quoted',
+	'Contract Needed',
+	'Contract Sent',
+	'Project Created'
+];
+
+const INCLUDE_STAGES = (env.BOT_DEAL_INCLUDE_STAGES
+	? env.BOT_DEAL_INCLUDE_STAGES.split(',')
+	: DEFAULT_INCLUDE_STAGES
+)
 	.map((s) => s.trim())
 	.filter(Boolean);
 
@@ -63,8 +88,11 @@ async function ensureAccessToken(): Promise<{ accessToken: string; apiDomain?: s
 }
 
 async function fetchDealsViaCoql(accessToken: string, apiDomain?: string): Promise<DealItem[]> {
-	const excludeList = EXCLUDE_STAGES.map((s) => `'${escapeCoqlString(s)}'`).join(', ');
-	const whereClause = excludeList ? `WHERE Stage NOT IN (${excludeList})` : '';
+	if (INCLUDE_STAGES.length === 0) return [];
+
+	const inList = INCLUDE_STAGES.map((s) => `'${escapeCoqlString(s)}'`).join(', ');
+	const whereClause = `WHERE Stage IN (${inList})`;
+	const includeLower = new Set(INCLUDE_STAGES.map((s) => s.toLowerCase()));
 
 	const out: DealItem[] = [];
 	const seen = new Set<string>();
@@ -89,11 +117,14 @@ async function fetchDealsViaCoql(accessToken: string, apiDomain?: string): Promi
 		for (const d of batch) {
 			const id = String(d.id);
 			if (seen.has(id)) continue;
+			const stage = String(d.Stage || '').trim();
+			// Belt-and-suspenders local filter — only show whitelisted stages.
+			if (!includeLower.has(stage.toLowerCase())) continue;
 			seen.add(id);
 			out.push({
 				id,
 				deal_name: String(d.Deal_Name || ''),
-				stage: String(d.Stage || '').trim(),
+				stage,
 				contact_name: extractContactName(d.Contact_Name)
 			});
 		}
@@ -116,7 +147,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 		if (!bypassCache && cache && cache.expiresAt > Date.now()) {
 			return json({
 				data: cache.data,
-				excludedStages: EXCLUDE_STAGES,
+				includedStages: INCLUDE_STAGES,
 				cached: true,
 				cacheAgeMs: CACHE_TTL_MS - (cache.expiresAt - Date.now())
 			});
@@ -127,7 +158,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 
 		cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
 
-		return json({ data, excludedStages: EXCLUDE_STAGES, cached: false });
+		return json({ data, includedStages: INCLUDE_STAGES, cached: false });
 	} catch (err) {
 		console.error('GET /api/admin/bot/deals error:', err);
 		const message = err instanceof Error ? err.message : 'Failed to fetch deals';
