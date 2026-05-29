@@ -58,6 +58,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 		const out: DealItem[] = [];
 		const seen = new Set<string>();
+		const excludeLower = new Set(EXCLUDE_STAGES.map((s) => s.toLowerCase()));
 		let page = 1;
 		while (page < 10) {
 			const result = await zohoApiCall(
@@ -71,11 +72,16 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			for (const d of batch) {
 				const id = String(d.id);
 				if (seen.has(id)) continue;
+				const stage = String(d.Stage || '').trim();
+				// Belt-and-suspenders: Zoho's chained not_equal criteria does not
+				// reliably filter stages with spaces (e.g. "On Hold"), so also
+				// filter locally on the response.
+				if (excludeLower.has(stage.toLowerCase())) continue;
 				seen.add(id);
 				out.push({
 					id,
 					deal_name: String(d.Deal_Name || ''),
-					stage: String(d.Stage || ''),
+					stage,
 					contact_name: extractContactName(d.Contact_Name)
 				});
 			}
