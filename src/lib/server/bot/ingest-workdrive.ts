@@ -6,6 +6,8 @@ import {
 	listWorkDriveFolder,
 	downloadWorkDriveFile,
 	extractWorkDriveFolderId,
+	buildDealFolderCandidates,
+	findBestFolderByName,
 	type WorkDriveItem
 } from '$lib/server/workdrive';
 import { chunkText, embed } from './embeddings';
@@ -13,6 +15,9 @@ import { chunkText, embed } from './embeddings';
 const MAX_FILES_PER_DEAL = Number(env.BOT_WORKDRIVE_MAX_FILES ?? '50');
 const MAX_FILE_BYTES = Number(env.BOT_WORKDRIVE_MAX_BYTES ?? String(25 * 1024 * 1024));
 const MAX_SUBFOLDER_DEPTH = Number(env.BOT_WORKDRIVE_MAX_DEPTH ?? '3');
+// Parent folder that contains one subfolder per Deal. Used as a fallback when
+// the Deal record has no WorkDrive_Folder_ID / Client_Portal_Folder set.
+const WORKDRIVE_PARENT_FOLDER_ID = (env.BOT_WORKDRIVE_PARENT_FOLDER_ID ?? '').trim();
 
 type WdSource = 'workdrive_pdf' | 'workdrive_docx';
 
@@ -61,10 +66,16 @@ async function fetchDealFolder(
 	accessToken: string,
 	apiDomain: string | undefined,
 	dealId: string
-): Promise<{ folderId: string | null; folderUrl: string | null }> {
+): Promise<{
+	folderId: string | null;
+	folderUrl: string | null;
+	matchedDealName?: string | null;
+	matchedFolderName?: string | null;
+	source: 'field' | 'url' | 'autodiscover' | 'none';
+}> {
 	const res = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID,External_Link,Client_Portal_Folder`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Contact_Name,WorkDrive_Folder_ID,External_Link,Client_Portal_Folder`,
 		{},
 		apiDomain
 	);
@@ -76,7 +87,7 @@ async function fetchDealFolder(
 	const directId =
 		typeof rec.WorkDrive_Folder_ID === 'string' ? rec.WorkDrive_Folder_ID.trim() : '';
 	if (directId) {
-		return { folderId: directId, folderUrl: null };
+		return { folderId: directId, folderUrl: null, source: 'field' };
 	}
 
 	// Fall back to URL-based fields, in priority order: External_Link (root
@@ -85,8 +96,62 @@ async function fetchDealFolder(
 		(typeof rec.External_Link === 'string' && rec.External_Link) ||
 		(typeof rec.Client_Portal_Folder === 'string' && rec.Client_Portal_Folder) ||
 		null;
-	const folderId = extractWorkDriveFolderId(url);
-	return { folderId: folderId ?? null, folderUrl: url };
+	const urlFolderId = extractWorkDriveFolderId(url);
+	if (urlFolderId) {
+		return { folderId: urlFolderId, folderUrl: url, source: 'url' };
+	}
+
+	// Final fallback: search the configured parent folder for a subfolder whose
+	// name matches the Deal name (or its primary contact's name).
+	if (!WORKDRIVE_PARENT_FOLDER_ID) {
+		return { folderId: null, folderUrl: url, source: 'none' };
+	}
+
+	const dealName = typeof rec.Deal_Name === 'string' ? rec.Deal_Name : '';
+	const contactName =
+		rec.Contact_Name && typeof rec.Contact_Name === 'object' && 'name' in rec.Contact_Name
+			? String((rec.Contact_Name as { name?: unknown }).name ?? '')
+			: '';
+	const candidates = [
+		...buildDealFolderCandidates(dealName),
+		...buildDealFolderCandidates(contactName)
+	];
+	if (candidates.length === 0) {
+		return { folderId: null, folderUrl: url, source: 'none' };
+	}
+
+	let parentItems: WorkDriveItem[] = [];
+	try {
+		parentItems = await listWorkDriveFolder(
+			accessToken,
+			WORKDRIVE_PARENT_FOLDER_ID,
+			apiDomain,
+			{ perPage: 200, maxPages: 5 }
+		);
+	} catch (err) {
+		console.warn(
+			`[bot/ingest-workdrive] autodiscover failed listing parent ${WORKDRIVE_PARENT_FOLDER_ID}:`,
+			err instanceof Error ? err.message : err
+		);
+		return { folderId: null, folderUrl: url, source: 'none' };
+	}
+
+	const match = findBestFolderByName(parentItems, candidates);
+	if (!match) {
+		return {
+			folderId: null,
+			folderUrl: url,
+			matchedDealName: dealName || contactName,
+			source: 'none'
+		};
+	}
+	return {
+		folderId: match.id,
+		folderUrl: null,
+		matchedDealName: dealName || contactName,
+		matchedFolderName: match.name,
+		source: 'autodiscover'
+	};
 }
 
 function pickSource(name: string, mime: string | null): WdSource | null {
@@ -304,13 +369,23 @@ export async function syncWorkDriveForDeal(
 
 	let folderId: string | null = null;
 	let folderUrl: string | null = null;
+	let folderSource: 'field' | 'url' | 'autodiscover' | 'override' | 'none' = 'none';
+	let matchedFolderName: string | null | undefined = null;
 
 	if (opts.folderIdOverride) {
 		folderId = opts.folderIdOverride;
+		folderSource = 'override';
 	} else {
 		const looked = await fetchDealFolder(accessToken, apiDomain, dealId);
 		folderId = looked.folderId;
 		folderUrl = looked.folderUrl;
+		folderSource = looked.source;
+		matchedFolderName = looked.matchedFolderName ?? null;
+		if (looked.source === 'autodiscover' && looked.matchedFolderName) {
+			console.log(
+				`[bot/ingest-workdrive] auto-discovered folder "${looked.matchedFolderName}" for deal ${dealId}`
+			);
+		}
 	}
 
 	const res: WorkDriveSyncResult = {
@@ -323,9 +398,17 @@ export async function syncWorkDriveForDeal(
 		failed: 0,
 		files: []
 	};
+	if (folderSource === 'autodiscover' && matchedFolderName) {
+		(res as any).matched_folder_name = matchedFolderName;
+		(res as any).folder_source = 'autodiscover';
+	} else {
+		(res as any).folder_source = folderSource;
+	}
 
 	if (!folderId) {
-		res.error = 'no Client_Portal_Folder on Deal (and no folderId override given)';
+		res.error = WORKDRIVE_PARENT_FOLDER_ID
+			? 'no folder on Deal and no matching subfolder in BOT_WORKDRIVE_PARENT_FOLDER_ID'
+			: 'no WorkDrive folder on Deal (set WorkDrive_Folder_ID / Client_Portal_Folder, or set BOT_WORKDRIVE_PARENT_FOLDER_ID env to enable auto-discovery)';
 		return res;
 	}
 
