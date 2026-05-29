@@ -3,7 +3,58 @@ import { env } from '$env/dynamic/private';
 import { supabase } from '$lib/server/db';
 import { SYSTEM_PROMPT } from './prompts';
 import { getDealContext, renderDealContextBlock } from './deal-context';
-import { retrieveRelevant, renderRetrievedContextBlock } from './retrieve';
+import { retrieveRelevant, renderRetrievedContextBlock, type RetrievedChunk } from './retrieve';
+
+const ALL_SOURCES = [
+	'zoho_mail',
+	'zoho_cliq_internal',
+	'zoho_cliq_external',
+	'zoho_crm_note',
+	'zoho_crm_email',
+	'zoho_books_invoice',
+	'zoho_books_estimate',
+	'zoho_books_payment',
+	'workdrive_pdf',
+	'workdrive_docx'
+] as const;
+
+function buildSourcesSearchedBlock(retrieved: RetrievedChunk[]): string {
+	const bySource = new Map<string, RetrievedChunk[]>();
+	for (const c of retrieved) {
+		const list = bySource.get(c.source) ?? [];
+		list.push(c);
+		bySource.set(c.source, list);
+	}
+	const lines: string[] = [];
+	for (const source of ALL_SOURCES) {
+		const chunks = bySource.get(source) ?? [];
+		if (chunks.length === 0) {
+			lines.push(`- ${source}: 0 entries (nothing matched this question)`);
+			continue;
+		}
+		const dates = chunks
+			.map((c) => c.occurred_at)
+			.filter((d): d is string => Boolean(d))
+			.sort();
+		const earliest = dates[0]?.slice(0, 10) ?? 'unknown';
+		const latest = dates[dates.length - 1]?.slice(0, 10) ?? 'unknown';
+		const range = earliest === latest ? earliest : `${earliest} to ${latest}`;
+		const sampleSubjects = chunks
+			.map((c) => c.subject)
+			.filter((s): s is string => Boolean(s))
+			.slice(0, 2)
+			.map((s) => `"${s.slice(0, 60)}"`)
+			.join(', ');
+		const sampleNote = sampleSubjects ? `; sample subjects: ${sampleSubjects}` : '';
+		lines.push(`- ${source}: ${chunks.length} entries (${range})${sampleNote}`);
+	}
+	// Include any source that came back but isn't in ALL_SOURCES (defensive)
+	for (const [source, chunks] of bySource) {
+		if ((ALL_SOURCES as readonly string[]).includes(source)) continue;
+		lines.push(`- ${source}: ${chunks.length} entries`);
+	}
+	return lines.join('\n');
+}
 
 export interface ChatMessage {
 	role: 'user' | 'assistant';
@@ -86,6 +137,7 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 
 	const dealBlock = renderDealContextBlock(ctx);
 	const retrievedBlock = renderRetrievedContextBlock(retrieved);
+	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
 	const sourceCounts: Record<string, number> = {};
 	for (const c of retrieved) sourceCounts[c.source] = (sourceCounts[c.source] ?? 0) + 1;
@@ -93,10 +145,16 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 		`[bot/chat] deal=${opts.dealId} q="${lastUser.content.slice(0, 60)}" retrieved=${retrieved.length} by_source=${JSON.stringify(sourceCounts)}`
 	);
 
-	const promptParts = [SYSTEM_PROMPT, '\n# Deal context\n' + dealBlock];
+	const promptParts = [
+		SYSTEM_PROMPT,
+		'\n# Deal context\n' + dealBlock,
+		'\n# Sources searched for this question\n' + sourcesSearchedBlock
+	];
 	if (retrievedBlock) {
+		promptParts.push('\n# Retrieved context (cite as [#N])\n' + retrievedBlock);
+	} else {
 		promptParts.push(
-			'\n# Retrieved context (cite as [#N])\n' + retrievedBlock
+			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
 		);
 	}
 	const systemPrompt = promptParts.join('\n');
