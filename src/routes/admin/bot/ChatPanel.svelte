@@ -246,6 +246,44 @@
 			send(input);
 		}
 	}
+
+	function escapeHtml(s: string): string {
+		return s
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;');
+	}
+
+	/**
+	 * Escape HTML, then turn URLs into clickable links that open in a new tab.
+	 * Handles markdown-style `[label](url)` and bare `http(s)://...` URLs.
+	 */
+	function renderMessage(raw: string): string {
+		if (!raw) return '';
+		const escaped = escapeHtml(raw);
+
+		// Markdown links first: [text](https://...) → <a href="...">text</a>
+		// (note: escapeHtml already turned the literal chars into entities)
+		const mdLink = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+		const placeholders: string[] = [];
+		let withMd = escaped.replace(mdLink, (_m, text, url) => {
+			const html = `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+			placeholders.push(html);
+			return ` LINK${placeholders.length - 1} `;
+		});
+
+		// Bare URLs anywhere else
+		const bareUrl = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g;
+		withMd = withMd.replace(
+			bareUrl,
+			(url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`
+		);
+
+		// Put markdown-link placeholders back
+		return withMd.replace(/ LINK(\d+) /g, (_m, i) => placeholders[Number(i)]);
+	}
 </script>
 
 <div class="panel">
@@ -314,7 +352,11 @@
 		{#each messages as msg, i (i)}
 			<div class="bubble bubble-{msg.role}">
 				<div class="bubble-role">{msg.role === 'user' ? 'You' : 'Bot'}</div>
-				<div class="bubble-body">{msg.content || (busy && i === messages.length - 1 ? '…' : '')}</div>
+				{#if msg.content}
+					<div class="bubble-body">{@html renderMessage(msg.content)}</div>
+				{:else}
+					<div class="bubble-body">{busy && i === messages.length - 1 ? '…' : ''}</div>
+				{/if}
 			</div>
 		{/each}
 
@@ -491,6 +533,16 @@
 		align-self: flex-start;
 		background: #f3f4f6;
 		color: #111827;
+	}
+
+	.bubble-body :global(a) {
+		color: inherit;
+		text-decoration: underline;
+		word-break: break-all;
+	}
+
+	.bubble-user .bubble-body :global(a) {
+		color: #ffffff;
 	}
 
 	.bubble-role {
