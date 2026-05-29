@@ -80,9 +80,46 @@ export async function findDealsByNameFragment(
 	const trimmed = fragment.trim();
 	if (!trimmed) return [];
 	const { accessToken, apiDomain } = await getValidAccessToken();
-	const criteria = encodeURIComponent(`(Deal_Name:contains:${trimmed})`);
 	const fields = 'Deal_Name,Stage';
+	const lowerFragment = trimmed.toLowerCase();
+
+	// Try Zoho's full-text `word` search first — more reliable than `contains`
+	// criteria on Deal_Name. Then filter the response client-side because the
+	// `word` search also matches against Contact_Name, Account_Name, etc.
 	try {
+		const res = await zohoApiCall(
+			accessToken,
+			`/Deals/search?word=${encodeURIComponent(trimmed)}&fields=${fields}&per_page=${Math.max(
+				limit,
+				20
+			)}`,
+			{},
+			apiDomain
+		);
+		const items: any[] = Array.isArray(res?.data) ? res.data : [];
+		const matches = items
+			.filter((d) => {
+				const name = String(d.Deal_Name ?? '').toLowerCase();
+				return name.includes(lowerFragment);
+			})
+			.slice(0, limit)
+			.map((d) => ({
+				dealId: String(d.id),
+				dealName: String(d.Deal_Name ?? ''),
+				stage: String(d.Stage ?? '')
+			}));
+		if (matches.length > 0) return matches;
+	} catch (err) {
+		console.warn(
+			'[cliq-bot] word search failed:',
+			err instanceof Error ? err.message : err
+		);
+	}
+
+	// Fallback: starts_with (works for Deal names that begin with the fragment,
+	// e.g. "Stephen" matches "Stephen Blume - 02/01/2026")
+	try {
+		const criteria = encodeURIComponent(`(Deal_Name:starts_with:${trimmed})`);
 		const res = await zohoApiCall(
 			accessToken,
 			`/Deals/search?criteria=${criteria}&fields=${fields}&per_page=${limit}`,
@@ -97,7 +134,7 @@ export async function findDealsByNameFragment(
 		}));
 	} catch (err) {
 		console.warn(
-			'[cliq-bot] name-fragment lookup failed:',
+			'[cliq-bot] starts_with fallback failed:',
 			err instanceof Error ? err.message : err
 		);
 		return [];
