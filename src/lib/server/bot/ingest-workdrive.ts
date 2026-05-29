@@ -19,7 +19,16 @@ const MAX_SUBFOLDER_DEPTH = Number(env.BOT_WORKDRIVE_MAX_DEPTH ?? '3');
 // the Deal record has no WorkDrive_Folder_ID / Client_Portal_Folder set.
 const WORKDRIVE_PARENT_FOLDER_ID = (env.BOT_WORKDRIVE_PARENT_FOLDER_ID ?? '').trim();
 
-type WdSource = 'workdrive_pdf' | 'workdrive_docx';
+type WdSource = 'workdrive_pdf' | 'workdrive_docx' | 'transcript';
+
+// Heuristic: a file is treated as a meeting transcript when it lives inside a
+// folder whose name suggests transcripts, OR its own filename does.
+const TRANSCRIPT_NAME_RE = /transcript|recording|meeting|zoho.?meeting/i;
+
+function looksLikeTranscript(fileName: string, parentFolderName?: string | null): boolean {
+	if (parentFolderName && TRANSCRIPT_NAME_RE.test(parentFolderName)) return true;
+	return TRANSCRIPT_NAME_RE.test(fileName);
+}
 
 export interface FileSyncOutcome {
 	file_id: string;
@@ -158,14 +167,34 @@ async function fetchDealFolder(
 	};
 }
 
-function pickSource(name: string, mime: string | null): WdSource | null {
+function pickSource(
+	name: string,
+	mime: string | null,
+	parentFolderName?: string | null
+): WdSource | null {
 	const lower = name.toLowerCase();
-	if (lower.endsWith('.pdf') || mime === 'application/pdf') return 'workdrive_pdf';
+	// Plain-text transcript formats — always classified as transcripts.
+	if (
+		lower.endsWith('.vtt') ||
+		lower.endsWith('.srt') ||
+		mime === 'text/vtt' ||
+		mime === 'application/x-subrip'
+	) {
+		return 'transcript';
+	}
+	if (lower.endsWith('.txt') || mime === 'text/plain') {
+		// Treat .txt as transcript only when context says so — otherwise skip
+		// (we don't want random readme/notes.txt files ingested as transcripts).
+		return looksLikeTranscript(name, parentFolderName) ? 'transcript' : null;
+	}
+	if (lower.endsWith('.pdf') || mime === 'application/pdf') {
+		return looksLikeTranscript(name, parentFolderName) ? 'transcript' : 'workdrive_pdf';
+	}
 	if (
 		lower.endsWith('.docx') ||
 		mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 	) {
-		return 'workdrive_docx';
+		return looksLikeTranscript(name, parentFolderName) ? 'transcript' : 'workdrive_docx';
 	}
 	return null;
 }
@@ -175,7 +204,8 @@ async function collectIngestibleFiles(
 	apiDomain: string | undefined,
 	folderId: string,
 	depth: number,
-	out: { item: WorkDriveItem; source: WdSource }[]
+	out: { item: WorkDriveItem; source: WdSource }[],
+	parentFolderName?: string | null
 ): Promise<void> {
 	if (depth > MAX_SUBFOLDER_DEPTH) return;
 	if (out.length >= MAX_FILES_PER_DEAL) return;
@@ -197,11 +227,18 @@ async function collectIngestibleFiles(
 	for (const item of items) {
 		if (out.length >= MAX_FILES_PER_DEAL) return;
 		if (item.type === 'folder') {
-			await collectIngestibleFiles(accessToken, apiDomain, item.id, depth + 1, out);
+			await collectIngestibleFiles(
+				accessToken,
+				apiDomain,
+				item.id,
+				depth + 1,
+				out,
+				item.name
+			);
 			continue;
 		}
 		if (item.type !== 'file') continue;
-		const source = pickSource(item.name, item.mime);
+		const source = pickSource(item.name, item.mime, parentFolderName);
 		if (!source) continue;
 		out.push({ item, source });
 	}
@@ -234,6 +271,44 @@ async function parseDocx(buf: Buffer): Promise<string> {
 	const mammoth = await import('mammoth');
 	const result = await mammoth.extractRawText({ buffer: buf });
 	return typeof result.value === 'string' ? result.value : '';
+}
+
+function parseText(buf: Buffer): string {
+	return buf.toString('utf8');
+}
+
+/**
+ * Strip WebVTT cue numbers and timestamp lines, keeping the spoken text.
+ * Same logic works for SRT (since SRT cue blocks are a superset).
+ */
+function parseVtt(buf: Buffer): string {
+	const raw = buf.toString('utf8');
+	const lines = raw.split(/\r?\n/);
+	const out: string[] = [];
+	let lastSpeaker = '';
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		if (/^WEBVTT/i.test(trimmed)) continue;
+		if (/^\d+$/.test(trimmed)) continue; // cue number
+		if (/-->/.test(trimmed)) continue; // timestamp range
+		if (/^NOTE\b/.test(trimmed)) continue;
+		// Speaker tags: <v Name>text</v>  → "Name: text"
+		const voiceMatch = trimmed.match(/^<v([^>]*)>(.*?)<\/v>\s*$/i);
+		if (voiceMatch) {
+			const speaker = voiceMatch[1].trim();
+			const text = voiceMatch[2].replace(/<[^>]+>/g, '').trim();
+			if (speaker && speaker !== lastSpeaker) {
+				out.push(`${speaker}: ${text}`);
+				lastSpeaker = speaker;
+			} else {
+				out.push(text);
+			}
+			continue;
+		}
+		out.push(trimmed.replace(/<[^>]+>/g, ''));
+	}
+	return out.join('\n');
 }
 
 async function ingestFile(
@@ -282,7 +357,16 @@ async function ingestFile(
 
 	let text = '';
 	try {
-		text = source === 'workdrive_pdf' ? await parsePdf(buf) : await parseDocx(buf);
+		const lower = item.name.toLowerCase();
+		if (lower.endsWith('.pdf')) text = await parsePdf(buf);
+		else if (lower.endsWith('.docx')) text = await parseDocx(buf);
+		else if (lower.endsWith('.vtt') || lower.endsWith('.srt')) text = parseVtt(buf);
+		else if (lower.endsWith('.txt')) text = parseText(buf);
+		else if (item.mime === 'application/pdf') text = await parsePdf(buf);
+		else if (item.mime === 'text/vtt' || item.mime === 'application/x-subrip')
+			text = parseVtt(buf);
+		else if (item.mime === 'text/plain') text = parseText(buf);
+		else text = await parseDocx(buf); // best effort
 	} catch (err) {
 		out.status = 'failed';
 		out.reason = err instanceof Error ? err.message.slice(0, 120) : 'parse failed';

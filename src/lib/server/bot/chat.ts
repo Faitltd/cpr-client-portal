@@ -15,7 +15,8 @@ const ALL_SOURCES = [
 	'zoho_books_estimate',
 	'zoho_books_payment',
 	'workdrive_pdf',
-	'workdrive_docx'
+	'workdrive_docx',
+	'transcript'
 ] as const;
 
 function buildSourcesSearchedBlock(retrieved: RetrievedChunk[]): string {
