@@ -2,8 +2,10 @@ import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { runChatNonStreaming } from '$lib/server/bot/chat';
 import {
+	fetchLatestChatMessage,
 	findDealByCliqChannelId,
 	findDealsByNameFragment,
+	isBotSenderId,
 	postCliqBotMessage,
 	stripBotMention,
 	type ChannelDealMatch
@@ -73,8 +75,22 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const chatId = extractChatId(body);
-	const rawText = extractText(body);
+	let rawText = extractText(body);
 	const user = extractUser(body);
+
+	// Auto-respond mode: when the Participation Handler triggers, Cliq doesn't
+	// pass us the message text. Fetch it from the chat's history.
+	if (!rawText && chatId) {
+		const latest = await fetchLatestChatMessage(chatId);
+		if (latest) {
+			if (isBotSenderId(latest.senderId)) {
+				// Self-triggered — ignore to avoid infinite loops.
+				return json({});
+			}
+			rawText = latest.text;
+		}
+	}
+
 	const question = stripBotMention(rawText);
 
 	console.log(
@@ -85,9 +101,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ text: 'No chat id in request payload.' });
 	}
 	if (!question) {
-		return json({
-			text: 'Mention me followed by your question, e.g. "@CRMBot what is the latest invoice status?"'
-		});
+		// Either no text fetched, or the message was bot-only — stay silent.
+		return json({});
 	}
 
 	// Resolve channel → Deal (per-Deal internal channel mode)

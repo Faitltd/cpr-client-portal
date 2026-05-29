@@ -4,6 +4,14 @@ import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { postCliqChatViaRest } from '$lib/server/cliq';
 import type { CliqMessage } from '$lib/server/cliq';
 
+const CLIQ_API_BASE = (env.ZOHO_CLIQ_API_BASE || 'https://cliq.zoho.com/api/v2').replace(/\/$/, '');
+
+/**
+ * Bot's own user id — used to suppress self-triggered loops when the
+ * Participation Handler fires on our own posts. Set in env.
+ */
+const BOT_USER_ID = (env.ZOHO_CLIQ_BOT_USER_ID ?? '').trim();
+
 /**
  * Look up which Deal a Cliq internal channel id belongs to.
  *
@@ -155,6 +163,51 @@ export async function postCliqBotMessage(chatId: string, message: CliqMessage): 
 	if (!res.ok) {
 		console.warn('[cliq-bot] reply post failed:', res.error);
 	}
+}
+
+/**
+ * Fetch the most recent message in a Cliq chat. Used by the auto-respond
+ * (Participation Handler) flow, where Cliq's handler doesn't pass us the
+ * message text directly.
+ *
+ * Returns { text, sender_id } or null if nothing is fetchable.
+ */
+export async function fetchLatestChatMessage(
+	chatId: string
+): Promise<{ text: string; senderId: string | null } | null> {
+	if (!chatId) return null;
+	const { accessToken } = await getValidAccessToken();
+	const url = `${CLIQ_API_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=1`;
+	try {
+		const res = await fetch(url, {
+			headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
+		});
+		if (!res.ok) {
+			console.warn('[cliq-bot] fetch latest message HTTP', res.status);
+			return null;
+		}
+		const body = await res.json().catch(() => null);
+		const items: any[] = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+		const first = items[0];
+		if (!first) return null;
+		const text =
+			(typeof first?.content?.text === 'string' && first.content.text) ||
+			(typeof first?.text === 'string' && first.text) ||
+			'';
+		const senderId = first?.sender?.id ?? first?.sender_id ?? null;
+		return { text, senderId: senderId ? String(senderId) : null };
+	} catch (err) {
+		console.warn(
+			'[cliq-bot] fetch latest message failed:',
+			err instanceof Error ? err.message : err
+		);
+		return null;
+	}
+}
+
+export function isBotSenderId(senderId: string | null): boolean {
+	if (!senderId || !BOT_USER_ID) return false;
+	return senderId === BOT_USER_ID;
 }
 
 /**
