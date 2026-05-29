@@ -154,12 +154,19 @@ export async function syncNotesForDeal(dealId: string): Promise<NotesSyncResult>
 
 	let page = 1;
 	const MAX_PAGES = 10;
+	// Query the Notes module directly with a Parent_Id filter — the
+	// /Deals/{id}/Notes related-list path returns "invalid relation name"
+	// on some CRM configurations.
+	const criteria = encodeURIComponent(`(Parent_Id:equals:${dealId})`);
+	const fields = encodeURIComponent(
+		'Note_Title,Note_Content,Owner,Created_Time,Modified_Time,Parent_Id,$se_module'
+	);
 	while (page <= MAX_PAGES) {
 		let body: any;
 		try {
 			body = await zohoApiCall(
 				accessToken,
-				`/Deals/${encodeURIComponent(dealId)}/Notes?page=${page}&per_page=200`,
+				`/Notes/search?criteria=${criteria}&fields=${fields}&page=${page}&per_page=200`,
 				{},
 				apiDomain
 			);
