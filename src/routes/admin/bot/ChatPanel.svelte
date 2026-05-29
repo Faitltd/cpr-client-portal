@@ -174,12 +174,6 @@
 		return `WorkDrive${source} +${r.inserted ?? 0}/${r.skipped ?? 0}${tail}${matched}`;
 	}
 
-	function formatNotesResult(r: any): string {
-		if (!r) return 'Notes: skipped';
-		if (r.error) return `Notes: ${r.error}`;
-		return `Notes +${r.inserted ?? 0}/${r.skipped ?? 0}`;
-	}
-
 	function formatMailResult(r: any): string {
 		if (!r) return 'Mail: skipped';
 		if (r.error) return `Mail: ${r.error}`;
@@ -209,7 +203,7 @@
 	}
 
 	async function runSync(
-		source: 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive' | 'notes' | 'all'
+		source: 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive' | 'all'
 	) {
 		if (syncing || !dealId) return;
 		syncing = true;
@@ -237,7 +231,6 @@
 				parts.push(formatCrmEmailResult(r.crm_email));
 			if (source === 'workdrive' || source === 'all')
 				parts.push(formatWorkDriveResult(r.workdrive));
-			if (source === 'notes' || source === 'all') parts.push(formatNotesResult(r.notes));
 			if (json.errors && json.errors.length) parts.push(`Errors: ${json.errors.join('; ')}`);
 			syncStatus = parts.join(' · ');
 		} catch (err) {
@@ -285,9 +278,6 @@
 				</button>
 				<button class="sync-btn" type="button" onclick={() => runSync('workdrive')} disabled={syncing || busy}>
 					WorkDrive
-				</button>
-				<button class="sync-btn" type="button" onclick={() => runSync('notes')} disabled={syncing || busy}>
-					Notes
 				</button>
 				<input
 					class="wd-input"

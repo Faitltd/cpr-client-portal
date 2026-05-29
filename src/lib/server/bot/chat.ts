@@ -9,8 +9,6 @@ const ALL_SOURCES = [
 	'zoho_mail',
 	'zoho_cliq_internal',
 	'zoho_cliq_external',
-	'zoho_crm_note',
-	'zoho_crm_email',
 	'zoho_books_invoice',
 	'zoho_books_estimate',
 	'zoho_books_payment',
