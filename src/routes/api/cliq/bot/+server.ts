@@ -68,10 +68,19 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	let body: any;
+	let rawBody = '';
 	try {
-		body = await request.json();
+		rawBody = await request.text();
+		body = JSON.parse(rawBody);
 	} catch {
-		return json({ text: 'Bad request: invalid JSON.' }, { status: 400 });
+		// Deluge sometimes posts a string that isn't strict JSON — try a few
+		// recoveries before bailing.
+		try {
+			body = JSON.parse(rawBody.replace(/=/g, ':').replace(/(\w+):/g, '"$1":'));
+		} catch {
+			console.warn('[cliq-bot] bad body, preview:', rawBody.slice(0, 400));
+			return json({ text: 'Bad request: invalid JSON.' }, { status: 400 });
+		}
 	}
 
 	const chatId = extractChatId(body);
@@ -150,9 +159,10 @@ export const POST: RequestHandler = async ({ request }) => {
 			adminEmail: user.email || 'cliq-bot',
 			messages: [{ role: 'user', content: askText }]
 		});
+		// Plain text only — Cliq's Deluge `bodyText.toMap()` chokes on nested
+		// objects and some escape sequences, so keep the response shape flat.
 		return json({
-			text: `*${match.dealName}*\n\n${reply || '(no response generated)'}`,
-			bot: { name: env.ZOHO_CLIQ_BOT_NAME || 'CRMBot' }
+			text: `${match.dealName}\n\n${reply || '(no response generated)'}`
 		});
 	} catch (err) {
 		console.warn(
@@ -160,8 +170,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			err instanceof Error ? err.message : err
 		);
 		return json({
-			text: `Bot error: ${err instanceof Error ? err.message : 'unknown'}`,
-			bot: { name: env.ZOHO_CLIQ_BOT_NAME || 'CRMBot' }
+			text: `Bot error: ${err instanceof Error ? err.message : 'unknown'}`
 		});
 	}
 };
