@@ -92,15 +92,16 @@ export const POST: RequestHandler = async ({ request }) => {
 	const user = extractUser(body);
 
 	// Auto-respond mode: when the Participation Handler triggers, Cliq doesn't
-	// pass us the message text. Fetch it from the chat's history.
+	// pass us the message text. Fetch the most recent non-bot message from the
+	// chat history (fetchLatestChatMessage already skips bot messages).
 	if (!rawText && chatId) {
+		console.log(`[cliq-bot] participation mode chat=${chatId} — fetching latest user msg`);
 		const latest = await fetchLatestChatMessage(chatId);
 		if (latest) {
-			if (isBotSender(latest.sender)) {
-				// Self-triggered — ignore to avoid infinite loops.
-				return json({});
-			}
 			rawText = latest.text;
+			console.log(`[cliq-bot] fetched: "${rawText.slice(0, 80)}"`);
+		} else {
+			console.log('[cliq-bot] no usable message found in chat history');
 		}
 	}
 

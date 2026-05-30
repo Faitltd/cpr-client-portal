@@ -178,7 +178,10 @@ export async function fetchLatestChatMessage(chatId: string): Promise<{
 } | null> {
 	if (!chatId) return null;
 	const { accessToken } = await getValidAccessToken();
-	const url = `${CLIQ_API_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=1`;
+	// Pull a window of recent messages — the Participation Handler often fires
+	// before Cliq commits the user's message, so the literal "latest" can be a
+	// stale bot reply. Grab the most recent non-bot message in the window.
+	const url = `${CLIQ_API_BASE}/chats/${encodeURIComponent(chatId)}/messages?limit=10`;
 	try {
 		const res = await fetch(url, {
 			headers: { Authorization: `Zoho-oauthtoken ${accessToken}` }
@@ -189,22 +192,25 @@ export async function fetchLatestChatMessage(chatId: string): Promise<{
 		}
 		const body = await res.json().catch(() => null);
 		const items: any[] = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
-		const first = items[0];
-		if (!first) return null;
-		const text =
-			(typeof first?.content?.text === 'string' && first.content.text) ||
-			(typeof first?.text === 'string' && first.text) ||
-			'';
-		const senderRaw = first?.sender ?? {};
-		return {
-			text,
-			sender: {
-				id: senderRaw.id ?? first?.sender_id ?? null,
+
+		// Cliq orders messages newest-first by default.
+		for (const item of items) {
+			const text =
+				(typeof item?.content?.text === 'string' && item.content.text) ||
+				(typeof item?.text === 'string' && item.text) ||
+				'';
+			const senderRaw = item?.sender ?? {};
+			const sender = {
+				id: senderRaw.id ?? item?.sender_id ?? null,
 				name: senderRaw.name ?? null,
 				type: senderRaw.type ?? null,
 				email: senderRaw.email ?? senderRaw.email_id ?? null
-			}
-		};
+			};
+			if (isBotSender(sender)) continue;
+			if (!text) continue;
+			return { text, sender };
+		}
+		return null;
 	} catch (err) {
 		console.warn(
 			'[cliq-bot] fetch latest message failed:',
