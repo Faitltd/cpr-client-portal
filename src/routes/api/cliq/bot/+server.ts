@@ -83,6 +83,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 	}
 
+	// Always log the raw body so we can see what Cliq actually sends.
+	console.log('[cliq-bot] raw body keys:', Object.keys(body || {}).join(','));
+	console.log('[cliq-bot] raw body:', JSON.stringify(body).slice(0, 800));
+
 	const chatId = extractChatId(body);
 	let rawText = extractText(body);
 	const user = extractUser(body);
