@@ -33,8 +33,14 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 	process.exit(1);
 }
 
+// Node 20 doesn't have native WebSocket; Supabase's realtime client crashes
+// at construction without one. Provide `ws` so the worker can boot. We don't
+// actually subscribe to realtime, but the client requires the transport regardless.
+import ws from 'ws';
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-	auth: { persistSession: false }
+	auth: { persistSession: false },
+	realtime: { transport: ws }
 });
 
 // ---------------------------------------------------------------------------
