@@ -1431,6 +1431,15 @@ async function fetchAllTasksForEndpoint(
 	return { tasks: dedupeProjectTasks(collected), hadSuccess: true };
 }
 
+export async function debugGetProjectCatalog() {
+	const projects = await getProjectCatalogForMatching();
+	return projects.map((p: any) => ({
+		id: getProjectId(p),
+		name: getProjectName(p),
+		status: p?.status ?? null
+	}));
+}
+
 async function getProjectCatalogForMatching() {
 	if (projectCatalogCache && Date.now() - projectCatalogCache.fetchedAt < PROJECT_CATALOG_CACHE_TTL_MS) {
 		return projectCatalogCache.projects;

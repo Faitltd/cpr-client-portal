@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getTradePartnerDeals, isTradePortalVisibleStage } from '$lib/server/auth';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { getDealProjectIdsForLinking, getProject, getDealTaskSummaries, matchDealsToProjectsByName } from '$lib/server/projects';
+import { getDealProjectIdsForLinking, getProject, getDealTaskSummaries, matchDealsToProjectsByName, debugGetProjectCatalog } from '$lib/server/projects';
 
 const MAX_CONCURRENCY = 3;
 const PROJECT_TASK_PREVIEW_LIMIT = 4;
@@ -177,6 +177,13 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
   let nameMatchCount = 0;
   let nameMatchError: string | null = null;
+  let debugCatalog: Array<{ id: string | null; name: string | null; status: any }> = [];
+  let catalogError: string | null = null;
+  try {
+    debugCatalog = await debugGetProjectCatalog();
+  } catch (err) {
+    catalogError = err instanceof Error ? err.message : String(err);
+  }
   if (unmappedForNameMatch.length > 0) {
     try {
       const nameMatches = await matchDealsToProjectsByName(unmappedForNameMatch);
@@ -252,7 +259,10 @@ export const GET: RequestHandler = async ({ cookies }) => {
         nameMatchAttempted: unmappedForNameMatch.length,
         nameMatchCount,
         nameMatchError,
-        uniqueProjectIds: projectIds
+        uniqueProjectIds: projectIds,
+        catalogSize: debugCatalog.length,
+        catalogSample: debugCatalog.slice(0, 20),
+        catalogError
       }
     });
   }
