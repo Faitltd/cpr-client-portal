@@ -33,6 +33,48 @@
 	let documentsOpen = false;
 	let accountOpen = false;
 
+	// --- Project Tasks (Zoho Projects) ---
+	let tasks: any[] = [];
+	let tasksLoading = false;
+	let tasksError = '';
+	let tasksOpen = false;
+	const getTaskName = (t: any) => t?.name ?? t?.task_name ?? 'Untitled task';
+	const getTaskStatusLabel = (t: any) => {
+		const s = t?.status;
+		if (typeof s === 'string') return s;
+		if (s && typeof s === 'object' && typeof s.name === 'string') return s.name;
+		if (typeof t?.percent_complete === 'string' && t.percent_complete === '100') return 'Complete';
+		return 'Open';
+	};
+	const isTaskComplete = (t: any) => {
+		const label = getTaskStatusLabel(t).toLowerCase();
+		if (t?.status?.is_closed_type === true) return true;
+		return label === 'complete' || label === 'completed' || label === 'closed';
+	};
+	const loadProjectTasks = async (dealId: string) => {
+		if (!dealId) return;
+		tasksLoading = true;
+		tasksError = '';
+		try {
+			const res = await fetch(`/api/project/${encodeURIComponent(dealId)}/tasks`);
+			if (res.status === 401) {
+				tasksError = 'Please sign in again to view tasks.';
+				return;
+			}
+			if (!res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				tasksError = payload?.error || `Failed to load tasks (${res.status})`;
+				return;
+			}
+			const payload = await res.json();
+			tasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+		} catch {
+			tasksError = 'Failed to load tasks';
+		} finally {
+			tasksLoading = false;
+		}
+	};
+
 	// --- Change Order request form ---
 	let coPanelOpen = false;
 	let coDealId = '';
@@ -361,6 +403,7 @@
 					projectDocuments = detail.documents || [];
 					clientPortalUrl = getClientPortalUrl(detail.deal);
 				}
+				loadProjectTasks(pid);
 			}
 			projectDocumentsLoading = false;
 
@@ -441,6 +484,47 @@
 					</div>
 				{:else}
 					<p class="muted-text">No designs available.</p>
+				{/if}
+			{/if}
+		</section>
+
+		<!-- Project Tasks -->
+		<section class="section">
+			<button class="section-header" type="button" on:click={() => (tasksOpen = !tasksOpen)}>
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h12M4 10h8M4 15h10"/><circle cx="17" cy="10" r="3"/></svg>
+					Project Tasks
+					{#if !tasksLoading && tasks.length > 0}
+						<span class="count-pill">{tasks.filter(isTaskComplete).length}/{tasks.length}</span>
+					{/if}
+				</span>
+				<span class="toggle-icon">{tasksOpen ? '−' : '+'}</span>
+			</button>
+			{#if tasksOpen}
+				{#if tasksLoading}
+					<p class="muted-text">Loading tasks…</p>
+				{:else if tasksError}
+					<p class="muted-text" style="color:#c00;">{tasksError}</p>
+				{:else if tasks.length === 0}
+					<p class="muted-text">
+						No project tasks yet. Your project manager will add the work plan to Zoho Projects.
+					</p>
+				{:else}
+					<ul class="task-list">
+						{#each tasks as task}
+							<li class="task-row">
+								<span
+									class="task-name"
+									class:task-name-complete={isTaskComplete(task)}
+								>{getTaskName(task)}</span>
+								<span
+									class="task-status-pill"
+									class:task-status-complete={isTaskComplete(task)}
+									class:task-status-open={!isTaskComplete(task)}
+								>{getTaskStatusLabel(task)}</span>
+							</li>
+						{/each}
+					</ul>
 				{/if}
 			{/if}
 		</section>
@@ -972,6 +1056,61 @@
 
 	.error-text {
 		color: #dc2626;
+	}
+
+	/* ── Project Tasks (Zoho Projects) ──────────────────── */
+	.count-pill {
+		font-size: 0.78rem;
+		color: #4b5563;
+		background: #f3f4f6;
+		border-radius: 999px;
+		padding: 0.1rem 0.55rem;
+		font-weight: 500;
+		margin-left: 0.5rem;
+	}
+	.task-list {
+		list-style: none;
+		padding: 0;
+		margin: 0.5rem 0 0.25rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.task-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.6rem 0.8rem;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+	}
+	.task-name {
+		flex: 1;
+		font-size: 0.9rem;
+		color: #111827;
+		word-break: break-word;
+	}
+	.task-name-complete {
+		color: #6b7280;
+		text-decoration: line-through;
+	}
+	.task-status-pill {
+		flex-shrink: 0;
+		font-size: 0.78rem;
+		font-weight: 600;
+		padding: 0.18rem 0.55rem;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+	.task-status-open {
+		color: #166534;
+		background: #dcfce7;
+	}
+	.task-status-complete {
+		color: #4b5563;
+		background: #e5e7eb;
 	}
 
 	/* ── Change-order request form ────────────────────── */
