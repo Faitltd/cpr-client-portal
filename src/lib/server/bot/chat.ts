@@ -76,6 +76,10 @@ export interface RunChatOptions {
 	threadId: string;
 	adminEmail: string;
 	messages: ChatMessage[];
+	/** Restrict retrieval to these sources. Null = no filter. */
+	allowedSources?: string[] | null;
+	/** Redact financial fields from Deal context (Amount). */
+	hideFinancials?: boolean;
 }
 
 /**
@@ -128,13 +132,25 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 
 	const [ctx, retrieved] = await Promise.all([
 		getDealContext(opts.dealId),
-		retrieveRelevant({ dealId: opts.dealId, query: lastUser.content, k: 12 }).catch((err) => {
+		retrieveRelevant({
+			dealId: opts.dealId,
+			query: lastUser.content,
+			k: 12,
+			allowedSources: opts.allowedSources ?? null
+		}).catch((err) => {
 			console.warn('[bot] retrieval failed:', err);
 			return [];
 		})
 	]);
 
-	const dealBlock = renderDealContextBlock(ctx);
+	let dealBlock = renderDealContextBlock(ctx);
+	if (opts.hideFinancials) {
+		// Strip the line that exposes deal value.
+		dealBlock = dealBlock
+			.split('\n')
+			.filter((line) => !/^\s*Amount:/i.test(line))
+			.join('\n');
+	}
 	const retrievedBlock = renderRetrievedContextBlock(retrieved);
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
@@ -220,13 +236,25 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 
 	const [ctx, retrieved] = await Promise.all([
 		getDealContext(opts.dealId),
-		retrieveRelevant({ dealId: opts.dealId, query: lastUser.content, k: 12 }).catch((err) => {
+		retrieveRelevant({
+			dealId: opts.dealId,
+			query: lastUser.content,
+			k: 12,
+			allowedSources: opts.allowedSources ?? null
+		}).catch((err) => {
 			console.warn('[bot] retrieval failed:', err);
 			return [];
 		})
 	]);
 
-	const dealBlock = renderDealContextBlock(ctx);
+	let dealBlock = renderDealContextBlock(ctx);
+	if (opts.hideFinancials) {
+		// Strip the line that exposes deal value.
+		dealBlock = dealBlock
+			.split('\n')
+			.filter((line) => !/^\s*Amount:/i.test(line))
+			.join('\n');
+	}
 	const retrievedBlock = renderRetrievedContextBlock(retrieved);
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 

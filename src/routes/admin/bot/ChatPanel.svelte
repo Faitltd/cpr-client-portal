@@ -4,9 +4,11 @@
 	interface Props {
 		dealId: string;
 		dealLabel?: string;
+		mode?: 'admin' | 'chat-only';
 	}
 
-	let { dealId, dealLabel = '' }: Props = $props();
+	let { dealId, dealLabel = '', mode = 'admin' }: Props = $props();
+	const showSync = mode === 'admin';
 
 	interface Message {
 		role: 'user' | 'assistant';
@@ -293,38 +295,40 @@
 			<span class="deal-name">{dealLabel || dealId}</span>
 		</div>
 		<div class="head-actions">
-			<div class="sync-group" title="Pull latest data for this Deal">
-				<button
-					class="sync-btn sync-primary"
-					type="button"
-					onclick={() => runSync('all')}
-					disabled={syncing || busy}
-				>
-					{syncing ? 'Syncing…' : 'Sync All'}
-				</button>
-				<button class="sync-btn" type="button" onclick={() => runSync('cliq')} disabled={syncing || busy}>
-					Cliq
-				</button>
-				<button class="sync-btn" type="button" onclick={() => runSync('mail')} disabled={syncing || busy}>
-					Mail
-				</button>
-				<button class="sync-btn" type="button" onclick={() => runSync('crm_email')} disabled={syncing || busy}>
-					CRM Emails
-				</button>
-				<button class="sync-btn" type="button" onclick={() => runSync('books')} disabled={syncing || busy}>
-					Books
-				</button>
-				<button class="sync-btn" type="button" onclick={() => runSync('workdrive')} disabled={syncing || busy}>
-					WorkDrive
-				</button>
-				<input
-					class="wd-input"
-					type="text"
-					placeholder="WD folder id override"
-					bind:value={workdriveFolderOverride}
-					title="Optional: paste a WorkDrive folder id to use instead of the Deal's Client_Portal_Folder field"
-				/>
-			</div>
+			{#if showSync}
+				<div class="sync-group" title="Pull latest data for this Deal">
+					<button
+						class="sync-btn sync-primary"
+						type="button"
+						onclick={() => runSync('all')}
+						disabled={syncing || busy}
+					>
+						{syncing ? 'Syncing…' : 'Sync All'}
+					</button>
+					<button class="sync-btn" type="button" onclick={() => runSync('cliq')} disabled={syncing || busy}>
+						Cliq
+					</button>
+					<button class="sync-btn" type="button" onclick={() => runSync('mail')} disabled={syncing || busy}>
+						Mail
+					</button>
+					<button class="sync-btn" type="button" onclick={() => runSync('crm_email')} disabled={syncing || busy}>
+						CRM Emails
+					</button>
+					<button class="sync-btn" type="button" onclick={() => runSync('books')} disabled={syncing || busy}>
+						Books
+					</button>
+					<button class="sync-btn" type="button" onclick={() => runSync('workdrive')} disabled={syncing || busy}>
+						WorkDrive
+					</button>
+					<input
+						class="wd-input"
+						type="text"
+						placeholder="WD folder id override"
+						bind:value={workdriveFolderOverride}
+						title="Optional: paste a WorkDrive folder id to use instead of the Deal's Client_Portal_Folder field"
+					/>
+				</div>
+			{/if}
 			<button class="reset-btn" type="button" onclick={resetThread} disabled={busy}>
 				New conversation
 			</button>

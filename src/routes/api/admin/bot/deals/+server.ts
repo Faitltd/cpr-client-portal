@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { isValidAdminSession } from '$lib/server/admin';
+import { getBotAccess } from '$lib/server/bot-access';
 import { getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import type { RequestHandler } from './$types';
@@ -27,7 +27,8 @@ function extractContactName(contact: unknown): string {
 }
 
 export const GET: RequestHandler = async ({ cookies }) => {
-	if (!isValidAdminSession(cookies.get('admin_session'))) {
+	const access = await getBotAccess(cookies);
+	if (!access) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
 

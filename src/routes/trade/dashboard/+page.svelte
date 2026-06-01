@@ -677,13 +677,42 @@
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
 		{#if activeTab === 'trade'}
-			<a class="field-update-btn" href={fieldUpdateUrl}>
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-					<rect x="3" y="2" width="14" height="16" rx="2"/>
-					<path d="M7 6h6M7 10h6M7 14h4"/>
-				</svg>
-				Submit Field Update
-			</a>
+			<div class="header-actions">
+				<a class="bot-btn" href="/trade/bot">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<rect x="3" y="4" width="14" height="11" rx="2"/>
+						<circle cx="8" cy="9" r="1" fill="currentColor"/>
+						<circle cx="12" cy="9" r="1" fill="currentColor"/>
+						<path d="M7 13h6"/>
+					</svg>
+					Project Bot
+				</a>
+				<button
+					class="wd-btn"
+					type="button"
+					disabled={!selectedDealId || designsLoading}
+					on:click={async () => {
+						if (!selectedDealId) return;
+						if (!designsUrlCache.has(selectedDealId)) await loadDesignsUrl(selectedDealId);
+						const url = designsUrlCache.get(selectedDealId) || '';
+						if (url) window.open(url, '_blank', 'noopener,noreferrer');
+						else designsOpen = true;
+					}}
+					title="Open the project's Designs / SOW folder in WorkDrive"
+				>
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M2 7h6l2-2h8v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z"/>
+					</svg>
+					{designsLoading ? 'Loading…' : 'WorkDrive'}
+				</button>
+				<a class="field-update-btn" href={fieldUpdateUrl}>
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<rect x="3" y="2" width="14" height="16" rx="2"/>
+						<path d="M7 6h6M7 10h6M7 14h4"/>
+					</svg>
+					Submit Field Update
+				</a>
+			</div>
 		{/if}
 	</header>
 
@@ -1154,6 +1183,48 @@
 		margin: 0;
 		color: #6b7280;
 		font-size: 0.9rem;
+	}
+
+	.header-actions {
+		display: inline-flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.bot-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.55rem 0.9rem;
+		background: #1e40af;
+		color: #ffffff;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.92rem;
+		text-decoration: none;
+	}
+	.bot-btn:hover {
+		background: #1e3a8a;
+	}
+
+	.wd-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.55rem 0.9rem;
+		background: #ffffff;
+		color: #1e40af;
+		border: 1px solid #1e40af;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 0.92rem;
+		cursor: pointer;
+	}
+	.wd-btn:hover:not(:disabled) {
+		background: #eff6ff;
+	}
+	.wd-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.field-update-btn {

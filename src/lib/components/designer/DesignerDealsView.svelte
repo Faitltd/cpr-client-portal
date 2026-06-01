@@ -172,6 +172,16 @@
 						{tab.label}
 					</a>
 				{/each}
+				{#if $page.data?.canChat}
+					<a
+						class="tab"
+						class:active={pathname === '/designer/chat'}
+						href="/designer/chat"
+						aria-current={pathname === '/designer/chat' ? 'page' : undefined}
+					>
+						Chat
+					</a>
+				{/if}
 			{/if}
 		</nav>
 	{/if}

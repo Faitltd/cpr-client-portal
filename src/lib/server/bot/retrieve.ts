@@ -148,11 +148,18 @@ export async function retrieveRelevant(opts: {
 	dealId: string;
 	query: string;
 	k?: number;
+	/** If set, drop any chunk whose `source` is not in this list. */
+	allowedSources?: string[] | null;
 }): Promise<RetrievedChunk[]> {
 	const query = opts.query.trim();
 	if (!query) return [];
 
 	const k = opts.k ?? 12;
+	const allowed = opts.allowedSources && opts.allowedSources.length > 0
+		? new Set(opts.allowedSources)
+		: null;
+	const filterAllowed = (chunks: RetrievedChunk[]) =>
+		allowed ? chunks.filter((c) => allowed.has(c.source)) : chunks;
 
 	const semanticPromise = (async () => {
 		const [embedding] = await embed([query]);
@@ -170,7 +177,7 @@ export async function retrieveRelevant(opts: {
 		});
 
 		if (!perSourceRes.error) {
-			const rows = (perSourceRes.data ?? []) as RetrievedChunk[];
+			const rows = filterAllowed((perSourceRes.data ?? []) as RetrievedChunk[]);
 			return rows.slice(0, Math.max(k * 2, 16));
 		}
 
@@ -184,7 +191,7 @@ export async function retrieveRelevant(opts: {
 			p_k: k * 4
 		});
 		if (error) throw new Error(`bot_match_chunks failed: ${error.message}`);
-		const all = (data ?? []) as RetrievedChunk[];
+		const all = filterAllowed((data ?? []) as RetrievedChunk[]);
 		return diversifyBySource(all, k, 3);
 	})();
 
@@ -193,7 +200,8 @@ export async function retrieveRelevant(opts: {
 		? fetchRecentChunks({ dealId: opts.dealId, days: windowDays, limit: 12 })
 		: Promise.resolve([] as RetrievedChunk[]);
 
-	const [semantic, recent] = await Promise.all([semanticPromise, recencyPromise]);
+	const [semantic, recentRaw] = await Promise.all([semanticPromise, recencyPromise]);
+	const recent = filterAllowed(recentRaw);
 
 	// Recency results lead so the LLM sees the actually-recent context first;
 	// semantic hits fill in the rest. Cap at 2× k so we don't blow context.
