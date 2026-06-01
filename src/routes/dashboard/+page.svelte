@@ -187,7 +187,6 @@
 	let contractError = '';
 	let projectDocuments: any[] = [];
 	let projectDocumentsLoading = true;
-	let contractsOpen = false;
 	let clientPortalUrl: string | null = null;
 	let accessProjectId = '';
 	let wifiInput = '';
@@ -876,22 +875,35 @@
 		</section>
 {/if}
 
-	<!-- Contracts -->
+	<!-- Documents (contracts + uploaded files + external Client Portal folder) -->
 	<section class="section">
-		<button class="section-header" type="button" on:click={() => (contractsOpen = !contractsOpen)}>
+		<button class="section-header" type="button" on:click={() => (documentsOpen = !documentsOpen)}>
 			<span class="section-header-left">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h8l5 5v11a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M12 2v5h5"/></svg>
-				Contracts
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
+				Documents
 			</span>
-			<span class="toggle-icon">{contractsOpen ? '−' : '+'}</span>
+			<span class="toggle-icon">{documentsOpen ? '−' : '+'}</span>
 		</button>
-		{#if contractsOpen}
+		{#if documentsOpen}
+			{#if clientPortalUrl}
+				<div class="doc-list">
+					<div class="doc-item">
+						<a
+							href={clientPortalUrl}
+							target="_blank"
+							rel="noreferrer noopener"
+							class="doc-link"
+						>Open documents folder ↗</a>
+					</div>
+				</div>
+			{/if}
 			{#if contractsLoading || projectDocumentsLoading}
-				<p class="muted-text">Loading...</p>
+				<p class="muted-text">Loading…</p>
 			{:else}
 				{#if contractError}
 					<p class="muted-text error-text">{contractError}</p>
 				{:else if contracts.length > 0}
+					<p class="docs-subhead">Contracts</p>
 					<div class="card-list">
 						{#each contracts as contract}
 							<div class="contract-card">
@@ -916,6 +928,7 @@
 					</div>
 				{/if}
 				{#if projectDocuments.length > 0}
+					<p class="docs-subhead">Files</p>
 					<div class="doc-list">
 						{#each projectDocuments as doc}
 							<div class="doc-item">
@@ -925,37 +938,10 @@
 						{/each}
 					</div>
 				{/if}
-				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0}
-					<p class="muted-text">No contracts found.</p>
+				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0 && !clientPortalUrl}
+					<p class="muted-text">No documents linked to this project yet.</p>
 				{/if}
 			{/if}
-		{/if}
-	</section>
-
-	<!-- Documents (external link to Client Portal folder) -->
-	<section class="section">
-		<div class="section-header section-header-link">
-			<span class="section-header-left">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v6l4 2"/><circle cx="10" cy="10" r="8"/></svg>
-				Documents
-			</span>
-			{#if clientPortalUrl}
-				<a
-					href={clientPortalUrl}
-					target="_blank"
-					rel="noreferrer noopener"
-					class="section-external-link"
-					aria-label="Open Documents in new tab"
-				>
-					<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 3h4v4M17 3l-9 9M8 5H5a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-3"/></svg>
-					Open
-				</a>
-			{:else}
-				<span class="toggle-icon section-unavailable">—</span>
-			{/if}
-		</div>
-		{#if !clientPortalUrl && !loading}
-			<p class="muted-text">No documents folder linked to this project yet.</p>
 		{/if}
 	</section>
 
@@ -1097,6 +1083,15 @@
 	.section-unavailable {
 		font-size: 1rem;
 		color: #d1d5db;
+	}
+
+	.docs-subhead {
+		margin: 0.85rem 0 0.3rem;
+		font-size: 0.78rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #6b7280;
 	}
 
 	/* External link button inside section header */
