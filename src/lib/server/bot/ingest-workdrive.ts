@@ -175,8 +175,15 @@ async function fetchDealFolder(
 function pickSource(
 	name: string,
 	mime: string | null,
-	parentFolderName?: string | null
+	parentFolderName?: string | null,
+	rawType?: string | null
 ): WdSource | null {
+	const rt = (rawType || '').toLowerCase();
+	// Zoho-native types: rawType is "zohosheet" / "writer" / "show" and the
+	// mime is null. These never match the extension/mime branches below.
+	if (rt === 'zohosheet' || rt.includes('sheet')) {
+		return 'workdrive_xlsx';
+	}
 	const lower = name.toLowerCase();
 	// Plain-text transcript formats — always classified as transcripts.
 	if (
@@ -231,12 +238,15 @@ function pickSource(
  */
 function isZohoNativeSheet(item: WorkDriveItem): boolean {
 	if (item.mime && /zoho.*sheet/i.test(item.mime)) return true;
-	const rawType =
+	const rawType = String(
 		item.raw?.attributes?.type ??
-		item.raw?.attributes?.resource_type ??
-		item.raw?.type ??
-		'';
-	return typeof rawType === 'string' && /zsheet|sheet/i.test(rawType) && !/^file$|^folder$/.test(rawType);
+			item.raw?.attributes?.resource_type ??
+			item.raw?.type ??
+			''
+	).toLowerCase();
+	// Zoho's actual values seen in the wild: "zohosheet" (native Sheet),
+	// "zsheet" (older API), and bare "sheet" in some org schemas.
+	return rawType === 'zohosheet' || rawType === 'zsheet' || rawType === 'sheet';
 }
 
 async function collectIngestibleFiles(
@@ -289,7 +299,12 @@ async function collectIngestibleFiles(
 			if (seen) seen.push({ name: item.name, type: item.type, mime: item.mime, rawType, reason: 'not-file' });
 			continue;
 		}
-		const source = pickSource(item.name, item.mime, parentFolderName);
+		const source = pickSource(
+			item.name,
+			item.mime,
+			parentFolderName,
+			typeof rawType === 'string' ? rawType : null
+		);
 		if (!source) {
 			if (seen) seen.push({ name: item.name, type: 'file', mime: item.mime, rawType, reason: 'no-source' });
 			continue;
