@@ -5,6 +5,7 @@ import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import {
 	listWorkDriveFolder,
 	downloadWorkDriveFile,
+	downloadZohoSheetAsXlsx,
 	extractWorkDriveFolderId,
 	buildDealFolderCandidates,
 	findBestFolderByName,
@@ -211,7 +212,31 @@ function pickSource(
 	) {
 		return 'workdrive_xlsx';
 	}
+	// Zoho-native Sheets (no extension, custom mime). The download path will
+	// hit Zoho's export endpoint to receive a portable XLSX buffer.
+	if (
+		mime === 'application/vnd.zoho.sheet' ||
+		(typeof mime === 'string' && /zoho.*sheet|spreadsheet/i.test(mime))
+	) {
+		return 'workdrive_xlsx';
+	}
 	return null;
+}
+
+/**
+ * True when the WorkDrive item is a Zoho-native Sheet (created in WorkDrive's
+ * own editor) rather than an uploaded XLSX. Native sheets have no extension
+ * and use a Zoho-specific mime type; downloads have to go through the export
+ * endpoint to receive an XLSX-formatted buffer parseXlsx can read.
+ */
+function isZohoNativeSheet(item: WorkDriveItem): boolean {
+	if (item.mime && /zoho.*sheet/i.test(item.mime)) return true;
+	const rawType =
+		item.raw?.attributes?.type ??
+		item.raw?.attributes?.resource_type ??
+		item.raw?.type ??
+		'';
+	return typeof rawType === 'string' && /zsheet|sheet/i.test(rawType) && !/^file$|^folder$/.test(rawType);
 }
 
 async function collectIngestibleFiles(
@@ -407,7 +432,14 @@ async function ingestFile(
 
 	let buf: Buffer;
 	try {
-		buf = await downloadWorkDriveFile(accessToken, item.id, apiDomain);
+		if (source === 'workdrive_xlsx' && isZohoNativeSheet(item)) {
+			// Native Zoho Sheets return a non-parseable Zoho-format buffer from
+			// the regular download endpoint. Route through the export endpoint
+			// so we receive an XLSX buffer parseXlsx can read.
+			buf = await downloadZohoSheetAsXlsx(accessToken, item.id, apiDomain);
+		} else {
+			buf = await downloadWorkDriveFile(accessToken, item.id, apiDomain);
+		}
 	} catch (err) {
 		out.status = 'failed';
 		out.reason = err instanceof Error ? err.message.slice(0, 120) : 'download failed';
@@ -417,22 +449,16 @@ async function ingestFile(
 	let text = '';
 	try {
 		const lower = item.name.toLowerCase();
-		if (lower.endsWith('.pdf')) text = await parsePdf(buf);
+		if (source === 'workdrive_xlsx') {
+			// Any path that resolved to workdrive_xlsx — uploaded XLSX/XLS/CSV or
+			// a Zoho-native sheet exported via downloadZohoSheetAsXlsx — gets
+			// parsed as XLSX. Saves us from juggling extensions for native sheets.
+			text = await parseXlsx(buf);
+		} else if (lower.endsWith('.pdf')) text = await parsePdf(buf);
 		else if (lower.endsWith('.docx')) text = await parseDocx(buf);
-		else if (
-			lower.endsWith('.xlsx') ||
-			lower.endsWith('.xls') ||
-			lower.endsWith('.xlsm') ||
-			lower.endsWith('.csv')
-		) text = await parseXlsx(buf);
 		else if (lower.endsWith('.vtt') || lower.endsWith('.srt')) text = parseVtt(buf);
 		else if (lower.endsWith('.txt')) text = parseText(buf);
 		else if (item.mime === 'application/pdf') text = await parsePdf(buf);
-		else if (
-			item.mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-			item.mime === 'application/vnd.ms-excel' ||
-			item.mime === 'text/csv'
-		) text = await parseXlsx(buf);
 		else if (item.mime === 'text/vtt' || item.mime === 'application/x-subrip')
 			text = parseVtt(buf);
 		else if (item.mime === 'text/plain') text = parseText(buf);

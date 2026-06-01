@@ -523,3 +523,49 @@ export async function downloadWorkDriveFile(
 	}
 	throw new Error(`WorkDrive download failed for ${fileId}: ${lastError}`);
 }
+
+/**
+ * Download a Zoho-native Sheet exported as a portable format (default `xlsx`).
+ * Native sheets don't return parseable bytes from the regular download
+ * endpoint, so we ask Zoho's `/files/{id}/permalink?format=xlsx` shim — and if
+ * that 404s on a particular org, fall back to `?format=xlsx` on the standard
+ * download URL, which the older API exposes.
+ */
+export async function downloadZohoSheetAsXlsx(
+	accessToken: string,
+	fileId: string,
+	apiDomain?: string
+): Promise<Buffer> {
+	const base = getWorkDriveApiBase(apiDomain).replace(/\/$/, '');
+	const exportUrl = `${base}/files/${encodeURIComponent(fileId)}/permalink?format=xlsx&download=true`;
+	const headers = {
+		Authorization: `Zoho-oauthtoken ${accessToken}`,
+		Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+	};
+	let lastError = '';
+	try {
+		const response = await fetch(exportUrl, { method: 'GET', headers });
+		if (response.status === 200) {
+			const ab = await response.arrayBuffer();
+			return Buffer.from(ab);
+		}
+		lastError = `${exportUrl} -> HTTP ${response.status}`;
+	} catch (err) {
+		lastError = `${exportUrl} -> ${err instanceof Error ? err.message : 'fetch failed'}`;
+	}
+	// Fallback: the older download host accepts ?format=xlsx
+	for (const downloadBase of Array.from(getWorkDriveDownloadCandidates(apiDomain))) {
+		const url = `${downloadBase.replace(/\/$/, '')}/${encodeURIComponent(fileId)}?format=xlsx`;
+		try {
+			const response = await fetch(url, { method: 'GET', headers });
+			if (response.status === 200) {
+				const ab = await response.arrayBuffer();
+				return Buffer.from(ab);
+			}
+			lastError = `${url} -> HTTP ${response.status}`;
+		} catch (err) {
+			lastError = `${url} -> ${err instanceof Error ? err.message : 'fetch failed'}`;
+		}
+	}
+	throw new Error(`Zoho Sheet export failed for ${fileId}: ${lastError}`);
+}
