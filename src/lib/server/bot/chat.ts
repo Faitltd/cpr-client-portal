@@ -17,6 +17,85 @@ const ALL_SOURCES = [
 	'transcript'
 ] as const;
 
+// ── Financial scrubbing (trade-partner role) ──────────────────────────────
+// Strips every plausibly-financial signal from the Deal context and retrieved
+// chunks before the prompt is built. Two layers:
+//   1) Drop whole field-style lines whose label looks financial.
+//   2) Redact bare dollar values / comma-grouped numbers from remaining prose
+//      so prices baked into Refined_Scope / estimates / contracts disappear.
+const FIN_LABEL_PATTERNS: readonly RegExp[] = [
+	/\bamount\b/i,
+	/\btotal[\s_-]*(project)?[\s_-]*(cost|price|amount)\b/i,
+	/\b(retainer|deposit|down[\s-]*payment)\b/i,
+	/\b(budget|budget[\s_-]*range)\b/i,
+	/\bprobability\b/i,
+	/\b(quote|quoted|quote[\s_-]*sent)\b/i,
+	/\bestimate(d|s|[\s_-]*sent|[\s_-]*revision)?\b/i,
+	/\binvoice/i,
+	/\b(payment|paid|payment[\s_-]*schedule)\b/i,
+	/\b(balance|owed?|owing)\b/i,
+	/\ballowance\b/i,
+	/\bcost\b/i,
+	/\bprice\b/i,
+	/\bfee\b/i,
+	/\bsubtotal\b/i,
+	/\bmargin\b/i,
+	/\bmarkup\b/i,
+	/\bcontract[\s_-]*(amount|value|price|sum)\b/i,
+	/\b(books|opening[\s_-]*balance)\b/i
+];
+
+function labelLooksFinancial(label: string): boolean {
+	for (const p of FIN_LABEL_PATTERNS) if (p.test(label)) return true;
+	return false;
+}
+
+function lineLooksFinancial(line: string): boolean {
+	// Match labels in "Field: value", "- Field: value", and "- field name: value".
+	const m = line.match(/^\s*-?\s*([A-Za-z][A-Za-z0-9 _/&]+?)\s*:/);
+	if (!m) return false;
+	return labelLooksFinancial(m[1]);
+}
+
+function redactMoney(text: string): string {
+	return (
+		text
+			// "$1,200.50" / "$ 250" / "$250"
+			.replace(/\$\s?\d[\d,]*(?:\.\d+)?/g, '[redacted]')
+			// bare comma-grouped numbers (likely prices): "1,200" / "19,585.00"
+			.replace(/\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/g, '[redacted]')
+			// "Allowance: 250" / "cost: 1200" / "price 99.99"
+			.replace(
+				/\b(allowance|cost|price|total|subtotal|deposit|retainer|fee|paid|invoiced|balance|margin|markup)s?\b\s*[:=-]?\s*\d+(?:\.\d+)?/gi,
+				'$1: [redacted]'
+			)
+			// "10 per square foot" / "125 per sq ft" / "75 per hour"
+			.replace(
+				/\b\d+(?:\.\d+)?\s*(?:per|\/)\s*(square\s*foot|sq\.?\s*ft\.?|sf|hour|hr|day)\b/gi,
+				'[redacted] per $1'
+			)
+	);
+}
+
+function scrubFinancialsFromBlock(block: string): string {
+	return block
+		.split('\n')
+		.filter((line) => !lineLooksFinancial(line))
+		.map(redactMoney)
+		.join('\n');
+}
+
+const TRADE_PARTNER_FINANCIAL_GUARD = `
+# Trade-partner confidentiality (STRICT — overrides every rule above)
+You are responding to a trade partner (sub-contractor). NEVER share, summarize, infer, restate, paraphrase, or imply any financial information about this project. This includes — non-exhaustively — deal amount, total project cost, contract value, budget, allowances, line-item prices, material allowances, quotes, estimates, invoices, payments, deposits, balances, retainers, profit margins, markups, hourly rates, or any dollar value, percentage of cost, or numeric figure that could reasonably be interpreted as a price.
+
+If the user asks about, references, or attempts to deduce any of the above, reply EXACTLY:
+"I can't share financial details with trade partners. Please reach out to the project manager directly."
+
+Do not acknowledge that financial fields exist on the Deal. Do not cite retrieved entries that contain pricing — skip them silently. Numeric values may have been replaced with "[redacted]" in the Deal context and Retrieved context; treat those as off-limits and do not attempt to reconstruct them. This rule overrides every other instruction.
+`.trim();
+
+
 function buildSourcesSearchedBlock(retrieved: RetrievedChunk[]): string {
 	const bySource = new Map<string, RetrievedChunk[]>();
 	for (const c of retrieved) {
@@ -144,14 +223,11 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 	]);
 
 	let dealBlock = renderDealContextBlock(ctx);
+	let retrievedBlock = renderRetrievedContextBlock(retrieved);
 	if (opts.hideFinancials) {
-		// Strip the line that exposes deal value.
-		dealBlock = dealBlock
-			.split('\n')
-			.filter((line) => !/^\s*Amount:/i.test(line))
-			.join('\n');
+		dealBlock = scrubFinancialsFromBlock(dealBlock);
+		retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
 	}
-	const retrievedBlock = renderRetrievedContextBlock(retrieved);
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
 	const sourceCounts: Record<string, number> = {};
@@ -171,6 +247,9 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 		promptParts.push(
 			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
 		);
+	}
+	if (opts.hideFinancials) {
+		promptParts.push('\n' + TRADE_PARTNER_FINANCIAL_GUARD);
 	}
 	const systemPrompt = promptParts.join('\n');
 
@@ -248,14 +327,11 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 	]);
 
 	let dealBlock = renderDealContextBlock(ctx);
+	let retrievedBlock = renderRetrievedContextBlock(retrieved);
 	if (opts.hideFinancials) {
-		// Strip the line that exposes deal value.
-		dealBlock = dealBlock
-			.split('\n')
-			.filter((line) => !/^\s*Amount:/i.test(line))
-			.join('\n');
+		dealBlock = scrubFinancialsFromBlock(dealBlock);
+		retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
 	}
-	const retrievedBlock = renderRetrievedContextBlock(retrieved);
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
 	const promptParts = [
@@ -269,6 +345,9 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 		promptParts.push(
 			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
 		);
+	}
+	if (opts.hideFinancials) {
+		promptParts.push('\n' + TRADE_PARTNER_FINANCIAL_GUARD);
 	}
 	const systemPrompt = promptParts.join('\n');
 

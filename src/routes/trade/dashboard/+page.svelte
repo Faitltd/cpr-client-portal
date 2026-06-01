@@ -121,6 +121,45 @@
 	// ── Details: External_Link (immediate) + lazy Scopes / Designs links ──────
 	$: externalLinks = parseExternalLinks(selectedDeal?.External_Link);
 
+	// Lazy file listing for Designs + SOW folders.
+	interface DesignFile { id: string; name: string; mime: string | null; modifiedTime: string | null; }
+	const filesCache = new Map<string, { designs: DesignFile[]; sow: DesignFile[] }>();
+	let designsFiles: DesignFile[] = [];
+	let sowFiles: DesignFile[] = [];
+	let filesLoading = false;
+	let lastFilesDealId = '';
+
+	const loadFiles = async (dealId: string) => {
+		if (!dealId) return;
+		if (filesCache.has(dealId)) {
+			const cached = filesCache.get(dealId)!;
+			designsFiles = cached.designs;
+			sowFiles = cached.sow;
+			return;
+		}
+		filesLoading = true;
+		try {
+			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/designs/files`);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const payload = await res.json().catch(() => ({}));
+			const dList = Array.isArray(payload?.designs) ? payload.designs : [];
+			const sList = Array.isArray(payload?.sow) ? payload.sow : [];
+			filesCache.set(dealId, { designs: dList, sow: sList });
+			if (dealId === selectedDealId) {
+				designsFiles = dList;
+				sowFiles = sList;
+			}
+		} catch (err) {
+			console.warn('[trade/dashboard] file list fetch failed', err);
+			if (dealId === selectedDealId) {
+				designsFiles = [];
+				sowFiles = [];
+			}
+		} finally {
+			filesLoading = false;
+		}
+	};
+
 	// Lazy SOW (Scopes) folder URL fetch — Project > Design and Planning > SOW
 	const sowUrlCache = new Map<string, string>();
 	let sowUrl = '';
@@ -213,6 +252,10 @@
 		lastDesignsDealId = selectedDealId;
 		loadDesignsUrl(selectedDealId);
 	}
+	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastFilesDealId) {
+		lastFilesDealId = selectedDealId;
+		loadFiles(selectedDealId);
+	}
 
 	// Reset SOW / Designs URLs when deal changes so stale data isn't shown while loading
 	$: if (selectedDealId !== lastDesignsDealId && !designsUrlCache.has(selectedDealId)) {
@@ -220,6 +263,10 @@
 	}
 	$: if (selectedDealId !== lastSowDealId && !sowUrlCache.has(selectedDealId)) {
 		sowUrl = '';
+	}
+	$: if (selectedDealId !== lastFilesDealId && !filesCache.has(selectedDealId)) {
+		designsFiles = [];
+		sowFiles = [];
 	}
 
 	const getDealLabel = (deal: any) => {
@@ -687,24 +734,6 @@
 					</svg>
 					Project Bot
 				</a>
-				<button
-					class="wd-btn"
-					type="button"
-					disabled={!selectedDealId || designsLoading}
-					on:click={async () => {
-						if (!selectedDealId) return;
-						if (!designsUrlCache.has(selectedDealId)) await loadDesignsUrl(selectedDealId);
-						const url = designsUrlCache.get(selectedDealId) || '';
-						if (url) window.open(url, '_blank', 'noopener,noreferrer');
-						else designsOpen = true;
-					}}
-					title="Open the project's Designs / SOW folder in WorkDrive"
-				>
-					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<path d="M2 7h6l2-2h8v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z"/>
-					</svg>
-					{designsLoading ? 'Loading…' : 'WorkDrive'}
-				</button>
 				<a class="field-update-btn" href={fieldUpdateUrl}>
 					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 						<rect x="3" y="2" width="14" height="16" rx="2"/>
@@ -841,26 +870,77 @@
 
 				{#if designsOpen}
 					<div class="collapsible-body">
-						{#if (sowLoading || designsLoading) && designFiles.length === 0}
+						{#if (sowLoading || designsLoading || filesLoading) && designsFiles.length === 0 && sowFiles.length === 0 && designFiles.length === 0}
 							<p class="muted">Loading details...</p>
-						{:else if designFiles.length > 0}
-							<ul class="file-list">
-								{#each designFiles as file}
-									<li>
-										<a class="file-link" href={file.url} target="_blank" rel="noreferrer">{file.name}</a>
-									</li>
-								{/each}
-							</ul>
-						{:else if sowError || designsError}
-							<div class="field-updates-error">
-								<p class="error-text">{sowError || designsError}</p>
-								<button class="retry" type="button" on:click={() => {
-									sowUrlCache.delete(selectedDealId); lastSowDealId = ''; loadSowUrl(selectedDealId);
-									designsUrlCache.delete(selectedDealId); lastDesignsDealId = ''; loadDesignsUrl(selectedDealId);
-								}}>Retry</button>
-							</div>
 						{:else}
-							<p class="muted">No links available for this project.</p>
+							<!-- Scopes (SOW) section -->
+							<div class="folder-section">
+								<div class="folder-header">
+									<span class="folder-title">Scopes</span>
+									{#if sowUrl}
+										<a class="open-folder" href={sowUrl} target="_blank" rel="noreferrer">Open folder ↗</a>
+									{/if}
+								</div>
+								{#if sowFiles.length > 0}
+									<ul class="file-list">
+										{#each sowFiles as f (f.id)}
+											<li>
+												<span class="file-name">{f.name}</span>
+											</li>
+										{/each}
+									</ul>
+								{:else}
+									<p class="muted small">No scope files found.</p>
+								{/if}
+							</div>
+
+							<!-- Designs section -->
+							<div class="folder-section">
+								<div class="folder-header">
+									<span class="folder-title">Designs</span>
+									{#if designsUrl}
+										<a class="open-folder" href={designsUrl} target="_blank" rel="noreferrer">Open folder ↗</a>
+									{/if}
+								</div>
+								{#if designsFiles.length > 0}
+									<ul class="file-list">
+										{#each designsFiles as f (f.id)}
+											<li>
+												<span class="file-name">{f.name}</span>
+											</li>
+										{/each}
+									</ul>
+								{:else}
+									<p class="muted small">No design files found.</p>
+								{/if}
+							</div>
+
+							<!-- Any extra External_Link entries (Change Orders, etc.) -->
+							{#if designFiles.length > 0}
+								<div class="folder-section">
+									<div class="folder-header">
+										<span class="folder-title">Other links</span>
+									</div>
+									<ul class="file-list">
+										{#each designFiles.filter((f) => f.name !== 'Scopes' && f.name !== 'Designs') as file}
+											<li>
+												<a class="file-link" href={file.url} target="_blank" rel="noreferrer">{file.name}</a>
+											</li>
+										{/each}
+									</ul>
+								</div>
+							{/if}
+
+							{#if (sowError || designsError)}
+								<div class="field-updates-error">
+									<p class="error-text">{sowError || designsError}</p>
+									<button class="retry" type="button" on:click={() => {
+										sowUrlCache.delete(selectedDealId); lastSowDealId = ''; loadSowUrl(selectedDealId);
+										designsUrlCache.delete(selectedDealId); lastDesignsDealId = ''; loadDesignsUrl(selectedDealId);
+										filesCache.delete(selectedDealId); lastFilesDealId = ''; loadFiles(selectedDealId);
+									}}>Retry</button>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				{/if}
@@ -1206,25 +1286,42 @@
 		background: #1e3a8a;
 	}
 
-	.wd-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.45rem;
-		padding: 0.55rem 0.9rem;
-		background: #ffffff;
+	.folder-section {
+		margin-bottom: 1.25rem;
+	}
+	.folder-section:last-child {
+		margin-bottom: 0;
+	}
+	.folder-header {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.35rem;
+		padding-bottom: 0.3rem;
+		border-bottom: 1px solid #e5e7eb;
+	}
+	.folder-title {
+		font-size: 0.85rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #374151;
+	}
+	.open-folder {
+		font-size: 0.8rem;
 		color: #1e40af;
-		border: 1px solid #1e40af;
-		border-radius: 0.5rem;
-		font-weight: 600;
+		text-decoration: none;
+	}
+	.open-folder:hover {
+		text-decoration: underline;
+	}
+	.file-name {
+		color: #111827;
 		font-size: 0.92rem;
-		cursor: pointer;
 	}
-	.wd-btn:hover:not(:disabled) {
-		background: #eff6ff;
-	}
-	.wd-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+	.muted.small {
+		font-size: 0.85rem;
 	}
 
 	.field-update-btn {

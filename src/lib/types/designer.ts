@@ -170,7 +170,10 @@ export const DESIGNER_FETCH_FIELD_KEYS: readonly string[] = [
 	'Progress_Photos',
 	'Portal_Trade_Partners',
 	'Project_ID',
-	'Zoho_Projects_ID'
+	'Zoho_Projects_ID',
+	'WD_Change_Orders',
+	'WD_SOW',
+	'WD_Designs'
 ];
 
 /** Whitelist of keys the PATCH handler will forward to Zoho. */
