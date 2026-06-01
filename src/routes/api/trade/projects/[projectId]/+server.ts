@@ -7,8 +7,7 @@ import {
   getDealProjectIdsForLinking,
   getProject,
   getAllProjectTasks,
-  getAllProjectActivities,
-  getDealTaskSummaries
+  getAllProjectActivities
 } from '$lib/server/projects';
 
 const projectTasksCache = new Map<string, { fetchedAt: number; tasks: any[] }>();
@@ -114,10 +113,9 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
     throw error(500, 'Failed to verify authorization');
   }
 
-  // If this is a CRM deal ID (not a Zoho project ID), return deal info plus
-  // any CRM Tasks/Activities linked to the deal. These are the same items that
-  // surface as `task_preview` on /api/trade/projects, but fetched without the
-  // 4-row cap so the dashboard can render the full list.
+  // If this is a CRM deal ID (not a Zoho project ID), the deal isn't linked
+  // to a Zoho Project. Trade partners only want the Zoho Projects task list,
+  // so return an empty tasks array and let the dashboard show its empty-state.
   if (!authorizedProjectIds.has(projectId)) {
     const deal = authorizedDealMap!.get(projectId);
     if (!deal) {
@@ -135,20 +133,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
       throw error(403, 'Not authorized for this project');
     }
     const designs = normalizeDealDesigns(deal?.File_Upload ?? null);
-
-    let crmTasks: any[] = [];
-    try {
-      const summaries = await getDealTaskSummaries([projectId], {
-        concurrency: 1,
-        // Effectively no preview cap — we want every CRM Task tied to this deal.
-        previewLimit: 200
-      });
-      const summary = summaries.get(projectId);
-      crmTasks = summary?.preview ?? [];
-    } catch (taskErr) {
-      console.warn(`[trade/projects/${projectId}] CRM task summary failed:`, taskErr instanceof Error ? taskErr.message : String(taskErr));
-    }
-
     return json({
       project: {
         id: projectId,
@@ -159,7 +143,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
         end_date: deal.Closing_Date || null,
         source: 'crm_deal'
       },
-      tasks: crmTasks,
+      tasks: [],
       activities: [],
       designs
     });

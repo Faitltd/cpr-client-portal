@@ -175,9 +175,12 @@ export const GET: RequestHandler = async ({ cookies }) => {
     return dealId && !linkedDealIds.has(dealId);
   });
 
+  let nameMatchCount = 0;
+  let nameMatchError: string | null = null;
   if (unmappedForNameMatch.length > 0) {
     try {
       const nameMatches = await matchDealsToProjectsByName(unmappedForNameMatch);
+      nameMatchCount = nameMatches.size;
       for (const [dealId, projectId] of nameMatches.entries()) {
         const deal = unmappedForNameMatch.find((d) => String(d.id) === dealId);
         const dealName = deal ? getDealLabel(deal) : null;
@@ -187,8 +190,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
           linkedDealIds.add(dealId);
         }
       }
-    } catch {
-      // non-fatal: name matching is best-effort
+    } catch (err) {
+      nameMatchError = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -242,7 +245,16 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
   // If no Zoho project IDs, return CRM deals only
   if (projectIds.length === 0) {
-    return json({ projects: crmProjects, _debug: debugDealInfo });
+    return json({
+      projects: crmProjects,
+      _debug: {
+        deals: debugDealInfo,
+        nameMatchAttempted: unmappedForNameMatch.length,
+        nameMatchCount,
+        nameMatchError,
+        uniqueProjectIds: projectIds
+      }
+    });
   }
 
   // Fetch each unique Zoho Project once
@@ -280,5 +292,14 @@ export const GET: RequestHandler = async ({ cookies }) => {
   // Combine: Zoho Projects first, then any unlinked CRM deals
   const linkedDealIdSet = new Set(zohoProjects.map((p) => p.deal_id));
   const remainingCrm = crmProjects.filter((p) => !linkedDealIdSet.has(p.deal_id));
-  return json({ projects: [...zohoProjects, ...remainingCrm], _debug: debugDealInfo });
+  return json({
+    projects: [...zohoProjects, ...remainingCrm],
+    _debug: {
+      deals: debugDealInfo,
+      nameMatchAttempted: unmappedForNameMatch.length,
+      nameMatchCount,
+      nameMatchError,
+      uniqueProjectIds: projectIds
+    }
+  });
 };
