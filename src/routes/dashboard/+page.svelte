@@ -27,7 +27,7 @@
 	let error = '';
 	let invoiceError = '';
 	let financialOpen = true;
-	let invoicesOpen = true;
+	let invoicesOpen = false;
 	let changeOrdersOpen = false;
 	let emailUpdatesOpen = false;
 	let documentsOpen = false;
