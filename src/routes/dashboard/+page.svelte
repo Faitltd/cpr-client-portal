@@ -12,6 +12,7 @@
 
 	interface EmailTimelineItem {
 		id: string;
+		deal_id: string;
 		date: string;
 		direction: 'inbound' | 'outbound';
 		subject: string;
@@ -246,6 +247,69 @@
 	let emailTimeline: EmailTimelineItem[] = [];
 	let emailTimelineLoading = true;
 	let emailTimelineError = '';
+
+	// Per-email expand state + body cache.
+	// emailBodies = id → { loading, content, error } where content is sanitized HTML.
+	let expandedEmails: Set<string> = new Set();
+	let emailBodies = new Map<string, { loading: boolean; content: string | null; error: string | null }>();
+
+	const sanitizeEmailHtml = (raw: string): string => {
+		// Lightweight allowlist: strip <script>/<style>/<iframe>, drop on* handlers
+		// and javascript: URLs. The full body is from Zoho-stored mail which is
+		// already moderated, but defense-in-depth — the client portal is the
+		// homeowner's surface, not internal staff.
+		let html = String(raw);
+		html = html.replace(/<\s*(script|style|iframe|object|embed|link|meta)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '');
+		html = html.replace(/<\s*(script|style|iframe|object|embed|link|meta)[^>]*\/?>/gi, '');
+		html = html.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
+		html = html.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
+		html = html.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
+		html = html.replace(/javascript:/gi, 'about:blank#blocked');
+		return html;
+	};
+
+	const toggleEmailExpand = async (email: EmailTimelineItem) => {
+		const id = email.id;
+		if (expandedEmails.has(id)) {
+			expandedEmails.delete(id);
+			expandedEmails = new Set(expandedEmails);
+			return;
+		}
+		expandedEmails.add(id);
+		expandedEmails = new Set(expandedEmails);
+
+		const cached = emailBodies.get(id);
+		if (cached && (cached.content || cached.error)) return;
+
+		emailBodies.set(id, { loading: true, content: null, error: null });
+		emailBodies = new Map(emailBodies);
+		try {
+			const res = await fetch(
+				`/api/client/emails/${encodeURIComponent(id)}?dealId=${encodeURIComponent(email.deal_id || '')}`
+			);
+			if (!res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				emailBodies.set(id, {
+					loading: false,
+					content: null,
+					error: payload?.error || `Failed to load email (${res.status})`
+				});
+				emailBodies = new Map(emailBodies);
+				return;
+			}
+			const payload = await res.json();
+			const content = typeof payload?.content === 'string' ? payload.content : null;
+			emailBodies.set(id, {
+				loading: false,
+				content: content ? sanitizeEmailHtml(content) : null,
+				error: content ? null : 'Email body unavailable'
+			});
+			emailBodies = new Map(emailBodies);
+		} catch {
+			emailBodies.set(id, { loading: false, content: null, error: 'Failed to load email' });
+			emailBodies = new Map(emailBodies);
+		}
+	};
 	const getErrorMessage = (payload: any, fallback: string) =>
 		payload?.error || payload?.message || fallback;
 	const readJson = async (res: Response) => res.json().catch(() => ({}));
@@ -739,21 +803,47 @@
 			{:else}
 				<div class="email-timeline">
 					{#each emailTimeline as email (email.id)}
+						{@const expanded = expandedEmails.has(email.id)}
+						{@const body = emailBodies.get(email.id)}
 						<div class="email-item email-{email.direction}">
-							<div class="email-item-top">
-								<div class="email-item-labels">
-									<span class="badge {email.direction === 'inbound' ? 'badge-inbound' : 'badge-outbound'}">
-										{email.direction === 'inbound' ? 'Received' : 'Sent'}
+							<button
+								type="button"
+								class="email-item-trigger"
+								on:click={() => toggleEmailExpand(email)}
+								aria-expanded={expanded}
+							>
+								<div class="email-item-top">
+									<div class="email-item-labels">
+										<span class="badge {email.direction === 'inbound' ? 'badge-inbound' : 'badge-outbound'}">
+											{email.direction === 'inbound' ? 'Received' : 'Sent'}
+										</span>
+										{#if email.from_name}
+											<span class="email-from">{email.from_name}</span>
+										{/if}
+									</div>
+									<span class="email-time">
+										{formatRelativeTime(email.date)}
+										<span class="email-expand-chevron" class:rotated={expanded} aria-hidden="true">▾</span>
 									</span>
-									{#if email.from_name}
-										<span class="email-from">{email.from_name}</span>
+								</div>
+								<p class="email-subject">{email.subject}</p>
+								{#if email.summary && !expanded}
+									<p class="email-summary">{email.summary}</p>
+								{/if}
+							</button>
+							{#if expanded}
+								<div class="email-body">
+									{#if body?.loading}
+										<p class="muted-text">Loading email…</p>
+									{:else if body?.error}
+										<p class="muted-text error-text">{body.error}</p>
+									{:else if body?.content}
+										<!-- email body sanitized on receive; trusted enough to render -->
+										<div class="email-body-content">{@html body.content}</div>
+									{:else}
+										<p class="muted-text">Email body unavailable.</p>
 									{/if}
 								</div>
-								<span class="email-time">{formatRelativeTime(email.date)}</span>
-							</div>
-							<p class="email-subject">{email.subject}</p>
-							{#if email.summary}
-								<p class="email-summary">{email.summary}</p>
 							{/if}
 						</div>
 					{/each}
@@ -1596,6 +1686,57 @@
 		font-size: 0.8rem;
 		color: #6b7280;
 		line-height: 1.4;
+	}
+
+	.email-item-trigger {
+		all: unset;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		cursor: pointer;
+		text-align: left;
+		width: 100%;
+	}
+	.email-item-trigger:focus-visible {
+		outline: 2px solid #3b82f6;
+		outline-offset: 2px;
+		border-radius: 4px;
+	}
+	.email-expand-chevron {
+		display: inline-block;
+		margin-left: 0.4rem;
+		color: #9ca3af;
+		transition: transform 120ms ease;
+	}
+	.email-expand-chevron.rotated {
+		transform: rotate(180deg);
+	}
+	.email-body {
+		margin-top: 0.6rem;
+		padding-top: 0.6rem;
+		border-top: 1px dashed #e5e7eb;
+		font-size: 0.85rem;
+		color: #1f2937;
+		line-height: 1.5;
+	}
+	.email-body-content {
+		max-width: 100%;
+		overflow-wrap: anywhere;
+	}
+	.email-body-content :global(img),
+	.email-body-content :global(table) {
+		max-width: 100%;
+		height: auto;
+	}
+	.email-body-content :global(a) {
+		color: #2563eb;
+		word-break: break-all;
+	}
+	.email-body-content :global(blockquote) {
+		border-left: 3px solid #e5e7eb;
+		padding-left: 0.75rem;
+		margin: 0.5rem 0;
+		color: #6b7280;
 	}
 
 	/* ── Email prefs (sub-section) ────────────────────── */

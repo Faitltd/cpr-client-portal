@@ -5,6 +5,7 @@ import type { RequestHandler } from './$types';
 
 interface EmailTimelineItem {
 	id: string;
+	deal_id: string;
 	date: string;
 	direction: 'inbound' | 'outbound';
 	subject: string;
@@ -55,6 +56,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 						allEmails.push({
 							id: email.message_id || `zoho-${dealId}-${emails.indexOf(email)}`,
+							deal_id: dealId,
 							date: email.time || '',
 							direction,
 							subject: email.subject || '(No subject)',
