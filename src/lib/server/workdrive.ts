@@ -103,6 +103,11 @@ function normalizeWorkDriveType(raw: any) {
 	if (text.includes('folder')) return 'folder' as const;
 	if (text.includes('file')) return 'file' as const;
 	if (text.includes('document')) return 'file' as const;
+	// Zoho-native resource types — Sheet (zsheet), Writer (zw, zdoc, writer),
+	// Show (zshow), Notebook (znote). All are file-like leaves.
+	if (/^(z(sheet|w|doc|writer|show|note)|sheet|writer|show)$/.test(text)) {
+		return 'file' as const;
+	}
 	return 'unknown' as const;
 }
 
