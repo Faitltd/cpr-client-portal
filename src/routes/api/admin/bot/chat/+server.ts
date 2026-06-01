@@ -50,7 +50,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			adminEmail: access.email,
 			messages,
 			allowedSources: access.allowedSources,
-			hideFinancials: access.hideFinancials
+			hideFinancials: access.hideFinancials,
+			hideInternalFinancials: access.hideInternalFinancials
 		});
 		return new Response(stream, {
 			headers: {

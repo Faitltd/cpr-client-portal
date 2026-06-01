@@ -85,6 +85,82 @@ function scrubFinancialsFromBlock(block: string): string {
 		.join('\n');
 }
 
+// ── Internal-financial scrubbing (client/homeowner role) ──────────────────
+// The client may legitimately see THEIR OWN contract amount, allowance limits,
+// invoices, payment schedule, balance, and change-order totals. They must NOT
+// see: cost basis (what CPR pays suppliers/subs), sub bids, margin or markup
+// percentages, COGS, vendor bills, purchase orders, books opening balance, or
+// deal probability. Money values themselves are NOT redacted by this layer —
+// the field-label filter drops only the internal-cost labels and the system
+// directive forbids the bot from inferring them out of other context.
+const INTERNAL_FIN_LABEL_PATTERNS: readonly RegExp[] = [
+	/\bcost[\s_-]*basis\b/i,
+	/\bcost[\s_-]*(of[\s_-]*goods|of[\s_-]*sales)\b/i,
+	/\bcogs\b/i,
+	/\b(gross|net)[\s_-]*(profit|margin)\b/i,
+	/\bmargin\b/i,
+	/\bmarkup\b/i,
+	/\bprofit\b/i,
+	/\b(vendor|supplier)[\s_-]*(bill|invoice)\b/i,
+	/\bpurchase[\s_-]*order\b/i,
+	/\bp\.?o\.?\b/i,
+	/\baccounts[\s_-]*payable\b/i,
+	/\bap[\s_-]*aging\b/i,
+	/\b(sub|trade)[\s_-]*(bid|quote|rate|cost)\b/i,
+	/\bsubcontractor[\s_-]*(cost|rate|quote|bid)\b/i,
+	/\bpartner[\s_-]*(bid|quote|rate|cost)\b/i,
+	/\binternal[\s_-]*(cost|rate|labor|labour|note)\b/i,
+	/\bcrew[\s_-]*(cost|rate)\b/i,
+	/\blabor[\s_-]*(cost|rate)\b/i,
+	/\b(opening|books)[\s_-]*balance\b/i,
+	/\bbooks[\s_-]*(estimate|cost|line|item)\b/i,
+	/\bgl[\s_-]*(account|code|balance)\b/i,
+	/\bprobability\b/i,
+	/\bdeal[\s_-]*temperature\b/i,
+	/\bquote[\s_-]*(revision|history)\b/i,
+	/\bestimate[\s_-]*(revision|history|line|build[\s_-]*up)\b/i,
+	/\bworkflow[\s_-]*log/i,
+	/\binternal[\s_-]*comment/i
+];
+
+function labelLooksInternalFinancial(label: string): boolean {
+	for (const p of INTERNAL_FIN_LABEL_PATTERNS) if (p.test(label)) return true;
+	return false;
+}
+
+function lineLooksInternalFinancial(line: string): boolean {
+	const m = line.match(/^\s*-?\s*([A-Za-z][A-Za-z0-9 _/&]+?)\s*:/);
+	if (!m) return false;
+	return labelLooksInternalFinancial(m[1]);
+}
+
+function scrubInternalFinancialsFromBlock(block: string): string {
+	return block
+		.split('\n')
+		.filter((line) => !lineLooksInternalFinancial(line))
+		.join('\n');
+}
+
+const CLIENT_INTERNAL_FINANCIAL_GUARD = `
+# Client confidentiality (STRICT — overrides every rule above)
+You are responding to a homeowner/client whose project this is. They may see THEIR OWN figures: contract amount, allowance limits, invoices, payment schedule, balance, deposit amount, change-order totals, refunds.
+
+You must NEVER share, summarize, infer, or imply any of the following — even if you can piece them together from retrieved chunks:
+- CPR's cost basis (what CPR pays suppliers, vendors, or subcontractors for materials or labor)
+- Subcontractor or trade-partner bids, quotes, or rates (Jeff, Brian, Santiago, or any sub)
+- Vendor bills, purchase orders, or accounts payable
+- Gross or net margin, markup percentages, gross profit, profit margin, COGS
+- Books opening balance, GL postings, internal labor cost or crew rates
+- Deal probability, deal temperature, internal scoring or stage-progression odds
+- Comparisons to other clients' jobs or pricing on similar scopes
+- Internal commentary, workflow logs, internal Cliq messages
+
+If the user asks for, references, or attempts to deduce any of the above, reply EXACTLY:
+"That's internal information I can't share. For your own quote, payments, or balance, see your invoices or contact your project manager."
+
+Lines tagged with internal-cost labels have already been removed from the Deal context and Retrieved context. Do not attempt to reconstruct them from surrounding numbers, dates, or scope items. This rule overrides every other instruction.
+`.trim();
+
 const TRADE_PARTNER_FINANCIAL_GUARD = `
 # Trade-partner confidentiality (STRICT — overrides every rule above)
 You are responding to a trade partner (sub-contractor). NEVER share, summarize, infer, restate, paraphrase, or imply any financial information about this project. This includes — non-exhaustively — deal amount, total project cost, contract value, budget, allowances, line-item prices, material allowances, quotes, estimates, invoices, payments, deposits, balances, retainers, profit margins, markups, hourly rates, or any dollar value, percentage of cost, or numeric figure that could reasonably be interpreted as a price.
@@ -157,8 +233,15 @@ export interface RunChatOptions {
 	messages: ChatMessage[];
 	/** Restrict retrieval to these sources. Null = no filter. */
 	allowedSources?: string[] | null;
-	/** Redact financial fields from Deal context (Amount). */
+	/** Redact ALL financial fields/values (trade-partner mode). */
 	hideFinancials?: boolean;
+	/**
+	 * Redact INTERNAL financials only (client/homeowner mode). The principal's
+	 * own quote, invoices, payments, and balance stay visible; cost basis, sub
+	 * bids, margin/markup, vendor bills, COGS, books opening balance, and deal
+	 * probability are stripped.
+	 */
+	hideInternalFinancials?: boolean;
 }
 
 /**
@@ -227,6 +310,9 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 	if (opts.hideFinancials) {
 		dealBlock = scrubFinancialsFromBlock(dealBlock);
 		retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
+	} else if (opts.hideInternalFinancials) {
+		dealBlock = scrubInternalFinancialsFromBlock(dealBlock);
+		retrievedBlock = scrubInternalFinancialsFromBlock(retrievedBlock);
 	}
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
@@ -250,6 +336,8 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 	}
 	if (opts.hideFinancials) {
 		promptParts.push('\n' + TRADE_PARTNER_FINANCIAL_GUARD);
+	} else if (opts.hideInternalFinancials) {
+		promptParts.push('\n' + CLIENT_INTERNAL_FINANCIAL_GUARD);
 	}
 	const systemPrompt = promptParts.join('\n');
 
@@ -331,6 +419,9 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 	if (opts.hideFinancials) {
 		dealBlock = scrubFinancialsFromBlock(dealBlock);
 		retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
+	} else if (opts.hideInternalFinancials) {
+		dealBlock = scrubInternalFinancialsFromBlock(dealBlock);
+		retrievedBlock = scrubInternalFinancialsFromBlock(retrievedBlock);
 	}
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
@@ -348,6 +439,8 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 	}
 	if (opts.hideFinancials) {
 		promptParts.push('\n' + TRADE_PARTNER_FINANCIAL_GUARD);
+	} else if (opts.hideInternalFinancials) {
+		promptParts.push('\n' + CLIENT_INTERNAL_FINANCIAL_GUARD);
 	}
 	const systemPrompt = promptParts.join('\n');
 

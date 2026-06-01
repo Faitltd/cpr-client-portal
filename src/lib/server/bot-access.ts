@@ -11,17 +11,26 @@ const ALLOWED_EMAILS = new Set(
 		.filter(Boolean)
 );
 
-export type BotRole = 'admin' | 'designer' | 'trade_partner';
+export type BotRole = 'admin' | 'designer' | 'trade_partner' | 'client';
 
 export interface BotAccess {
 	role: BotRole;
 	email: string;
 	/** Sources the role may retrieve from. `null` = no source filter. */
 	allowedSources: string[] | null;
-	/** When true, redact financial fields (Amount) from Deal context. */
+	/** When true, redact ALL financial fields/values (trade-partner mode). */
 	hideFinancials: boolean;
+	/**
+	 * When true, redact INTERNAL financial values only — cost basis, sub bids,
+	 * margin/markup, vendor bills, COGS, books opening balance, deal probability.
+	 * The principal's own quote, allowances, invoices, payments, and balance
+	 * remain visible. Used for the client (homeowner) role.
+	 */
+	hideInternalFinancials: boolean;
 	/** Trade-partner id, used to scope Deal list to assignments. */
 	tradePartnerId: string | null;
+	/** Client id, used to scope Deal list to this homeowner's projects. */
+	clientId: string | null;
 }
 
 /**
@@ -32,6 +41,11 @@ export interface BotAccess {
  *  Trade-partner   → WorkDrive + Deal-field context only. No Amount.
  *                    Caller must additionally restrict the Deal list to the
  *                    partner's assignments (see /api/trade/bot/deals).
+ *  Client          → Their own deal data + WorkDrive + their invoices/payments.
+ *                    Internal cost basis, sub bids, margin/markup, vendor
+ *                    bills, books opening balance, and probability are scrubbed.
+ *                    Cliq internal channel and Books estimate cost build-ups
+ *                    are excluded from retrieval entirely.
  *
  * Returns null when the caller is none of the above.
  */
@@ -42,7 +56,9 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 			email: 'admin',
 			allowedSources: null,
 			hideFinancials: false,
-			tradePartnerId: null
+			hideInternalFinancials: false,
+			tradePartnerId: null,
+			clientId: null
 		};
 	}
 
@@ -57,9 +73,37 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					email: normalized,
 					allowedSources: null,
 					hideFinancials: false,
-					tradePartnerId: null
+					hideInternalFinancials: false,
+					tradePartnerId: null,
+					clientId: null
 				};
 			}
+		}
+		if (principal?.role === 'client') {
+			const client = principal.session.client;
+			return {
+				role: 'client',
+				email: (client.email ?? '').toLowerCase(),
+				// Homeowner-visible sources only. Books estimates expose CPR's
+				// cost build-up (line-item margins), so they're excluded. Cliq
+				// internal is staff-only. Mail is excluded by default because
+				// it routinely contains internal pricing discussions; if you
+				// want clients to see their own client-facing email, switch
+				// the retrieve layer to filter by recipient first.
+				allowedSources: [
+					'workdrive_pdf',
+					'workdrive_docx',
+					'zoho_crm_field',
+					'zoho_books_invoice',
+					'zoho_books_payment',
+					'zoho_cliq_external',
+					'transcript'
+				],
+				hideFinancials: false,
+				hideInternalFinancials: true,
+				tradePartnerId: null,
+				clientId: client.id ?? null
+			};
 		}
 	}
 
@@ -75,7 +119,9 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				// or internal commentary that shouldn't reach trade partners.
 				allowedSources: ['workdrive_pdf', 'workdrive_docx', 'zoho_crm_field'],
 				hideFinancials: true,
-				tradePartnerId: session.trade_partner.id ?? null
+				hideInternalFinancials: false,
+				tradePartnerId: session.trade_partner.id ?? null,
+				clientId: null
 			};
 		}
 	}
