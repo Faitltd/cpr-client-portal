@@ -2327,7 +2327,10 @@ export async function getDealTaskSummaries(
 
 	const accessToken = await getValidAccessToken();
 	const workerLimit = Math.max(1, Math.min(options?.concurrency ?? 2, 4));
-	const previewLimit = Math.max(0, Math.min(options?.previewLimit ?? 4, 8));
+	// Cap was 8 (list-view preview); raised to 200 so the trade-dashboard
+	// detail endpoint can fetch the full CRM-task set for a deal without
+	// needing a separate code path.
+	const previewLimit = Math.max(0, Math.min(options?.previewLimit ?? 4, 200));
 
 	const results = await mapWithConcurrency(normalizedIds, workerLimit, async (dealId) => {
 		try {

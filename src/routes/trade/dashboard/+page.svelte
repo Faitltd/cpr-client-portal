@@ -409,11 +409,38 @@
 		const project = projectsList.find((p: any) => p.deal_id === dealId || p.id === dealId);
 		const isCrm = !project || project?.source === 'crm_deal';
 
-		// Only Zoho Projects have tasks — CRM-only deals show nothing
+		// CRM-only deals (no linked Zoho Project) fall back to the CRM-task
+		// preview that /api/trade/projects already attached to the list entry.
+		// These are read-only — the status-update flow only works for Zoho
+		// Project tasks, so `isZohoProject` stays false and the dropdown is
+		// suppressed by the template guard around the editor.
 		if (isCrm) {
-			tasks = [];
+			const preview = Array.isArray(project?.task_preview) ? project.task_preview : [];
+			tasks = preview;
 			selectedProjectId = '';
 			isZohoProject = false;
+			tasksError = '';
+			// Then upgrade to the full CRM-task list (the list endpoint caps at 4).
+			tasksLoading = true;
+			try {
+				const res = await fetch(`/api/trade/projects/${encodeURIComponent(dealId)}`);
+				if (res.ok) {
+					const payload = await res.json().catch(() => ({}));
+					const fresh: any[] = Array.isArray(payload?.tasks) ? payload.tasks : [];
+					if (dealId === selectedDealId) {
+						tasks = fresh.length > 0 ? fresh : preview;
+						tasksCache.set(dealId, tasks);
+					} else {
+						tasksCache.set(dealId, fresh.length > 0 ? fresh : preview);
+					}
+				} else {
+					tasksCache.set(dealId, preview);
+				}
+			} catch {
+				tasksCache.set(dealId, preview);
+			} finally {
+				tasksLoading = false;
+			}
 			return;
 		}
 
