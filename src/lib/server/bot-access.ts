@@ -93,6 +93,7 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				allowedSources: [
 					'workdrive_pdf',
 					'workdrive_docx',
+					'workdrive_xlsx',
 					'zoho_crm_field',
 					'zoho_books_invoice',
 					'zoho_books_payment',
@@ -117,7 +118,7 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				// Only non-financial sources. WorkDrive + Deal-field context.
 				// Books/Mail/CRM-emails/Cliq all excluded — could surface pricing
 				// or internal commentary that shouldn't reach trade partners.
-				allowedSources: ['workdrive_pdf', 'workdrive_docx', 'zoho_crm_field'],
+				allowedSources: ['workdrive_pdf', 'workdrive_docx', 'workdrive_xlsx', 'zoho_crm_field'],
 				hideFinancials: true,
 				hideInternalFinancials: false,
 				tradePartnerId: session.trade_partner.id ?? null,

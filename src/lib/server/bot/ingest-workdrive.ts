@@ -19,7 +19,11 @@ const MAX_SUBFOLDER_DEPTH = Number(env.BOT_WORKDRIVE_MAX_DEPTH ?? '3');
 // the Deal record has no WorkDrive_Folder_ID / Client_Portal_Folder set.
 const WORKDRIVE_PARENT_FOLDER_ID = (env.BOT_WORKDRIVE_PARENT_FOLDER_ID ?? '').trim();
 
-type WdSource = 'workdrive_pdf' | 'workdrive_docx' | 'transcript';
+type WdSource =
+	| 'workdrive_pdf'
+	| 'workdrive_docx'
+	| 'workdrive_xlsx'
+	| 'transcript';
 
 // Heuristic: a file is treated as a meeting transcript when it lives inside a
 // folder whose name suggests transcripts, OR its own filename does.
@@ -196,6 +200,17 @@ function pickSource(
 	) {
 		return looksLikeTranscript(name, parentFolderName) ? 'transcript' : 'workdrive_docx';
 	}
+	if (
+		lower.endsWith('.xlsx') ||
+		lower.endsWith('.xls') ||
+		lower.endsWith('.xlsm') ||
+		lower.endsWith('.csv') ||
+		mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+		mime === 'application/vnd.ms-excel' ||
+		mime === 'text/csv'
+	) {
+		return 'workdrive_xlsx';
+	}
 	return null;
 }
 
@@ -271,6 +286,50 @@ async function parseDocx(buf: Buffer): Promise<string> {
 	const mammoth = await import('mammoth');
 	const result = await mammoth.extractRawText({ buffer: buf });
 	return typeof result.value === 'string' ? result.value : '';
+}
+
+/**
+ * Convert every sheet of an XLSX / XLS / XLSM / CSV file to plain text.
+ * Each sheet is emitted as:
+ *
+ *   ## Sheet: <sheetName>
+ *   col1 | col2 | col3
+ *   v1   | v2   | v3
+ *
+ * The pipe-delimited layout keeps row context intact (delivery dates next to
+ * order numbers, etc.) so the retrieval layer can match a question like
+ * "when is the kitchen cabinet delivery" against the right row.
+ */
+async function parseXlsx(buf: Buffer): Promise<string> {
+	const xlsx = await import('xlsx');
+	const workbook = xlsx.read(buf, { type: 'buffer', cellDates: true, cellNF: false });
+	const out: string[] = [];
+	for (const sheetName of workbook.SheetNames) {
+		const sheet = workbook.Sheets[sheetName];
+		if (!sheet) continue;
+		const rows = xlsx.utils.sheet_to_json<unknown[]>(sheet, {
+			header: 1,
+			blankrows: false,
+			defval: '',
+			raw: false
+		});
+		if (rows.length === 0) continue;
+		out.push(`## Sheet: ${sheetName}`);
+		for (const row of rows) {
+			if (!Array.isArray(row)) continue;
+			const cells = row.map((v) => {
+				if (v === null || v === undefined) return '';
+				if (v instanceof Date) return v.toISOString().slice(0, 10);
+				const s = String(v).trim();
+				return s.replace(/[\r\n\t]+/g, ' ');
+			});
+			// Drop fully-blank rows
+			if (cells.every((c) => c === '')) continue;
+			out.push(cells.join(' | '));
+		}
+		out.push('');
+	}
+	return out.join('\n');
 }
 
 function parseText(buf: Buffer): string {
@@ -360,9 +419,20 @@ async function ingestFile(
 		const lower = item.name.toLowerCase();
 		if (lower.endsWith('.pdf')) text = await parsePdf(buf);
 		else if (lower.endsWith('.docx')) text = await parseDocx(buf);
+		else if (
+			lower.endsWith('.xlsx') ||
+			lower.endsWith('.xls') ||
+			lower.endsWith('.xlsm') ||
+			lower.endsWith('.csv')
+		) text = await parseXlsx(buf);
 		else if (lower.endsWith('.vtt') || lower.endsWith('.srt')) text = parseVtt(buf);
 		else if (lower.endsWith('.txt')) text = parseText(buf);
 		else if (item.mime === 'application/pdf') text = await parsePdf(buf);
+		else if (
+			item.mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+			item.mime === 'application/vnd.ms-excel' ||
+			item.mime === 'text/csv'
+		) text = await parseXlsx(buf);
 		else if (item.mime === 'text/vtt' || item.mime === 'application/x-subrip')
 			text = parseVtt(buf);
 		else if (item.mime === 'text/plain') text = parseText(buf);

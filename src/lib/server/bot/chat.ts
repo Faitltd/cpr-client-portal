@@ -14,6 +14,7 @@ const ALL_SOURCES = [
 	'zoho_books_payment',
 	'workdrive_pdf',
 	'workdrive_docx',
+	'workdrive_xlsx',
 	'transcript'
 ] as const;
 
