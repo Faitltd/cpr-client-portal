@@ -17,6 +17,49 @@
 	let updateError = '';
 	let updating = false;
 
+	// --- Project Tasks (from Zoho Projects) ---
+	let tasks: any[] = [];
+	let tasksLoading = true;
+	let tasksError = '';
+	let tasksProjectId: string | null = null;
+
+	const getTaskName = (t: any) => t?.name ?? t?.task_name ?? 'Untitled task';
+	const getTaskStatusLabel = (t: any) => {
+		const s = t?.status;
+		if (typeof s === 'string') return s;
+		if (s && typeof s === 'object' && typeof s.name === 'string') return s.name;
+		if (typeof t?.percent_complete === 'string' && t.percent_complete === '100') return 'Complete';
+		return 'Open';
+	};
+	const isTaskComplete = (t: any) => {
+		const label = getTaskStatusLabel(t).toLowerCase();
+		if (t?.status?.is_closed_type === true) return true;
+		return label === 'complete' || label === 'completed' || label === 'closed';
+	};
+	const loadProjectTasks = async (dealId: string) => {
+		tasksLoading = true;
+		tasksError = '';
+		try {
+			const res = await fetch(`/api/project/${encodeURIComponent(dealId)}/tasks`);
+			if (res.status === 401) {
+				tasksError = 'Please sign in again to view tasks.';
+				return;
+			}
+			if (!res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				tasksError = payload?.error || `Failed to load tasks (${res.status})`;
+				return;
+			}
+			const payload = await res.json();
+			tasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+			tasksProjectId = payload?.projectId ?? null;
+		} catch {
+			tasksError = 'Failed to load tasks';
+		} finally {
+			tasksLoading = false;
+		}
+	};
+
 	// --- Change Orders ---
 	let changeOrders: any[] = [];
 	let coLoading = true;
@@ -170,6 +213,7 @@
 			}
 
 			loadChangeOrders(projectId);
+			loadProjectTasks(projectId);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -353,6 +397,46 @@
 				</ul>
 			</section>
 		{/if}
+
+		<section class="project-tasks">
+			<div class="project-tasks-head">
+				<h2>Project Tasks</h2>
+				{#if !tasksLoading && tasks.length > 0}
+					<span class="task-count-badge">
+						{tasks.filter(isTaskComplete).length}/{tasks.length} complete
+					</span>
+				{/if}
+			</div>
+
+			{#if tasksLoading}
+				<p class="section-empty">Loading project tasks…</p>
+			{:else if tasksError}
+				<p class="section-error">{tasksError}</p>
+			{:else if tasks.length === 0}
+				<p class="section-empty">
+					No project tasks yet. Your project manager will add the work plan to Zoho Projects.
+				</p>
+			{:else}
+				<ul class="task-list">
+					{#each tasks as task}
+						<li class="task-row">
+							<div class="task-info">
+								<p class="task-name" class:task-name-complete={isTaskComplete(task)}>
+									{getTaskName(task)}
+								</p>
+							</div>
+							<span
+								class="task-status-badge"
+								class:task-status-complete={isTaskComplete(task)}
+								class:task-status-open={!isTaskComplete(task)}
+							>
+								{getTaskStatusLabel(task)}
+							</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
 
 		<section class="change-orders">
 			<div class="change-orders-head">
@@ -681,6 +765,74 @@
 
 	.change-orders-head h2 {
 		margin: 0;
+	}
+
+	.project-tasks-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 1rem;
+	}
+	.project-tasks-head h2 {
+		margin: 0;
+	}
+	.task-count-badge {
+		font-size: 0.85rem;
+		color: #4b5563;
+		background: #f3f4f6;
+		border-radius: 999px;
+		padding: 0.2rem 0.7rem;
+		font-weight: 500;
+	}
+	.task-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.task-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.65rem 0.85rem;
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+	}
+	.task-info {
+		flex: 1;
+		min-width: 0;
+	}
+	.task-name {
+		margin: 0;
+		font-size: 0.95rem;
+		color: #111827;
+		word-break: break-word;
+	}
+	.task-name-complete {
+		color: #6b7280;
+		text-decoration: line-through;
+	}
+	.task-status-badge {
+		flex-shrink: 0;
+		font-size: 0.8rem;
+		font-weight: 600;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+	.task-status-open {
+		color: #166534;
+		background: #dcfce7;
+	}
+	.task-status-complete {
+		color: #4b5563;
+		background: #e5e7eb;
 	}
 
 	.primary-btn {
