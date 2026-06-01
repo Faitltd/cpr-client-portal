@@ -101,14 +101,12 @@ function normalizeWorkDriveType(raw: any) {
 	const text = String(raw ?? '').toLowerCase();
 	if (!text) return 'unknown' as const;
 	if (text.includes('folder')) return 'folder' as const;
-	if (text.includes('file')) return 'file' as const;
-	if (text.includes('document')) return 'file' as const;
-	// Zoho-native resource types — Sheet (zsheet), Writer (zw, zdoc, writer),
-	// Show (zshow), Notebook (znote). All are file-like leaves.
-	if (/^(z(sheet|w|doc|writer|show|note)|sheet|writer|show)$/.test(text)) {
-		return 'file' as const;
-	}
-	return 'unknown' as const;
+	// Anything else with a non-empty resource-type string is a leaf node we
+	// should attempt to ingest. Zoho-native types (zsheet, zw, zshow, etc.)
+	// don't contain "file" in the string, so the earlier file-only check was
+	// too narrow. Be permissive: not-folder => file; pickSource is the gate
+	// that decides what we actually parse.
+	return 'file' as const;
 }
 
 export function normalizeWorkDriveItem(item: any): WorkDriveItem {

@@ -245,7 +245,8 @@ async function collectIngestibleFiles(
 	folderId: string,
 	depth: number,
 	out: { item: WorkDriveItem; source: WdSource }[],
-	parentFolderName?: string | null
+	parentFolderName?: string | null,
+	seen?: Array<{ name: string; type: string; mime: string | null; rawType: any; reason: string }>
 ): Promise<void> {
 	if (depth > MAX_SUBFOLDER_DEPTH) return;
 	if (out.length >= MAX_FILES_PER_DEAL) return;
@@ -266,20 +267,34 @@ async function collectIngestibleFiles(
 
 	for (const item of items) {
 		if (out.length >= MAX_FILES_PER_DEAL) return;
+		const rawType =
+			item.raw?.attributes?.type ??
+			item.raw?.attributes?.resource_type ??
+			item.raw?.type ??
+			null;
 		if (item.type === 'folder') {
+			if (seen) seen.push({ name: item.name, type: 'folder', mime: item.mime, rawType, reason: 'recurse' });
 			await collectIngestibleFiles(
 				accessToken,
 				apiDomain,
 				item.id,
 				depth + 1,
 				out,
-				item.name
+				item.name,
+				seen
 			);
 			continue;
 		}
-		if (item.type !== 'file') continue;
+		if (item.type !== 'file') {
+			if (seen) seen.push({ name: item.name, type: item.type, mime: item.mime, rawType, reason: 'not-file' });
+			continue;
+		}
 		const source = pickSource(item.name, item.mime, parentFolderName);
-		if (!source) continue;
+		if (!source) {
+			if (seen) seen.push({ name: item.name, type: 'file', mime: item.mime, rawType, reason: 'no-source' });
+			continue;
+		}
+		if (seen) seen.push({ name: item.name, type: 'file', mime: item.mime, rawType, reason: `match:${source}` });
 		out.push({ item, source });
 	}
 }
@@ -597,7 +612,9 @@ export async function syncWorkDriveForDeal(
 	}
 
 	const collected: { item: WorkDriveItem; source: WdSource }[] = [];
-	await collectIngestibleFiles(accessToken, apiDomain, folderId, 0, collected);
+	const seen: Array<{ name: string; type: string; mime: string | null; rawType: any; reason: string }> = [];
+	await collectIngestibleFiles(accessToken, apiDomain, folderId, 0, collected, undefined, seen);
+	(res as any).walked = seen;
 
 	if (collected.length === 0) {
 		res.error = 'no PDF or DOCX files found in folder';
