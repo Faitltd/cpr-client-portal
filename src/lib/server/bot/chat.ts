@@ -86,6 +86,26 @@ function scrubFinancialsFromBlock(block: string): string {
 		.join('\n');
 }
 
+/**
+ * Build a retrieval query that carries conversational context. The last user
+ * message gets the heaviest weight; the two prior user turns are appended so
+ * pronoun-y follow-ups ("when was it ordered?", "what color?", "and the
+ * other one?") still match the right document even though the entity name
+ * isn't in the latest message.
+ *
+ * Capped at ~600 chars so we don't overwhelm the embedding model with a
+ * full chat scrollback.
+ */
+function buildRetrievalQuery(messages: ChatMessage[]): string {
+	const userTurns = messages.filter((m) => m.role === 'user').slice(-3);
+	if (userTurns.length === 0) return '';
+	const latest = userTurns[userTurns.length - 1].content.trim();
+	const prior = userTurns.slice(0, -1).map((m) => m.content.trim()).filter(Boolean);
+	if (prior.length === 0) return latest;
+	const composed = `${latest}\n\nEarlier in this conversation:\n${prior.join('\n')}`;
+	return composed.length > 600 ? composed.slice(0, 600) : composed;
+}
+
 // ── Internal-financial scrubbing (client/homeowner role) ──────────────────
 // The client may legitimately see THEIR OWN contract amount, allowance limits,
 // invoices, payment schedule, balance, and change-order totals. They must NOT
@@ -293,11 +313,12 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 		throw new Error('Last message must be a user turn');
 	}
 
+	const retrievalQuery = buildRetrievalQuery(opts.messages);
 	const [ctx, retrieved] = await Promise.all([
 		getDealContext(opts.dealId),
 		retrieveRelevant({
 			dealId: opts.dealId,
-			query: lastUser.content,
+			query: retrievalQuery || lastUser.content,
 			k: 12,
 			allowedSources: opts.allowedSources ?? null
 		}).catch((err) => {
@@ -402,11 +423,12 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 		throw new Error('Last message must be a user turn');
 	}
 
+	const retrievalQuery = buildRetrievalQuery(opts.messages);
 	const [ctx, retrieved] = await Promise.all([
 		getDealContext(opts.dealId),
 		retrieveRelevant({
 			dealId: opts.dealId,
-			query: lastUser.content,
+			query: retrievalQuery || lastUser.content,
 			k: 12,
 			allowedSources: opts.allowedSources ?? null
 		}).catch((err) => {
