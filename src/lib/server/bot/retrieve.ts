@@ -259,7 +259,10 @@ const STOPWORDS = new Set([
 	'like',
 	'maybe',
 	'model',
+	'models',
 	'more',
+	'number',
+	'numbers',
 	'most',
 	'much',
 	'need',
@@ -329,40 +332,26 @@ async function keywordSearchChunks(
 ): Promise<RetrievedChunk[]> {
 	const keywords = extractKeywords(query);
 	if (keywords.length === 0) return [];
-	// PostgREST `or` filter — chunk content contains any keyword. We escape
-	// commas in keywords (defensive — shouldn't happen for the tokens we keep).
-	const orExpr = keywords
-		.map((kw) => `content.ilike.%${kw.replace(/[,)(]/g, ' ')}%`)
-		.join(',');
-	const { data, error } = await supabase
-		.from('bot_chunks')
-		.select(
-			'id, content, document_id, bot_documents!inner(id, source, subject, author, occurred_at, source_url, deal_id)'
-		)
-		.eq('bot_documents.deal_id', dealId)
-		.or(orExpr)
-		.limit(24);
+	const { data, error } = await supabase.rpc('bot_keyword_chunks', {
+		p_deal_id: dealId,
+		p_keywords: keywords,
+		p_limit: 24
+	});
 	if (error) {
-		console.warn('[bot/retrieve] keyword search failed:', error.message);
+		console.warn('[bot/retrieve] keyword RPC failed:', error.message);
 		return [];
 	}
-	const rows: RetrievedChunk[] = [];
-	for (const r of data ?? []) {
-		const docRaw = (r as any).bot_documents;
-		const doc = Array.isArray(docRaw) ? docRaw[0] : docRaw;
-		if (!doc) continue;
-		rows.push({
-			chunk_id: String(r.id),
-			document_id: String(r.document_id),
-			content: String(r.content ?? ''),
-			source: String(doc.source ?? ''),
-			subject: doc.subject ?? null,
-			author: doc.author ?? null,
-			occurred_at: String(doc.occurred_at ?? new Date().toISOString()),
-			source_url: doc.source_url ?? null,
-			similarity: 1
-		});
-	}
+	const rows: RetrievedChunk[] = (data ?? []).map((r: any) => ({
+		chunk_id: String(r.chunk_id),
+		document_id: String(r.document_id),
+		content: String(r.content ?? ''),
+		source: String(r.source ?? ''),
+		subject: r.subject ?? null,
+		author: r.author ?? null,
+		occurred_at: String(r.occurred_at ?? new Date().toISOString()),
+		source_url: r.source_url ?? null,
+		similarity: typeof r.similarity === 'number' ? r.similarity : 1
+	}));
 	return filterAllowed(rows);
 }
 
