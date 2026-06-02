@@ -169,7 +169,10 @@ export async function retrieveRelevant(opts: {
 		// Try the per-source RPC first — guarantees every source gets up to
 		// `perSource` chunks regardless of how chatty Cliq is. Fall back to
 		// the original unfiltered match if the new RPC isn't installed yet.
-		const perSource = 3;
+		// Bumped from 3 to 6 because dense per-row spreadsheets (Construction
+		// Material) often have the right answer ranked 4th–6th when many rows
+		// share generic terms like "shower" or "tile".
+		const perSource = 6;
 		const perSourceRes = await supabase.rpc('bot_match_chunks_per_source', {
 			p_deal_id: opts.dealId,
 			p_query_embedding: vectorLiteral,
@@ -178,7 +181,7 @@ export async function retrieveRelevant(opts: {
 
 		if (!perSourceRes.error) {
 			const rows = filterAllowed((perSourceRes.data ?? []) as RetrievedChunk[]);
-			return rows.slice(0, Math.max(k * 2, 16));
+			return rows.slice(0, Math.max(k * 3, 24));
 		}
 
 		console.warn(
@@ -192,7 +195,7 @@ export async function retrieveRelevant(opts: {
 		});
 		if (error) throw new Error(`bot_match_chunks failed: ${error.message}`);
 		const all = filterAllowed((data ?? []) as RetrievedChunk[]);
-		return diversifyBySource(all, k, 3);
+		return diversifyBySource(all, k, 6);
 	})();
 
 	const windowDays = detectTimeWindow(query);
@@ -200,12 +203,123 @@ export async function retrieveRelevant(opts: {
 		? fetchRecentChunks({ dealId: opts.dealId, days: windowDays, limit: 12 })
 		: Promise.resolve([] as RetrievedChunk[]);
 
-	const [semantic, recentRaw] = await Promise.all([semanticPromise, recencyPromise]);
-	const recent = filterAllowed(recentRaw);
+	// Keyword fallback: pull any chunk that literally contains the query's
+	// distinctive nouns. Catches cases where embedding similarity ranks a
+	// noisy lookalike (Shower Faucet) above the actual answer (Showerhead)
+	// in a dense per-row spreadsheet.
+	const keywordPromise = keywordSearchChunks(opts.dealId, query, filterAllowed);
 
-	// Recency results lead so the LLM sees the actually-recent context first;
-	// semantic hits fill in the rest. Cap at 2× k so we don't blow context.
-	return mergeChunks(recent, semantic).slice(0, Math.max(k * 2, 16));
+	const [semantic, recentRaw, keywordRaw] = await Promise.all([
+		semanticPromise,
+		recencyPromise,
+		keywordPromise
+	]);
+	const recent = filterAllowed(recentRaw);
+	const keyword = filterAllowed(keywordRaw);
+
+	// Keyword hits go first (they're exact matches), then recency, then
+	// semantic. Cap at 3× k so dense spreadsheets get fuller coverage.
+	return mergeChunks(keyword, mergeChunks(recent, semantic)).slice(0, Math.max(k * 3, 24));
+}
+
+/**
+ * Pick distinctive nouns out of a free-text query — words ≥4 chars that aren't
+ * common stopwords or filler. Used as the search terms for keyword fallback.
+ */
+const STOPWORDS = new Set([
+	'when',
+	'what',
+	'where',
+	'which',
+	'about',
+	'with',
+	'from',
+	'this',
+	'that',
+	'have',
+	'were',
+	'they',
+	'them',
+	'will',
+	'been',
+	'into',
+	'than',
+	'more',
+	'some',
+	'just',
+	'like',
+	'over',
+	'also',
+	'only',
+	'most',
+	'every',
+	'much',
+	'very',
+	'order',
+	'ordered',
+	'date',
+	'dates',
+	'know',
+	'tell',
+	'show',
+	'find',
+	'said',
+	'their',
+	'there'
+]);
+
+function extractKeywords(query: string): string[] {
+	const tokens = query.toLowerCase().match(/[a-z0-9][a-z0-9'-]{3,}/g) || [];
+	const uniq = new Set<string>();
+	for (const t of tokens) {
+		if (STOPWORDS.has(t)) continue;
+		uniq.add(t);
+	}
+	return Array.from(uniq).slice(0, 6);
+}
+
+async function keywordSearchChunks(
+	dealId: string,
+	query: string,
+	filterAllowed: (chunks: RetrievedChunk[]) => RetrievedChunk[]
+): Promise<RetrievedChunk[]> {
+	const keywords = extractKeywords(query);
+	if (keywords.length === 0) return [];
+	// PostgREST `or` filter — chunk content contains any keyword. We escape
+	// commas in keywords (defensive — shouldn't happen for the tokens we keep).
+	const orExpr = keywords
+		.map((kw) => `content.ilike.%${kw.replace(/[,)(]/g, ' ')}%`)
+		.join(',');
+	const { data, error } = await supabase
+		.from('bot_chunks')
+		.select(
+			'id, content, document_id, bot_documents!inner(id, source, subject, author, occurred_at, source_url, deal_id)'
+		)
+		.eq('bot_documents.deal_id', dealId)
+		.or(orExpr)
+		.limit(24);
+	if (error) {
+		console.warn('[bot/retrieve] keyword search failed:', error.message);
+		return [];
+	}
+	const rows: RetrievedChunk[] = [];
+	for (const r of data ?? []) {
+		const docRaw = (r as any).bot_documents;
+		const doc = Array.isArray(docRaw) ? docRaw[0] : docRaw;
+		if (!doc) continue;
+		rows.push({
+			chunk_id: String(r.id),
+			document_id: String(r.document_id),
+			content: String(r.content ?? ''),
+			source: String(doc.source ?? ''),
+			subject: doc.subject ?? null,
+			author: doc.author ?? null,
+			occurred_at: String(doc.occurred_at ?? new Date().toISOString()),
+			source_url: doc.source_url ?? null,
+			similarity: 1
+		});
+	}
+	return filterAllowed(rows);
 }
 
 const SOURCE_LABEL: Record<string, string> = {
