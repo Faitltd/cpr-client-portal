@@ -223,59 +223,103 @@ export async function retrieveRelevant(opts: {
 }
 
 /**
- * Pick distinctive nouns out of a free-text query — words ≥4 chars that aren't
- * common stopwords or filler. Used as the search terms for keyword fallback.
+ * Pick distinctive nouns out of a free-text query — words ≥6 chars (long enough
+ * to be specific) that aren't common stopwords or generic CRM filler.
+ *
+ * Minimum length matters: 4-char words like "model" match "reMODELing" inside
+ * unrelated emails and flood the result set with false positives.
  */
 const STOPWORDS = new Set([
-	'when',
-	'what',
-	'where',
-	'which',
 	'about',
-	'with',
-	'from',
-	'this',
-	'that',
-	'have',
-	'were',
-	'they',
-	'them',
-	'will',
-	'been',
-	'into',
-	'than',
-	'more',
-	'some',
-	'just',
-	'like',
-	'over',
-	'also',
-	'only',
-	'most',
-	'every',
-	'much',
-	'very',
-	'order',
-	'ordered',
+	'after',
+	'again',
+	'aren\'t',
+	'before',
+	'being',
+	'between',
+	'could',
 	'date',
 	'dates',
-	'know',
-	'tell',
-	'show',
+	'deliveries',
+	'delivery',
+	'didn\'t',
+	'doing',
+	'doesn\'t',
+	'during',
+	'every',
 	'find',
+	'found',
+	'going',
+	'have',
+	'haven\'t',
+	'here',
+	'into',
+	'isn\'t',
+	'know',
+	'like',
+	'maybe',
+	'model',
+	'more',
+	'most',
+	'much',
+	'need',
+	'often',
+	'only',
+	'order',
+	'ordered',
+	'orders',
+	'over',
+	'project',
 	'said',
+	'show',
+	'shown',
+	'some',
+	'something',
+	'still',
+	'such',
+	'tell',
+	'than',
+	'that',
 	'their',
-	'there'
+	'them',
+	'then',
+	'there',
+	'these',
+	'they',
+	'thing',
+	'things',
+	'this',
+	'those',
+	'today',
+	'told',
+	'used',
+	'using',
+	'very',
+	'want',
+	'wants',
+	'were',
+	'what',
+	'when',
+	'where',
+	'which',
+	'while',
+	'will',
+	'with',
+	'would',
+	'years'
 ]);
 
 function extractKeywords(query: string): string[] {
-	const tokens = query.toLowerCase().match(/[a-z0-9][a-z0-9'-]{3,}/g) || [];
+	const tokens = query.toLowerCase().match(/[a-z][a-z'-]{5,}/g) || [];
 	const uniq = new Set<string>();
 	for (const t of tokens) {
 		if (STOPWORDS.has(t)) continue;
 		uniq.add(t);
 	}
-	return Array.from(uniq).slice(0, 6);
+	// Prefer the longest tokens — they're the most distinctive.
+	return Array.from(uniq)
+		.sort((a, b) => b.length - a.length)
+		.slice(0, 4);
 }
 
 async function keywordSearchChunks(
