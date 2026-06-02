@@ -343,6 +343,10 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 	console.log(
 		`[bot/chat] deal=${opts.dealId} q="${lastUser.content.slice(0, 60)}" retrieved=${retrieved.length} by_source=${JSON.stringify(sourceCounts)}`
 	);
+	const top5 = retrieved
+		.slice(0, 5)
+		.map((c, i) => `[${i + 1}] ${c.source} ${(c.subject ?? '').slice(0, 60)}`);
+	console.log(`[bot/chat] top5: ${JSON.stringify(top5)}`);
 
 	const promptParts = [
 		SYSTEM_PROMPT,
