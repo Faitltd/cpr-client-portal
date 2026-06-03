@@ -65,7 +65,7 @@ async function fetchDealForBooks(
 ): Promise<DealForBooks> {
 	const dealRes = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Contact_Name,Email`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,Contact_Name,Email,Email_1`,
 		{},
 		apiDomain
 	);
@@ -77,7 +77,13 @@ async function fetchDealForBooks(
 			? String((contactRef as any).id)
 			: null;
 
-	let contactEmail = typeof rec.Email === 'string' ? rec.Email : null;
+	// CPR's Deals module uses `Email_1` as the primary contact email field
+	// (custom layout). Fall back to standard `Email` if present, then to the
+	// linked Contact's email.
+	let contactEmail =
+		(typeof rec.Email_1 === 'string' && rec.Email_1) ||
+		(typeof rec.Email === 'string' && rec.Email) ||
+		null;
 	if (!contactEmail && contactId) {
 		try {
 			const cRes = await zohoApiCall(
