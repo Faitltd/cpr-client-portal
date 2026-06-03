@@ -18,6 +18,13 @@ export interface BotAccess {
 	email: string;
 	/** Sources the role may retrieve from. `null` = no source filter. */
 	allowedSources: string[] | null;
+	/**
+	 * For WorkDrive sources only: if set, only files inside one of these
+	 * deal-level subfolders (the `top_folder` recorded at sync time) are
+	 * visible. `null` = no top-folder gate. Used to restrict trade partners
+	 * to the "Designs" subfolder for each project.
+	 */
+	allowedTopFolders: string[] | null;
 	/** When true, redact ALL financial fields/values (trade-partner mode). */
 	hideFinancials: boolean;
 	/**
@@ -55,6 +62,7 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 			role: 'admin',
 			email: 'admin',
 			allowedSources: null,
+			allowedTopFolders: null,
 			hideFinancials: false,
 			hideInternalFinancials: false,
 			tradePartnerId: null,
@@ -77,6 +85,10 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				// Books/Mail/CRM-emails/Cliq all excluded — could surface pricing
 				// or internal commentary that shouldn't reach trade partners.
 				allowedSources: ['workdrive_pdf', 'workdrive_docx', 'workdrive_xlsx', 'zoho_crm_field'],
+				// WorkDrive-side gate: only files inside each deal's "Designs"
+				// subfolder are visible. SOW, Permits, Change Orders, etc. stay
+				// hidden because they may carry pricing or internal-only material.
+				allowedTopFolders: ['Designs'],
 				hideFinancials: true,
 				hideInternalFinancials: false,
 				tradePartnerId: session.trade_partner.id ?? null,
@@ -95,6 +107,7 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					role: 'designer',
 					email: normalized,
 					allowedSources: null,
+					allowedTopFolders: null,
 					hideFinancials: false,
 					hideInternalFinancials: false,
 					tradePartnerId: null,
@@ -123,6 +136,7 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_cliq_external',
 					'transcript'
 				],
+				allowedTopFolders: null,
 				hideFinancials: false,
 				hideInternalFinancials: true,
 				tradePartnerId: null,

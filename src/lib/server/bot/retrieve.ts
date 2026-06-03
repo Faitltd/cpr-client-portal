@@ -150,6 +150,14 @@ export async function retrieveRelevant(opts: {
 	k?: number;
 	/** If set, drop any chunk whose `source` is not in this list. */
 	allowedSources?: string[] | null;
+	/**
+	 * If set, only keep WorkDrive chunks whose document `metadata.top_folder`
+	 * (the deal's direct subfolder name where the file lives — e.g. "Designs",
+	 * "SOW", "Permits") is in this list. Used to gate trade partners to
+	 * Designs-only files even though they can read all workdrive_* sources.
+	 * Non-WorkDrive sources are unaffected by this filter.
+	 */
+	allowedTopFolders?: string[] | null;
 }): Promise<RetrievedChunk[]> {
 	const query = opts.query.trim();
 	if (!query) return [];
@@ -160,6 +168,10 @@ export async function retrieveRelevant(opts: {
 		: null;
 	const filterAllowed = (chunks: RetrievedChunk[]) =>
 		allowed ? chunks.filter((c) => allowed.has(c.source)) : chunks;
+	const allowedTopFolders =
+		opts.allowedTopFolders && opts.allowedTopFolders.length > 0
+			? new Set(opts.allowedTopFolders.map((s) => s.toLowerCase()))
+			: null;
 
 	const semanticPromise = (async () => {
 		const [embedding] = await embed([query]);
@@ -229,10 +241,37 @@ export async function retrieveRelevant(opts: {
 
 	// Finance-must-see chunks first (Books invoice/estimate/payment), then
 	// keyword exact matches, then recency, then semantic. Cap at 3× k.
-	return mergeChunks(
+	const merged = mergeChunks(
 		finance,
 		mergeChunks(keyword, mergeChunks(recent, semantic))
 	).slice(0, Math.max(k * 3, 24));
+
+	// Top-folder gate (trade partners → Designs only). Only filters WorkDrive
+	// chunks; everything else passes through. Non-allowed WorkDrive chunks are
+	// dropped silently.
+	if (!allowedTopFolders) return merged;
+	const workdriveDocIds = Array.from(
+		new Set(merged.filter((c) => c.source.startsWith('workdrive_')).map((c) => c.document_id))
+	);
+	if (workdriveDocIds.length === 0) return merged;
+	const { data: docMeta, error: docMetaErr } = await supabase
+		.from('bot_documents')
+		.select('id, metadata')
+		.in('id', workdriveDocIds);
+	if (docMetaErr) {
+		console.warn('[bot/retrieve] top_folder gate query failed:', docMetaErr.message);
+		return merged;
+	}
+	const docTopFolder = new Map<string, string | null>();
+	for (const d of docMeta ?? []) {
+		const tf = (d as any).metadata?.top_folder;
+		docTopFolder.set((d as any).id, typeof tf === 'string' ? tf.toLowerCase() : null);
+	}
+	return merged.filter((c) => {
+		if (!c.source.startsWith('workdrive_')) return true;
+		const tf = docTopFolder.get(c.document_id);
+		return tf != null && allowedTopFolders.has(tf);
+	});
 }
 
 const FINANCE_RE = /\b(balance|invoice|invoices|owed|owe|outstanding|remaining|paid|payment|payments|due|financial|finances|cost|costs|billed|bill|estimate|estimates|credit|credits|refund|deposit|retainer|amount|summary|itemized|itemize)\b/i;

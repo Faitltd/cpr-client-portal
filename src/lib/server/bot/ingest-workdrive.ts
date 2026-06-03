@@ -254,8 +254,10 @@ async function collectIngestibleFiles(
 	apiDomain: string | undefined,
 	folderId: string,
 	depth: number,
-	out: { item: WorkDriveItem; source: WdSource }[],
+	out: { item: WorkDriveItem; source: WdSource; topFolder: string | null; folderPath: string }[],
 	parentFolderName?: string | null,
+	topFolder?: string | null,
+	folderPath?: string,
 	seen?: Array<{ name: string; type: string; mime: string | null; rawType: any; reason: string }>
 ): Promise<void> {
 	if (depth > MAX_SUBFOLDER_DEPTH) return;
@@ -284,6 +286,12 @@ async function collectIngestibleFiles(
 			null;
 		if (item.type === 'folder') {
 			if (seen) seen.push({ name: item.name, type: 'folder', mime: item.mime, rawType, reason: 'recurse' });
+			// At depth 1, this child IS the top-level subfolder under the deal
+			// root (e.g. "Designs", "SOW", "Permits"). Capture its name so every
+			// file underneath inherits that ancestry — used to gate trade
+			// partner access to "Designs" only.
+			const nextTopFolder = depth === 0 ? item.name : topFolder ?? null;
+			const nextPath = folderPath ? `${folderPath}/${item.name}` : item.name;
 			await collectIngestibleFiles(
 				accessToken,
 				apiDomain,
@@ -291,6 +299,8 @@ async function collectIngestibleFiles(
 				depth + 1,
 				out,
 				item.name,
+				nextTopFolder,
+				nextPath,
 				seen
 			);
 			continue;
@@ -310,7 +320,7 @@ async function collectIngestibleFiles(
 			continue;
 		}
 		if (seen) seen.push({ name: item.name, type: 'file', mime: item.mime, rawType, reason: `match:${source}` });
-		out.push({ item, source });
+		out.push({ item, source, topFolder: topFolder ?? null, folderPath: folderPath ?? '' });
 	}
 }
 
@@ -430,7 +440,8 @@ async function ingestFile(
 	source: WdSource,
 	item: WorkDriveItem,
 	accessToken: string,
-	apiDomain: string | undefined
+	apiDomain: string | undefined,
+	folderCtx: { topFolder: string | null; folderPath: string } = { topFolder: null, folderPath: '' }
 ): Promise<FileSyncOutcome> {
 	const out: FileSyncOutcome = {
 		file_id: item.id,
@@ -450,24 +461,32 @@ async function ingestFile(
 
 	const { data: existing } = await supabase
 		.from('bot_documents')
-		.select('id, hash, source_url')
+		.select('id, hash, source_url, metadata')
 		.eq('source', source)
 		.eq('source_id', sourceId)
 		.maybeSingle();
 
 	if (existing && existing.hash === fingerprint) {
-		// Content unchanged. But if we're now able to capture a permalink that
-		// wasn't stored before (older rows pre-permalink-support), patch the
-		// URL in place so the bot can link to the file without a full re-parse.
+		// Content unchanged. But always patch metadata that the bot uses for
+		// access control / linking — permalink (URL backfill) and top_folder
+		// (trade-partner Designs gate). Older rows don't have these.
 		const newUrl = (item as any).permalink ?? null;
-		if (newUrl && !existing.source_url) {
-			const { error: patchErr } = await supabase
-				.from('bot_documents')
-				.update({ source_url: newUrl })
-				.eq('id', existing.id);
-			if (patchErr) {
-				console.warn('[bot/ingest-workdrive] permalink patch failed:', patchErr.message);
-			}
+		const patch: Record<string, any> = {};
+		if (newUrl && !existing.source_url) patch.source_url = newUrl;
+		// Always refresh top_folder + folder_path; cheap and lets us re-gate
+		// access without a full re-parse when folder structure shifts.
+		patch.metadata = {
+			...(existing as any).metadata,
+			top_folder: folderCtx.topFolder,
+			folder_path: folderCtx.folderPath,
+			permalink: newUrl
+		};
+		const { error: patchErr } = await supabase
+			.from('bot_documents')
+			.update(patch)
+			.eq('id', existing.id);
+		if (patchErr) {
+			console.warn('[bot/ingest-workdrive] metadata patch failed:', patchErr.message);
 		}
 		out.reason = 'unchanged';
 		return out;
@@ -538,7 +557,9 @@ async function ingestFile(
 			mime: item.mime,
 			size: item.size,
 			char_count: text.length,
-			permalink: (item as any).permalink ?? null
+			permalink: (item as any).permalink ?? null,
+			top_folder: folderCtx.topFolder,
+			folder_path: folderCtx.folderPath
 		},
 		hash: fingerprint
 	};
@@ -640,9 +661,24 @@ export async function syncWorkDriveForDeal(
 		return res;
 	}
 
-	const collected: { item: WorkDriveItem; source: WdSource }[] = [];
+	const collected: {
+		item: WorkDriveItem;
+		source: WdSource;
+		topFolder: string | null;
+		folderPath: string;
+	}[] = [];
 	const seen: Array<{ name: string; type: string; mime: string | null; rawType: any; reason: string }> = [];
-	await collectIngestibleFiles(accessToken, apiDomain, folderId, 0, collected, undefined, seen);
+	await collectIngestibleFiles(
+		accessToken,
+		apiDomain,
+		folderId,
+		0,
+		collected,
+		undefined,
+		null,
+		'',
+		seen
+	);
 	(res as any).walked = seen;
 
 	if (collected.length === 0) {
@@ -650,9 +686,12 @@ export async function syncWorkDriveForDeal(
 		return res;
 	}
 
-	for (const { item, source } of collected) {
+	for (const { item, source, topFolder, folderPath } of collected) {
 		res.processed += 1;
-		const outcome = await ingestFile(dealId, source, item, accessToken, apiDomain);
+		const outcome = await ingestFile(dealId, source, item, accessToken, apiDomain, {
+			topFolder,
+			folderPath
+		});
 		res.files.push(outcome);
 		if (outcome.status === 'inserted') {
 			res.inserted += 1;

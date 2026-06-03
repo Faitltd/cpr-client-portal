@@ -66,6 +66,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			adminEmail: access.email || 'trade_partner',
 			messages,
 			allowedSources: access.allowedSources,
+			allowedTopFolders: access.allowedTopFolders,
 			hideFinancials: access.hideFinancials,
 			hideInternalFinancials: access.hideInternalFinancials
 		});
