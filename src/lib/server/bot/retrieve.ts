@@ -374,16 +374,45 @@ function formatDate(iso: string): string {
 	}
 }
 
+// Higher number = higher priority in the rendered prompt. Books / WorkDrive
+// structured records get surfaced ahead of chatty Cliq messages so the LLM
+// doesn't bury its citations in noise.
+const SOURCE_PRIORITY: Record<string, number> = {
+	zoho_books_invoice: 100,
+	zoho_books_estimate: 95,
+	zoho_books_payment: 90,
+	workdrive_xlsx: 70,
+	workdrive_pdf: 65,
+	workdrive_docx: 65,
+	transcript: 60,
+	zoho_crm_note: 55,
+	zoho_crm_field: 55,
+	zoho_mail: 40,
+	zoho_cliq_internal: 30,
+	zoho_cliq_external: 20,
+	sms: 15
+};
+
 /**
  * Render retrieved chunks as a numbered context block for the system prompt.
  * Each entry gets a [#N] tag the LLM can cite back. Returns null if there's
- * nothing to render.
+ * nothing to render. Chunks are reordered so structured records (Books,
+ * WorkDrive) appear ahead of chatty sources (Cliq, Mail) — the LLM pays more
+ * attention to chunks near the top of the prompt.
  */
 export function renderRetrievedContextBlock(chunks: RetrievedChunk[]): string | null {
 	if (chunks.length === 0) return null;
 
+	const sorted = [...chunks].sort((a, b) => {
+		const pa = SOURCE_PRIORITY[a.source] ?? 0;
+		const pb = SOURCE_PRIORITY[b.source] ?? 0;
+		if (pb !== pa) return pb - pa;
+		// Within same source: newest first.
+		return (b.occurred_at ?? '').localeCompare(a.occurred_at ?? '');
+	});
+
 	const lines: string[] = [];
-	chunks.forEach((c, i) => {
+	sorted.forEach((c, i) => {
 		const tag = `[#${i + 1}]`;
 		const label = SOURCE_LABEL[c.source] ?? c.source;
 		const meta = [label, c.author, formatDate(c.occurred_at)].filter(Boolean).join(' · ');
