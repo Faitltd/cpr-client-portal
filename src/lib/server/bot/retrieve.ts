@@ -172,7 +172,7 @@ export async function retrieveRelevant(opts: {
 		// Bumped from 3 to 6 because dense per-row spreadsheets (Construction
 		// Material) often have the right answer ranked 4th–6th when many rows
 		// share generic terms like "shower" or "tile".
-		const perSource = 6;
+		const perSource = 10;
 		const perSourceRes = await supabase.rpc('bot_match_chunks_per_source', {
 			p_deal_id: opts.dealId,
 			p_query_embedding: vectorLiteral,
