@@ -103,33 +103,28 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 	const { accessToken, apiDomain } = await getAccessToken();
 
-	// Read Deal's WorkDrive root folder id + admin-pasted internal URL.
+	// SOURCE OF TRUTH: WorkDrive_Folder_ID on the Deal. We don't fall back to
+	// External_Link or Client_Portal_Folder anymore — those hold the CLIENT
+	// portal share, which is the wrong destination for staff/trade partners.
 	const dealRes = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID,WorkDrive_Internal_URL,External_Link,Client_Portal_Folder`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID`,
 		{},
 		apiDomain
 	);
 	const rec = dealRes?.data?.[0] ?? {};
-	const directId =
-		typeof rec.WorkDrive_Folder_ID === 'string' ? rec.WorkDrive_Folder_ID.trim() : '';
-	const internalProjectUrl =
-		typeof rec.WorkDrive_Internal_URL === 'string' ? rec.WorkDrive_Internal_URL.trim() : '';
-	let projectFolderId =
-		directId ||
-		extractWorkDriveFolderId(typeof rec.External_Link === 'string' ? rec.External_Link : '') ||
-		extractWorkDriveFolderId(
-			typeof rec.Client_Portal_Folder === 'string' ? rec.Client_Portal_Folder : ''
-		) ||
-		extractWorkDriveFolderId(internalProjectUrl) ||
-		null;
+	const rawId = typeof rec.WorkDrive_Folder_ID === 'string' ? rec.WorkDrive_Folder_ID.trim() : '';
+	// Accept either a bare folder id or a pasted URL like
+	// https://workdrive.zoho.com/folder/<id> — extractWorkDriveFolderId returns
+	// the id from a URL, or null for a bare id, so we fall through to rawId.
+	const projectFolderId = extractWorkDriveFolderId(rawId) || rawId || null;
 
 	if (!projectFolderId) {
 		return json({
 			designs: [],
 			sow: [],
-			projectFolderUrl: internalProjectUrl || null,
-			message: 'No WorkDrive folder linked to this Deal'
+			projectFolderUrl: null,
+			message: 'WorkDrive_Folder_ID is empty on this Deal'
 		});
 	}
 
@@ -172,10 +167,9 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		sow: sowFiles,
 		designsFolderName: designsFolder?.name ?? null,
 		sowFolderName: sowFolder?.name ?? null,
-		// Internal URLs — open the folder inside the WorkDrive app (requires
-		// the user to be signed in to Zoho). Used instead of the external
-		// client-portal share for staff and trade-partner views.
-		projectFolderUrl: internalProjectUrl || buildInternalFolderUrl(projectFolderId),
+		// Internal WorkDrive URLs built from WorkDrive_Folder_ID. Requires the
+		// user to be signed in to Zoho — staff/trade-partner destination.
+		projectFolderUrl: buildInternalFolderUrl(projectFolderId),
 		designsFolderUrl: designsFolder ? buildInternalFolderUrl(designsFolder.id) : null,
 		sowFolderUrl: sowFolder ? buildInternalFolderUrl(sowFolder.id) : null
 	});
