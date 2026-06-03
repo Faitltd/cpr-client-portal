@@ -81,10 +81,19 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 			return {
 				role: 'trade_partner',
 				email: session.trade_partner.email ?? '',
-				// Only non-financial sources. WorkDrive + Deal-field context.
-				// Books/Mail/CRM-emails/Cliq all excluded — could surface pricing
-				// or internal commentary that shouldn't reach trade partners.
-				allowedSources: ['workdrive_pdf', 'workdrive_docx', 'workdrive_xlsx', 'zoho_crm_field'],
+				// WorkDrive (Designs only) + Deal-field context + external Cliq
+				// channel (CPR ↔ client conversations the trade partner is
+				// often part of). Internal Cliq, Mail, Books, CRM emails stay
+				// excluded — they leak pricing or staff-only commentary. The
+				// hideFinancials redactor below still scrubs any dollar
+				// amounts that slip into the external Cliq stream.
+				allowedSources: [
+					'workdrive_pdf',
+					'workdrive_docx',
+					'workdrive_xlsx',
+					'zoho_crm_field',
+					'zoho_cliq_external'
+				],
 				// WorkDrive-side gate: only files inside each deal's "Designs"
 				// subfolder are visible. SOW, Permits, Change Orders, etc. stay
 				// hidden because they may carry pricing or internal-only material.
