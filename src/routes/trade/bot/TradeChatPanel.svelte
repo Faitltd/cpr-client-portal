@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { renderMarkdown } from '$lib/markdown';
 
 	interface Props {
 		dealId: string;
@@ -161,7 +162,11 @@
 			<div class="bubble bubble-{msg.role}">
 				<div class="bubble-role">{msg.role === 'user' ? 'You' : 'Bot'}</div>
 				<div class="bubble-body">
-					{msg.content || (busy && i === messages.length - 1 ? '…' : '')}
+					{#if msg.role === 'assistant' && msg.content}
+						{@html renderMarkdown(msg.content)}
+					{:else}
+						{msg.content || (busy && i === messages.length - 1 ? '…' : '')}
+					{/if}
 				</div>
 			</div>
 		{/each}
@@ -278,6 +283,59 @@
 		align-self: flex-start;
 		background: #f3f4f6;
 		color: #111827;
+		white-space: normal;
+	}
+	.bubble-assistant :global(p) {
+		margin: 0 0 0.5rem 0;
+	}
+	.bubble-assistant :global(p:last-child) {
+		margin-bottom: 0;
+	}
+	.bubble-assistant :global(a) {
+		color: #2563eb;
+		text-decoration: underline;
+		word-break: break-all;
+	}
+	.bubble-assistant :global(a:hover) {
+		color: #1d4ed8;
+	}
+	.bubble-assistant :global(ul),
+	.bubble-assistant :global(ol) {
+		margin: 0.25rem 0 0.5rem 1.25rem;
+		padding: 0;
+	}
+	.bubble-assistant :global(li) {
+		margin-bottom: 0.15rem;
+	}
+	.bubble-assistant :global(h1),
+	.bubble-assistant :global(h2),
+	.bubble-assistant :global(h3),
+	.bubble-assistant :global(h4) {
+		margin: 0.6rem 0 0.35rem;
+		font-weight: 600;
+		font-size: 1rem;
+	}
+	.bubble-assistant :global(code) {
+		background: #e5e7eb;
+		padding: 0.05rem 0.3rem;
+		border-radius: 0.25rem;
+		font-size: 0.85em;
+	}
+	.bubble-assistant :global(.md-table) {
+		border-collapse: collapse;
+		margin: 0.4rem 0;
+		font-size: 0.9em;
+		width: 100%;
+	}
+	.bubble-assistant :global(.md-table th),
+	.bubble-assistant :global(.md-table td) {
+		border: 1px solid #d1d5db;
+		padding: 0.25rem 0.5rem;
+		text-align: left;
+	}
+	.bubble-assistant :global(.md-table th) {
+		background: #e5e7eb;
+		font-weight: 600;
 	}
 	.bubble-role {
 		font-size: 0.7rem;
