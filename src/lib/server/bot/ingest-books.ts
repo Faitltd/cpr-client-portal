@@ -290,9 +290,12 @@ async function listAllInvoices(
 	// Always re-fetch invoice details. CPR updates invoices regularly
 	// (status, amounts, line items) and we need the latest state. The hash
 	// check downstream still skips Postgres writes when nothing changed.
-	const list = await listInvoicesForCustomer(accessToken, customerId).then((r: any) => r?.invoices ?? []);
+	// NOTE: listInvoicesForCustomer already returns the invoices array
+	// directly (response.invoices), so we use it as-is — calling .invoices
+	// on it again would always be undefined.
+	const list = (await listInvoicesForCustomer(accessToken, customerId)) as any[];
 	const detailed: any[] = [];
-	for (const inv of list) {
+	for (const inv of list ?? []) {
 		const id = inv.invoice_id ?? inv.id;
 		if (!id) continue;
 		const detail = await getInvoiceDetail(accessToken, String(id));
