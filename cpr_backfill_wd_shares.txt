@@ -1,0 +1,223 @@
+void automation.CPR_Backfill_WD_Shares(Int deal_id)
+{
+	info "BACKFILL: starting for deal " + deal_id;
+	deal = zoho.crm.getRecordById("Deals",deal_id);
+	if(deal.isEmpty() || deal.get("id") == null)
+	{
+		info "ABORT: deal not found.";
+		return;
+	}
+	/* ---- Step 1: resolve root folder ID ---- */
+	root_id = "";
+	folders = Map();
+	folders_json_str = ifnull(deal.get("Folder_IDs_JSON"),"").toString().trim();
+	if(folders_json_str != "")
+	{
+		folders = folders_json_str.toMap();
+		root_id = ifnull(folders.get("root"),"").toString();
+	}
+	if(root_id == "")
+	{
+		root_id = ifnull(deal.get("WorkDrive_Folder_ID"),"").toString().trim();
+	}
+	if(root_id == "")
+	{
+		/* Try resolving External_Link share to folder ID */
+		ext_link = ifnull(deal.get("External_Link"),"").toString();
+		if(ext_link == "")
+		{
+			ext_link = ifnull(deal.get("Client_Portal_Folder"),"").toString();
+		}
+		if(ext_link.contains("/external/"))
+		{
+			hash = ext_link.getSuffix("/external/");
+			if(hash.contains("?"))
+			{
+				hash = hash.getPrefix("?");
+			}
+			if(hash.endsWith("/"))
+			{
+				hash = hash.removeLastOccurence("/");
+			}
+			if(hash != "")
+			{
+				resolve_resp = invokeurl
+				[
+					url :"https://www.zohoapis.com/workdrive/api/v1/links/" + hash
+					type :GET
+					headers:{"Accept":"application/vnd.api+json"}
+					connection:"workdrive"
+				];
+				info "Resolve external resp: " + resolve_resp;
+				if(resolve_resp.get("data") != null)
+				{
+					attrs = resolve_resp.get("data").get("attributes");
+					if(attrs != null)
+					{
+						res = ifnull(attrs.get("resource_id"),"").toString();
+						if(res != "")
+						{
+							root_id = res;
+						}
+					}
+					if(root_id == "")
+					{
+						root_id = ifnull(resolve_resp.get("data").get("id"),"").toString();
+					}
+				}
+			}
+		}
+	}
+	if(root_id == "")
+	{
+		info "ABORT: could not resolve root folder for deal " + deal_id;
+		return;
+	}
+	info "Root folder ID = " + root_id;
+	/* ---- Step 2: list root children, find Designs + Change Orders ---- */
+	designs_id = ifnull(folders.get("designs"),"").toString();
+	change_orders_id = ifnull(folders.get("change_orders"),"").toString();
+	if(designs_id == "" || change_orders_id == "")
+	{
+		root_children = invokeurl
+		[
+			url :"https://www.zohoapis.com/workdrive/api/v1/files/" + root_id + "/files?page[limit]=100"
+			type :GET
+			headers:{"Accept":"application/vnd.api+json"}
+			connection:"workdrive"
+		];
+		if(root_children.get("data") != null)
+		{
+			for each  item in root_children.get("data")
+			{
+				attrs = item.get("attributes");
+				if(attrs != null)
+				{
+					nm = ifnull(attrs.get("name"),"").toString().toLowerCase();
+					if(designs_id == "" && (nm == "designs" || nm == "design and planning" || nm == "design & planning"))
+					{
+						designs_id = item.get("id").toString();
+					}
+					if(change_orders_id == "" && nm == "change orders")
+					{
+						change_orders_id = item.get("id").toString();
+					}
+				}
+			}
+		}
+	}
+	/* ---- Step 3: create Change Orders if missing ---- */
+	if(change_orders_id == "")
+	{
+		co_body = {"data":{"attributes":{"name":"Change Orders","parent_id":root_id},"type":"files"}};
+		co_resp = invokeurl
+		[
+			url :"https://www.zohoapis.com/workdrive/api/v1/files"
+			type :POST
+			parameters:co_body.toString()
+			headers:{"Accept":"application/vnd.api+json","Content-Type":"application/vnd.api+json"}
+			connection:"workdrive"
+		];
+		info "Create Change Orders resp: " + co_resp;
+		if(co_resp.get("data") != null)
+		{
+			change_orders_id = co_resp.get("data").get("id").toString();
+		}
+	}
+	/* ---- Step 4: find or create SOW inside Designs ---- */
+	sow_id = ifnull(folders.get("sow"),"").toString();
+	if(sow_id == "" && designs_id != "")
+	{
+		designs_children = invokeurl
+		[
+			url :"https://www.zohoapis.com/workdrive/api/v1/files/" + designs_id + "/files?page[limit]=100"
+			type :GET
+			headers:{"Accept":"application/vnd.api+json"}
+			connection:"workdrive"
+		];
+		if(designs_children.get("data") != null)
+		{
+			for each  item in designs_children.get("data")
+			{
+				attrs = item.get("attributes");
+				if(attrs != null)
+				{
+					nm = ifnull(attrs.get("name"),"").toString().toLowerCase();
+					if(nm == "sow" || nm == "scope of work" || nm == "scopes")
+					{
+						sow_id = item.get("id").toString();
+					}
+				}
+			}
+		}
+		if(sow_id == "")
+		{
+			sow_body = {"data":{"attributes":{"name":"SOW","parent_id":designs_id},"type":"files"}};
+			sow_resp = invokeurl
+			[
+				url :"https://www.zohoapis.com/workdrive/api/v1/files"
+				type :POST
+				parameters:sow_body.toString()
+				headers:{"Accept":"application/vnd.api+json","Content-Type":"application/vnd.api+json"}
+				connection:"workdrive"
+			];
+			info "Create SOW resp: " + sow_resp;
+			if(sow_resp.get("data") != null)
+			{
+				sow_id = sow_resp.get("data").get("id").toString();
+			}
+		}
+	}
+	/* ---- Step 5: create share links and write WD_* fields ---- */
+	targets = List();
+	if(designs_id != "")
+	{
+		targets.add({"id":designs_id,"field":"WD_Designs","label":"designs"});
+	}
+	if(sow_id != "")
+	{
+		targets.add({"id":sow_id,"field":"WD_SOW","label":"sow"});
+	}
+	if(change_orders_id != "")
+	{
+		targets.add({"id":change_orders_id,"field":"WD_Change_Orders","label":"change_orders"});
+	}
+	update_map = Map();
+	for each  t in targets
+	{
+		share_body = {"data":{"attributes":{"resource_id":t.get("id"),"role_id":"31","shared_type":"everyone","is_link_shared":true},"type":"links"}};
+		share_resp = invokeurl
+		[
+			url :"https://www.zohoapis.com/workdrive/api/v1/links"
+			type :POST
+			parameters:share_body.toString()
+			headers:{"Accept":"application/vnd.api+json","Content-Type":"application/vnd.api+json"}
+			connection:"workdrive"
+		];
+		info "Share resp [" + t.get("label") + "]: " + share_resp;
+		link_url = "";
+		if(share_resp.get("data") != null)
+		{
+			attrs = share_resp.get("data").get("attributes");
+			if(attrs != null && attrs.get("link") != null && attrs.get("link").toString() != "")
+			{
+				link_url = attrs.get("link").toString();
+			}
+		}
+		if(link_url != "")
+		{
+			update_map.put(t.get("field"),link_url);
+		}
+	}
+	if(update_map.size() > 0)
+	{
+		upd_resp = zoho.crm.updateRecord("Deals",deal_id,update_map);
+		info "Deal updated: " + upd_resp;
+	}
+	else
+	{
+		info "WARN: no share URLs to write.";
+	}
+	info "BACKFILL DONE: deal " + deal_id + " — designs=" + designs_id + " sow=" + sow_id + " change_orders=" + change_orders_id;
+	return;
+}

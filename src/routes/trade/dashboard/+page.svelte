@@ -123,37 +123,60 @@
 
 	// Lazy file listing for Designs + SOW folders.
 	interface DesignFile { id: string; name: string; mime: string | null; modifiedTime: string | null; }
-	const filesCache = new Map<string, { designs: DesignFile[]; sow: DesignFile[] }>();
+	interface FilesPayload {
+		designs: DesignFile[];
+		sow: DesignFile[];
+		// Internal WorkDrive URLs (signed-in users only). We prefer these over
+		// the external client-portal share for the trade/staff dashboard.
+		projectFolderUrl: string | null;
+		designsFolderUrl: string | null;
+		sowFolderUrl: string | null;
+	}
+	const filesCache = new Map<string, FilesPayload>();
 	let designsFiles: DesignFile[] = [];
 	let sowFiles: DesignFile[] = [];
+	let projectFolderUrl = '';
+	let designsFolderInternalUrl = '';
+	let sowFolderInternalUrl = '';
 	let filesLoading = false;
 	let lastFilesDealId = '';
+
+	const applyFilesPayload = (payload: FilesPayload) => {
+		designsFiles = payload.designs;
+		sowFiles = payload.sow;
+		projectFolderUrl = payload.projectFolderUrl ?? '';
+		designsFolderInternalUrl = payload.designsFolderUrl ?? '';
+		sowFolderInternalUrl = payload.sowFolderUrl ?? '';
+	};
 
 	const loadFiles = async (dealId: string) => {
 		if (!dealId) return;
 		if (filesCache.has(dealId)) {
-			const cached = filesCache.get(dealId)!;
-			designsFiles = cached.designs;
-			sowFiles = cached.sow;
+			applyFilesPayload(filesCache.get(dealId)!);
 			return;
 		}
 		filesLoading = true;
 		try {
 			const res = await fetch(`/api/trade/deals/${encodeURIComponent(dealId)}/designs/files`);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const payload = await res.json().catch(() => ({}));
-			const dList = Array.isArray(payload?.designs) ? payload.designs : [];
-			const sList = Array.isArray(payload?.sow) ? payload.sow : [];
-			filesCache.set(dealId, { designs: dList, sow: sList });
-			if (dealId === selectedDealId) {
-				designsFiles = dList;
-				sowFiles = sList;
-			}
+			const raw = await res.json().catch(() => ({}));
+			const payload: FilesPayload = {
+				designs: Array.isArray(raw?.designs) ? raw.designs : [],
+				sow: Array.isArray(raw?.sow) ? raw.sow : [],
+				projectFolderUrl: typeof raw?.projectFolderUrl === 'string' ? raw.projectFolderUrl : null,
+				designsFolderUrl: typeof raw?.designsFolderUrl === 'string' ? raw.designsFolderUrl : null,
+				sowFolderUrl: typeof raw?.sowFolderUrl === 'string' ? raw.sowFolderUrl : null
+			};
+			filesCache.set(dealId, payload);
+			if (dealId === selectedDealId) applyFilesPayload(payload);
 		} catch (err) {
 			console.warn('[trade/dashboard] file list fetch failed', err);
 			if (dealId === selectedDealId) {
 				designsFiles = [];
 				sowFiles = [];
+				projectFolderUrl = '';
+				designsFolderInternalUrl = '';
+				sowFolderInternalUrl = '';
 			}
 		} finally {
 			filesLoading = false;
@@ -875,11 +898,25 @@
 						{#if (sowLoading || designsLoading || filesLoading) && designsFiles.length === 0 && sowFiles.length === 0 && designFiles.length === 0}
 							<p class="muted">Loading details...</p>
 						{:else}
+							<!-- Project root (internal WorkDrive) — the main folder link
+							     trade partners and staff use. Falls back to nothing if the
+							     deal has no WorkDrive folder yet. -->
+							{#if projectFolderUrl}
+								<div class="folder-section">
+									<div class="folder-header">
+										<span class="folder-title">Project folder</span>
+										<a class="open-folder" href={projectFolderUrl} target="_blank" rel="noreferrer">Open in WorkDrive ↗</a>
+									</div>
+								</div>
+							{/if}
+
 							<!-- Scopes (SOW) section -->
 							<div class="folder-section">
 								<div class="folder-header">
 									<span class="folder-title">Scopes</span>
-									{#if sowUrl}
+									{#if sowFolderInternalUrl}
+										<a class="open-folder" href={sowFolderInternalUrl} target="_blank" rel="noreferrer">Open folder ↗</a>
+									{:else if sowUrl}
 										<a class="open-folder" href={sowUrl} target="_blank" rel="noreferrer">Open folder ↗</a>
 									{/if}
 								</div>
@@ -900,7 +937,9 @@
 							<div class="folder-section">
 								<div class="folder-header">
 									<span class="folder-title">Designs</span>
-									{#if designsUrl}
+									{#if designsFolderInternalUrl}
+										<a class="open-folder" href={designsFolderInternalUrl} target="_blank" rel="noreferrer">Open folder ↗</a>
+									{:else if designsUrl}
 										<a class="open-folder" href={designsUrl} target="_blank" rel="noreferrer">Open folder ↗</a>
 									{/if}
 								</div>

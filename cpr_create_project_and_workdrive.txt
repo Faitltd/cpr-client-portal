@@ -1,0 +1,280 @@
+void automation.CPR_Create_Project_And_WorkDrive(Int deal_id)
+{
+/* -------------------------------------------------- */
+/* 0. CONFIG                                          */
+/* -------------------------------------------------- */
+parent_folder_id = "0su7r600b662b482643cab0bcc61bfc087279";
+// "Current Projects" team folder
+project_template_id = "23827750000002772027";
+portal_name = "customprofessionalrenovation";
+line_break = hexToText("0a");
+/* -------------------------------------------------- */
+/* 1. Pull the Deal + idempotency guards              */
+/* -------------------------------------------------- */
+deal = zoho.crm.getRecordById("Deals",deal_id);
+if(deal.isEmpty() || deal.get("id") == null)
+{
+	info "ABORT: Deal " + deal_id + " not found.";
+	return;
+}
+if(deal.get("Project_Created") == true)
+{
+	info "SKIP: Deal " + deal_id + " already has Project_Created = true.";
+	return;
+}
+existing_wd_id = ifnull(deal.get("WorkDrive_Folder_ID"),"").toString().trim();
+if(existing_wd_id != "")
+{
+	info "SKIP: Deal " + deal_id + " already has WorkDrive_Folder_ID = " + existing_wd_id + ". Refusing duplicate.";
+	return;
+}
+Workflow_Logs = ifnull(deal.get("Workflow_Logs"),"") + line_break;
+/* Project name: Contact Name (matches existing convention) */
+Deal_Name = ifnull(deal.get("Deal_Name"),"Untitled Deal");
+Contact_Name = deal.get("Contact_Name");
+Project_Name = Deal_Name + " - No Contact";
+if(Contact_Name != null)
+{
+	Project_Name = Contact_Name.get("name");
+}
+info "START: Building '" + Project_Name + "' for Deal " + deal_id;
+contact_id = "";
+if(Contact_Name != null)
+{
+	contact_id = Contact_Name.get("id").toString();
+}
+account_id = "";
+Account_Name = deal.get("Account_Name");
+if(Account_Name != null)
+{
+	account_id = Account_Name.get("id").toString();
+}
+/* -------------------------------------------------- */
+/* 2. Create the Zoho Project from template           */
+/* -------------------------------------------------- */
+project_map = Map();
+project_map.put("name",Project_Name);
+project_map.put("description",ifnull(deal.get("Project_Details"),""));
+project_map.put("start_date",zoho.currentdate.toString("MM-dd-yyyy"));
+project_map.put("template_id",project_template_id);
+project_map.put("enable_rollup","yes");
+create_project_resp = invokeurl
+[
+	url :"https://projectsapi.zoho.com/restapi/portal/" + portal_name + "/projects/"
+	type :POST
+	parameters:project_map
+	connection:"zohoprojects_connection"
+];
+info "Project Created: " + create_project_resp;
+proj_id = "";
+if(create_project_resp.get("projects") != null && create_project_resp.get("projects").size() > 0)
+{
+	proj_id = create_project_resp.get("projects").get(0).get("id").toString();
+}
+if(proj_id == "")
+{
+	info "ABORT: Project creation failed for Deal " + deal_id;
+	zoho.crm.updateRecord("Deals",deal_id,{"Workflow_Logs":Workflow_Logs + "=> CPR Setup: Project creation FAILED"});
+	return;
+}
+/* -------------------------------------------------- */
+/* 3. Folder collector — every created folder lands   */
+/*    here, then we serialize the whole map to JSON.  */
+/* -------------------------------------------------- */
+folders = Map();
+/* { logical_key : workdrive_folder_id } */
+/* ---- 3a. Root folder ---- */
+root_body = {"data":{"attributes":{"name":Project_Name,"parent_id":parent_folder_id},"type":"files"}};
+root_resp = invokeurl
+[
+	url :"https://www.zohoapis.com/workdrive/api/v1/files"
+	type :POST
+	parameters:root_body.toString()
+	headers:{"Accept":"application/vnd.api+json","Content-Type":"application/vnd.api+json"}
+	connection:"workdrive"
+];
+info "Root folder resp: " + root_resp;
+if(root_resp.get("data") == null)
+{
+	info "ABORT: WorkDrive root folder creation failed.";
+	zoho.crm.updateRecord("Deals",deal_id,{"Project_Created":true,"Project_ID":proj_id,"Project_Name":Project_Name,"Zoho_Projects_ID":proj_id,"Workflow_Logs":Workflow_Logs + "=> CPR Setup: Project OK, WorkDrive root FAILED"});
+	return;
+}
+root_id = root_resp.get("data").get("id").toString();
+root_url = "https://workdrive.zoho.com/folder/" + root_id;
+folders.put("root",root_id);
+info "Root folder ID = " + root_id;
+/* -------------------------------------------------- */
+/* 4. Spec table for the rest of the tree.            */
+/*    Order matters: parents come before children.    */
+/*    Parent key 'root' or 'designs' or 'contracts'   */
+/*    refers to a previously-created folder ID.       */
+/* -------------------------------------------------- */
+folder_spec = List();
+folder_spec.add({"key":"designs","name":"Designs","parent_key":"root"});
+folder_spec.add({"key":"contracts","name":"Contracts & Agreements","parent_key":"root"});
+folder_spec.add({"key":"trade_scope","name":"Trade Scope","parent_key":"designs"});
+folder_spec.add({"key":"design_notes","name":"Design Notes","parent_key":"designs"});
+folder_spec.add({"key":"estimates","name":"Estimates","parent_key":"contracts"});
+folder_spec.add({"key":"contracts_sub","name":"Contracts","parent_key":"contracts"});
+folder_spec.add({"key":"bids","name":"Bids","parent_key":"contracts"});
+folder_spec.add({"key":"permitting","name":"Permitting","parent_key":"contracts"});
+for each  f in folder_spec
+{
+	parent_id = ifnull(folders.get(f.get("parent_key")),"");
+	if(parent_id == "")
+	{
+		info "WARN: Skipping '" + f.get("name") + "' — parent '" + f.get("parent_key") + "' was not created.";
+		continue;
+	}
+	body = {"data":{"attributes":{"name":f.get("name"),"parent_id":parent_id},"type":"files"}};
+	resp = invokeurl
+	[
+		url :"https://www.zohoapis.com/workdrive/api/v1/files"
+		type :POST
+		parameters:body.toString()
+		headers:{"Accept":"application/vnd.api+json","Content-Type":"application/vnd.api+json"}
+		connection:"workdrive"
+	];
+	if(resp.get("data") != null)
+	{
+		new_id = resp.get("data").get("id").toString();
+		folders.put(f.get("key"),new_id);
+		info "Created '" + f.get("name") + "' [" + f.get("key") + "] -> " + new_id;
+	}
+	else
+	{
+		info "WARN: Failed to create '" + f.get("name") + "': " + resp;
+	}
+}
+/* -------------------------------------------------- */
+/* 5. External share link for the root folder         */
+/*    role_id 31 = view only (no download)            */
+/* -------------------------------------------------- */
+share_body = {"data":{"attributes":{"resource_id":root_id,"role_id":"31","shared_type":"everyone","is_link_shared":true},"type":"links"}};
+share_resp = invokeurl
+[
+	url :"https://www.zohoapis.com/workdrive/api/v1/links"
+	type :POST
+	parameters:share_body.toString()
+	headers:{"Accept":"application/vnd.api+json","Content-Type":"application/vnd.api+json"}
+	connection:"workdrive"
+];
+info "Share link resp: " + share_resp;
+external_link = root_url;
+/* fallback */
+if(share_resp.get("data") != null)
+{
+	attrs = share_resp.get("data").get("attributes");
+	if(attrs != null && attrs.get("link") != null && attrs.get("link").toString() != "")
+	{
+		external_link = attrs.get("link").toString();
+	}
+}
+/* -------------------------------------------------- */
+/* 6. Serialize the full folder map to JSON           */
+/*    Includes external_link + a generated_at stamp   */
+/*    so the dashboard can detect stale data.         */
+/* -------------------------------------------------- */
+folders_json = Map();
+/* copy every collected folder id */
+for each  k in folders.keys()
+{
+	folders_json.put(k,folders.get(k));
+}
+folders_json.put("external_link",external_link);
+folders_json.put("project_name",Project_Name);
+folders_json.put("generated_at",zoho.currenttime.toString());
+folders_json_str = folders_json.toString();
+/* Deluge Map.toString() emits valid JSON */
+info "Folder_IDs_JSON: " + folders_json_str;
+/* -------------------------------------------------- */
+/* 7. Build the Deal update payload                   */
+/* -------------------------------------------------- */
+update_map = Map();
+/* project metadata (matches old function's writes) */
+update_map.put("Project_Created",true);
+update_map.put("Project_ID",proj_id);
+update_map.put("Project_Name",Project_Name);
+update_map.put("Zoho_Projects_ID",proj_id);
+/* WorkDrive root + share */
+update_map.put("WorkDrive_Folder_ID",root_id);
+update_map.put("External_Link",external_link);
+/* portal function reads this */
+/* THE blob */
+update_map.put("Folder_IDs_JSON",folders_json_str);
+/* Legacy WD_* URL fields kept compatible */
+update_map.put("WD_Project_Folder",root_url);
+designs_id = ifnull(folders.get("designs"),"");
+permitting_id = ifnull(folders.get("permitting"),"");
+if(designs_id != "")
+{
+	update_map.put("WD_Designs","https://workdrive.zoho.com/folder/" + designs_id);
+}
+if(permitting_id != "")
+{
+	update_map.put("WD_Permits","https://workdrive.zoho.com/folder/" + permitting_id);
+}
+update_map.put("Workflow_Logs",Workflow_Logs + "=> CPR Setup OK: project " + proj_id + ", folder " + root_id);
+upd_resp = zoho.crm.updateRecord("Deals",deal_id,update_map);
+info "Deal updated: " + upd_resp;
+/* -------------------------------------------------- */
+/* 8. Associate the Project to Deal / Contact / Account */
+/* -------------------------------------------------- */
+association_map = Map();
+association_map.put("name",Deal_Name);
+dealdet = Map();
+dealdet.put("id",deal_id);
+association_map.put("deals",dealdet.toList());
+if(account_id != "")
+{
+	acntdet = Map();
+	acntdet.put("id",account_id);
+	association_map.put("accounts",acntdet.toList());
+}
+if(contact_id != "")
+{
+	contact_dets = zoho.crm.getRecordById("Contacts",contact_id);
+	contact_email = ifnull(contact_dets.get("Email"),"");
+	contdet = Map();
+	contdet.put("id",contact_id);
+	contdet.put("Email",contact_email);
+	association_map.put("contacts",contdet.toList());
+}
+datalist = List();
+datalist.add(association_map);
+datamp = Map();
+datamp.put("data",datalist);
+associate_to_deal = invokeurl
+[
+	url :"https://www.zohoapis.com/crm/v2/Deals/" + deal_id + "/Zoho_Projects/" + proj_id
+	type :POST
+	parameters:datamp.toString()
+	connection:"zohoprojects_connection"
+];
+info "associate_to_deal: " + associate_to_deal;
+if(contact_id != "")
+{
+	associate_to_contact = invokeurl
+	[
+		url :"https://www.zohoapis.com/crm/v2/Contacts/" + contact_id + "/Zoho_Projects/" + proj_id
+		type :POST
+		parameters:datamp.toString()
+		connection:"zohoprojects_connection"
+	];
+	info "associate_to_contact: " + associate_to_contact;
+}
+if(account_id != "")
+{
+	associate_to_account = invokeurl
+	[
+		url :"https://www.zohoapis.com/crm/v2/Accounts/" + account_id + "/Zoho_Projects/" + proj_id
+		type :POST
+		parameters:datamp.toString()
+		connection:"zohoprojects_connection"
+	];
+	info "associate_to_account: " + associate_to_account;
+}
+info "DONE: Deal " + deal_id + " — project " + proj_id + " + 9-folder tree built.";
+return;
+}

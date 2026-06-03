@@ -1,0 +1,184 @@
+void schedule.CPR_Route_Meeting_Transcripts()
+{
+    // CPR_Route_Meeting_Transcripts
+    // Pulls every file out of the Zoho Meeting Inbox (a WorkDrive team
+    // folder where Zoho Meeting drops recordings + transcripts) and routes
+    // each file into the correct Deal's WorkDrive folder under a
+    // "Meetings" subfolder. The Project Bot ingester picks up files in
+    // folders matching /transcript|recording|meeting/i as source `transcript`.
+    // Matching: scores each open Deal by how many of its name words appear
+    // in the filename. Highest score wins. Files with no match stay in the
+    // inbox. Connection CPRWorkDriveConnection scope:
+    //   WorkDrive.files.ALL,WorkDrive.teamfolders.READ
+    INBOX_FOLDER_ID = "usk6m7a2a3fde211640fc8f04a056465e6e0b";
+    L1_FOLDER_NAME = "Designs";
+    L2_FOLDER_NAME = "Notes and Breakdowns";
+    L3_FOLDER_NAME = "Meetings";
+
+    // ---- List inbox ----
+    listResp = invokeurl
+    [
+        url: "https://www.zohoapis.com/workdrive/api/v1/files/" + INBOX_FOLDER_ID + "/files?page[limit]=200"
+        type: GET
+        headers: { "Accept": "application/vnd.api+json" }
+        connection:"workdrive"
+    ];
+    inboxItems = ifnull(listResp.get("data"), List());
+    if(inboxItems.size() == 0)
+    {
+        info "CPR_Route_Meeting_Transcripts: inbox empty";
+        return;
+    }
+
+    // ---- Pull deals with WorkDrive folders ----
+    dealCriteria = "(WorkDrive_Folder_ID:not_equal:null)";
+    deals = zoho.crm.searchRecords("Deals", dealCriteria, 1, 200);
+
+    routed = 0;
+    skipped = 0;
+    unmatched = List();
+
+    for each item in inboxItems
+    {
+        attrs = item.get("attributes");
+        if(attrs == null) { continue; }
+        if(attrs.get("type") == "folder") { continue; }
+
+        fileId = item.get("id").toString();
+        fileName = ifnull(attrs.get("name"), "").toString();
+        if(fileName == "") { continue; }
+
+        // Slugify filename for matching
+        needle = fileName.toLowerCase().replaceAll("[^a-z0-9 ]"," ").replaceAll("\\s+"," ").trim();
+
+        matchedDealId = "";
+        matchedDealName = "";
+        matchedParent = "";
+        bestScore = 0;
+
+        for each deal in deals
+        {
+            dealName = ifnull(deal.get("Deal_Name"), "").toString();
+            parentFolder = ifnull(deal.get("WorkDrive_Folder_ID"), "").toString();
+            if(dealName == "" || parentFolder == "") { continue; }
+
+            cleanedName = dealName.toLowerCase().replaceAll("[^a-z0-9 ]"," ").replaceAll("\\s+"," ").trim();
+            words = cleanedName.toList(" ");
+            score = 0;
+            for each w in words
+            {
+                if(w.length() >= 3 && needle.contains(w))
+                {
+                    score = score + 1;
+                }
+            }
+            if(score > 0 && score > bestScore)
+            {
+                bestScore = score;
+                matchedDealId = deal.get("id").toString();
+                matchedDealName = dealName;
+                matchedParent = parentFolder;
+            }
+        }
+
+        if(matchedDealId == "")
+        {
+            unmatched.add(fileName);
+            skipped = skipped + 1;
+            continue;
+        }
+
+        // ---- Navigate / create three nested subfolders: Designs > Notes and Breakdowns > Meetings ----
+        currentParent = matchedParent;
+        destId = "";
+        nestedNames = list();
+        nestedNames.add(L1_FOLDER_NAME);
+        nestedNames.add(L2_FOLDER_NAME);
+        nestedNames.add(L3_FOLDER_NAME);
+        nestedFailed = false;
+        for each levelName in nestedNames
+        {
+            foundId = "";
+            childrenResp = invokeurl
+            [
+                url: "https://www.zohoapis.com/workdrive/api/v1/files/" + currentParent + "/files?page[limit]=200"
+                type: GET
+                headers: { "Accept": "application/vnd.api+json" }
+                connection:"workdrive"
+            ];
+            childItems = ifnull(childrenResp.get("data"), List());
+            for each childItem in childItems
+            {
+                childAttrs = childItem.get("attributes");
+                if(childAttrs != null && childAttrs.get("type") == "folder" && childAttrs.get("name") == levelName)
+                {
+                    foundId = childItem.get("id").toString();
+                    break;
+                }
+            }
+            if(foundId == "")
+            {
+                createPayload = Map();
+                createData = Map();
+                createData.put("type", "files");
+                createAttrs = Map();
+                createAttrs.put("name", levelName);
+                createAttrs.put("parent_id", currentParent);
+                createAttrs.put("type", "folder");
+                createData.put("attributes", createAttrs);
+                createPayload.put("data", createData);
+                createResp = invokeurl
+                [
+                    url: "https://www.zohoapis.com/workdrive/api/v1/files"
+                    type: POST
+                    parameters: createPayload.toString()
+                    headers: { "Accept": "application/vnd.api+json", "Content-Type": "application/vnd.api+json" }
+                    connection:"workdrive"
+                ];
+                createdData = createResp.get("data");
+                if(createdData != null)
+                {
+                    foundId = createdData.get("id").toString();
+                }
+            }
+            if(foundId == "")
+            {
+                nestedFailed = true;
+                break;
+            }
+            currentParent = foundId;
+        }
+        if(nestedFailed)
+        {
+            skipped = skipped + 1;
+            continue;
+        }
+        destId = currentParent;
+
+        // ---- Move the file ----
+        movePayload = Map();
+        moveData = Map();
+        moveData.put("type", "files");
+        moveData.put("id", fileId);
+        moveAttrs = Map();
+        moveAttrs.put("parent_id", destId);
+        moveData.put("attributes", moveAttrs);
+        movePayload.put("data", moveData);
+        invokeurl
+        [
+            url: "https://www.zohoapis.com/workdrive/api/v1/files/" + fileId
+            type: PATCH
+            parameters: movePayload.toString()
+            headers: { "Accept": "application/vnd.api+json", "Content-Type": "application/vnd.api+json" }
+            connection:"workdrive"
+        ];
+        routed = routed + 1;
+        info "Routed " + fileName + " -> " + matchedDealName + "/" + L1_FOLDER_NAME + "/" + L2_FOLDER_NAME + "/" + L3_FOLDER_NAME;
+    }
+
+    info "CPR_Route_Meeting_Transcripts: routed=" + routed + " skipped=" + skipped;
+    if(unmatched.size() > 0)
+    {
+        info "Unmatched (left in inbox): " + unmatched;
+    }
+}

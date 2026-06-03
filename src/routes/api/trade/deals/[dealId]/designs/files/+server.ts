@@ -76,6 +76,22 @@ async function findSubfolder(
 	return null;
 }
 
+/**
+ * Internal WorkDrive folder URL — opens the folder in the Zoho WorkDrive app
+ * when the user is signed in to Zoho. This is what CPR staff and trade
+ * partners want as the "Open folder" link, NOT the client-portal external
+ * share (which is meant for clients/homeowners).
+ *
+ * Format mirrors the canonical Zoho-app URL: /home/teams/{team}/ws/{ws}/folders/{id}
+ * is the long form, but the short form /folder/{id} reliably resolves once
+ * the user is authenticated. We prefer WorkDrive_Internal_URL from the Deal
+ * record if it's populated (admin-pasted), and synthesise the short form as
+ * a fallback.
+ */
+function buildInternalFolderUrl(folderId: string): string {
+	return `https://workdrive.zoho.com/folder/${encodeURIComponent(folderId)}`;
+}
+
 export const GET: RequestHandler = async ({ params, cookies }) => {
 	const sessionToken = cookies.get('trade_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
@@ -87,26 +103,34 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 	const { accessToken, apiDomain } = await getAccessToken();
 
-	// Read Deal's WorkDrive root folder id.
+	// Read Deal's WorkDrive root folder id + admin-pasted internal URL.
 	const dealRes = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID,External_Link,Client_Portal_Folder`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID,WorkDrive_Internal_URL,External_Link,Client_Portal_Folder`,
 		{},
 		apiDomain
 	);
 	const rec = dealRes?.data?.[0] ?? {};
 	const directId =
 		typeof rec.WorkDrive_Folder_ID === 'string' ? rec.WorkDrive_Folder_ID.trim() : '';
+	const internalProjectUrl =
+		typeof rec.WorkDrive_Internal_URL === 'string' ? rec.WorkDrive_Internal_URL.trim() : '';
 	let projectFolderId =
 		directId ||
 		extractWorkDriveFolderId(typeof rec.External_Link === 'string' ? rec.External_Link : '') ||
 		extractWorkDriveFolderId(
 			typeof rec.Client_Portal_Folder === 'string' ? rec.Client_Portal_Folder : ''
 		) ||
+		extractWorkDriveFolderId(internalProjectUrl) ||
 		null;
 
 	if (!projectFolderId) {
-		return json({ designs: [], sow: [], message: 'No WorkDrive folder linked to this Deal' });
+		return json({
+			designs: [],
+			sow: [],
+			projectFolderUrl: internalProjectUrl || null,
+			message: 'No WorkDrive folder linked to this Deal'
+		});
 	}
 
 	const designsFolder = await findSubfolder(
@@ -147,6 +171,12 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		designs: designsFiles,
 		sow: sowFiles,
 		designsFolderName: designsFolder?.name ?? null,
-		sowFolderName: sowFolder?.name ?? null
+		sowFolderName: sowFolder?.name ?? null,
+		// Internal URLs — open the folder inside the WorkDrive app (requires
+		// the user to be signed in to Zoho). Used instead of the external
+		// client-portal share for staff and trade-partner views.
+		projectFolderUrl: internalProjectUrl || buildInternalFolderUrl(projectFolderId),
+		designsFolderUrl: designsFolder ? buildInternalFolderUrl(designsFolder.id) : null,
+		sowFolderUrl: sowFolder ? buildInternalFolderUrl(sowFolder.id) : null
 	});
 };
