@@ -62,6 +62,29 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 		};
 	}
 
+	// Trade session takes precedence over portal session. A user can hold both
+	// cookies (e.g. CPR staff who are also added as a trade partner on a
+	// project, or a trade partner who was once a homeowner client). When they
+	// reach a /trade/* route, the trade-partner role is what they need.
+	const tradeToken = cookies.get('trade_session');
+	if (tradeToken) {
+		const session = await getTradeSession(tradeToken);
+		if (session && new Date(session.expires_at) > new Date()) {
+			return {
+				role: 'trade_partner',
+				email: session.trade_partner.email ?? '',
+				// Only non-financial sources. WorkDrive + Deal-field context.
+				// Books/Mail/CRM-emails/Cliq all excluded — could surface pricing
+				// or internal commentary that shouldn't reach trade partners.
+				allowedSources: ['workdrive_pdf', 'workdrive_docx', 'workdrive_xlsx', 'zoho_crm_field'],
+				hideFinancials: true,
+				hideInternalFinancials: false,
+				tradePartnerId: session.trade_partner.id ?? null,
+				clientId: null
+			};
+		}
+	}
+
 	const portalToken = cookies.get('portal_session');
 	if (portalToken) {
 		const principal = await getPortalPrincipal(portalToken);
@@ -104,25 +127,6 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				hideInternalFinancials: true,
 				tradePartnerId: null,
 				clientId: client.id ?? null
-			};
-		}
-	}
-
-	const tradeToken = cookies.get('trade_session');
-	if (tradeToken) {
-		const session = await getTradeSession(tradeToken);
-		if (session && new Date(session.expires_at) > new Date()) {
-			return {
-				role: 'trade_partner',
-				email: session.trade_partner.email ?? '',
-				// Only non-financial sources. WorkDrive + Deal-field context.
-				// Books/Mail/CRM-emails/Cliq all excluded — could surface pricing
-				// or internal commentary that shouldn't reach trade partners.
-				allowedSources: ['workdrive_pdf', 'workdrive_docx', 'workdrive_xlsx', 'zoho_crm_field'],
-				hideFinancials: true,
-				hideInternalFinancials: false,
-				tradePartnerId: session.trade_partner.id ?? null,
-				clientId: null
 			};
 		}
 	}
