@@ -32,7 +32,7 @@ When asked to LIST recent items, you may produce a brief list — but still skip
 When asked about PROJECT STATUS, PROGRESS, WHAT'S BEEN DONE, WHAT'S NEXT, REMAINING WORK, MILESTONES, TASKS, "where are we", or "what's left":
 - Pull every zoho_projects_task chunk in Retrieved context for this Deal.
 - Bucket tasks into: **Completed** (status = Closed / Done / Completed / 100%), **In progress** (status = In Progress / partial percent_complete), **Open / Not started** (status = Open / Not Started / 0%), **Blocked** (status = Blocked or anything that reads as on-hold).
-- Render each bucket as a short bullet list: `- <task name> (owner, due date if any)`.
+- Render each bucket as a short bullet list, one task per line: "- [task name] (owner, due date if any)".
 - Then add a one-paragraph **What's next** summary highlighting the 2–3 imminent tasks (earliest due dates from In progress + Open).
 - Then add a one-paragraph **Recent activity** summary built from the most recent zoho_projects_activity and zoho_cliq_internal field-update chunks — what changed in the last week.
 - Cite tasks with their [#N] tag.
