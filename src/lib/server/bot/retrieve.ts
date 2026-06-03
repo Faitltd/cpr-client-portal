@@ -209,17 +209,73 @@ export async function retrieveRelevant(opts: {
 	// in a dense per-row spreadsheet.
 	const keywordPromise = keywordSearchChunks(opts.dealId, query, filterAllowed);
 
-	const [semantic, recentRaw, keywordRaw] = await Promise.all([
+	// Books always-on: when the query is finance-related, the bot needs to
+	// see EVERY invoice / estimate / payment for the deal — semantic search
+	// gets crowded out by mail mentioning "Financials" and only returns a
+	// fraction. Fetch all Books chunks directly when finance keywords appear.
+	const financePromise = looksFinancial(query)
+		? fetchAllBooksChunks(opts.dealId, filterAllowed)
+		: Promise.resolve([] as RetrievedChunk[]);
+
+	const [semantic, recentRaw, keywordRaw, financeRaw] = await Promise.all([
 		semanticPromise,
 		recencyPromise,
-		keywordPromise
+		keywordPromise,
+		financePromise
 	]);
 	const recent = filterAllowed(recentRaw);
 	const keyword = filterAllowed(keywordRaw);
+	const finance = filterAllowed(financeRaw);
 
-	// Keyword hits go first (they're exact matches), then recency, then
-	// semantic. Cap at 3× k so dense spreadsheets get fuller coverage.
-	return mergeChunks(keyword, mergeChunks(recent, semantic)).slice(0, Math.max(k * 3, 24));
+	// Finance-must-see chunks first (Books invoice/estimate/payment), then
+	// keyword exact matches, then recency, then semantic. Cap at 3× k.
+	return mergeChunks(
+		finance,
+		mergeChunks(keyword, mergeChunks(recent, semantic))
+	).slice(0, Math.max(k * 3, 24));
+}
+
+const FINANCE_RE = /\b(balance|invoice|invoices|owed|owe|outstanding|remaining|paid|payment|payments|due|financial|finances|cost|costs|billed|bill|estimate|estimates|credit|credits|refund|deposit|retainer|amount|summary|itemized|itemize)\b/i;
+
+function looksFinancial(query: string): boolean {
+	return FINANCE_RE.test(query);
+}
+
+async function fetchAllBooksChunks(
+	dealId: string,
+	filterAllowed: (chunks: RetrievedChunk[]) => RetrievedChunk[]
+): Promise<RetrievedChunk[]> {
+	const { data, error } = await supabase
+		.from('bot_documents')
+		.select(
+			'id, source, subject, author, occurred_at, source_url, bot_chunks!inner(id, content)'
+		)
+		.eq('deal_id', dealId)
+		.in('source', ['zoho_books_invoice', 'zoho_books_estimate', 'zoho_books_payment'])
+		.order('occurred_at', { ascending: false })
+		.limit(50);
+	if (error) {
+		console.warn('[bot/retrieve] finance fetch failed:', error.message);
+		return [];
+	}
+	const out: RetrievedChunk[] = [];
+	for (const doc of data ?? []) {
+		const chunks = Array.isArray(doc.bot_chunks) ? doc.bot_chunks : [];
+		for (const ch of chunks) {
+			out.push({
+				chunk_id: ch.id,
+				document_id: doc.id,
+				content: ch.content,
+				source: doc.source,
+				subject: doc.subject ?? null,
+				author: doc.author ?? null,
+				occurred_at: doc.occurred_at,
+				source_url: doc.source_url ?? null,
+				similarity: 1 // direct fetch — treat as fully relevant
+			});
+		}
+	}
+	return filterAllowed(out);
 }
 
 /**
