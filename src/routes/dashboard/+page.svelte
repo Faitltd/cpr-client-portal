@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
+	import ClientChatPanel from '$lib/components/ClientChatPanel.svelte';
 
 	interface EmailPref {
 		id: string;
@@ -33,6 +34,7 @@
 	let emailUpdatesOpen = false;
 	let documentsOpen = false;
 	let accountOpen = false;
+	let botOpen = true;
 
 	// --- Project Tasks (Zoho Projects) ---
 	let tasks: any[] = [];
@@ -495,6 +497,23 @@
 	{:else if projects.length === 0}
 		<div class="state-card">No projects found</div>
 	{:else}
+		<!-- Project Bot -->
+		<section class="section">
+			<button class="section-header" type="button" on:click={() => (botOpen = !botOpen)}>
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><circle cx="7" cy="9" r="1" fill="currentColor"/><circle cx="13" cy="9" r="1" fill="currentColor"/><path d="M7 13h6"/></svg>
+					Ask CPR Bot
+				</span>
+				<span class="toggle-icon">{botOpen ? '−' : '+'}</span>
+			</button>
+			{#if botOpen}
+				<ClientChatPanel
+					dealId={String(projects[0].id)}
+					dealLabel={projects[0].Deal_Name || 'My project'}
+				/>
+			{/if}
+		</section>
+
 		<!-- Photos -->
 		<section class="section">
 			<button class="section-header" type="button" on:click={() => (photosOpen = !photosOpen)}>
