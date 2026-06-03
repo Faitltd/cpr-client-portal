@@ -136,7 +136,13 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_cliq_external',
 					'transcript'
 				],
-				allowedTopFolders: null,
+				// WorkDrive-side gate: clients see only files inside their
+				// deal's "Client Portal" subfolder. Designs, SOW, Permits,
+				// Internal, Cost Build-ups, etc. all stay hidden because they
+				// may carry pre-markup pricing or staff-only material.
+				// (zoho_cliq_internal is already excluded above; only the
+				// external client-facing Cliq channel reaches them.)
+				allowedTopFolders: ['Client Portal'],
 				hideFinancials: false,
 				hideInternalFinancials: true,
 				tradePartnerId: null,
