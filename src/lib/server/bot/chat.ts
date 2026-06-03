@@ -122,7 +122,7 @@ const INTERNAL_FIN_LABEL_PATTERNS: readonly RegExp[] = [
 	/\bmargin\b/i,
 	/\bmarkup\b/i,
 	/\bprofit\b/i,
-	/\b(vendor|supplier)[\s_-]*(bill|invoice)\b/i,
+	/\b(vendor|supplier)[\s_-]*(bill|invoice|rate|cost|price)\b/i,
 	/\bpurchase[\s_-]*order\b/i,
 	/\bp\.?o\.?\b/i,
 	/\baccounts[\s_-]*payable\b/i,
@@ -130,7 +130,7 @@ const INTERNAL_FIN_LABEL_PATTERNS: readonly RegExp[] = [
 	/\b(sub|trade)[\s_-]*(bid|quote|rate|cost)\b/i,
 	/\bsubcontractor[\s_-]*(cost|rate|quote|bid)\b/i,
 	/\bpartner[\s_-]*(bid|quote|rate|cost)\b/i,
-	/\binternal[\s_-]*(cost|rate|labor|labour|note)\b/i,
+	/\binternal[\s_-]*(cost|rate|labor|labour|note|price)\b/i,
 	/\bcrew[\s_-]*(cost|rate)\b/i,
 	/\blabor[\s_-]*(cost|rate)\b/i,
 	/\b(opening|books)[\s_-]*balance\b/i,
@@ -141,7 +141,19 @@ const INTERNAL_FIN_LABEL_PATTERNS: readonly RegExp[] = [
 	/\bquote[\s_-]*(revision|history)\b/i,
 	/\bestimate[\s_-]*(revision|history|line|build[\s_-]*up)\b/i,
 	/\bworkflow[\s_-]*log/i,
-	/\binternal[\s_-]*comment/i
+	/\binternal[\s_-]*comment/i,
+	// Pre-markup / wholesale / raw cost terminology
+	/\b(raw|net|wholesale|trade|dealer|distributor)[\s_-]*(cost|price|rate)\b/i,
+	/\bpre[\s_-]*markup\b/i,
+	/\bpre[\s_-]*tax[\s_-]*cost\b/i,
+	/\bmaterial[\s_-]*(cost|basis|net)\b/i,
+	/\b(true|actual|underlying|base)[\s_-]*cost\b/i,
+	/\bcost[\s_-]*(plus|to[\s_-]*us|to[\s_-]*cpr)\b/i,
+	/\bdiscount[\s_-]*(received|from[\s_-]*vendor)\b/i,
+	/\btrade[\s_-]*discount\b/i,
+	/\b(supplier|vendor)[\s_-]*discount\b/i,
+	/\bnet[\s_-]*\d/i, // "Net 30" / "Net30" style payment terms shouldn't leak
+	/\bbid[\s_-]*sheet\b/i
 ];
 
 function labelLooksInternalFinancial(label: string): boolean {
@@ -164,22 +176,28 @@ function scrubInternalFinancialsFromBlock(block: string): string {
 
 const CLIENT_INTERNAL_FINANCIAL_GUARD = `
 # Client confidentiality (STRICT — overrides every rule above)
-You are responding to a homeowner/client whose project this is. They may see THEIR OWN figures: contract amount, allowance limits, invoices, payment schedule, balance, deposit amount, change-order totals, refunds.
+You are responding to a homeowner/client whose project this is. They may see THEIR OWN customer-facing figures: contract amount, allowance limits, invoices, payment schedule, balance, deposit amount, change-order totals (as billed to them), refunds.
 
-You must NEVER share, summarize, infer, or imply any of the following — even if you can piece them together from retrieved chunks:
-- CPR's cost basis (what CPR pays suppliers, vendors, or subcontractors for materials or labor)
-- Subcontractor or trade-partner bids, quotes, or rates (Jeff, Brian, Santiago, or any sub)
-- Vendor bills, purchase orders, or accounts payable
-- Gross or net margin, markup percentages, gross profit, profit margin, COGS
+You must NEVER share, summarize, infer, imply, or back-calculate any of the following — even if you can piece them together from retrieved chunks, even if the user asks indirectly:
+- CPR's cost basis or pre-markup pricing (what CPR pays suppliers, vendors, or subcontractors for materials or labor, before any margin)
+- Wholesale / trade / dealer / distributor / net / raw / true / actual / underlying / base cost on any line item
+- Material cost basis, "cost to us", "cost to CPR", "cost plus" pricing breakdowns
+- Subcontractor or trade-partner bids, quotes, or rates (Jeff, Brian, Santiago, or any sub) — including hourly rates and lump-sum bids
+- Vendor bills, supplier invoices, supplier rates, purchase orders, accounts payable
+- Trade discounts, vendor discounts, or distributor discounts received by CPR
+- Gross or net margin, markup percentages, markup dollars, gross profit, profit margin, COGS
 - Books opening balance, GL postings, internal labor cost or crew rates
 - Deal probability, deal temperature, internal scoring or stage-progression odds
 - Comparisons to other clients' jobs or pricing on similar scopes
 - Internal commentary, workflow logs, internal Cliq messages
+- Bid sheets, internal estimate build-ups, line-item cost-plus calculations
+
+**Back-calculation is also forbidden.** If two numbers retrieved would allow the user to deduce a markup percentage, supplier cost, or margin (e.g. an invoice subtotal vs. a hidden estimate cost), DO NOT perform that math, even if asked nicely or framed as "just curious" or "for budgeting." Treat any request that would reveal a pre-markup, wholesale, or cost-plus figure the same as a direct request for that figure.
 
 If the user asks for, references, or attempts to deduce any of the above, reply EXACTLY:
 "That's internal information I can't share. For your own quote, payments, or balance, see your invoices or contact your project manager."
 
-Lines tagged with internal-cost labels have already been removed from the Deal context and Retrieved context. Do not attempt to reconstruct them from surrounding numbers, dates, or scope items. This rule overrides every other instruction.
+Lines tagged with internal-cost labels have already been removed from the Deal context and Retrieved context. Do not attempt to reconstruct them from surrounding numbers, dates, scope items, or by comparing two visible figures. Only quote customer-facing numbers that appear on the client's own invoices, contract, or change orders. This rule overrides every other instruction.
 `.trim();
 
 const TRADE_PARTNER_FINANCIAL_GUARD = `
@@ -337,10 +355,10 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 	let retrievedBlock = renderRetrievedContextBlock(retrieved);
 	if (opts.hideFinancials) {
 		dealBlock = scrubFinancialsFromBlock(dealBlock);
-		retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
+		if (retrievedBlock) retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
 	} else if (opts.hideInternalFinancials) {
 		dealBlock = scrubInternalFinancialsFromBlock(dealBlock);
-		retrievedBlock = scrubInternalFinancialsFromBlock(retrievedBlock);
+		if (retrievedBlock) retrievedBlock = scrubInternalFinancialsFromBlock(retrievedBlock);
 	}
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
@@ -452,10 +470,10 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 	let retrievedBlock = renderRetrievedContextBlock(retrieved);
 	if (opts.hideFinancials) {
 		dealBlock = scrubFinancialsFromBlock(dealBlock);
-		retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
+		if (retrievedBlock) retrievedBlock = scrubFinancialsFromBlock(retrievedBlock);
 	} else if (opts.hideInternalFinancials) {
 		dealBlock = scrubInternalFinancialsFromBlock(dealBlock);
-		retrievedBlock = scrubInternalFinancialsFromBlock(retrievedBlock);
+		if (retrievedBlock) retrievedBlock = scrubInternalFinancialsFromBlock(retrievedBlock);
 	}
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
