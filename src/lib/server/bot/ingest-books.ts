@@ -121,7 +121,14 @@ function renderInvoice(inv: any): { subject: string; body: string; sourceId: str
 	if (Array.isArray(inv.line_items) && inv.line_items.length > 0) {
 		lines.push('Line items:');
 		for (const li of inv.line_items.slice(0, 50)) {
-			const name = li.name ?? li.item_name ?? li.description ?? 'item';
+			// Prefer name → item_name → description. Empty string counts as
+			// missing (change-order rows often have name="" and the meaningful
+			// label sits in description).
+			const name =
+				(typeof li.name === 'string' && li.name.trim()) ||
+				(typeof li.item_name === 'string' && li.item_name.trim()) ||
+				(typeof li.description === 'string' && li.description.trim()) ||
+				'item';
 			const qty = li.quantity ?? '';
 			const rate = li.rate != null ? fmtAmount(li.rate, inv.currency_code) : '';
 			const amount = li.item_total != null ? fmtAmount(li.item_total, inv.currency_code) : '';
