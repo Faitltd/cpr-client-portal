@@ -450,12 +450,25 @@ async function ingestFile(
 
 	const { data: existing } = await supabase
 		.from('bot_documents')
-		.select('id, hash')
+		.select('id, hash, source_url')
 		.eq('source', source)
 		.eq('source_id', sourceId)
 		.maybeSingle();
 
 	if (existing && existing.hash === fingerprint) {
+		// Content unchanged. But if we're now able to capture a permalink that
+		// wasn't stored before (older rows pre-permalink-support), patch the
+		// URL in place so the bot can link to the file without a full re-parse.
+		const newUrl = (item as any).permalink ?? null;
+		if (newUrl && !existing.source_url) {
+			const { error: patchErr } = await supabase
+				.from('bot_documents')
+				.update({ source_url: newUrl })
+				.eq('id', existing.id);
+			if (patchErr) {
+				console.warn('[bot/ingest-workdrive] permalink patch failed:', patchErr.message);
+			}
+		}
 		out.reason = 'unchanged';
 		return out;
 	}
