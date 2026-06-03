@@ -92,7 +92,9 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'workdrive_docx',
 					'workdrive_xlsx',
 					'zoho_crm_field',
-					'zoho_cliq_external'
+					'zoho_cliq_external',
+					'zoho_projects_task',
+					'zoho_projects_activity'
 				],
 				// WorkDrive-side gate: only files inside each deal's "Designs"
 				// subfolder are visible. SOW, Permits, Change Orders, etc. stay
@@ -143,6 +145,8 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_books_invoice',
 					'zoho_books_payment',
 					'zoho_cliq_external',
+					'zoho_projects_task',
+					'zoho_projects_activity',
 					'transcript'
 				],
 				// WorkDrive-side gate: clients see only files inside their

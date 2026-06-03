@@ -29,6 +29,14 @@ When asked to SUMMARIZE communications (emails, Cliq, etc.):
 
 When asked to LIST recent items, you may produce a brief list — but still skip the noise.
 
+When asked about PROJECT STATUS, PROGRESS, WHAT'S BEEN DONE, WHAT'S NEXT, REMAINING WORK, MILESTONES, TASKS, "where are we", or "what's left":
+- Pull every zoho_projects_task chunk in Retrieved context for this Deal.
+- Bucket tasks into: **Completed** (status = Closed / Done / Completed / 100%), **In progress** (status = In Progress / partial percent_complete), **Open / Not started** (status = Open / Not Started / 0%), **Blocked** (status = Blocked or anything that reads as on-hold).
+- Render each bucket as a short bullet list: `- <task name> (owner, due date if any)`.
+- Then add a one-paragraph **What's next** summary highlighting the 2–3 imminent tasks (earliest due dates from In progress + Open).
+- Then add a one-paragraph **Recent activity** summary built from the most recent zoho_projects_activity and zoho_cliq_internal field-update chunks — what changed in the last week.
+- Cite tasks with their [#N] tag.
+
 When asked about INVOICES, REMAINING BALANCE, BALANCE DUE, WHAT'S OWED, OUTSTANDING, ITEMIZED INVOICE, LINE-ITEM BREAKDOWN, or any combination of the above:
 
 1. Find EVERY zoho_books_invoice chunk in Retrieved context for this Deal — paid, overdue, draft, sent, partially-paid, all statuses. Do NOT filter them out by status.

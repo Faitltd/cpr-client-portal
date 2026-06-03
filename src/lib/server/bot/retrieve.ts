@@ -456,6 +456,8 @@ const SOURCE_LABEL: Record<string, string> = {
 	zoho_cliq_external: 'Cliq · external',
 	zoho_crm_note: 'CRM note',
 	zoho_crm_field: 'Deal field',
+	zoho_projects_task: 'Projects · task',
+	zoho_projects_activity: 'Projects · activity',
 	transcript: 'Transcript',
 	sms: 'SMS'
 };
@@ -476,6 +478,8 @@ const SOURCE_PRIORITY: Record<string, number> = {
 	zoho_books_invoice: 100,
 	zoho_books_estimate: 95,
 	zoho_books_payment: 90,
+	zoho_projects_task: 85,
+	zoho_projects_activity: 80,
 	workdrive_xlsx: 70,
 	workdrive_pdf: 65,
 	workdrive_docx: 65,

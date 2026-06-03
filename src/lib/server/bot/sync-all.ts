@@ -6,8 +6,9 @@ import { syncBooksForDeal } from './ingest-books';
 import { syncMailForDeal } from './ingest-mail';
 import { syncCrmEmailsForDeal } from './ingest-crm-emails';
 import { syncWorkDriveForDeal } from './ingest-workdrive';
+import { syncProjectsForDeal } from './ingest-projects';
 
-export type SyncSource = 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive';
+export type SyncSource = 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive' | 'projects';
 export type SyncTrigger = 'cron' | 'manual' | 'admin';
 
 // Stages to EXCLUDE from sync. Default is just "Lost". Override via env if you
@@ -209,7 +210,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 	for (const d of deals) {
 		const summary: DealSyncSummary = { deal_id: d.id, deal_name: d.name, stage: d.stage };
 		try {
-			const [cliq, books, mail, crmEmail, workdrive] = await Promise.all([
+			const [cliq, books, mail, crmEmail, workdrive, projects] = await Promise.all([
 				sources.includes('cliq')
 					? syncCliqForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
 					: null,
@@ -224,6 +225,9 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 					: null,
 				sources.includes('workdrive')
 					? syncWorkDriveForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
+					: null,
+				sources.includes('projects')
+					? syncProjectsForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
 					: null
 			]);
 			if (cliq) summary.cliq = tallyCliq(cliq);
@@ -231,13 +235,15 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 			if (mail) summary.mail = tallyMail(mail);
 			if (crmEmail) summary.crm_email = tallyCrmEmail(crmEmail);
 			if (workdrive) summary.workdrive = tallyWorkdrive(workdrive);
+			if (projects) (summary as any).projects = projects;
 
 			const allErrs = [
 				summary.cliq?.error,
 				summary.books?.error,
 				summary.mail?.error,
 				summary.crm_email?.error,
-				summary.workdrive?.error
+				summary.workdrive?.error,
+				(projects as any)?.error
 			].filter(Boolean) as string[];
 
 			// "Expected" errors = data hasn't been set up on the Deal yet (not a
@@ -250,7 +256,8 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 				/no WorkDrive folder on Deal/i,
 				/no folder on Deal and no matching subfolder/i,
 				/no PDF or DOCX files found/i,
-				/cannot match Mail/i
+				/cannot match Mail/i,
+				/no Zoho Projects ID linked to Deal/i
 			];
 			const realErrs = allErrs.filter(
 				(e) => !EXPECTED_PATTERNS.some((p) => p.test(e))

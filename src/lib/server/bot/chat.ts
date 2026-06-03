@@ -15,6 +15,8 @@ const ALL_SOURCES = [
 	'workdrive_pdf',
 	'workdrive_docx',
 	'workdrive_xlsx',
+	'zoho_projects_task',
+	'zoho_projects_activity',
 	'transcript'
 ] as const;
 
