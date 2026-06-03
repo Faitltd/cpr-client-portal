@@ -22,7 +22,7 @@ function isMessage(x: unknown): x is ChatMessage {
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	const access = await getBotAccess(cookies);
-	if (!access || access.role !== 'trade_partner') {
+	if (!access || (access.role !== 'trade_partner' && access.role !== 'admin')) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
 
@@ -43,17 +43,20 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ message: 'Last message must be from user' }, { status: 400 });
 	}
 
-	// Enforce that the trade partner has access to THIS Deal.
-	const tradeToken = cookies.get('trade_session') ?? '';
-	const ctx = await loadTradePageContext(tradeToken, { includeDetailFields: false });
-	if (ctx.redirectTo) {
-		return json({ message: 'Trade session expired' }, { status: 401 });
-	}
-	const allowedDealIds = new Set(
-		(ctx.deals ?? []).map((d: any) => String(d.id ?? d.deal_id ?? '')).filter(Boolean)
-	);
-	if (!allowedDealIds.has(dealId)) {
-		return json({ message: 'You do not have access to this Deal' }, { status: 403 });
+	// Enforce per-deal access for trade partners. Admins skip this check
+	// (admins can see any deal — useful for support / testing trade-partner view).
+	if (access.role === 'trade_partner') {
+		const tradeToken = cookies.get('trade_session') ?? '';
+		const ctx = await loadTradePageContext(tradeToken, { includeDetailFields: false });
+		if (ctx.redirectTo) {
+			return json({ message: 'Trade session expired' }, { status: 401 });
+		}
+		const allowedDealIds = new Set(
+			(ctx.deals ?? []).map((d: any) => String(d.id ?? d.deal_id ?? '')).filter(Boolean)
+		);
+		if (!allowedDealIds.has(dealId)) {
+			return json({ message: 'You do not have access to this Deal' }, { status: 403 });
+		}
 	}
 
 	try {

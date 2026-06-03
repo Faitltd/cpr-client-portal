@@ -12,14 +12,22 @@ interface DealItem {
 
 export const GET: RequestHandler = async ({ cookies }) => {
 	const access = await getBotAccess(cookies);
-	if (!access || access.role !== 'trade_partner') {
+	if (!access || (access.role !== 'trade_partner' && access.role !== 'admin')) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
 
+	// For trade partners, load only their assigned deals via the trade session.
+	// For admin (testing trade view), return their trade-session deals if they
+	// have one — otherwise return an empty list and let them pass a dealId
+	// explicitly via the chat endpoint.
 	const sessionToken = cookies.get('trade_session') ?? '';
+	if (!sessionToken && access.role === 'admin') {
+		return json({ data: [] });
+	}
 	const ctx = await loadTradePageContext(sessionToken, { includeDetailFields: false });
 
 	if (ctx.redirectTo) {
+		if (access.role === 'admin') return json({ data: [] });
 		return json({ message: 'Trade session expired' }, { status: 401 });
 	}
 
