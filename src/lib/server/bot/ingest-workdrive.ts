@@ -515,7 +515,7 @@ async function ingestFile(
 		deal_id: dealId,
 		source,
 		source_id: sourceId,
-		source_url: null,
+		source_url: (item as any).permalink ?? null,
 		author: null,
 		occurred_at: safeIso(item.modifiedTime ?? item.createdTime),
 		subject,
@@ -524,7 +524,8 @@ async function ingestFile(
 			workdrive_file_id: item.id,
 			mime: item.mime,
 			size: item.size,
-			char_count: text.length
+			char_count: text.length,
+			permalink: (item as any).permalink ?? null
 		},
 		hash: fingerprint
 	};

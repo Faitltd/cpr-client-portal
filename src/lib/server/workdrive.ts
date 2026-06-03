@@ -13,6 +13,7 @@ export type WorkDriveItem = {
 	mime: string | null;
 	createdTime: string | null;
 	modifiedTime: string | null;
+	permalink: string | null;
 	raw: any;
 };
 
@@ -131,6 +132,21 @@ export function normalizeWorkDriveItem(item: any): WorkDriveItem {
 	}
 	const size = Number(attributes?.size ?? attributes?.file_size ?? attributes?.size_in_bytes ?? 0);
 
+	// Permalink: the file's web URL in WorkDrive. The API field is usually
+	// `permalink`, but some payload variants use `web_url`. Fall back to the
+	// canonical /file/{id} pattern when neither is present.
+	const permalinkRaw =
+		(typeof attributes?.permalink === 'string' && attributes.permalink) ||
+		(typeof attributes?.web_url === 'string' && attributes.web_url) ||
+		(typeof item?.permalink === 'string' && item.permalink) ||
+		null;
+	const permalink =
+		permalinkRaw && permalinkRaw.trim()
+			? permalinkRaw.trim()
+			: id
+				? `https://workdrive.zoho.com/file/${encodeURIComponent(id)}`
+				: null;
+
 	return {
 		id,
 		name,
@@ -139,6 +155,7 @@ export function normalizeWorkDriveItem(item: any): WorkDriveItem {
 		mime: typeof attributes?.mime_type === 'string' ? attributes.mime_type : null,
 		createdTime: typeof attributes?.created_time === 'string' ? attributes.created_time : null,
 		modifiedTime: typeof attributes?.modified_time === 'string' ? attributes.modified_time : null,
+		permalink,
 		raw: item
 	};
 }

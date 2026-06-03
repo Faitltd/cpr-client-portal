@@ -473,7 +473,8 @@ export function renderRetrievedContextBlock(chunks: RetrievedChunk[]): string | 
 		const label = SOURCE_LABEL[c.source] ?? c.source;
 		const meta = [label, c.author, formatDate(c.occurred_at)].filter(Boolean).join(' · ');
 		const subject = c.subject ? `\n  Subject: ${c.subject}` : '';
-		lines.push(`${tag} ${meta}${subject}\n  ${c.content.replace(/\n/g, ' ')}`);
+		const url = c.source_url ? `\n  URL: ${c.source_url}` : '';
+		lines.push(`${tag} ${meta}${subject}${url}\n  ${c.content.replace(/\n/g, ' ')}`);
 	});
 	return lines.join('\n\n');
 }
