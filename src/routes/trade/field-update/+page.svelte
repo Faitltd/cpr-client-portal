@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import { createDraft, type DraftHandle } from '$lib/stores/draftStore';
 
@@ -29,8 +30,30 @@
 
 	const deals = Array.isArray(data?.deals) ? data.deals : [];
 	const tradePartnerName = data?.tradePartner?.name || data?.tradePartner?.email || 'Trade Partner';
-	let selectedDealId = deals[0]?.id || '';
+
+	// Pre-select the deal from `?deal=<id>` URL param (set when arriving from
+	// the dashboard) if it's in the partner's deal list. Falls back to the
+	// first deal otherwise.
+	function pickInitialDealId(): string {
+		if (browser) {
+			const urlDealId = new URL(window.location.href).searchParams.get('deal');
+			if (urlDealId && deals.some((d) => String(d.id) === urlDealId)) return urlDealId;
+		}
+		return deals[0]?.id ? String(deals[0].id) : '';
+	}
+
+	let selectedDealId = pickInitialDealId();
 	let submissionType: SubmissionType = 'field_update';
+
+	// Re-evaluate after mount in case the URL is only available client-side.
+	onMount(() => {
+		if (!selectedDealId || selectedDealId === String(deals[0]?.id || '')) {
+			const fromUrl = new URL(window.location.href).searchParams.get('deal');
+			if (fromUrl && deals.some((d) => String(d.id) === fromUrl)) {
+				selectedDealId = fromUrl;
+			}
+		}
+	});
 
 	const getDealLabel = (deal: any) => {
 		return (
@@ -267,17 +290,30 @@
 
 	$: submitLabel = SUBMIT_LABELS[submissionType];
 
-	$: canSubmit = (() => {
-		if (!selectedDealId) return false;
-		if (submissionType === 'report_problem' && !rpNote.trim()) return false;
-		if (
-			submissionType === 'change_order' &&
-			(!coScope.trim() || coCost === '' || !Number.isFinite(coCost) || (coCost as number) <= 0)
-		) {
-			return false;
-		}
-		return true;
-	})();
+	// Svelte 5's legacy-mode `$:` only tracks identifiers it can see at the top
+	// of the right-hand side. Wrapping the logic in an IIFE hides the deps and
+	// the reactive statement only fires once. Compute as plain expressions so
+	// every referenced var is visible to the dependency tracker.
+	$: hasDeal = !!selectedDealId;
+	$: rpNoteFilled = submissionType !== 'report_problem' || rpNote.trim().length > 0;
+	$: coValid =
+		submissionType !== 'change_order' ||
+		(coScope.trim().length > 0 &&
+			coCost !== '' &&
+			Number.isFinite(coCost) &&
+			(coCost as number) > 0);
+
+	$: canSubmit = hasDeal && rpNoteFilled && coValid;
+
+	$: disabledReason = !hasDeal
+		? 'Select a project above to enable submission.'
+		: !rpNoteFilled
+			? 'Describe the problem to enable submission.'
+			: submissionType === 'change_order' && !coScope.trim()
+				? 'Describe the scope of the change to enable submission.'
+				: submissionType === 'change_order' && !coValid
+					? 'Enter an estimated cost greater than 0.'
+					: '';
 
 	onDestroy(() => {
 		draft?.cancelPending();
@@ -418,6 +454,9 @@
 						<span class="draft-indicator">Saving&hellip;</span>
 					{:else if draftStatus === 'saved'}
 						<span class="draft-indicator">Draft saved</span>
+					{/if}
+					{#if !canSubmit && !submitting && disabledReason}
+						<span class="disabled-hint">{disabledReason}</span>
 					{/if}
 				</div>
 			</form>
@@ -619,6 +658,15 @@
 	.draft-indicator {
 		color: #9ca3af;
 		font-size: 0.85rem;
+	}
+
+	.disabled-hint {
+		color: #b45309;
+		background: #fef3c7;
+		border: 1px solid #fde68a;
+		font-size: 0.85rem;
+		padding: 0.35rem 0.6rem;
+		border-radius: 6px;
 	}
 
 	@media (max-width: 720px) {

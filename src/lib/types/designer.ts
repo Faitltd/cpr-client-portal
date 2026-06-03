@@ -54,6 +54,9 @@ export type DealUpdateResponse = {
 
 export type ApiErrorResponse = {
 	message: string;
+	/** True when the edit was saved to the designer-notes cache even though
+	 * the Zoho push failed. UI should surface "saved locally; push pending". */
+	cached?: boolean;
 };
 
 // ---------------------------------------------------------------------------

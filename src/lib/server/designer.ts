@@ -9,6 +9,7 @@ import {
 	type DesignerSession
 } from '$lib/server/db';
 import { normalizeDealRecord } from '$lib/server/auth';
+import { getLatestDesignerNotesBulk } from '$lib/server/designer-notes';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { createLogger } from '$lib/server/logger';
 import {
@@ -316,7 +317,8 @@ async function paginateFilteredDeals(
  * Stageless deals remain visible so WIP records aren't accidentally hidden.
  */
 export async function getAllDeals(): Promise<DesignerDealSummary[]> {
-	return paginateFilteredDeals((stage) => !ACTIVE_VIEW_EXCLUDED_STAGES.has(stage));
+	const deals = await paginateFilteredDeals((stage) => !ACTIVE_VIEW_EXCLUDED_STAGES.has(stage));
+	return overlayCachedDesignerNotes(deals);
 }
 
 /**
@@ -324,7 +326,8 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
  * Stageless deals are NOT included here.
  */
 export async function getProjectCreatedDeals(): Promise<DesignerDealSummary[]> {
-	return paginateFilteredDeals((stage) => stage === PROJECT_CREATED_STAGE);
+	const deals = await paginateFilteredDeals((stage) => stage === PROJECT_CREATED_STAGE);
+	return overlayCachedDesignerNotes(deals);
 }
 
 /**
@@ -332,7 +335,52 @@ export async function getProjectCreatedDeals(): Promise<DesignerDealSummary[]> {
  * Stageless deals are NOT included here.
  */
 export async function getOnHoldDeals(): Promise<DesignerDealSummary[]> {
-	return paginateFilteredDeals((stage) => stage === ON_HOLD_STAGE);
+	const deals = await paginateFilteredDeals((stage) => stage === ON_HOLD_STAGE);
+	return overlayCachedDesignerNotes(deals);
+}
+
+/**
+ * Most-recent-edited wins reconciliation between Zoho and the Supabase cache.
+ *
+ *  • If the cached edit is NEWER than Zoho's Modified_Time → use the cached
+ *    value. (Cache is the source of truth until Zoho catches up — a Push to
+ *    Zoho will reconcile.)
+ *  • If Zoho is newer (someone edited in CRM directly) → use Zoho's value.
+ *    The stale cached row stays — it just won't be used.
+ *
+ * Errors loading the cache are swallowed: we never want a Supabase outage to
+ * break the designer dashboard. Worst case: behaviour reverts to pre-cache.
+ */
+async function overlayCachedDesignerNotes(
+	deals: DesignerDealSummary[]
+): Promise<DesignerDealSummary[]> {
+	if (deals.length === 0) return deals;
+	let cache: Awaited<ReturnType<typeof getLatestDesignerNotesBulk>>;
+	try {
+		cache = await getLatestDesignerNotesBulk(deals.map((d) => d.id));
+	} catch (err) {
+		log.warn('overlayCachedDesignerNotes: cache lookup failed; continuing without cache', {
+			error: err instanceof Error ? err.message : String(err)
+		});
+		return deals;
+	}
+	if (cache.size === 0) return deals;
+	return deals.map((deal) => {
+		const zohoMod = deal.modifiedTime ? new Date(deal.modifiedTime).getTime() : 0;
+		let next = deal;
+		for (const field of ['Ball_In_Court', 'Ball_In_Court_Note'] as const) {
+			const cached = cache.get(`${deal.id}::${field}`);
+			if (!cached) continue;
+			const editedAt = new Date(cached.edited_at).getTime();
+			if (!Number.isFinite(editedAt) || editedAt <= zohoMod) continue;
+			// Cache wins.
+			next =
+				field === 'Ball_In_Court'
+					? { ...next, ballInCourt: cached.value }
+					: { ...next, ballInCourtNote: cached.value };
+		}
+		return next;
+	});
 }
 
 /**

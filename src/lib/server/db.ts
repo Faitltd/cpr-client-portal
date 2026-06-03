@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
+import ws from 'ws';
 import {
 	findNormalizedEmailMatch,
 	normalizeEmailAddress,
@@ -20,7 +21,11 @@ function getSupabase() {
 	}
 
 	supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-		auth: { persistSession: false }
+		auth: { persistSession: false },
+		// Node 20 lacks a global WebSocket. Supply `ws` so the realtime client
+		// (which Supabase initializes eagerly even when we don't use it) can
+		// construct without throwing.
+		realtime: { transport: ws as unknown as typeof WebSocket }
 	});
 	return supabaseClient;
 }

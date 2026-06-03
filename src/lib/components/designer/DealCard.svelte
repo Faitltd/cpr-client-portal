@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, tick } from 'svelte';
+	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import type {
 		DealFieldDescriptor,
 		DealFieldGroup,
@@ -45,10 +45,64 @@
 	let ballInCourtNoteError = '';
 	let ballInCourtNoteSavedAt: number | null = null;
 
+	// Designer-notes cache state: when the inline PATCH succeeds against
+	// Supabase but the Zoho push fails, the API returns `cached: true`. We
+	// flip this flag and show a Push-to-Zoho button. The flag also auto-loads
+	// from the /push-notes GET when the card mounts so refreshes don't lose it.
+	let cachedPending = 0;
+	let pushingToZoho = false;
+	let pushZohoError = '';
+	let pushZohoSuccessAt: number | null = null;
+
+	async function refreshPendingStatus() {
+		try {
+			const res = await fetch(
+				`/api/designer/deals/${encodeURIComponent(deal.id)}/push-notes`
+			);
+			if (!res.ok) return;
+			const data = await res.json().catch(() => null);
+			cachedPending = typeof data?.pending === 'number' ? data.pending : 0;
+		} catch {
+			/* non-fatal */
+		}
+	}
+
+	async function pushNotesToZoho() {
+		pushingToZoho = true;
+		pushZohoError = '';
+		pushZohoSuccessAt = null;
+		try {
+			const res = await fetch(
+				`/api/designer/deals/${encodeURIComponent(deal.id)}/push-notes`,
+				{ method: 'POST' }
+			);
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				pushZohoError = data.message || `Push failed (${res.status})`;
+				return;
+			}
+			cachedPending = typeof data?.pending === 'number' ? data.pending : 0;
+			pushZohoSuccessAt = Date.now();
+			setTimeout(() => (pushZohoSuccessAt = null), 2500);
+			if (data?.deal) {
+				dispatch('dealUpdated', { dealId: deal.id, deal: data.deal });
+			}
+		} catch (err) {
+			pushZohoError = err instanceof Error ? err.message : 'Push failed';
+		} finally {
+			pushingToZoho = false;
+		}
+	}
+
 	const dispatch = createEventDispatcher<{
 		dealUpdated: { dealId: string; deal: DesignerDealSummary };
 	}>();
 
+	onMount(() => {
+		// Check on mount in case a previous edit was cached but never pushed
+		// (e.g. browser closed mid-edit, Zoho was down).
+		void refreshPendingStatus();
+	});
 
 	// All descriptors — we render every one. The form treats non-editable
 	// descriptors as display-only. The server still enforces the whitelist.
@@ -264,8 +318,16 @@
 			});
 			const data = await res.json().catch(() => ({}));
 			if (!res.ok) {
-				ballInCourtError = data.message || `Failed to save (${res.status})`;
-				ballInCourtDraft = deal.ballInCourt ?? '';
+				if (data?.cached) {
+					// Cache accepted the edit; Zoho failed. Keep the typed value,
+					// surface the Zoho error, and show the Push-to-Zoho button.
+					ballInCourtDraft = next;
+					cachedPending++;
+					ballInCourtError = `Saved locally. Zoho push failed: ${data.message}`;
+				} else {
+					ballInCourtError = data.message || `Failed to save (${res.status})`;
+					ballInCourtDraft = deal.ballInCourt ?? '';
+				}
 				return;
 			}
 			const updatedDeal: DesignerDealSummary | undefined = data?.deal;
@@ -275,6 +337,7 @@
 			} else {
 				ballInCourtDraft = next;
 			}
+			void refreshPendingStatus();
 			ballInCourtSavedAt = Date.now();
 			setTimeout(() => {
 				ballInCourtSavedAt = null;
@@ -314,8 +377,14 @@
 			});
 			const data = await res.json().catch(() => ({}));
 			if (!res.ok) {
-				ballInCourtNoteError = data.message || `Failed to save (${res.status})`;
-				ballInCourtNoteDraft = deal.ballInCourtNote ?? '';
+				if (data?.cached) {
+					ballInCourtNoteDraft = next;
+					cachedPending++;
+					ballInCourtNoteError = `Saved locally. Zoho push failed: ${data.message}`;
+				} else {
+					ballInCourtNoteError = data.message || `Failed to save (${res.status})`;
+					ballInCourtNoteDraft = deal.ballInCourtNote ?? '';
+				}
 				return;
 			}
 			const updatedDeal: DesignerDealSummary | undefined = data?.deal;
@@ -325,6 +394,7 @@
 			} else {
 				ballInCourtNoteDraft = next;
 			}
+			void refreshPendingStatus();
 			ballInCourtNoteSavedAt = Date.now();
 			setTimeout(() => {
 				ballInCourtNoteSavedAt = null;
@@ -452,6 +522,31 @@
 						{/if}
 					</dd>
 				</div>
+				{#if !readonly && cachedPending > 0}
+					<div
+						class="push-zoho-cell"
+						on:click|stopPropagation
+						on:keydown|stopPropagation
+						role="presentation"
+					>
+						<dt>Zoho sync</dt>
+						<dd>
+							<button
+								type="button"
+								class="push-zoho-btn"
+								on:click={pushNotesToZoho}
+								disabled={pushingToZoho}
+							>
+								{pushingToZoho ? 'Pushing…' : `Push ${cachedPending} pending change${cachedPending > 1 ? 's' : ''} to Zoho`}
+							</button>
+							{#if pushZohoError}
+								<span class="bic-status error" role="alert">{pushZohoError}</span>
+							{:else if pushZohoSuccessAt}
+								<span class="bic-status success" role="status">Pushed</span>
+							{/if}
+						</dd>
+					</div>
+				{/if}
 			</dl>
 		</div>
 		<span class="chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
@@ -705,6 +800,29 @@
 	   the header toggle when interacted with. */
 	.bic-cell {
 		cursor: text;
+	}
+
+	.push-zoho-cell {
+		grid-column: 1 / -1;
+		cursor: default;
+	}
+	.push-zoho-btn {
+		background: #f59e0b;
+		color: #1f2937;
+		border: 1px solid #d97706;
+		border-radius: 6px;
+		padding: 0.35rem 0.7rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.push-zoho-btn:hover:not(:disabled) {
+		background: #d97706;
+		color: #fff;
+	}
+	.push-zoho-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.bic-input {

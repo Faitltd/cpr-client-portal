@@ -56,9 +56,15 @@
 		)
 	).sort();
 
-	function matchesQuery(deal: DesignerDealSummary) {
-		if (!query.trim()) return true;
-		const needle = query.trim().toLowerCase();
+	// Svelte 5's legacy-mode `$:` only tracks identifiers it can see at the
+	// top of the right-hand expression. Helpers called inside `.filter(...)`
+	// hide their dependencies (`query`), so the filter never re-runs when the
+	// user types. Compute the needle and join-text inline so every reactive
+	// dep (`query`, `scopedDeals`, `stageFilter`, `isSectionMode`) is visible.
+	$: needle = query.trim().toLowerCase();
+	$: filtered = scopedDeals.filter((deal) => {
+		if (!isSectionMode && stageFilter && deal.stage !== stageFilter) return false;
+		if (!needle) return true;
 		const hay = [
 			deal.name,
 			deal.stage,
@@ -72,11 +78,6 @@
 			.join(' ')
 			.toLowerCase();
 		return hay.includes(needle);
-	}
-
-	$: filtered = scopedDeals.filter((deal) => {
-		if (!isSectionMode && stageFilter && deal.stage !== stageFilter) return false;
-		return matchesQuery(deal);
 	});
 
 	function onDealUpdated(event: CustomEvent<{ dealId: string; deal: DesignerDealSummary }>) {
