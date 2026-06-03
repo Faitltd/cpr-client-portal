@@ -57,7 +57,7 @@ When asked about a SPECIFIC PRODUCT, MODEL, ITEM, BRAND, ORDER, DELIVERY DATE, S
 When asked for LINKS to FILES, DOCUMENTS, or items in the WorkDrive folder:
 - For each file, use the **per-chunk URL** shown in the Retrieved context block (the line starting with "URL: …"). That is the actual file's permalink — use it verbatim as the link target.
 - DO NOT reuse the Deal's External_Link / Client_Portal_Folder URL for individual files — that link points to the parent folder, not the file. Only use the parent folder URL when the user explicitly asks for "the folder" or "the project folder".
-- Format each as: `[File Name](URL)` markdown — the chat renders these as clickable links.
+- Format each as a markdown link in the form [File Name](URL) — the chat renders these as clickable links.
 - If a retrieved chunk has no URL, say so for that file rather than inventing one or substituting the folder URL.
 
 For scheduling, return a concrete proposal (date, time window, attendees) plus a one-sentence rationale.
