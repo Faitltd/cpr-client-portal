@@ -14,10 +14,10 @@ import type { RequestHandler } from './$types';
  */
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	const access = await getBotAccess(cookies);
-	if (!access || access.role !== 'client') {
+	if (!access || (access.role !== 'client' && access.role !== 'admin')) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
-	if (!access.clientId) {
+	if (access.role === 'client' && !access.clientId) {
 		return json({ message: 'Client session missing id' }, { status: 401 });
 	}
 
@@ -30,12 +30,17 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const dealId = (body.dealId ?? '').trim();
 	if (!dealId) return json({ message: 'dealId required' }, { status: 400 });
 
-	const allowed = await getDealsForClient(access.clientId).catch(() => [] as any[]);
-	const allowedIds = new Set(
-		(allowed ?? []).map((d: any) => String(d.id ?? d.deal_id ?? '')).filter(Boolean)
-	);
-	if (!allowedIds.has(dealId)) {
-		return json({ message: 'You do not have access to this Deal' }, { status: 403 });
+	if (access.role === 'client') {
+		const allowed = await getDealsForClient(
+			access.clientZohoContactId ?? null,
+			access.email || null
+		).catch(() => [] as any[]);
+		const allowedIds = new Set(
+			(allowed ?? []).map((d: any) => String(d.id ?? d.deal_id ?? '')).filter(Boolean)
+		);
+		if (!allowedIds.has(dealId)) {
+			return json({ message: 'You do not have access to this Deal' }, { status: 403 });
+		}
 	}
 
 	// Fire-and-forget — client doesn't wait. The bot picks up fresh chunks on

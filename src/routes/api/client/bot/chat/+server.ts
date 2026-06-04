@@ -46,10 +46,12 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	// Enforce that the client owns this Deal. Admins bypass the check so they
 	// can test the client view from the dashboard while logged in as admin.
 	if (access.role === 'client') {
-		if (!access.clientId) {
-			return json({ message: 'Client session missing id' }, { status: 401 });
-		}
-		const allowed = await getDealsForClient(access.clientId).catch(() => [] as any[]);
+		// getDealsForClient keys off the Zoho CRM Contact id (+ email fallback),
+		// NOT the portal-side client.id. Pass both so the lookup matches.
+		const allowed = await getDealsForClient(
+			access.clientZohoContactId ?? null,
+			access.email || null
+		).catch(() => [] as any[]);
 		const allowedIds = new Set(
 			(allowed ?? []).map((d: any) => String(d.id ?? d.deal_id ?? '')).filter(Boolean)
 		);

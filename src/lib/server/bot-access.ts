@@ -38,6 +38,12 @@ export interface BotAccess {
 	tradePartnerId: string | null;
 	/** Client id, used to scope Deal list to this homeowner's projects. */
 	clientId: string | null;
+	/**
+	 * Zoho CRM Contact id for the client. The portal `clientId` is the
+	 * portal-side record id; `getDealsForClient` actually keys off the Zoho
+	 * Contact id (plus email as a fallback), so we carry it separately.
+	 */
+	clientZohoContactId?: string | null;
 }
 
 /**
@@ -137,7 +143,7 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 			}
 		}
 		if (principal?.role === 'client') {
-			const client = principal.session.client;
+			const client = principal.session.client as Record<string, any>;
 			return {
 				role: 'client',
 				email: (client.email ?? '').toLowerCase(),
@@ -169,7 +175,8 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				hideFinancials: false,
 				hideInternalFinancials: true,
 				tradePartnerId: null,
-				clientId: client.id ?? null
+				clientId: client.id ?? null,
+				clientZohoContactId: client.zoho_contact_id ?? client.zohoContactId ?? null
 			};
 		}
 	}
