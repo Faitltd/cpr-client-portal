@@ -22,7 +22,7 @@ function isMessage(x: unknown): x is ChatMessage {
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	const access = await getBotAccess(cookies);
-	if (!access || access.role !== 'client') {
+	if (!access || (access.role !== 'client' && access.role !== 'admin')) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
 
@@ -43,17 +43,41 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ message: 'Last message must be from user' }, { status: 400 });
 	}
 
-	// Enforce that the client owns this Deal.
-	if (!access.clientId) {
-		return json({ message: 'Client session missing id' }, { status: 401 });
+	// Enforce that the client owns this Deal. Admins bypass the check so they
+	// can test the client view from the dashboard while logged in as admin.
+	if (access.role === 'client') {
+		if (!access.clientId) {
+			return json({ message: 'Client session missing id' }, { status: 401 });
+		}
+		const allowed = await getDealsForClient(access.clientId).catch(() => [] as any[]);
+		const allowedIds = new Set(
+			(allowed ?? []).map((d: any) => String(d.id ?? d.deal_id ?? '')).filter(Boolean)
+		);
+		if (!allowedIds.has(dealId)) {
+			return json({ message: 'You do not have access to this Deal' }, { status: 403 });
+		}
 	}
-	const allowed = await getDealsForClient(access.clientId).catch(() => [] as any[]);
-	const allowedIds = new Set(
-		(allowed ?? []).map((d: any) => String(d.id ?? d.deal_id ?? '')).filter(Boolean)
-	);
-	if (!allowedIds.has(dealId)) {
-		return json({ message: 'You do not have access to this Deal' }, { status: 403 });
-	}
+
+	// When admin previews the client view, apply the SAME restrictions a real
+	// client would have so what they see matches the homeowner experience.
+	const clientLikeRestrictions = {
+		allowedSources: [
+			'workdrive_pdf',
+			'workdrive_docx',
+			'workdrive_xlsx',
+			'zoho_crm_field',
+			'zoho_books_invoice',
+			'zoho_books_payment',
+			'zoho_cliq_external',
+			'zoho_projects_task',
+			'zoho_projects_activity',
+			'transcript'
+		],
+		allowedTopFolders: ['Client Portal', 'Client', 'Homeowner Portal'],
+		hideFinancials: false,
+		hideInternalFinancials: true
+	};
+	const effective = access.role === 'admin' ? clientLikeRestrictions : access;
 
 	try {
 		const stream = await runChat({
@@ -61,10 +85,10 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			threadId,
 			adminEmail: access.email || 'client',
 			messages,
-			allowedSources: access.allowedSources,
-			allowedTopFolders: access.allowedTopFolders,
-			hideFinancials: access.hideFinancials,
-			hideInternalFinancials: access.hideInternalFinancials
+			allowedSources: effective.allowedSources,
+			allowedTopFolders: effective.allowedTopFolders,
+			hideFinancials: effective.hideFinancials,
+			hideInternalFinancials: effective.hideInternalFinancials
 		});
 		return new Response(stream, {
 			headers: {

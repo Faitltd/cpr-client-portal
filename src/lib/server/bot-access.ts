@@ -96,10 +96,20 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_projects_task',
 					'zoho_projects_activity'
 				],
-				// WorkDrive-side gate: only files inside each deal's "Designs"
-				// subfolder are visible. SOW, Permits, Change Orders, etc. stay
-				// hidden because they may carry pricing or internal-only material.
-				allowedTopFolders: ['Designs'],
+				// WorkDrive-side gate: files inside the design / contract
+				// folders are visible (these hold scope-of-work the trade
+				// partner needs). Job Costing, SOW pricing build-ups,
+				// estimates, change-order cost detail, etc. stay hidden.
+				// CPR deals use slightly varied folder names across vintages
+				// (Designs vs Design vs Design & Planning; Contracts and
+				// Agreements vs Contract and Agreement) — list each variant.
+				allowedTopFolders: [
+					'Designs',
+					'Design',
+					'Design & Planning',
+					'Contracts and Agreements',
+					'Contract and Agreement'
+				],
 				hideFinancials: true,
 				hideInternalFinancials: false,
 				tradePartnerId: session.trade_partner.id ?? null,
