@@ -20,6 +20,7 @@
 	let designerDeals: DesignerDealSummary[] = [];
 	let designerFieldDescriptors: DealFieldDescriptor[] = [];
 	let selectedDealId = '';
+	let activeTab: 'details' | 'field_update' = 'details';
 	type DashboardTab = 'trade' | 'designer';
 	let activeTab: DashboardTab = 'trade';
 
@@ -122,7 +123,7 @@
 	$: externalLinks = parseExternalLinks(selectedDeal?.External_Link);
 
 	// Lazy file listing for Designs + SOW folders.
-	interface DesignFile { id: string; name: string; mime: string | null; modifiedTime: string | null; }
+	interface DesignFile { id: string; name: string; mime: string | null; modifiedTime: string | null; url?: string | null; }
 	interface FilesPayload {
 		designs: DesignFile[];
 		sow: DesignFile[];
@@ -841,6 +842,34 @@
 		</div>
 
 		{#if selectedDeal}
+			<div class="tab-bar">
+				<button
+					type="button"
+					class="tab"
+					class:active={activeTab === 'details'}
+					on:click={() => (activeTab = 'details')}
+				>Project Details</button>
+				<button
+					type="button"
+					class="tab"
+					class:active={activeTab === 'field_update'}
+					on:click={() => (activeTab = 'field_update')}
+				>Field Update</button>
+			</div>
+
+			{#if activeTab === 'field_update'}
+				<div class="card embedded-form">
+					<iframe
+						title="Field Update"
+						src={`/trade/field-update?embed=1&deal=${encodeURIComponent(selectedDealId)}`}
+						class="field-update-iframe"
+					></iframe>
+				</div>
+			{/if}
+
+		{/if}
+
+		{#if selectedDeal && activeTab === 'details'}
 			<div class="card deal-details">
 				<h3>{getDealLabel(selectedDeal)}</h3>
 				<div class="details-grid">
@@ -924,7 +953,11 @@
 									<ul class="file-list">
 										{#each sowFiles as f (f.id)}
 											<li>
-												<span class="file-name">{f.name}</span>
+												{#if f.url}
+													<a class="file-link" href={f.url} target="_blank" rel="noreferrer">{f.name}</a>
+												{:else}
+													<span class="file-name">{f.name}</span>
+												{/if}
 											</li>
 										{/each}
 									</ul>
@@ -947,7 +980,11 @@
 									<ul class="file-list">
 										{#each designsFiles as f (f.id)}
 											<li>
-												<span class="file-name">{f.name}</span>
+												{#if f.url}
+													<a class="file-link" href={f.url} target="_blank" rel="noreferrer">{f.name}</a>
+												{:else}
+													<span class="file-name">{f.name}</span>
+												{/if}
 											</li>
 										{/each}
 									</ul>
@@ -1961,5 +1998,39 @@
 		background: #fef2f2;
 		border: 1px solid #fecaca;
 		color: #b91c1c;
+	}
+
+	.tab-bar {
+		display: flex;
+		gap: 0.25rem;
+		border-bottom: 1px solid #e5e7eb;
+		margin: 1rem 0;
+	}
+	.tab-bar .tab {
+		padding: 0.55rem 1rem;
+		border: none;
+		background: transparent;
+		color: #6b7280;
+		font-weight: 600;
+		font-size: 0.95rem;
+		border-bottom: 2px solid transparent;
+		cursor: pointer;
+	}
+	.tab-bar .tab.active {
+		color: #111827;
+		border-bottom-color: #2563eb;
+	}
+	.tab-bar .tab:hover {
+		color: #111827;
+	}
+	.embedded-form {
+		padding: 0;
+		overflow: hidden;
+	}
+	.field-update-iframe {
+		width: 100%;
+		height: 1400px;
+		border: 0;
+		display: block;
 	}
 </style>

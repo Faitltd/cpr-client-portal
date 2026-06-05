@@ -45,6 +45,11 @@
 	let selectedDealId = pickInitialDealId();
 	let submissionType: SubmissionType = 'field_update';
 
+	// When rendered inside an <iframe> on the trade dashboard, hide the page
+	// chrome (back link, header, deal selector) and let the parent tab supply
+	// the project context. Driven by ?embed=1 in the URL.
+	const embedMode = browser ? new URL(window.location.href).searchParams.get('embed') === '1' : false;
+
 	// Re-evaluate after mount in case the URL is only available client-side.
 	onMount(() => {
 		if (!selectedDealId || selectedDealId === String(deals[0]?.id || '')) {
@@ -320,12 +325,14 @@
 	});
 </script>
 
-<div class="dashboard">
-	<header>
-		<a class="back-link" href="/trade/dashboard">&larr; Back to Dashboard</a>
-		<h1>Field Update</h1>
-		<p class="subtitle">Submitting as {tradePartnerName}</p>
-	</header>
+<div class="dashboard" class:embedded={embedMode}>
+	{#if !embedMode}
+		<header>
+			<a class="back-link" href="/trade/dashboard">&larr; Back to Dashboard</a>
+			<h1>Field Update</h1>
+			<p class="subtitle">Submitting as {tradePartnerName}</p>
+		</header>
+	{/if}
 
 	{#if data?.warning}
 		<div class="card warning">{data.warning}</div>
@@ -334,14 +341,16 @@
 			<p>No deals found for your account yet.</p>
 		</div>
 	{:else}
-		<div class="trade-selector card">
-			<label for="trade-deal">Select Deal</label>
-			<select id="trade-deal" bind:value={selectedDealId}>
-				{#each deals as deal}
-					<option value={deal.id}>{getDealLabel(deal)}</option>
-				{/each}
-			</select>
-		</div>
+		{#if !embedMode}
+			<div class="trade-selector card">
+				<label for="trade-deal">Select Deal</label>
+				<select id="trade-deal" bind:value={selectedDealId}>
+					{#each deals as deal}
+						<option value={deal.id}>{getDealLabel(deal)}</option>
+					{/each}
+				</select>
+			</div>
+		{/if}
 
 		<div class="card form-card">
 			<div class="form-field">
@@ -681,5 +690,15 @@
 		.submit-button {
 			width: 100%;
 		}
+	}
+
+	.dashboard.embedded {
+		padding: 0;
+		margin: 0;
+		max-width: 100%;
+		background: transparent;
+	}
+	.dashboard.embedded :global(header) {
+		display: none;
 	}
 </style>
