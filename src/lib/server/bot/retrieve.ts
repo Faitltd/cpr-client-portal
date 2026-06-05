@@ -259,16 +259,38 @@ export async function retrieveRelevant(opts: {
 	// `perSourceCap` slots before the global cap kicks in. Without this, a
 	// noisy source (mail, cliq) saturates the 36-chunk pool and starves
 	// WorkDrive / Books / Projects which the user usually wants most.
-	const cap = Math.max(k * 3, 24);
+	// Cap is dynamic — when the user explicitly asked for documents OR
+	// finance data, we let those lanes through fully and only cap the noisy
+	// sources.
+	const docsFire = docs.length > 0;
+	const financeFire = finance.length > 0;
+	const baseCap = Math.max(k * 3, 24);
+	const cap = docsFire || financeFire ? baseCap + docs.length + finance.length : baseCap;
 	const perSourceCap = 6;
+
+	const picked: RetrievedChunk[] = [];
+	const seen = new Set<string>();
+
+	// Always-include lanes: every doc / finance chunk gets in, no cap.
+	for (const c of finance) {
+		if (seen.has(c.chunk_id)) continue;
+		seen.add(c.chunk_id);
+		picked.push(c);
+	}
+	for (const c of docs) {
+		if (seen.has(c.chunk_id)) continue;
+		seen.add(c.chunk_id);
+		picked.push(c);
+	}
+
+	// Per-source-capped pass for the rest.
+	const remaining = mergedRaw.filter((c) => !seen.has(c.chunk_id));
 	const bySource = new Map<string, RetrievedChunk[]>();
-	for (const c of mergedRaw) {
+	for (const c of remaining) {
 		const list = bySource.get(c.source) ?? [];
 		list.push(c);
 		bySource.set(c.source, list);
 	}
-	const picked: RetrievedChunk[] = [];
-	const seen = new Set<string>();
 	for (const list of bySource.values()) {
 		for (const c of list.slice(0, perSourceCap)) {
 			if (seen.has(c.chunk_id)) continue;
