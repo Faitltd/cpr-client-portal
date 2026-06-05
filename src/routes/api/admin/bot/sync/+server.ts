@@ -5,9 +5,19 @@ import { syncBooksForDeal } from '$lib/server/bot/ingest-books';
 import { syncMailForDeal } from '$lib/server/bot/ingest-mail';
 import { syncCrmEmailsForDeal } from '$lib/server/bot/ingest-crm-emails';
 import { syncWorkDriveForDeal } from '$lib/server/bot/ingest-workdrive';
+import { syncProjectsForDeal } from '$lib/server/bot/ingest-projects';
+import { syncSignForDeal } from '$lib/server/bot/ingest-sign';
 import type { RequestHandler } from './$types';
 
-type SyncSource = 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive' | 'all';
+type SyncSource =
+	| 'cliq'
+	| 'books'
+	| 'mail'
+	| 'crm_email'
+	| 'workdrive'
+	| 'projects'
+	| 'sign'
+	| 'all';
 
 function isSource(x: string): x is SyncSource {
 	return (
@@ -16,6 +26,8 @@ function isSource(x: string): x is SyncSource {
 		x === 'mail' ||
 		x === 'crm_email' ||
 		x === 'workdrive' ||
+		x === 'projects' ||
+		x === 'sign' ||
 		x === 'all'
 	);
 }
@@ -41,7 +53,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const out: Record<string, any> = {};
 	const errors: string[] = [];
 
-	async function runOne(name: 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive') {
+	async function runOne(
+		name: 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive' | 'projects' | 'sign'
+	) {
 		try {
 			if (name === 'cliq') out.cliq = await syncCliqForDeal(dealId);
 			if (name === 'books') out.books = await syncBooksForDeal(dealId);
@@ -49,6 +63,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			if (name === 'crm_email') out.crm_email = await syncCrmEmailsForDeal(dealId);
 			if (name === 'workdrive')
 				out.workdrive = await syncWorkDriveForDeal(dealId, { folderIdOverride });
+			if (name === 'projects') out.projects = await syncProjectsForDeal(dealId);
+			if (name === 'sign') out.sign = await syncSignForDeal(dealId);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'sync failed';
 			out[name] = { error: msg };
@@ -62,7 +78,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			runOne('books'),
 			runOne('mail'),
 			runOne('crm_email'),
-			runOne('workdrive')
+			runOne('workdrive'),
+			runOne('projects'),
+			runOne('sign')
 		]);
 	} else {
 		await runOne(sourceArg);
