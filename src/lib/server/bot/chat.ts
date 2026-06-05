@@ -387,6 +387,35 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
 		);
 	}
+
+	// Inject a literal numbered list of every WorkDrive doc retrieved (one
+	// entry per unique document, with its source_url). When the user asks
+	// "what documents are in the folder?" the LLM has to acknowledge each
+	// row — it can't drop files like it does when it tries to summarise the
+	// Retrieved context block on its own.
+	const workdriveDocs = new Map<string, { subject: string; url: string | null }>();
+	for (const c of retrieved) {
+		if (!c.source.startsWith('workdrive_')) continue;
+		if (workdriveDocs.has(c.document_id)) continue;
+		workdriveDocs.set(c.document_id, {
+			subject: c.subject ?? '(untitled)',
+			url: c.source_url ?? null
+		});
+	}
+	if (workdriveDocs.size > 0) {
+		const inventoryLines: string[] = [];
+		let i = 1;
+		for (const { subject, url } of workdriveDocs.values()) {
+			const link = url ? `[${subject}](${url})` : subject;
+			inventoryLines.push(`${i}. ${link}`);
+			i += 1;
+		}
+		promptParts.push(
+			`\n# Full WorkDrive document inventory for this Deal (${workdriveDocs.size} files)\n` +
+				`When the user asks what documents are in the folder, what files exist, the scope, or anything that requires listing the project's docs, you MUST output this complete list verbatim, in this exact order. Do not omit any line. Do not summarise. Do not pick a subset.\n\n` +
+				inventoryLines.join('\n')
+		);
+	}
 	if (opts.hideFinancials) {
 		promptParts.push('\n' + TRADE_PARTNER_FINANCIAL_GUARD);
 	} else if (opts.hideInternalFinancials) {
@@ -490,6 +519,35 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 	} else {
 		promptParts.push(
 			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
+		);
+	}
+
+	// Inject a literal numbered list of every WorkDrive doc retrieved (one
+	// entry per unique document, with its source_url). When the user asks
+	// "what documents are in the folder?" the LLM has to acknowledge each
+	// row — it can't drop files like it does when it tries to summarise the
+	// Retrieved context block on its own.
+	const workdriveDocs = new Map<string, { subject: string; url: string | null }>();
+	for (const c of retrieved) {
+		if (!c.source.startsWith('workdrive_')) continue;
+		if (workdriveDocs.has(c.document_id)) continue;
+		workdriveDocs.set(c.document_id, {
+			subject: c.subject ?? '(untitled)',
+			url: c.source_url ?? null
+		});
+	}
+	if (workdriveDocs.size > 0) {
+		const inventoryLines: string[] = [];
+		let i = 1;
+		for (const { subject, url } of workdriveDocs.values()) {
+			const link = url ? `[${subject}](${url})` : subject;
+			inventoryLines.push(`${i}. ${link}`);
+			i += 1;
+		}
+		promptParts.push(
+			`\n# Full WorkDrive document inventory for this Deal (${workdriveDocs.size} files)\n` +
+				`When the user asks what documents are in the folder, what files exist, the scope, or anything that requires listing the project's docs, you MUST output this complete list verbatim, in this exact order. Do not omit any line. Do not summarise. Do not pick a subset.\n\n` +
+				inventoryLines.join('\n')
 		);
 	}
 	if (opts.hideFinancials) {
