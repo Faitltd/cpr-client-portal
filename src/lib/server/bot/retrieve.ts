@@ -249,28 +249,65 @@ export async function retrieveRelevant(opts: {
 	// Top-folder gate (trade partners → Designs only). Only filters WorkDrive
 	// chunks; everything else passes through. Non-allowed WorkDrive chunks are
 	// dropped silently.
-	if (!allowedTopFolders) return merged;
+	// Fetch the workdrive doc metadata once, then use it for both the
+	// top_folder gate AND the external-share URL substitution. Trade
+	// partners and clients can't open internal /file/{id} URLs (no Zoho
+	// login), so we replace source_url with the cached external share when
+	// one exists.
 	const workdriveDocIds = Array.from(
 		new Set(merged.filter((c) => c.source.startsWith('workdrive_')).map((c) => c.document_id))
 	);
 	if (workdriveDocIds.length === 0) return merged;
+
 	const { data: docMeta, error: docMetaErr } = await supabase
 		.from('bot_documents')
 		.select('id, metadata')
 		.in('id', workdriveDocIds);
 	if (docMetaErr) {
-		console.warn('[bot/retrieve] top_folder gate query failed:', docMetaErr.message);
-		return merged;
+		console.warn('[bot/retrieve] doc-meta lookup failed:', docMetaErr.message);
+		return allowedTopFolders ? merged : merged;
 	}
 	const docTopFolder = new Map<string, string | null>();
+	const docFileId = new Map<string, string | null>();
 	for (const d of docMeta ?? []) {
-		const tf = (d as any).metadata?.top_folder;
+		const md = (d as any).metadata ?? {};
+		const tf = md.top_folder;
+		const fid = md.workdrive_file_id;
 		docTopFolder.set((d as any).id, typeof tf === 'string' ? tf.toLowerCase() : null);
+		docFileId.set((d as any).id, typeof fid === 'string' && fid ? fid : null);
 	}
-	return merged.filter((c) => {
+
+	// Look up external share URLs for every workdrive file we have.
+	const fileIds = Array.from(
+		new Set(Array.from(docFileId.values()).filter((v): v is string => !!v))
+	);
+	const externalUrlByFileId = new Map<string, string>();
+	if (fileIds.length > 0) {
+		const { data: shares, error: shareErr } = await supabase
+			.from('workdrive_file_shares')
+			.select('file_id, external_url')
+			.in('file_id', fileIds);
+		if (shareErr) {
+			console.warn('[bot/retrieve] share-url lookup failed:', shareErr.message);
+		} else {
+			for (const s of shares ?? []) {
+				externalUrlByFileId.set((s as any).file_id, (s as any).external_url);
+			}
+		}
+	}
+
+	// Apply: gate by top_folder (if set) AND swap to external URL.
+	const filtered = merged.filter((c) => {
 		if (!c.source.startsWith('workdrive_')) return true;
+		if (!allowedTopFolders) return true;
 		const tf = docTopFolder.get(c.document_id);
 		return tf != null && allowedTopFolders.has(tf);
+	});
+	return filtered.map((c) => {
+		if (!c.source.startsWith('workdrive_')) return c;
+		const fid = docFileId.get(c.document_id);
+		const ext = fid ? externalUrlByFileId.get(fid) : undefined;
+		return ext ? { ...c, source_url: ext } : c;
 	});
 }
 
