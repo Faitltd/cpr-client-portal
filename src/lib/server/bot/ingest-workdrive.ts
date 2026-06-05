@@ -564,12 +564,17 @@ async function ingestFile(
 		.replace(/\s+\n/g, '\n')
 		.replace(/\n{3,}/g, '\n\n')
 		.trim();
+	const subject = sanitizeForPostgres(item.name);
+	// Filename-only fallback. Scanned / image-only PDFs return zero text from
+	// pdf-parse, but the user still needs the bot to know the file EXISTS in
+	// the folder so it can be listed and linked. Ingest a minimal placeholder
+	// body — the LLM can quote the filename and offer the link even though
+	// it can't summarise content.
 	if (!text || text.length < 20) {
-		out.reason = 'no extractable text';
-		return out;
+		text = `[This file's text could not be extracted automatically — likely a scanned image PDF. Filename: ${subject}. Folder: ${folderCtx.folderPath || '(deal root)'}.]`;
+		out.reason = 'text-light (filename-only record)';
 	}
 
-	const subject = sanitizeForPostgres(item.name);
 	const body = `File: ${subject}\n\n${text}`;
 
 	const docRow = {
