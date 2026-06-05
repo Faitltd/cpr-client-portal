@@ -229,21 +229,30 @@ export async function retrieveRelevant(opts: {
 		? fetchAllBooksChunks(opts.dealId, filterAllowed)
 		: Promise.resolve([] as RetrievedChunk[]);
 
-	const [semantic, recentRaw, keywordRaw, financeRaw] = await Promise.all([
+	// WorkDrive always-on: when the user asks about documents, files, the
+	// folder, the scope, contracts, etc., fetch one chunk per WorkDrive doc
+	// for this deal so the bot can enumerate the whole inventory.
+	const docsPromise = looksLikeDocsQuery(query)
+		? fetchAllWorkDriveChunks(opts.dealId, filterAllowed)
+		: Promise.resolve([] as RetrievedChunk[]);
+
+	const [semantic, recentRaw, keywordRaw, financeRaw, docsRaw] = await Promise.all([
 		semanticPromise,
 		recencyPromise,
 		keywordPromise,
-		financePromise
+		financePromise,
+		docsPromise
 	]);
 	const recent = filterAllowed(recentRaw);
 	const keyword = filterAllowed(keywordRaw);
 	const finance = filterAllowed(financeRaw);
+	const docs = filterAllowed(docsRaw);
 
-	// Finance-must-see chunks first (Books invoice/estimate/payment), then
-	// keyword exact matches, then recency, then semantic.
+	// Order: finance must-see → docs must-see → keyword exact matches →
+	// recency → semantic. Earlier sources win the merge dedup.
 	const mergedRaw = mergeChunks(
 		finance,
-		mergeChunks(keyword, mergeChunks(recent, semantic))
+		mergeChunks(docs, mergeChunks(keyword, mergeChunks(recent, semantic)))
 	);
 
 	// Diversify: ensure every source that produced any chunk gets up to
@@ -347,6 +356,15 @@ function looksFinancial(query: string): boolean {
 	return FINANCE_RE.test(query);
 }
 
+// "list documents" style queries — the user wants the full file inventory,
+// not the top-N semantically similar chunks. We pull EVERY WorkDrive doc
+// (one chunk each) so the bot can enumerate the whole folder.
+const DOCS_RE = /\b(document|documents|file|files|folder|drive|workdrive|pdf|docx|spreadsheet|sheet|scope|contract|agreement|plan|drawing|blueprint|bp|sow|notes|breakdown)\b/i;
+
+function looksLikeDocsQuery(query: string): boolean {
+	return DOCS_RE.test(query);
+}
+
 async function fetchAllBooksChunks(
 	dealId: string,
 	filterAllowed: (chunks: RetrievedChunk[]) => RetrievedChunk[]
@@ -380,6 +398,53 @@ async function fetchAllBooksChunks(
 				similarity: 1 // direct fetch — treat as fully relevant
 			});
 		}
+	}
+	return filterAllowed(out);
+}
+
+/**
+ * Return the FIRST chunk of every WorkDrive document for the deal. Used by
+ * "list documents / what's in the folder" style queries so the bot can
+ * enumerate the inventory instead of relying on semantic ranking.
+ */
+async function fetchAllWorkDriveChunks(
+	dealId: string,
+	filterAllowed: (chunks: RetrievedChunk[]) => RetrievedChunk[]
+): Promise<RetrievedChunk[]> {
+	const { data, error } = await supabase
+		.from('bot_documents')
+		.select(
+			'id, source, subject, author, occurred_at, source_url, bot_chunks!inner(id, content, chunk_index)'
+		)
+		.eq('deal_id', dealId)
+		.in('source', ['workdrive_pdf', 'workdrive_docx', 'workdrive_xlsx'])
+		.order('occurred_at', { ascending: false })
+		.limit(100);
+	if (error) {
+		console.warn('[bot/retrieve] workdrive list fetch failed:', error.message);
+		return [];
+	}
+	const out: RetrievedChunk[] = [];
+	for (const doc of data ?? []) {
+		const chunks = Array.isArray(doc.bot_chunks) ? doc.bot_chunks : [];
+		// Pick the first chunk by index (the body header — "File: <name>" + start).
+		// We don't want every chunk of every file in here; the LLM just needs to
+		// know the file exists.
+		const first = chunks
+			.slice()
+			.sort((a: any, b: any) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))[0];
+		if (!first) continue;
+		out.push({
+			chunk_id: first.id,
+			document_id: doc.id,
+			content: first.content,
+			source: doc.source,
+			subject: doc.subject ?? null,
+			author: doc.author ?? null,
+			occurred_at: doc.occurred_at,
+			source_url: doc.source_url ?? null,
+			similarity: 1
+		});
 	}
 	return filterAllowed(out);
 }
