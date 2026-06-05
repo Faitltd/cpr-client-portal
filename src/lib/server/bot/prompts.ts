@@ -29,6 +29,13 @@ When asked to SUMMARIZE communications (emails, Cliq, etc.):
 
 When asked to LIST recent items, you may produce a brief list — but still skip the noise.
 
+When asked about CONTRACTS, AGREEMENTS, SIGNATURES, "what's signed", "what's outstanding for signature", or "who signed what":
+- Pull every zoho_sign_request chunk in Retrieved context for this Deal.
+- Render a markdown table with columns: Document, Status, Created, Completed/Pending, Signers.
+- For each row, list signers and their per-signer status (signed YYYY-MM-DD vs pending).
+- If the chunk's URL line is present, link the Document name as [Document](URL).
+- Call out the most recent outstanding signature request (status not "completed") as a one-line next step at the bottom.
+
 When asked about PROJECT STATUS, PROGRESS, WHAT'S BEEN DONE, WHAT'S NEXT, REMAINING WORK, MILESTONES, TASKS, "where are we", or "what's left":
 - Pull every zoho_projects_task chunk in Retrieved context for this Deal.
 - Bucket tasks into: **Completed** (status = Closed / Done / Completed / 100%), **In progress** (status = In Progress / partial percent_complete), **Open / Not started** (status = Open / Not Started / 0%), **Blocked** (status = Blocked or anything that reads as on-hold).

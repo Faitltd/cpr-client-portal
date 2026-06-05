@@ -73,6 +73,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			'zoho_cliq_external',
 			'zoho_projects_task',
 			'zoho_projects_activity',
+			'zoho_sign_request',
 			'transcript'
 		],
 		allowedTopFolders: ['Client Portal', 'Client', 'Homeowner Portal'],

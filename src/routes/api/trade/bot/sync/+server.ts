@@ -3,6 +3,7 @@ import { getBotAccess } from '$lib/server/bot-access';
 import { loadTradePageContext } from '$lib/server/trade-page-data';
 import { syncWorkDriveForDeal } from '$lib/server/bot/ingest-workdrive';
 import { syncProjectsForDeal } from '$lib/server/bot/ingest-projects';
+import { syncSignForDeal } from '$lib/server/bot/ingest-sign';
 import type { RequestHandler } from './$types';
 
 /**
@@ -51,6 +52,10 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	syncProjectsForDeal(dealId).catch((err) => {
 		const msg = err instanceof Error ? err.message : 'unknown';
 		console.warn(`[bot/trade-sync] Projects sync failed for ${dealId}:`, msg);
+	});
+	syncSignForDeal(dealId).catch((err) => {
+		const msg = err instanceof Error ? err.message : 'unknown';
+		console.warn(`[bot/trade-sync] Sign sync failed for ${dealId}:`, msg);
 	});
 
 	return json({ ok: true, dealId, started: true });

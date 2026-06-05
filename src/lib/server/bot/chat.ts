@@ -17,6 +17,7 @@ const ALL_SOURCES = [
 	'workdrive_xlsx',
 	'zoho_projects_task',
 	'zoho_projects_activity',
+	'zoho_sign_request',
 	'transcript'
 ] as const;
 

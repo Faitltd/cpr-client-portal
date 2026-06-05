@@ -5,6 +5,7 @@ import { syncWorkDriveForDeal } from '$lib/server/bot/ingest-workdrive';
 import { syncProjectsForDeal } from '$lib/server/bot/ingest-projects';
 import { syncBooksForDeal } from '$lib/server/bot/ingest-books';
 import { syncCliqForDeal } from '$lib/server/bot/ingest-cliq';
+import { syncSignForDeal } from '$lib/server/bot/ingest-sign';
 import type { RequestHandler } from './$types';
 
 /**
@@ -56,6 +57,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	});
 	syncCliqForDeal(dealId).catch((err) => {
 		console.warn(`[bot/client-sync] Cliq failed for ${dealId}:`, err?.message ?? err);
+	});
+	syncSignForDeal(dealId).catch((err) => {
+		console.warn(`[bot/client-sync] Sign failed for ${dealId}:`, err?.message ?? err);
 	});
 
 	return json({ ok: true, dealId, started: true });

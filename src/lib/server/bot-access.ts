@@ -100,7 +100,8 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_crm_field',
 					'zoho_cliq_external',
 					'zoho_projects_task',
-					'zoho_projects_activity'
+					'zoho_projects_activity',
+					'zoho_sign_request'
 				],
 				// WorkDrive-side gate: files inside the design / contract
 				// folders are visible (these hold scope-of-work the trade
@@ -163,6 +164,7 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_cliq_external',
 					'zoho_projects_task',
 					'zoho_projects_activity',
+					'zoho_sign_request',
 					'transcript'
 				],
 				// WorkDrive-side gate: clients see only files inside their
