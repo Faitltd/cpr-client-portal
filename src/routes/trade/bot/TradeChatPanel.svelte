@@ -38,6 +38,19 @@
 	$effect(() => {
 		dealId;
 		resetThread();
+		// Fire-and-forget background sync so trade partners always see fresh
+		// WorkDrive content without needing a Sync button. The server returns
+		// immediately; the actual sync runs in the background and the bot
+		// picks up new files on the next question.
+		if (dealId) {
+			fetch('/api/trade/bot/sync', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ dealId })
+			}).catch(() => {
+				/* ignore — silent background refresh */
+			});
+		}
 	});
 
 	async function scrollToBottom() {

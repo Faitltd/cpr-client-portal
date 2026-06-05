@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { listWorkDriveFolder, extractWorkDriveFolderId } from '$lib/server/workdrive';
+import { getOrCreateWorkDriveFileShare } from '$lib/server/workdrive-shares';
 import type { RequestHandler } from './$types';
 
 async function getAccessToken() {
@@ -43,6 +44,7 @@ interface FileEntry {
 	name: string;
 	mime: string | null;
 	modifiedTime: string | null;
+	url: string | null;
 }
 
 async function listFilesInFolder(
@@ -51,15 +53,32 @@ async function listFilesInFolder(
 	apiDomain?: string
 ): Promise<FileEntry[]> {
 	const items = await listWorkDriveFolder(accessToken, folderId, apiDomain);
-	return items
-		.filter((it) => it.type === 'file')
-		.map((it) => ({
-			id: it.id,
-			name: it.name,
-			mime: it.mime ?? null,
-			modifiedTime: it.modifiedTime ?? null
-		}))
-		.sort((a, b) => a.name.localeCompare(b.name));
+	const files = items.filter((it) => it.type === 'file');
+	// Mint / look up an external (no-Zoho-login) share URL per file. Trade
+	// partners don't have Zoho accounts; the internal /file/{id} URL would
+	// dump them at the login wall. Each share is created once and cached in
+	// Supabase, so subsequent calls are a single SELECT.
+	const enriched = await Promise.all(
+		files.map(async (it) => {
+			let externalUrl: string | null = null;
+			if (it.id) {
+				externalUrl = await getOrCreateWorkDriveFileShare({
+					accessToken,
+					apiDomain,
+					fileId: it.id,
+					fileName: it.name
+				}).catch(() => null);
+			}
+			return {
+				id: it.id,
+				name: it.name,
+				mime: it.mime ?? null,
+				modifiedTime: it.modifiedTime ?? null,
+				url: externalUrl
+			} satisfies FileEntry;
+		})
+	);
+	return enriched.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function findSubfolder(
