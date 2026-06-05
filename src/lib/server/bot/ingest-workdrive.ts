@@ -367,7 +367,24 @@ function sanitizeForPostgres(s: string): string {
 async function parsePdf(buf: Buffer): Promise<string> {
 	const pdfParse = (await import('pdf-parse')).default;
 	const result = await pdfParse(buf);
-	return typeof result.text === 'string' ? result.text : '';
+	const extracted = typeof result.text === 'string' ? result.text.trim() : '';
+	// If pdf-parse found real text, use it — fast path, no OCR cost.
+	if (extracted.length >= 20) return extracted;
+	// Scanned / image-only PDF. Fall back to OpenAI Vision OCR.
+	try {
+		const { ocrPdfBufferWithOpenAI } = await import('./ocr');
+		const ocrText = await ocrPdfBufferWithOpenAI(buf);
+		if (ocrText && ocrText.length >= 20) {
+			console.log(`[bot/ingest-workdrive] OCR recovered ${ocrText.length} chars from scanned PDF`);
+			return ocrText;
+		}
+	} catch (err) {
+		console.warn(
+			'[bot/ingest-workdrive] OCR fallback failed:',
+			err instanceof Error ? err.message : err
+		);
+	}
+	return extracted; // may be '' — caller handles the empty case
 }
 
 async function parseDocx(buf: Buffer): Promise<string> {
@@ -484,12 +501,21 @@ async function ingestFile(
 
 	const { data: existing } = await supabase
 		.from('bot_documents')
-		.select('id, hash, source_url, metadata')
+		.select('id, hash, source_url, metadata, body')
 		.eq('source', source)
 		.eq('source_id', sourceId)
 		.maybeSingle();
 
-	if (existing && existing.hash === fingerprint) {
+	// Re-process if the existing body is a filename-only placeholder. OCR
+	// (or a future text-extraction improvement) may now be able to recover
+	// real content even though the file bytes haven't changed.
+	const existingIsPlaceholder =
+		existing &&
+		source === 'workdrive_pdf' &&
+		typeof (existing as any).body === 'string' &&
+		(existing as any).body.includes('could not be extracted automatically');
+
+	if (existing && existing.hash === fingerprint && !existingIsPlaceholder) {
 		// Content unchanged. But always patch metadata that the bot uses for
 		// access control / linking — permalink (URL backfill) and top_folder
 		// (trade-partner Designs gate). Older rows don't have these.
