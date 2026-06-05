@@ -134,7 +134,8 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'\\bquote\\b',
 					'pricing',
 					'\\$\\d',
-					'job\\s*cost'
+					'job\\s*cost',
+					'breakdown'
 				],
 				hideFinancials: true,
 				hideInternalFinancials: false,
