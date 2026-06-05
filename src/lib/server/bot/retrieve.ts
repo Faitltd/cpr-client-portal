@@ -284,20 +284,31 @@ export async function retrieveRelevant(opts: {
 	// sources.
 	const docsFire = docs.length > 0;
 	const financeFire = finance.length > 0;
+	const recencyFire = recent.length > 0;
 	const baseCap = Math.max(k * 3, 24);
-	const cap = docsFire || financeFire ? baseCap + docs.length + finance.length : baseCap;
+	const cap =
+		docsFire || financeFire || recencyFire
+			? baseCap + docs.length + finance.length + recent.length
+			: baseCap;
 	const perSourceCap = 6;
 
 	const picked: RetrievedChunk[] = [];
 	const seen = new Set<string>();
 
-	// Always-include lanes: every doc / finance chunk gets in, no cap.
+	// Always-include lanes: every doc / finance / recency chunk gets in, no
+	// per-source cap. Recency joins finance + docs as a "user asked for this
+	// specifically, don't crowd it out with semantic noise" promise.
 	for (const c of finance) {
 		if (seen.has(c.chunk_id)) continue;
 		seen.add(c.chunk_id);
 		picked.push(c);
 	}
 	for (const c of docs) {
+		if (seen.has(c.chunk_id)) continue;
+		seen.add(c.chunk_id);
+		picked.push(c);
+	}
+	for (const c of recent) {
 		if (seen.has(c.chunk_id)) continue;
 		seen.add(c.chunk_id);
 		picked.push(c);
