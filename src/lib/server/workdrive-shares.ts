@@ -130,15 +130,23 @@ export async function getOrCreateWorkDriveFileShare(opts: {
 	fileName: string;
 }): Promise<string | null> {
 	const cached = await readCachedShare(opts.fileId);
-	if (cached?.external_url) return cached.external_url;
+	if (cached?.external_url) {
+		console.log(`[workdrive-shares] cache hit ${opts.fileId}`);
+		return cached.external_url;
+	}
 
+	console.log(`[workdrive-shares] minting share for ${opts.fileId} (${opts.fileName})`);
 	const created = await createWorkDriveFileShare(
 		opts.accessToken,
 		opts.apiDomain,
 		opts.fileId,
 		opts.fileName
 	);
-	if (!created) return null;
+	if (!created) {
+		console.warn(`[workdrive-shares] mint failed for ${opts.fileId}`);
+		return null;
+	}
+	console.log(`[workdrive-shares] minted ${opts.fileId} → ${created.externalUrl}`);
 	await writeCachedShare(opts.fileId, created.externalUrl, created.linkId);
 	return created.externalUrl;
 }
