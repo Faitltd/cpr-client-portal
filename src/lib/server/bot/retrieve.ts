@@ -240,11 +240,41 @@ export async function retrieveRelevant(opts: {
 	const finance = filterAllowed(financeRaw);
 
 	// Finance-must-see chunks first (Books invoice/estimate/payment), then
-	// keyword exact matches, then recency, then semantic. Cap at 3× k.
-	const merged = mergeChunks(
+	// keyword exact matches, then recency, then semantic.
+	const mergedRaw = mergeChunks(
 		finance,
 		mergeChunks(keyword, mergeChunks(recent, semantic))
-	).slice(0, Math.max(k * 3, 24));
+	);
+
+	// Diversify: ensure every source that produced any chunk gets up to
+	// `perSourceCap` slots before the global cap kicks in. Without this, a
+	// noisy source (mail, cliq) saturates the 36-chunk pool and starves
+	// WorkDrive / Books / Projects which the user usually wants most.
+	const cap = Math.max(k * 3, 24);
+	const perSourceCap = 6;
+	const bySource = new Map<string, RetrievedChunk[]>();
+	for (const c of mergedRaw) {
+		const list = bySource.get(c.source) ?? [];
+		list.push(c);
+		bySource.set(c.source, list);
+	}
+	const picked: RetrievedChunk[] = [];
+	const seen = new Set<string>();
+	for (const list of bySource.values()) {
+		for (const c of list.slice(0, perSourceCap)) {
+			if (seen.has(c.chunk_id)) continue;
+			seen.add(c.chunk_id);
+			picked.push(c);
+		}
+	}
+	// Fill remaining slots with the next-best regardless of source.
+	for (const c of mergedRaw) {
+		if (picked.length >= cap) break;
+		if (seen.has(c.chunk_id)) continue;
+		seen.add(c.chunk_id);
+		picked.push(c);
+	}
+	const merged = picked.slice(0, cap);
 
 	// Top-folder gate (trade partners → Designs only). Only filters WorkDrive
 	// chunks; everything else passes through. Non-allowed WorkDrive chunks are
