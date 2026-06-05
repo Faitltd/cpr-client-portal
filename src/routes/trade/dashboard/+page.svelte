@@ -20,7 +20,7 @@
 	let designerDeals: DesignerDealSummary[] = [];
 	let designerFieldDescriptors: DealFieldDescriptor[] = [];
 	let selectedDealId = '';
-	let activeTab: 'details' | 'field_update' = 'details';
+	let dealTab: 'details' | 'field_update' = 'details';
 	type DashboardTab = 'trade' | 'designer';
 	let activeTab: DashboardTab = 'trade';
 
@@ -846,22 +846,22 @@
 				<button
 					type="button"
 					class="tab"
-					class:active={activeTab === 'details'}
-					on:click={() => (activeTab = 'details')}
+					class:active={dealTab === 'details'}
+					on:click={() => (dealTab = 'details')}
 				>Project Details</button>
 				<button
 					type="button"
 					class="tab"
-					class:active={activeTab === 'field_update'}
-					on:click={() => (activeTab = 'field_update')}
+					class:active={dealTab === 'field_update'}
+					on:click={() => (dealTab = 'field_update')}
 				>Field Update</button>
 			</div>
 
-			{#if activeTab === 'field_update'}
+			{#if dealTab === 'field_update'}
 				<div class="card embedded-form">
 					<iframe
 						title="Field Update"
-						src={`/trade/field-update?embed=1&deal=${encodeURIComponent(selectedDealId)}`}
+						src={'/trade/field-update?embed=1&deal=' + encodeURIComponent(selectedDealId)}
 						class="field-update-iframe"
 					></iframe>
 				</div>
@@ -869,7 +869,7 @@
 
 		{/if}
 
-		{#if selectedDeal && activeTab === 'details'}
+		{#if selectedDeal && dealTab === 'details'}
 			<div class="card deal-details">
 				<h3>{getDealLabel(selectedDeal)}</h3>
 				<div class="details-grid">
