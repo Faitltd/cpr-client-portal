@@ -226,8 +226,13 @@ export async function retrieveRelevant(opts: {
 	})();
 
 	const windowDays = detectTimeWindow(query);
+	// For "what changed this week" style queries we want to surface the full
+	// activity stream — Cliq messages, project task updates, field updates,
+	// emails — not just the top 12 hits. Active deals can produce 100+
+	// messages a week and the bot needs to see them to summarise.
+	const recencyLimit = windowDays ? 80 : 0;
 	const recencyPromise = windowDays
-		? fetchRecentChunks({ dealId: opts.dealId, days: windowDays, limit: 12 })
+		? fetchRecentChunks({ dealId: opts.dealId, days: windowDays, limit: recencyLimit })
 		: Promise.resolve([] as RetrievedChunk[]);
 
 	// Keyword fallback: pull any chunk that literally contains the query's

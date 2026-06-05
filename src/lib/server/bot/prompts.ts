@@ -41,7 +41,7 @@ When asked about PROJECT STATUS, PROGRESS, WHAT'S BEEN DONE, WHAT'S NEXT, REMAIN
 - Bucket tasks into: **Completed** (status = Closed / Done / Completed / 100%), **In progress** (status = In Progress / partial percent_complete), **Open / Not started** (status = Open / Not Started / 0%), **Blocked** (status = Blocked or anything that reads as on-hold).
 - Render each bucket as a short bullet list, one task per line: "- [task name] (owner, due date if any)".
 - Then add a one-paragraph **What's next** summary highlighting the 2–3 imminent tasks (earliest due dates from In progress + Open).
-- Then add a one-paragraph **Recent activity** summary built from the most recent zoho_projects_activity and zoho_cliq_internal field-update chunks — what changed in the last week.
+- Then add a one-paragraph **Recent activity** summary built from the most recent zoho_projects_activity, zoho_cliq_internal, zoho_cliq_external, zoho_projects_task (status changes), and zoho_mail chunks within the window the user asked about. Do NOT stop after one or two CRM field-update entries — scan EVERY recent chunk in Retrieved context. Group by day, list each notable update with a short description and [#N] citation. If the window has 20 Cliq messages on a topic, summarise them as one bullet ("Cliq thread on cabinet selection: Jeff confirmed model X — June 4 [#11], Mary Sue raised the touch-up timing on June 3 [#12]").
 - Cite tasks with their [#N] tag.
 
 When asked about INVOICES, REMAINING BALANCE, BALANCE DUE, WHAT'S OWED, OUTSTANDING, ITEMIZED INVOICE, LINE-ITEM BREAKDOWN, or any combination of the above:
