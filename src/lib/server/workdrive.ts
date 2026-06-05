@@ -589,3 +589,47 @@ export async function downloadZohoSheetAsXlsx(
 	}
 	throw new Error(`Zoho Sheet export failed for ${fileId}: ${lastError}`);
 }
+
+/**
+ * Download a Zoho-native Writer document exported as DOCX. Same pattern as
+ * downloadZohoSheetAsXlsx — native Writer files don't return parseable bytes
+ * from the normal download endpoint, so we hit `/files/{id}/permalink?format=docx`
+ * and fall back to the older download host with `?format=docx`.
+ */
+export async function downloadZohoWriterAsDocx(
+	accessToken: string,
+	fileId: string,
+	apiDomain?: string
+): Promise<Buffer> {
+	const base = getWorkDriveApiBase(apiDomain).replace(/\/$/, '');
+	const exportUrl = `${base}/files/${encodeURIComponent(fileId)}/permalink?format=docx&download=true`;
+	const headers = {
+		Authorization: `Zoho-oauthtoken ${accessToken}`,
+		Accept: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+	};
+	let lastError = '';
+	try {
+		const response = await fetch(exportUrl, { method: 'GET', headers });
+		if (response.status === 200) {
+			const ab = await response.arrayBuffer();
+			return Buffer.from(ab);
+		}
+		lastError = `${exportUrl} -> HTTP ${response.status}`;
+	} catch (err) {
+		lastError = `${exportUrl} -> ${err instanceof Error ? err.message : 'fetch failed'}`;
+	}
+	for (const downloadBase of Array.from(getWorkDriveDownloadCandidates(apiDomain))) {
+		const url = `${downloadBase.replace(/\/$/, '')}/${encodeURIComponent(fileId)}?format=docx`;
+		try {
+			const response = await fetch(url, { method: 'GET', headers });
+			if (response.status === 200) {
+				const ab = await response.arrayBuffer();
+				return Buffer.from(ab);
+			}
+			lastError = `${url} -> HTTP ${response.status}`;
+		} catch (err) {
+			lastError = `${url} -> ${err instanceof Error ? err.message : 'fetch failed'}`;
+		}
+	}
+	throw new Error(`Zoho Writer export failed for ${fileId}: ${lastError}`);
+}

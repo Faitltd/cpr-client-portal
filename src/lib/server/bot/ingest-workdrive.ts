@@ -6,6 +6,7 @@ import {
 	listWorkDriveFolder,
 	downloadWorkDriveFile,
 	downloadZohoSheetAsXlsx,
+	downloadZohoWriterAsDocx,
 	extractWorkDriveFolderId,
 	buildDealFolderCandidates,
 	findBestFolderByName,
@@ -179,10 +180,14 @@ function pickSource(
 	rawType?: string | null
 ): WdSource | null {
 	const rt = (rawType || '').toLowerCase();
-	// Zoho-native types: rawType is "zohosheet" / "writer" / "show" and the
-	// mime is null. These never match the extension/mime branches below.
-	if (rt === 'zohosheet' || rt.includes('sheet')) {
+	// Zoho-native types: rawType is "zohosheet" / "zohowriter" / "zohoshow"
+	// and the mime is null. These never match the extension/mime branches
+	// below. Writer / Sheet exported via permalink?format=docx/xlsx.
+	if (rt === 'zohosheet' || rt === 'zsheet' || rt.includes('sheet')) {
 		return 'workdrive_xlsx';
+	}
+	if (rt === 'zohowriter' || rt === 'zw' || rt === 'writer' || rt.includes('writer')) {
+		return looksLikeTranscript(name, parentFolderName) ? 'transcript' : 'workdrive_docx';
 	}
 	const lower = name.toLowerCase();
 	// Plain-text transcript formats — always classified as transcripts.
@@ -247,6 +252,21 @@ function isZohoNativeSheet(item: WorkDriveItem): boolean {
 	// Zoho's actual values seen in the wild: "zohosheet" (native Sheet),
 	// "zsheet" (older API), and bare "sheet" in some org schemas.
 	return rawType === 'zohosheet' || rawType === 'zsheet' || rawType === 'sheet';
+}
+
+function isZohoNativeWriter(item: WorkDriveItem): boolean {
+	if (item.mime && /zoho.*writer/i.test(item.mime)) return true;
+	const rawType = String(
+		item.raw?.attributes?.type ??
+			item.raw?.attributes?.resource_type ??
+			item.raw?.type ??
+			''
+	).toLowerCase();
+	return (
+		rawType === 'zohowriter' ||
+		rawType === 'zw' ||
+		rawType === 'writer'
+	);
 }
 
 async function collectIngestibleFiles(
@@ -499,6 +519,9 @@ async function ingestFile(
 			// the regular download endpoint. Route through the export endpoint
 			// so we receive an XLSX buffer parseXlsx can read.
 			buf = await downloadZohoSheetAsXlsx(accessToken, item.id, apiDomain);
+		} else if (source === 'workdrive_docx' && isZohoNativeWriter(item)) {
+			// Same pattern for Zoho-native Writer docs — export as DOCX.
+			buf = await downloadZohoWriterAsDocx(accessToken, item.id, apiDomain);
 		} else {
 			buf = await downloadWorkDriveFile(accessToken, item.id, apiDomain);
 		}
@@ -516,6 +539,9 @@ async function ingestFile(
 			// a Zoho-native sheet exported via downloadZohoSheetAsXlsx — gets
 			// parsed as XLSX. Saves us from juggling extensions for native sheets.
 			text = await parseXlsx(buf);
+		} else if (source === 'workdrive_docx' && isZohoNativeWriter(item)) {
+			// Zoho-native Writer was just exported as DOCX bytes.
+			text = await parseDocx(buf);
 		} else if (lower.endsWith('.pdf')) text = await parsePdf(buf);
 		else if (lower.endsWith('.docx')) text = await parseDocx(buf);
 		else if (lower.endsWith('.vtt') || lower.endsWith('.srt')) text = parseVtt(buf);
