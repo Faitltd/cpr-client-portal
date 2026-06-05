@@ -89,10 +89,17 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				email: session.trade_partner.email ?? '',
 				// WorkDrive (Designs only) + Deal-field context + external Cliq
 				// channel (CPR ↔ client conversations the trade partner is
-				// often part of). Internal Cliq, Mail, Books, CRM emails stay
-				// excluded — they leak pricing or staff-only commentary. The
-				// hideFinancials redactor below still scrubs any dollar
-				// amounts that slip into the external Cliq stream.
+				// often part of) + project task status.
+				//
+				// Excluded entirely:
+				//   - zoho_mail / zoho_cliq_internal — leak pricing + staff chat
+				//   - zoho_books_* — estimates, invoices, payments
+				//   - zoho_sign_request — signed contracts include pricing
+				//   - workdrive_* outside `Designs` — blocks Contracts and
+				//     Agreements (Estimates, Bids, PDA all hold pricing)
+				//
+				// hideFinancials below is the belt-and-suspenders pass that
+				// scrubs any dollar amount that slips through any source.
 				allowedSources: [
 					'workdrive_pdf',
 					'workdrive_docx',
@@ -100,23 +107,13 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_crm_field',
 					'zoho_cliq_external',
 					'zoho_projects_task',
-					'zoho_projects_activity',
-					'zoho_sign_request'
+					'zoho_projects_activity'
 				],
-				// WorkDrive-side gate: files inside the design / contract
-				// folders are visible (these hold scope-of-work the trade
-				// partner needs). Job Costing, SOW pricing build-ups,
-				// estimates, change-order cost detail, etc. stay hidden.
-				// CPR deals use slightly varied folder names across vintages
-				// (Designs vs Design vs Design & Planning; Contracts and
-				// Agreements vs Contract and Agreement) — list each variant.
-				allowedTopFolders: [
-					'Designs',
-					'Design',
-					'Design & Planning',
-					'Contracts and Agreements',
-					'Contract and Agreement'
-				],
+				// WorkDrive-side gate: ONLY the Designs subfolder family. This
+				// hides Contracts and Agreements (where Estimates / Bids / PDA
+				// all carry pricing) and Job Costing. The actual trade scope
+				// CPR puts in Designs/SOW is still reachable here.
+				allowedTopFolders: ['Designs', 'Design', 'Design & Planning'],
 				hideFinancials: true,
 				hideInternalFinancials: false,
 				tradePartnerId: session.trade_partner.id ?? null,

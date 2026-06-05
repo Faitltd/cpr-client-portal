@@ -70,16 +70,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			'zoho_crm_field',
 			'zoho_cliq_external',
 			'zoho_projects_task',
-			'zoho_projects_activity',
-			'zoho_sign_request'
+			'zoho_projects_activity'
 		],
-		allowedTopFolders: [
-			'Designs',
-			'Design',
-			'Design & Planning',
-			'Contracts and Agreements',
-			'Contract and Agreement'
-		],
+		allowedTopFolders: ['Designs', 'Design', 'Design & Planning'],
 		hideFinancials: true,
 		hideInternalFinancials: false
 	};
