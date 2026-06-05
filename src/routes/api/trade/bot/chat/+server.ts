@@ -62,6 +62,17 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	// When admin opens the trade portal bot, force the SAME restrictions a
 	// real trade partner would have so what they see matches production.
 	// Otherwise admin's `allowedSources: null` leaks internal Cliq + Mail.
+	const tradeBlockedPatterns = [
+		'(^|[\\s_\\-\\.])bp([\\s_\\-\\.]|$)',
+		'ballpark',
+		'estimate',
+		'\\bbid\\b',
+		'\\bbids\\b',
+		'\\bquote\\b',
+		'pricing',
+		'\\$\\d',
+		'job\\s*cost'
+	];
 	const tradeLikeRestrictions = {
 		allowedSources: [
 			'workdrive_pdf',
@@ -73,6 +84,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			'zoho_projects_activity'
 		],
 		allowedTopFolders: ['Designs', 'Design', 'Design & Planning'],
+		blockedSubjectPatterns: tradeBlockedPatterns,
 		hideFinancials: true,
 		hideInternalFinancials: false
 	};
@@ -86,6 +98,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			messages,
 			allowedSources: effective.allowedSources,
 			allowedTopFolders: effective.allowedTopFolders,
+			blockedSubjectPatterns: (effective as any).blockedSubjectPatterns ?? null,
 			hideFinancials: effective.hideFinancials,
 			hideInternalFinancials: effective.hideInternalFinancials
 		});

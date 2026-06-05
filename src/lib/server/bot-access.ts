@@ -25,6 +25,13 @@ export interface BotAccess {
 	 * to the "Designs" subfolder for each project.
 	 */
 	allowedTopFolders: string[] | null;
+	/**
+	 * For WorkDrive sources only: drop any file whose Subject (filename)
+	 * matches any of these regex patterns (string form, compiled at use).
+	 * Used to block files like "Guikema_BP_Partial Kitchen" — BP = Ballpark
+	 * Pricing — even when they live in an otherwise-allowed folder.
+	 */
+	blockedSubjectPatterns?: string[] | null;
 	/** When true, redact ALL financial fields/values (trade-partner mode). */
 	hideFinancials: boolean;
 	/**
@@ -114,6 +121,21 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 				// all carry pricing) and Job Costing. The actual trade scope
 				// CPR puts in Designs/SOW is still reachable here.
 				allowedTopFolders: ['Designs', 'Design', 'Design & Planning'],
+				// Filename gate: also block ballpark estimates, bids, quotes,
+				// pricing files even when they appear in the Designs folder
+				// (e.g. "Guikema_BP_Partial Kitchen" — BP = Ballpark Pricing
+				// — lives in Designs/Notes and Breakdowns).
+				blockedSubjectPatterns: [
+					'(^|[\\s_\\-\\.])bp([\\s_\\-\\.]|$)',
+					'ballpark',
+					'estimate',
+					'\\bbid\\b',
+					'\\bbids\\b',
+					'\\bquote\\b',
+					'pricing',
+					'\\$\\d',
+					'job\\s*cost'
+				],
 				hideFinancials: true,
 				hideInternalFinancials: false,
 				tradePartnerId: session.trade_partner.id ?? null,

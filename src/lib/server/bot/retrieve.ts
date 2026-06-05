@@ -158,6 +158,13 @@ export async function retrieveRelevant(opts: {
 	 * Non-WorkDrive sources are unaffected by this filter.
 	 */
 	allowedTopFolders?: string[] | null;
+	/**
+	 * If set, drop WorkDrive chunks whose document subject (filename) matches
+	 * any of these regex patterns (compiled with `i` flag). Used to block
+	 * ballpark-pricing and estimate files for trade partners even when the
+	 * file lives in a folder they otherwise have access to.
+	 */
+	blockedSubjectPatterns?: string[] | null;
 }): Promise<RetrievedChunk[]> {
 	const query = opts.query.trim();
 	if (!query) return [];
@@ -172,6 +179,14 @@ export async function retrieveRelevant(opts: {
 		opts.allowedTopFolders && opts.allowedTopFolders.length > 0
 			? new Set(opts.allowedTopFolders.map((s) => s.toLowerCase()))
 			: null;
+	const blockedSubjectRegexes =
+		opts.blockedSubjectPatterns && opts.blockedSubjectPatterns.length > 0
+			? opts.blockedSubjectPatterns.map((p) => new RegExp(p, 'i'))
+			: null;
+	const subjectBlocked = (subject: string | null): boolean => {
+		if (!blockedSubjectRegexes || !subject) return false;
+		return blockedSubjectRegexes.some((rx) => rx.test(subject));
+	};
 
 	const semanticPromise = (async () => {
 		const [embedding] = await embed([query]);
@@ -357,9 +372,13 @@ export async function retrieveRelevant(opts: {
 		}
 	}
 
-	// Apply: gate by top_folder (if set) AND swap to external URL.
+	// Apply: gate by top_folder (if set) AND drop blocked subjects AND swap
+	// to external URL. The subject block fires on file name — used to hide
+	// ballpark / estimate / bid / pricing files for trade partners even when
+	// the file lives in an otherwise-allowed folder.
 	const filtered = merged.filter((c) => {
 		if (!c.source.startsWith('workdrive_')) return true;
+		if (subjectBlocked(c.subject)) return false;
 		if (!allowedTopFolders) return true;
 		const tf = docTopFolder.get(c.document_id);
 		return tf != null && allowedTopFolders.has(tf);

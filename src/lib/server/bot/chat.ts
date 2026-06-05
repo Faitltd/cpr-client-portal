@@ -280,6 +280,8 @@ export interface RunChatOptions {
 	 * are returned. Used to gate trade partners to "Designs" only.
 	 */
 	allowedTopFolders?: string[] | null;
+	/** Regex patterns (strings) that drop WorkDrive chunks by filename. */
+	blockedSubjectPatterns?: string[] | null;
 	/** Redact ALL financial fields/values (trade-partner mode). */
 	hideFinancials?: boolean;
 	/**
@@ -347,7 +349,8 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 			query: retrievalQuery || lastUser.content,
 			k: 12,
 			allowedSources: opts.allowedSources ?? null,
-			allowedTopFolders: opts.allowedTopFolders ?? null
+			allowedTopFolders: opts.allowedTopFolders ?? null,
+			blockedSubjectPatterns: opts.blockedSubjectPatterns ?? null
 		}).catch((err) => {
 			console.warn('[bot] retrieval failed:', err);
 			return [];
@@ -491,7 +494,8 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 			query: retrievalQuery || lastUser.content,
 			k: 12,
 			allowedSources: opts.allowedSources ?? null,
-			allowedTopFolders: opts.allowedTopFolders ?? null
+			allowedTopFolders: opts.allowedTopFolders ?? null,
+			blockedSubjectPatterns: opts.blockedSubjectPatterns ?? null
 		}).catch((err) => {
 			console.warn('[bot] retrieval failed:', err);
 			return [];
