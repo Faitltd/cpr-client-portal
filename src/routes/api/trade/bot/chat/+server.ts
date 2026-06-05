@@ -72,7 +72,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		'pricing',
 		'\\$\\d',
 		'job\\s*cost',
-		'breakdown'
+		'breakdown',
+		'reconciliation'
 	];
 	const tradeLikeRestrictions = {
 		allowedSources: [
