@@ -14,9 +14,9 @@ import {
 } from '$lib/server/workdrive';
 import { chunkText, embed } from './embeddings';
 
-const MAX_FILES_PER_DEAL = Number(env.BOT_WORKDRIVE_MAX_FILES ?? '50');
+const MAX_FILES_PER_DEAL = Number(env.BOT_WORKDRIVE_MAX_FILES ?? '150');
 const MAX_FILE_BYTES = Number(env.BOT_WORKDRIVE_MAX_BYTES ?? String(25 * 1024 * 1024));
-const MAX_SUBFOLDER_DEPTH = Number(env.BOT_WORKDRIVE_MAX_DEPTH ?? '3');
+const MAX_SUBFOLDER_DEPTH = Number(env.BOT_WORKDRIVE_MAX_DEPTH ?? '5');
 // Parent folder that contains one subfolder per Deal. Used as a fallback when
 // the Deal record has no WorkDrive_Folder_ID / Client_Portal_Folder set.
 const WORKDRIVE_PARENT_FOLDER_ID = (env.BOT_WORKDRIVE_PARENT_FOLDER_ID ?? '').trim();
@@ -296,6 +296,9 @@ async function collectIngestibleFiles(
 		);
 		return;
 	}
+	console.log(
+		`[bot/ingest-workdrive] depth=${depth} folder=${folderPath || '(root)'} items=${items.length} parent=${parentFolderName || '(none)'}`
+	);
 
 	for (const item of items) {
 		if (out.length >= MAX_FILES_PER_DEAL) return;
