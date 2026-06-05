@@ -59,16 +59,42 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		}
 	}
 
+	// When admin opens the trade portal bot, force the SAME restrictions a
+	// real trade partner would have so what they see matches production.
+	// Otherwise admin's `allowedSources: null` leaks internal Cliq + Mail.
+	const tradeLikeRestrictions = {
+		allowedSources: [
+			'workdrive_pdf',
+			'workdrive_docx',
+			'workdrive_xlsx',
+			'zoho_crm_field',
+			'zoho_cliq_external',
+			'zoho_projects_task',
+			'zoho_projects_activity',
+			'zoho_sign_request'
+		],
+		allowedTopFolders: [
+			'Designs',
+			'Design',
+			'Design & Planning',
+			'Contracts and Agreements',
+			'Contract and Agreement'
+		],
+		hideFinancials: true,
+		hideInternalFinancials: false
+	};
+	const effective = access.role === 'admin' ? tradeLikeRestrictions : access;
+
 	try {
 		const stream = await runChat({
 			dealId,
 			threadId,
 			adminEmail: access.email || 'trade_partner',
 			messages,
-			allowedSources: access.allowedSources,
-			allowedTopFolders: access.allowedTopFolders,
-			hideFinancials: access.hideFinancials,
-			hideInternalFinancials: access.hideInternalFinancials
+			allowedSources: effective.allowedSources,
+			allowedTopFolders: effective.allowedTopFolders,
+			hideFinancials: effective.hideFinancials,
+			hideInternalFinancials: effective.hideInternalFinancials
 		});
 		return new Response(stream, {
 			headers: {
