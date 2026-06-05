@@ -14,16 +14,20 @@
 		triggering = true;
 		triggerStatus = 'Running…';
 		try {
-			const res = await fetch('/api/admin/bot/sync-all', {
+			// Detached mode: server kicks off the sync and returns immediately.
+			// We don't wait for the full run — Render's HTTP layer times out
+			// before a 30-deal × all-sources sync finishes (especially when
+			// OCR is involved). Refresh the page in a few seconds to see the
+			// run start in the activity log.
+			const res = await fetch('/api/admin/bot/sync-all?detached=1', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ limit })
+				body: JSON.stringify({ limit, detached: true })
 			});
 			const json = await res.json();
 			if (!res.ok || !json.ok) throw new Error(json.message || `HTTP ${res.status}`);
-			const r = json.result;
-			triggerStatus = `Synced ${r.dealCount} Deals · ok ${r.okCount} · errors ${r.errorCount} · ${(r.durationMs / 1000).toFixed(1)}s`;
-			setTimeout(() => location.reload(), 1500);
+			triggerStatus = `Sync started in background — check activity log for progress.`;
+			setTimeout(() => location.reload(), 3000);
 		} catch (err) {
 			triggerStatus = `Failed: ${err instanceof Error ? err.message : 'unknown'}`;
 		} finally {

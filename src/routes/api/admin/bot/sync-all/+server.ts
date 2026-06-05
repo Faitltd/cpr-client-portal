@@ -37,6 +37,22 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		? body.dealIds.filter((x: unknown) => typeof x === 'string')
 		: undefined;
 
+	// Detached mode (?detached=1 or {detached:true}) fires the sync and
+	// returns immediately. Used by the admin UI's Sync All button so the
+	// browser doesn't sit on a request that can run for many minutes when
+	// OCR / WorkDrive walks are involved.
+	const url = new URL(request.url);
+	const detachedFlag =
+		url.searchParams.get('detached') === '1' || body?.detached === true;
+
+	if (detachedFlag) {
+		syncAll({ trigger, sources, limit, dealIds }).catch((err) => {
+			const message = err instanceof Error ? err.message : 'sync-all failed';
+			console.warn('[admin/sync-all] detached run failed:', message);
+		});
+		return json({ ok: true, started: true, detached: true });
+	}
+
 	try {
 		const result = await syncAll({ trigger, sources, limit, dealIds });
 		return json({ ok: true, result });
