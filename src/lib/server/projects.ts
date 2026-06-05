@@ -1970,8 +1970,14 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 }
 
 export async function getAllProjectActivities(projectId: string, perPage = DEFAULT_PAGE_SIZE) {
+	// Zoho Projects v3 requires a `module` query param on /activities — the
+	// API errors out otherwise ("Input Parameter Missing: module"). For the
+	// bot's "what changed recently?" answers we only care about task-level
+	// activity (creation, completion, comments, reassignment). Add more
+	// modules later if you want forum / milestone / document streams too.
 	return fetchAllPages(
-		(page, size) => `/projects/${projectId}/activities?page=${page}&per_page=${size}`,
+		(page, size) =>
+			`/projects/${projectId}/activities?module=tasks&page=${page}&per_page=${size}`,
 		'activities',
 		perPage
 	);
