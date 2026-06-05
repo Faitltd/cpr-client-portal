@@ -136,7 +136,12 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'\\$\\d',
 					'job\\s*cost',
 					'breakdown',
-					'reconciliation'
+					'reconciliation',
+					'agreement',
+					'contract',
+					'(^|[\\s_\\-\\.])pda([\\s_\\-\\.]|$)',
+					'project\\s*development',
+					'completion\\s*certificate'
 				],
 				hideFinancials: true,
 				hideInternalFinancials: false,
