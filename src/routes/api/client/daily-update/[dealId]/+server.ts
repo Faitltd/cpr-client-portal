@@ -5,6 +5,7 @@ import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { getPortalPrincipal } from '$lib/server/designer';
 import { getDealsForClient } from '$lib/server/projects';
 import { listWorkDriveFolder, extractWorkDriveFolderId } from '$lib/server/workdrive';
+import { getOrCreateWorkDriveFileShare } from '$lib/server/workdrive-shares';
 import { getCliqChatMessagesById } from '$lib/server/cliq';
 import type { RequestHandler } from './$types';
 
@@ -197,14 +198,38 @@ async function fetchFieldUpdateCliqMessages(
 		}
 		return [];
 	}
-	const matchers = buildClientNameMatchers(
+	// Trade partners post in a fixed template — the message body starts with
+	// "Project: <Deal Name>" (sometimes "Mark Guikema" / "Bill Douglas" etc).
+	// Match the project line first; fall back to scattered name tokens if the
+	// template isn't followed.
+	const namesForFallback = buildClientNameMatchers(
 		deal.dealName,
 		deal.contactName,
 		deal.firstName,
 		deal.lastName,
 		deal.firstName && deal.lastName ? `${deal.firstName} ${deal.lastName}` : null
 	);
-	if (matchers.length === 0) return [];
+	const projectLineMatchers = buildClientNameMatchers(
+		deal.dealName,
+		deal.contactName,
+		deal.firstName && deal.lastName ? `${deal.firstName} ${deal.lastName}` : null,
+		deal.lastName
+	);
+
+	function matchesThisDeal(body: string): boolean {
+		// Preferred: extract the "Project: <something>" line and match the
+		// project name against the deal name / contact name.
+		const projMatch = body.match(/Project\s*[:\-]\s*([^\n\r]+)/i);
+		if (projMatch) {
+			const projectName = projMatch[1].trim();
+			if (projectLineMatchers.some((rx) => rx.test(projectName))) return true;
+			// Don't fall back if the template was followed but didn't match —
+			// the post belongs to a different client.
+			return false;
+		}
+		// Fallback: free-form message; check anywhere in the body.
+		return namesForFallback.some((rx) => rx.test(body));
+	}
 
 	const out: DailyMessage[] = [];
 	for (const msg of result.messages) {
@@ -218,10 +243,7 @@ async function fetchFieldUpdateCliqMessages(
 						: '';
 		const body = String(bodyText).trim();
 		if (!body) continue;
-		// Require the message to mention this client (by deal name, full name,
-		// last name, or first name). This is how a single channel maps back to
-		// individual deals.
-		if (!matchers.some((rx) => rx.test(body))) continue;
+		if (!matchesThisDeal(body)) continue;
 		if (NEGATIVE_RE.test(body)) continue;
 		const id = String((msg as any).id ?? (msg as any).message_id ?? '');
 		const time = (msg as any).time ?? (msg as any).timestamp ?? null;
@@ -245,35 +267,85 @@ async function fetchFieldUpdateCliqMessages(
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tif?f)$/i;
 const IMAGE_MIME_RE = /^image\//i;
 
-async function findPhotosFolderId(
+const FIELD_UPDATES_MODULES = (() => {
+	const envValue = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
+	const set = new Set<string>(
+		envValue.split(',').map((v) => v.trim()).filter(Boolean)
+	);
+	set.add('Field_Updates');
+	for (let i = 1; i <= 10; i += 1) set.add(`Field_Updates${i}`);
+	return Array.from(set);
+})();
+
+/**
+ * Pull Supabase-stored photos uploaded via the trade portal in the past
+ * window. These are the actual binaries referenced in the Cliq "Site
+ * Visit/Progress Update" cards — when a trade partner submits a field
+ * update from the portal, the photo bytes go to Supabase Storage and a
+ * Zoho CRM record is created with a pointer.
+ *
+ * Supabase Storage URLs work without Zoho auth so we can hand them straight
+ * to the client UI as <img src>.
+ */
+async function fetchSupabaseFieldUpdatePhotos(
+	dealId: string,
+	windowHours: number
+): Promise<DailyPhoto[]> {
+	const { getFieldUpdatesByDeal } = await import('$lib/server/db');
+	const updates = await getFieldUpdatesByDeal(dealId).catch(() => [] as any[]);
+	const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
+	const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
+	const photos: DailyPhoto[] = [];
+	const seen = new Set<string>();
+	for (const u of updates) {
+		const createdRaw = (u as any).created_at;
+		const createdMs = typeof createdRaw === 'string' ? Date.parse(createdRaw) : Number.NaN;
+		if (Number.isFinite(createdMs) && createdMs < cutoff) continue;
+		const ids: string[] = Array.isArray((u as any).photo_ids) ? (u as any).photo_ids : [];
+		for (const id of ids) {
+			if (!id || seen.has(id)) continue;
+			const ext = id.split('.').pop()?.toLowerCase() ?? '';
+			if (VIDEO_EXTS.has(ext)) continue;
+			seen.add(id);
+			photos.push({
+				id: `supa:${id}`,
+				name: id.split('/').pop() ?? 'Photo',
+				url: `/api/trade/photos/storage/${encodeURIComponent(id)}`,
+				modifiedTime: typeof createdRaw === 'string' ? createdRaw : null
+			});
+		}
+	}
+	return photos;
+}
+
+/**
+ * Find EVERY folder under the deal root whose name is "Photos" (case-
+ * insensitive), recursing up to 2 levels. CPR's WorkDrive vintage varies —
+ * some deals have Photos at the root, some under "Client Portal", and the
+ * top-level one is sometimes empty. We collect from all of them.
+ */
+async function collectPhotosFolderIds(
 	accessToken: string,
 	rootFolderId: string,
 	apiDomain?: string
-): Promise<string | null> {
-	const visit = async (
-		folderId: string,
-		depth: number
-	): Promise<string | null> => {
-		if (depth > 2) return null;
+): Promise<string[]> {
+	const found: string[] = [];
+	const visit = async (folderId: string, depth: number): Promise<void> => {
+		if (depth > 2) return;
 		const items = await listWorkDriveFolder(accessToken, folderId, apiDomain).catch(() => []);
-		// Look for a folder literally named "Photos" first (case-insensitive).
-		for (const it of items) {
-			if (it.type === 'folder' && /^photos$/i.test(it.name)) {
-				return it.id;
-			}
-		}
-		// Otherwise recurse one level into known parent folders that often host
-		// a Photos subfolder (e.g. Client Portal).
 		for (const it of items) {
 			if (it.type !== 'folder') continue;
-			if (/^(client portal|progress|site|jobsite|on.?site)$/i.test(it.name)) {
-				const nested = await visit(it.id, depth + 1);
-				if (nested) return nested;
+			if (/^photos$/i.test(it.name)) {
+				found.push(it.id);
+				continue;
 			}
+			// Recurse one more level so we find the nested ones (e.g.
+			// `Client Portal/Photos`) even when no top-level Photos exists.
+			await visit(it.id, depth + 1);
 		}
-		return null;
 	};
-	return visit(rootFolderId, 0);
+	await visit(rootFolderId, 0);
+	return found;
 }
 
 async function fetchWorkDrivePhotos(
@@ -293,34 +365,56 @@ async function fetchWorkDrivePhotos(
 	const rootId = extractWorkDriveFolderId(rawId) || rawId || null;
 	if (!rootId) return [];
 
-	const photosFolderId = await findPhotosFolderId(accessToken, rootId, apiDomain);
-	if (!photosFolderId) return [];
+	const photosFolderIds = await collectPhotosFolderIds(accessToken, rootId, apiDomain);
+	if (photosFolderIds.length === 0) return [];
 
-	const items = await listWorkDriveFolder(accessToken, photosFolderId, apiDomain).catch(() => []);
 	const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
 	const photos: DailyPhoto[] = [];
-	for (const it of items) {
-		if (it.type !== 'file') continue;
-		const isImage =
-			IMAGE_EXT_RE.test(it.name) || (typeof it.mime === 'string' && IMAGE_MIME_RE.test(it.mime));
-		if (!isImage) continue;
-		const modifiedMs = it.modifiedTime ? Date.parse(it.modifiedTime) : Number.NaN;
-		// Treat undated files as "recent enough" so a new folder still renders
-		// rather than appearing empty.
-		if (Number.isFinite(modifiedMs) && modifiedMs < cutoff) continue;
-		photos.push({
-			id: it.id,
-			name: it.name,
-			url: `https://workdrive.zoho.com/file/${encodeURIComponent(it.id)}`,
-			modifiedTime: it.modifiedTime ?? null
-		});
+	const seenIds = new Set<string>();
+	for (const folderId of photosFolderIds) {
+		const items = await listWorkDriveFolder(accessToken, folderId, apiDomain).catch(() => []);
+		for (const it of items) {
+			if (it.type !== 'file') continue;
+			if (seenIds.has(it.id)) continue;
+			const isImage =
+				IMAGE_EXT_RE.test(it.name) ||
+				(typeof it.mime === 'string' && IMAGE_MIME_RE.test(it.mime));
+			if (!isImage) continue;
+			const modifiedMs = it.modifiedTime ? Date.parse(it.modifiedTime) : Number.NaN;
+			if (Number.isFinite(modifiedMs) && modifiedMs < cutoff) continue;
+			seenIds.add(it.id);
+			photos.push({
+				id: it.id,
+				name: it.name,
+				url: '', // filled in below
+				modifiedTime: it.modifiedTime ?? null
+			});
+		}
 	}
+
+	// Sort newest first BEFORE minting external shares so the top images get
+	// real URLs even if we hit the share-mint cap.
 	photos.sort((a, b) => {
 		const aT = a.modifiedTime ? Date.parse(a.modifiedTime) : 0;
 		const bT = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
 		return bT - aT;
 	});
-	return photos.slice(0, 18);
+	const top = photos.slice(0, 18);
+
+	// Mint (or look up cached) external share URLs — clients have no Zoho
+	// account so the internal /file/{id} URL is useless to them.
+	await Promise.all(
+		top.map(async (p) => {
+			const external = await getOrCreateWorkDriveFileShare({
+				accessToken,
+				apiDomain,
+				fileId: p.id,
+				fileName: p.name
+			}).catch(() => null);
+			p.url = external ?? `https://workdrive.zoho.com/file/${encodeURIComponent(p.id)}`;
+		})
+	);
+	return top;
 }
 
 export const GET: RequestHandler = async ({ params, cookies, url }) => {
@@ -360,10 +454,25 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		try {
 			const { accessToken, apiDomain } = await getAccessToken();
 			const deal = await fetchDealNames(accessToken, apiDomain, dealId);
-			[fieldUpdateMessages, photos] = await Promise.all([
+			let workDrivePhotos: DailyPhoto[] = [];
+			let supabasePhotos: DailyPhoto[] = [];
+			[fieldUpdateMessages, workDrivePhotos, supabasePhotos] = await Promise.all([
 				fetchFieldUpdateCliqMessages(accessToken, deal, windowHours),
-				fetchWorkDrivePhotos(accessToken, apiDomain, dealId, windowHours)
+				fetchWorkDrivePhotos(accessToken, apiDomain, dealId, windowHours),
+				fetchSupabaseFieldUpdatePhotos(dealId, windowHours)
 			]);
+			// Merge by id; field-update uploads (most recent activity) win.
+			const seen = new Set<string>();
+			for (const p of [...supabasePhotos, ...workDrivePhotos]) {
+				if (seen.has(p.id)) continue;
+				seen.add(p.id);
+				photos.push(p);
+			}
+			photos.sort((a, b) => {
+				const aT = a.modifiedTime ? Date.parse(a.modifiedTime) : 0;
+				const bT = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
+				return bT - aT;
+			});
 		} catch (err) {
 			console.warn('[client/daily-update] live fetch failed:', err);
 		}
