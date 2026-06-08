@@ -16,7 +16,16 @@
 		occurredAt: string;
 		author: string | null;
 		body: string;
+		subject?: string | null;
+		channel?: 'internal' | 'external' | 'mail' | 'field_update';
 	}
+
+	const CHANNEL_LABEL: Record<NonNullable<DailyMessage['channel']>, string> = {
+		internal: 'Internal chat',
+		external: 'Client chat',
+		mail: 'Email',
+		field_update: 'Field update'
+	};
 	interface DailyPhoto {
 		id: string;
 		name: string;
@@ -107,18 +116,21 @@
 
 		{#if messages.length > 0}
 			<ul class="update-list">
-				{#each messages.slice(0, 8) as m (m.id)}
+				{#each messages.slice(0, 12) as m (m.id)}
 					<li>
 						<div class="row-head">
 							<span class="author">{m.author || 'CPR team'}</span>
 							<time>{formatTime(m.occurredAt)}</time>
 						</div>
+						{#if m.subject && m.channel === 'mail'}
+							<p class="subject">{m.subject}</p>
+						{/if}
 						<p>{summarise(m.body)}</p>
 					</li>
 				{/each}
 			</ul>
-			{#if messages.length > 8}
-				<p class="muted small">…plus {messages.length - 8} more updates from the team.</p>
+			{#if messages.length > 12}
+				<p class="muted small">…plus {messages.length - 12} more updates from the team.</p>
 			{/if}
 		{/if}
 	{/if}
@@ -195,6 +207,42 @@
 	.row-head .author {
 		font-weight: 600;
 		color: #111827;
+	}
+	.row-meta {
+		display: inline-flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+	.channel-tag {
+		font-size: 0.65rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 0.1rem 0.4rem;
+		border-radius: 0.25rem;
+		background: #e5e7eb;
+		color: #374151;
+	}
+	.channel-tag.channel-internal {
+		background: #dbeafe;
+		color: #1e40af;
+	}
+	.channel-tag.channel-external {
+		background: #dcfce7;
+		color: #166534;
+	}
+	.channel-tag.channel-mail {
+		background: #fef3c7;
+		color: #854d0e;
+	}
+	.channel-tag.channel-field_update {
+		background: #ede9fe;
+		color: #5b21b6;
+	}
+	.subject {
+		font-weight: 600;
+		font-size: 0.85rem;
+		margin: 0.2rem 0 0.1rem;
 	}
 	.update-list p {
 		margin: 0.25rem 0 0;

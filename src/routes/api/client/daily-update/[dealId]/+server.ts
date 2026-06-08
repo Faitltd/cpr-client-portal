@@ -44,6 +44,8 @@ interface DailyMessage {
 	occurredAt: string;
 	author: string | null;
 	body: string;
+	subject?: string | null;
+	channel: 'internal' | 'external' | 'mail' | 'field_update';
 }
 
 interface DailyPhoto {
@@ -78,38 +80,64 @@ async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: stri
 	return { accessToken, apiDomain };
 }
 
-async function fetchRecentDealCliqMessages(
+function stripEmailHeaders(body: string): string {
+	// zoho_mail bodies include "Subject: ... From: ... To: ..." headers at
+	// the top. Strip them before showing to the client.
+	return body
+		.replace(/^Subject:\s*[^\n]*\n?/i, '')
+		.replace(/^From:\s*[^\n]*\n?/im, '')
+		.replace(/^To:\s*[^\n]*\n?/im, '')
+		.replace(/^Cc:\s*[^\n]*\n?/im, '')
+		.replace(/^Bcc:\s*[^\n]*\n?/im, '')
+		.replace(/&quot;/g, '"')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&amp;/g, '&')
+		.replace(/^\s*\n+/, '')
+		.trim();
+}
+
+async function fetchRecentDealActivity(
 	dealId: string,
 	windowHours: number
 ): Promise<DailyMessage[]> {
 	const cutoffIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
-	// Query BOTH the deal's internal Cliq channel (CPR staff discussions)
-	// AND its external channel (CPR ↔ client conversations). Either is a
-	// legitimate "what happened today on this project" signal.
+	// Pull from the deal's internal Cliq channel (CPR staff discussions),
+	// external Cliq channel (CPR ↔ client conversations), AND email.
 	const { data, error } = await supabase
 		.from('bot_documents')
-		.select('id, source, author, occurred_at, body')
+		.select('id, source, author, subject, occurred_at, body')
 		.eq('deal_id', dealId)
-		.in('source', ['zoho_cliq_internal', 'zoho_cliq_external'])
+		.in('source', ['zoho_cliq_internal', 'zoho_cliq_external', 'zoho_mail'])
 		.gte('occurred_at', cutoffIso)
 		.order('occurred_at', { ascending: false })
-		.limit(120);
+		.limit(150);
 	if (error) {
-		console.warn('[client/daily-update] cliq query failed:', error.message);
+		console.warn('[client/daily-update] activity query failed:', error.message);
 		return [];
 	}
 	const out: DailyMessage[] = [];
 	for (const row of data ?? []) {
-		const body = String((row as any).body ?? '').trim();
+		const rawBody = String((row as any).body ?? '').trim();
+		if (!rawBody) continue;
+		const source = String((row as any).source ?? '');
+		const isMail = source === 'zoho_mail';
+		const body = isMail ? stripEmailHeaders(rawBody) : rawBody;
 		if (!body) continue;
 		if (NEGATIVE_RE.test(body)) continue;
-		const source = String((row as any).source ?? '');
-		const prefix = source === 'zoho_cliq_external' ? 'external' : 'internal';
+		const channel: DailyMessage['channel'] =
+			source === 'zoho_cliq_internal'
+				? 'internal'
+				: source === 'zoho_cliq_external'
+					? 'external'
+					: 'mail';
 		out.push({
-			id: `${prefix}:${(row as any).id}`,
+			id: `${channel}:${(row as any).id}`,
 			occurredAt: String((row as any).occurred_at),
 			author: ((row as any).author as string | null) ?? null,
-			body
+			body,
+			subject: ((row as any).subject as string | null) ?? null,
+			channel
 		});
 	}
 	return out;
@@ -264,7 +292,13 @@ async function fetchFieldUpdateCliqMessages(
 				: typeof (msg as any).author === 'string'
 					? (msg as any).author
 					: null;
-		out.push({ id: `fieldupdate:${id}`, occurredAt, author, body });
+		out.push({
+			id: `fieldupdate:${id}`,
+			occurredAt,
+			author,
+			body,
+			channel: 'field_update'
+		});
 	}
 	return out;
 }
@@ -452,7 +486,7 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	);
 
 	try {
-		const internalMessages = await fetchRecentDealCliqMessages(dealId, windowHours);
+		const internalMessages = await fetchRecentDealActivity(dealId, windowHours);
 
 		let fieldUpdateMessages: DailyMessage[] = [];
 		let photos: DailyPhoto[] = [];
