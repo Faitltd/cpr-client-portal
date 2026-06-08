@@ -415,8 +415,16 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 		}
 		promptParts.push(
 			`\n# Full WorkDrive document inventory for this Deal (${workdriveDocs.size} files)\n` +
-				`When the user asks what documents are in the folder, what files exist, the scope, or anything that requires listing the project's docs, you MUST output this complete list verbatim, in this exact order. Do not omit any line. Do not summarise. Do not pick a subset.\n\n` +
+				`When the user asks what documents are in the folder, what files exist, the scope, or anything that requires listing the project's docs, you MUST output this complete list verbatim, in this exact order. Do not omit any line. Do not summarise. Do not pick a subset. The URL for each file is the EXACT string in parentheses — do not modify the domain, hash, or any character.\n\n` +
 				inventoryLines.join('\n')
+		);
+	} else {
+		// No WorkDrive docs accessible to this caller for this Deal. Tell the
+		// LLM explicitly so it doesn't hallucinate a filename or URL from
+		// chat/email references it might see elsewhere in the context.
+		promptParts.push(
+			`\n# Full WorkDrive document inventory for this Deal (0 files)\n` +
+				`The caller has access to ZERO WorkDrive documents for this Deal. If they ask "what documents are in the folder?", "what's in my Client Portal?", "what files do we have?", or anything similar, your answer MUST be exactly: "There are no documents available to you in this folder right now." Do NOT name any file. Do NOT invent a URL. Do NOT reference contracts, agreements, PDAs, blueprints, or scopes even if they appear in chat or email chunks — those references are NOT documents you can show. If the user asks why, suggest they contact their project manager.`
 		);
 	}
 	if (opts.hideFinancials) {
@@ -550,8 +558,16 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 		}
 		promptParts.push(
 			`\n# Full WorkDrive document inventory for this Deal (${workdriveDocs.size} files)\n` +
-				`When the user asks what documents are in the folder, what files exist, the scope, or anything that requires listing the project's docs, you MUST output this complete list verbatim, in this exact order. Do not omit any line. Do not summarise. Do not pick a subset.\n\n` +
+				`When the user asks what documents are in the folder, what files exist, the scope, or anything that requires listing the project's docs, you MUST output this complete list verbatim, in this exact order. Do not omit any line. Do not summarise. Do not pick a subset. The URL for each file is the EXACT string in parentheses — do not modify the domain, hash, or any character.\n\n` +
 				inventoryLines.join('\n')
+		);
+	} else {
+		// No WorkDrive docs accessible to this caller for this Deal. Tell the
+		// LLM explicitly so it doesn't hallucinate a filename or URL from
+		// chat/email references it might see elsewhere in the context.
+		promptParts.push(
+			`\n# Full WorkDrive document inventory for this Deal (0 files)\n` +
+				`The caller has access to ZERO WorkDrive documents for this Deal. If they ask "what documents are in the folder?", "what's in my Client Portal?", "what files do we have?", or anything similar, your answer MUST be exactly: "There are no documents available to you in this folder right now." Do NOT name any file. Do NOT invent a URL. Do NOT reference contracts, agreements, PDAs, blueprints, or scopes even if they appear in chat or email chunks — those references are NOT documents you can show. If the user asks why, suggest they contact their project manager.`
 		);
 	}
 	if (opts.hideFinancials) {
