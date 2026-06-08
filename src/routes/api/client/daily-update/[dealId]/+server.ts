@@ -19,7 +19,18 @@ import type { RequestHandler } from './$types';
  */
 
 const ZOHO_API_BASE = env.ZOHO_API_BASE || 'https://www.zohoapis.com';
-const FIELD_UPDATES_MODULE = env.ZOHO_FIELD_UPDATES_MODULE?.split(',')[0]?.trim() || 'Field_Updates';
+
+// Field_Updates is a custom module — CPR's vintage may name it Field_Updates,
+// Field_Updates1, etc. Try each candidate via the Deal related-list URL.
+const FIELD_UPDATES_MODULES = (() => {
+	const envValue = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
+	const set = new Set<string>(
+		envValue.split(',').map((v) => v.trim()).filter(Boolean)
+	);
+	set.add('Field_Updates');
+	for (let i = 1; i <= 10; i += 1) set.add(`Field_Updates${i}`);
+	return Array.from(set);
+})();
 
 interface DailyUpdateItem {
 	id: string;
@@ -104,26 +115,43 @@ async function fetchFieldUpdatesForDeal(
 	apiDomain?: string
 ): Promise<Record<string, any>[]> {
 	const base = (apiDomain || ZOHO_API_BASE).replace(/\/$/, '');
-	// Use the COQL endpoint to fetch field updates linked to a specific deal.
-	const select = ['id', 'Note', 'Photo', 'Update_Type', 'Created_Time', 'Modified_Time', 'Name'];
-	const query = `select ${select.join(',')} from ${FIELD_UPDATES_MODULE} where Deal = '${dealId}' order by Created_Time desc limit 40`;
-	const response = await fetch(`${base}/crm/v8/coql`, {
-		method: 'POST',
-		signal: AbortSignal.timeout(15000),
-		headers: {
-			Authorization: `Zoho-oauthtoken ${accessToken}`,
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify({ select_query: query })
-	});
-	if (response.status === 204) return [];
-	if (!response.ok) {
-		const text = await response.text().catch(() => '');
-		throw new Error(`Zoho COQL ${response.status}: ${text.slice(0, 200)}`);
+	// Walk the candidate related-list URLs. Stop at the first one that returns
+	// data (or 204 = no entries for the deal in that module).
+	const errors: string[] = [];
+	for (const moduleName of FIELD_UPDATES_MODULES) {
+		const url = `${base}/crm/v8/Deals/${encodeURIComponent(dealId)}/${encodeURIComponent(moduleName)}?per_page=40&sort_by=Created_Time&sort_order=desc`;
+		try {
+			const response = await fetch(url, {
+				method: 'GET',
+				signal: AbortSignal.timeout(15000),
+				headers: {
+					Authorization: `Zoho-oauthtoken ${accessToken}`,
+					'Content-Type': 'application/json'
+				}
+			});
+			if (response.status === 204) {
+				// Module exists but no entries for this deal — return empty cleanly.
+				return [];
+			}
+			if (response.status === 404) {
+				// Wrong module name — try the next candidate.
+				continue;
+			}
+			if (!response.ok) {
+				const text = await response.text().catch(() => '');
+				errors.push(`${moduleName} -> ${response.status}: ${text.slice(0, 120)}`);
+				continue;
+			}
+			const payload = await response.json().catch(() => null);
+			const data = Array.isArray(payload?.data) ? payload.data : [];
+			return data;
+		} catch (err) {
+			errors.push(`${moduleName} -> ${err instanceof Error ? err.message : 'fetch failed'}`);
+		}
 	}
-	const payload = await response.json().catch(() => null);
-	const data = Array.isArray(payload?.data) ? payload.data : [];
-	return data;
+	throw new Error(
+		`No Field_Updates module returned data. Tried: ${errors.join(' | ').slice(0, 400)}`
+	);
 }
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
