@@ -19,11 +19,28 @@
 	let updates: FieldUpdate[] = [];
 	let lightboxUrl: string | null = null;
 
+	// Only positive progress. Skip problems, issues, schedule changes, and
+	// change orders — those have their own escalation paths and don't belong
+	// in the "good news at a glance" panel.
+	const SKIP_TYPES = new Set([
+		'report_problem',
+		'problem',
+		'issue',
+		'schedule_change',
+		'change_order'
+	]);
+	const NEGATIVE_BODY_RE =
+		/\b(problem|issue|broken|damag(e|ed|es)|delay(ed|s)?|fail(ed|ure|s)?|cracked|leak(ed|ing|s)?|missing|wrong|incorrect|holdup|stuck|blocked|concern|risk|hazard|injury|accident)\b/i;
+
 	$: cutoff = Date.now() - windowHours * 60 * 60 * 1000;
 	$: recent = updates
 		.filter((u) => {
 			const t = Date.parse(u.createdAt ?? u.updatedAt ?? '');
-			return Number.isFinite(t) && t >= cutoff;
+			if (!Number.isFinite(t) || t < cutoff) return false;
+			const type = (u.type ?? '').toLowerCase().trim();
+			if (SKIP_TYPES.has(type)) return false;
+			if (u.body && NEGATIVE_BODY_RE.test(u.body)) return false;
+			return true;
 		})
 		.sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''));
 	$: allPhotos = recent.flatMap((u) => u.photos.map((p) => ({ ...p, postedAt: u.createdAt })));
