@@ -22,11 +22,12 @@
 	let scrollerEl: HTMLDivElement | undefined = $state();
 
 	const QUICK_PROMPTS = [
-		'What is the current status of my project?',
-		'When is my next payment due?',
-		'What is my remaining balance?',
-		'What documents are available in my Client Portal folder?',
-		'What changes have been made recently?'
+		'What is the current status of my project, and what is next?',
+		'What has changed on my project recently?',
+		'What is my remaining balance and payment history?',
+		'What is the scope of work for my project?',
+		'When will my materials be ordered or delivered?',
+		'What documents are available in my project folder?'
 	];
 
 	function resetThread() {
