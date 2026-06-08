@@ -31,7 +31,7 @@
 			<a class="tab" href="/designer">Active Deals</a>
 			<a class="tab" href="/designer/projects">Project Created</a>
 			<a class="tab" href="/designer/on-hold">On Hold</a>
-			<a class="tab active" href="/designer/chat">Chat</a>
+			<a class="tab active" href="/designer/chat">CPR Bot</a>
 		</nav>
 	</header>
 
