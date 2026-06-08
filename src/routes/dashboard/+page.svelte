@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import ClientChatPanel from '$lib/components/ClientChatPanel.svelte';
+	import DailyUpdate from '$lib/components/DailyUpdate.svelte';
 
 	interface EmailPref {
 		id: string;
@@ -497,6 +498,12 @@
 	{:else if projects.length === 0}
 		<div class="state-card">No projects found</div>
 	{:else}
+		<!-- Today on site — positive-progress field updates with photos -->
+		<DailyUpdate
+			dealId={String(projects[0].id)}
+			endpointBuilder={(id) => `/api/client/daily-update/${encodeURIComponent(id)}`}
+		/>
+
 		<!-- Project Bot -->
 		<section class="section">
 			<button class="section-header" type="button" on:click={() => (botOpen = !botOpen)}>

@@ -3,7 +3,6 @@
 	import { browser } from '$app/environment';
 	import DesignerDealsView from '$lib/components/designer/DesignerDealsView.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
-	import DailyUpdate from '$lib/components/DailyUpdate.svelte';
 	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
 	import type { DealFieldDescriptor, DesignerDealSummary } from '$lib/types/designer';
 
@@ -871,7 +870,6 @@
 		{/if}
 
 		{#if selectedDeal && dealTab === 'details'}
-			<DailyUpdate dealId={selectedDealId} />
 			<div class="card deal-details">
 				<h3>{getDealLabel(selectedDeal)}</h3>
 				<div class="details-grid">

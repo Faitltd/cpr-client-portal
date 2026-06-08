@@ -4,6 +4,12 @@
 	export let dealId: string;
 	/** Hours of "recent" — defaults to 36 so an evening visit shows the next morning. */
 	export let windowHours = 36;
+	/**
+	 * Which endpoint to call. Defaults to the trade endpoint; client dashboard
+	 * passes its own client-auth endpoint.
+	 */
+	export let endpointBuilder: (id: string) => string = (id) =>
+		`/api/trade/deals/${encodeURIComponent(id)}/field-updates`;
 
 	interface FieldUpdate {
 		id: string;
@@ -50,7 +56,7 @@
 		loading = true;
 		error = '';
 		try {
-			const res = await fetch(`/api/trade/deals/${encodeURIComponent(id)}/field-updates`);
+			const res = await fetch(endpointBuilder(id));
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const payload = await res.json();
 			updates = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
