@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { renderMarkdown } from '$lib/markdown';
 
 	export let dealId: string;
 	/** Hours of "recent" — defaults to 36 so an evening visit shows the next morning. */
@@ -11,21 +12,6 @@
 	export let endpointBuilder: (id: string, hours: number) => string = (id, hours) =>
 		`/api/client/daily-update/${encodeURIComponent(id)}?hours=${hours}`;
 
-	interface DailyMessage {
-		id: string;
-		occurredAt: string;
-		author: string | null;
-		body: string;
-		subject?: string | null;
-		channel?: 'internal' | 'external' | 'mail' | 'field_update';
-	}
-
-	const CHANNEL_LABEL: Record<NonNullable<DailyMessage['channel']>, string> = {
-		internal: 'Internal chat',
-		external: 'Client chat',
-		mail: 'Email',
-		field_update: 'Field update'
-	};
 	interface DailyPhoto {
 		id: string;
 		name: string;
@@ -35,7 +21,7 @@
 
 	let loading = true;
 	let error = '';
-	let messages: DailyMessage[] = [];
+	let summary = '';
 	let photos: DailyPhoto[] = [];
 	let lightboxUrl: string | null = null;
 
@@ -50,7 +36,7 @@
 				throw new Error(detail?.message ?? `HTTP ${res.status}`);
 			}
 			const payload = await res.json();
-			messages = Array.isArray(payload?.messages) ? payload.messages : [];
+			summary = typeof payload?.summary === 'string' ? payload.summary : '';
 			photos = Array.isArray(payload?.photos) ? payload.photos : [];
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load';
@@ -61,26 +47,6 @@
 
 	onMount(() => load(dealId));
 	$: if (dealId) load(dealId);
-
-	function formatTime(iso: string | null): string {
-		if (!iso) return '';
-		try {
-			const d = new Date(iso);
-			return d.toLocaleString(undefined, {
-				month: 'short',
-				day: 'numeric',
-				hour: 'numeric',
-				minute: '2-digit'
-			});
-		} catch {
-			return iso;
-		}
-	}
-
-	function summarise(body: string, maxLen = 260): string {
-		const clean = body.replace(/\s+/g, ' ').trim();
-		return clean.length > maxLen ? `${clean.slice(0, maxLen - 1)}…` : clean;
-	}
 </script>
 
 <section class="daily-card">
@@ -93,8 +59,6 @@
 		<p class="muted">Loading recent activity…</p>
 	{:else if error}
 		<p class="error">Couldn't load updates: {error}</p>
-	{:else if messages.length === 0 && photos.length === 0}
-		<p class="muted">No new updates in the last {windowHours} hours.</p>
 	{:else}
 		{#if photos.length > 0}
 			<div class="photo-grid">
@@ -102,7 +66,7 @@
 					<button
 						type="button"
 						class="thumb"
-						title={`${photo.name}${photo.modifiedTime ? ` · ${formatTime(photo.modifiedTime)}` : ''}`}
+						title={photo.name}
 						on:click={() => (lightboxUrl = photo.url)}
 					>
 						<img src={photo.url} alt={photo.name} loading="lazy" />
@@ -114,24 +78,10 @@
 			{/if}
 		{/if}
 
-		{#if messages.length > 0}
-			<ul class="update-list">
-				{#each messages.slice(0, 12) as m (m.id)}
-					<li>
-						<div class="row-head">
-							<span class="author">{m.author || 'CPR team'}</span>
-							<time>{formatTime(m.occurredAt)}</time>
-						</div>
-						{#if m.subject && m.channel === 'mail'}
-							<p class="subject">{m.subject}</p>
-						{/if}
-						<p>{summarise(m.body)}</p>
-					</li>
-				{/each}
-			</ul>
-			{#if messages.length > 12}
-				<p class="muted small">…plus {messages.length - 12} more updates from the team.</p>
-			{/if}
+		{#if summary}
+			<div class="summary">{@html renderMarkdown(summary)}</div>
+		{:else if photos.length === 0}
+			<p class="muted">No new updates in the last {windowHours} hours.</p>
 		{/if}
 	{/if}
 </section>
@@ -186,68 +136,23 @@
 		object-fit: cover;
 		display: block;
 	}
-	.update-list {
-		list-style: none;
-		padding: 0;
-		margin: 0.5rem 0 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-	.update-list li {
-		border-top: 1px solid #f3f4f6;
-		padding-top: 0.5rem;
-	}
-	.row-head {
-		display: flex;
-		justify-content: space-between;
-		font-size: 0.8rem;
-		color: #6b7280;
-	}
-	.row-head .author {
-		font-weight: 600;
+	.summary {
+		font-size: 0.95rem;
+		line-height: 1.45;
 		color: #111827;
 	}
-	.row-meta {
-		display: inline-flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-	.channel-tag {
-		font-size: 0.65rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		padding: 0.1rem 0.4rem;
-		border-radius: 0.25rem;
-		background: #e5e7eb;
-		color: #374151;
-	}
-	.channel-tag.channel-internal {
-		background: #dbeafe;
-		color: #1e40af;
-	}
-	.channel-tag.channel-external {
-		background: #dcfce7;
-		color: #166534;
-	}
-	.channel-tag.channel-mail {
-		background: #fef3c7;
-		color: #854d0e;
-	}
-	.channel-tag.channel-field_update {
-		background: #ede9fe;
-		color: #5b21b6;
-	}
-	.subject {
-		font-weight: 600;
-		font-size: 0.85rem;
-		margin: 0.2rem 0 0.1rem;
-	}
-	.update-list p {
+	.summary :global(ul) {
 		margin: 0.25rem 0 0;
-		font-size: 0.9rem;
-		line-height: 1.4;
+		padding-left: 1.25rem;
+	}
+	.summary :global(li) {
+		margin-bottom: 0.35rem;
+	}
+	.summary :global(p) {
+		margin: 0 0 0.5rem;
+	}
+	.summary :global(strong) {
+		font-weight: 600;
 	}
 	.muted {
 		color: #6b7280;

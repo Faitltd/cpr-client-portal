@@ -56,9 +56,10 @@ interface DailyPhoto {
 }
 
 interface DailyUpdatePayload {
-	messages: DailyMessage[];
+	summary: string;
 	photos: DailyPhoto[];
 	windowHours: number;
+	sourceCount: number;
 }
 
 async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: string }> {
@@ -78,6 +79,74 @@ async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: stri
 		});
 	}
 	return { accessToken, apiDomain };
+}
+
+const SUMMARY_MODEL = env.DAILY_UPDATE_MODEL || 'gpt-4o-mini';
+
+async function summariseActivity(messages: DailyMessage[], windowHours: number): Promise<string> {
+	if (messages.length === 0) {
+		return `No new updates in the last ${windowHours} hours.`;
+	}
+	const apiKey = env.OPENAI_API_KEY;
+	if (!apiKey) {
+		console.warn('[client/daily-update] OPENAI_API_KEY not set, returning empty summary');
+		return '';
+	}
+
+	// Trim message bodies and order newest first so the model sees the
+	// freshest signal at the top.
+	const lines = messages.slice(0, 60).map((m) => {
+		const author = m.author ?? 'CPR team';
+		const subject = m.subject ? ` — Subject: ${m.subject}` : '';
+		const body = m.body.replace(/\s+/g, ' ').slice(0, 600);
+		const when = new Date(m.occurredAt).toISOString().slice(0, 16).replace('T', ' ');
+		return `[${when}] ${author}${subject}: ${body}`;
+	});
+
+	const prompt = [
+		`The following are recent updates from a home-renovation project, gathered from team chat, client emails, and trade-partner field reports over the last ${windowHours} hours.`,
+		``,
+		`Summarise the POSITIVE progress and concrete actions for the homeowner — what was done, what was ordered, what's coming next, who is on site. Skip any problems, complaints, delays, or unresolved issues; those are handled separately. Skip anything that's just chit-chat or scheduling logistics with no work content.`,
+		``,
+		`Format as 3-6 short bullet points using markdown "- " hyphens. Be concrete and specific. Use third person past tense. If there's truly nothing positive to share, return: "No new progress to report in the last ${windowHours} hours."`,
+		``,
+		`Updates:`,
+		...lines
+	].join('\n');
+
+	try {
+		const response = await fetch('https://api.openai.com/v1/chat/completions', {
+			method: 'POST',
+			signal: AbortSignal.timeout(20000),
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				model: SUMMARY_MODEL,
+				temperature: 0.2,
+				messages: [
+					{
+						role: 'system',
+						content:
+							'You are a renovation-project assistant who writes short, factual, upbeat progress summaries for homeowners. You only include positive actions and concrete progress. You never mention problems, complaints, or delays.'
+					},
+					{ role: 'user', content: prompt }
+				]
+			})
+		});
+		if (!response.ok) {
+			const txt = await response.text().catch(() => '');
+			console.warn(`[client/daily-update] OpenAI ${response.status}: ${txt.slice(0, 200)}`);
+			return '';
+		}
+		const payload = await response.json();
+		const text = payload?.choices?.[0]?.message?.content;
+		return typeof text === 'string' ? text.trim() : '';
+	} catch (err) {
+		console.warn('[client/daily-update] summary failed:', err);
+		return '';
+	}
 }
 
 function stripEmailHeaders(body: string): string {
@@ -527,7 +596,14 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		}
 		messages.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
 
-		const payload: DailyUpdatePayload = { messages, photos, windowHours };
+		const summary = await summariseActivity(messages, windowHours);
+
+		const payload: DailyUpdatePayload = {
+			summary,
+			photos,
+			windowHours,
+			sourceCount: messages.length
+		};
 		return json(payload);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to load daily update';
