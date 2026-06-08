@@ -5,7 +5,16 @@ import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { getPortalPrincipal } from '$lib/server/designer';
 import { getDealsForClient } from '$lib/server/projects';
 import { listWorkDriveFolder, extractWorkDriveFolderId } from '$lib/server/workdrive';
+import { getCliqChatMessagesById } from '$lib/server/cliq';
 import type { RequestHandler } from './$types';
+
+// Global "field update" Cliq channel where every trade partner posts their
+// site updates. Each post tags the client by name in the body — we filter
+// by the deal's primary contact name when pulling messages for a client.
+//
+// Default chat id is CPR's production channel; override via env if needed.
+const FIELDUPDATE_CHAT_ID =
+	env.CLIQ_FIELDUPDATE_CHAT_ID || 'CT_2218628176537278664_868683004';
 
 /**
  * "Today on site" feed for the client dashboard.
@@ -68,7 +77,7 @@ async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: stri
 	return { accessToken, apiDomain };
 }
 
-async function fetchRecentCliqMessages(
+async function fetchRecentInternalCliqMessages(
 	dealId: string,
 	windowHours: number
 ): Promise<DailyMessage[]> {
@@ -91,11 +100,144 @@ async function fetchRecentCliqMessages(
 		if (!body) continue;
 		if (NEGATIVE_RE.test(body)) continue;
 		out.push({
-			id: String((row as any).id),
+			id: `internal:${(row as any).id}`,
 			occurredAt: String((row as any).occurred_at),
 			author: ((row as any).author as string | null) ?? null,
 			body
 		});
+	}
+	return out;
+}
+
+function buildClientNameMatchers(...names: Array<string | null | undefined>): RegExp[] {
+	const seen = new Set<string>();
+	const matchers: RegExp[] = [];
+	for (const raw of names) {
+		if (!raw) continue;
+		const cleaned = String(raw)
+			.replace(/[^\w\s'\-]/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim();
+		if (!cleaned) continue;
+		const tokens = cleaned.split(' ').filter((t) => t.length >= 3);
+		for (const tok of tokens) {
+			const key = tok.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			matchers.push(new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i'));
+		}
+		// Also match the full phrase if it's a multi-word name (better signal).
+		if (tokens.length > 1) {
+			const key = cleaned.toLowerCase();
+			if (!seen.has(key)) {
+				seen.add(key);
+				matchers.push(new RegExp(`\\b${cleaned.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i'));
+			}
+		}
+	}
+	return matchers;
+}
+
+interface DealNames {
+	dealName: string | null;
+	firstName: string | null;
+	lastName: string | null;
+	contactName: string | null;
+}
+
+async function fetchDealNames(
+	accessToken: string,
+	apiDomain: string | undefined,
+	dealId: string
+): Promise<DealNames> {
+	try {
+		const res = await zohoApiCall(
+			accessToken,
+			`/Deals/${encodeURIComponent(dealId)}?fields=Deal_Name,First_Name,Last_Name,Contact_Name,Partner_s_Last_Name,Partner_s_First_Name`,
+			{},
+			apiDomain
+		);
+		const rec = res?.data?.[0] ?? {};
+		const contactName =
+			typeof rec.Contact_Name === 'object' && rec.Contact_Name?.name
+				? String(rec.Contact_Name.name)
+				: typeof rec.Contact_Name === 'string'
+					? rec.Contact_Name
+					: null;
+		return {
+			dealName: typeof rec.Deal_Name === 'string' ? rec.Deal_Name : null,
+			firstName: typeof rec.First_Name === 'string' ? rec.First_Name : null,
+			lastName: typeof rec.Last_Name === 'string' ? rec.Last_Name : null,
+			contactName
+		};
+	} catch {
+		return { dealName: null, firstName: null, lastName: null, contactName: null };
+	}
+}
+
+async function fetchFieldUpdateCliqMessages(
+	accessToken: string,
+	deal: DealNames,
+	windowHours: number
+): Promise<DailyMessage[]> {
+	if (!FIELDUPDATE_CHAT_ID) return [];
+	const fromTime = Date.now() - windowHours * 60 * 60 * 1000;
+	const result = await getCliqChatMessagesById(accessToken, FIELDUPDATE_CHAT_ID, {
+		fromTime,
+		limit: 100
+	}).catch((err) => {
+		console.warn('[client/daily-update] fieldupdate channel fetch failed:', err);
+		return null;
+	});
+	if (!result || !result.ok) {
+		if (result && !result.ok) {
+			console.warn(
+				`[client/daily-update] fieldupdate channel ${result.status ?? ''}: ${result.error}`
+			);
+		}
+		return [];
+	}
+	const matchers = buildClientNameMatchers(
+		deal.dealName,
+		deal.contactName,
+		deal.firstName,
+		deal.lastName,
+		deal.firstName && deal.lastName ? `${deal.firstName} ${deal.lastName}` : null
+	);
+	if (matchers.length === 0) return [];
+
+	const out: DailyMessage[] = [];
+	for (const msg of result.messages) {
+		const bodyText =
+			typeof (msg as any).text === 'string'
+				? (msg as any).text
+				: typeof (msg as any).content?.text === 'string'
+					? (msg as any).content.text
+					: typeof (msg as any).body === 'string'
+						? (msg as any).body
+						: '';
+		const body = String(bodyText).trim();
+		if (!body) continue;
+		// Require the message to mention this client (by deal name, full name,
+		// last name, or first name). This is how a single channel maps back to
+		// individual deals.
+		if (!matchers.some((rx) => rx.test(body))) continue;
+		if (NEGATIVE_RE.test(body)) continue;
+		const id = String((msg as any).id ?? (msg as any).message_id ?? '');
+		const time = (msg as any).time ?? (msg as any).timestamp ?? null;
+		const occurredAt =
+			typeof time === 'number'
+				? new Date(time).toISOString()
+				: typeof time === 'string'
+					? new Date(Number(time) || time).toISOString()
+					: new Date().toISOString();
+		const author =
+			typeof (msg as any).sender?.name === 'string'
+				? (msg as any).sender.name
+				: typeof (msg as any).author === 'string'
+					? (msg as any).author
+					: null;
+		out.push({ id: `fieldupdate:${id}`, occurredAt, author, body });
 	}
 	return out;
 }
@@ -211,14 +353,32 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	);
 
 	try {
-		const messages = await fetchRecentCliqMessages(dealId, windowHours);
+		const internalMessages = await fetchRecentInternalCliqMessages(dealId, windowHours);
+
+		let fieldUpdateMessages: DailyMessage[] = [];
 		let photos: DailyPhoto[] = [];
 		try {
 			const { accessToken, apiDomain } = await getAccessToken();
-			photos = await fetchWorkDrivePhotos(accessToken, apiDomain, dealId, windowHours);
+			const deal = await fetchDealNames(accessToken, apiDomain, dealId);
+			[fieldUpdateMessages, photos] = await Promise.all([
+				fetchFieldUpdateCliqMessages(accessToken, deal, windowHours),
+				fetchWorkDrivePhotos(accessToken, apiDomain, dealId, windowHours)
+			]);
 		} catch (err) {
-			console.warn('[client/daily-update] photos fetch failed:', err);
+			console.warn('[client/daily-update] live fetch failed:', err);
 		}
+
+		// Merge, de-dupe by id (we prefixed each source so collisions are
+		// impossible across sources), and sort newest first.
+		const seen = new Set<string>();
+		const messages: DailyMessage[] = [];
+		for (const m of [...fieldUpdateMessages, ...internalMessages]) {
+			if (seen.has(m.id)) continue;
+			seen.add(m.id);
+			messages.push(m);
+		}
+		messages.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+
 		const payload: DailyUpdatePayload = { messages, photos, windowHours };
 		return json(payload);
 	} catch (err) {
