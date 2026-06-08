@@ -5,61 +5,44 @@
 	/** Hours of "recent" — defaults to 36 so an evening visit shows the next morning. */
 	export let windowHours = 36;
 	/**
-	 * Which endpoint to call. Defaults to the trade endpoint; client dashboard
-	 * passes its own client-auth endpoint.
+	 * Which endpoint to call. Defaults to the client endpoint; trade or admin
+	 * callers can pass a different builder if they want to reuse the panel.
 	 */
-	export let endpointBuilder: (id: string) => string = (id) =>
-		`/api/trade/deals/${encodeURIComponent(id)}/field-updates`;
+	export let endpointBuilder: (id: string, hours: number) => string = (id, hours) =>
+		`/api/client/daily-update/${encodeURIComponent(id)}?hours=${hours}`;
 
-	interface FieldUpdate {
+	interface DailyMessage {
 		id: string;
-		createdAt: string | null;
-		updatedAt: string | null;
-		type: string | null;
-		body: string | null;
-		photos: Array<{ name: string; url: string }>;
+		occurredAt: string;
+		author: string | null;
+		body: string;
+	}
+	interface DailyPhoto {
+		id: string;
+		name: string;
+		url: string;
+		modifiedTime: string | null;
 	}
 
 	let loading = true;
 	let error = '';
-	let updates: FieldUpdate[] = [];
+	let messages: DailyMessage[] = [];
+	let photos: DailyPhoto[] = [];
 	let lightboxUrl: string | null = null;
 
-	// Only positive progress. Skip problems, issues, schedule changes, and
-	// change orders — those have their own escalation paths and don't belong
-	// in the "good news at a glance" panel.
-	const SKIP_TYPES = new Set([
-		'report_problem',
-		'problem',
-		'issue',
-		'schedule_change',
-		'change_order'
-	]);
-	const NEGATIVE_BODY_RE =
-		/\b(problem|issue|broken|damag(e|ed|es)|delay(ed|s)?|fail(ed|ure|s)?|cracked|leak(ed|ing|s)?|missing|wrong|incorrect|holdup|stuck|blocked|concern|risk|hazard|injury|accident)\b/i;
-
-	$: cutoff = Date.now() - windowHours * 60 * 60 * 1000;
-	$: recent = updates
-		.filter((u) => {
-			const t = Date.parse(u.createdAt ?? u.updatedAt ?? '');
-			if (!Number.isFinite(t) || t < cutoff) return false;
-			const type = (u.type ?? '').toLowerCase().trim();
-			if (SKIP_TYPES.has(type)) return false;
-			if (u.body && NEGATIVE_BODY_RE.test(u.body)) return false;
-			return true;
-		})
-		.sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''));
-	$: allPhotos = recent.flatMap((u) => u.photos.map((p) => ({ ...p, postedAt: u.createdAt })));
-
-	async function loadUpdates(id: string) {
+	async function load(id: string) {
 		if (!id) return;
 		loading = true;
 		error = '';
 		try {
-			const res = await fetch(endpointBuilder(id));
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const res = await fetch(endpointBuilder(id, windowHours));
+			if (!res.ok) {
+				const detail = await res.json().catch(() => null);
+				throw new Error(detail?.message ?? `HTTP ${res.status}`);
+			}
 			const payload = await res.json();
-			updates = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+			messages = Array.isArray(payload?.messages) ? payload.messages : [];
+			photos = Array.isArray(payload?.photos) ? payload.photos : [];
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load';
 		} finally {
@@ -67,8 +50,8 @@
 		}
 	}
 
-	onMount(() => loadUpdates(dealId));
-	$: if (dealId) loadUpdates(dealId);
+	onMount(() => load(dealId));
+	$: if (dealId) load(dealId);
 
 	function formatTime(iso: string | null): string {
 		if (!iso) return '';
@@ -85,10 +68,9 @@
 		}
 	}
 
-	function summarise(body: string | null, maxLen = 220): string {
-		if (!body) return '';
-		const oneLine = body.replace(/\s+/g, ' ').trim();
-		return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen - 1)}…` : oneLine;
+	function summarise(body: string, maxLen = 260): string {
+		const clean = body.replace(/\s+/g, ' ').trim();
+		return clean.length > maxLen ? `${clean.slice(0, maxLen - 1)}…` : clean;
 	}
 </script>
 
@@ -102,43 +84,43 @@
 		<p class="muted">Loading recent activity…</p>
 	{:else if error}
 		<p class="error">Couldn't load updates: {error}</p>
-	{:else if recent.length === 0}
-		<p class="muted">No field updates in the last {windowHours} hours.</p>
+	{:else if messages.length === 0 && photos.length === 0}
+		<p class="muted">No new updates in the last {windowHours} hours.</p>
 	{:else}
-		{#if allPhotos.length > 0}
+		{#if photos.length > 0}
 			<div class="photo-grid">
-				{#each allPhotos.slice(0, 12) as photo (photo.url)}
+				{#each photos.slice(0, 12) as photo (photo.id)}
 					<button
 						type="button"
 						class="thumb"
-						title={`Posted ${formatTime(photo.postedAt)}`}
+						title={`${photo.name}${photo.modifiedTime ? ` · ${formatTime(photo.modifiedTime)}` : ''}`}
 						on:click={() => (lightboxUrl = photo.url)}
 					>
-						<img src={photo.url} alt={photo.name || 'site photo'} loading="lazy" />
+						<img src={photo.url} alt={photo.name} loading="lazy" />
 					</button>
 				{/each}
 			</div>
-			{#if allPhotos.length > 12}
-				<p class="muted small">…and {allPhotos.length - 12} more photos in the latest field updates.</p>
+			{#if photos.length > 12}
+				<p class="muted small">…and {photos.length - 12} more new photos in the project folder.</p>
 			{/if}
 		{/if}
 
-		<ul class="update-list">
-			{#each recent as u (u.id)}
-				<li>
-					<div class="row-head">
-						<span class="type">{u.type || 'Update'}</span>
-						<time>{formatTime(u.createdAt)}</time>
-					</div>
-					{#if u.body}
-						<p>{summarise(u.body)}</p>
-					{/if}
-					{#if u.photos.length > 0}
-						<p class="muted small">{u.photos.length} photo{u.photos.length === 1 ? '' : 's'}</p>
-					{/if}
-				</li>
-			{/each}
-		</ul>
+		{#if messages.length > 0}
+			<ul class="update-list">
+				{#each messages.slice(0, 8) as m (m.id)}
+					<li>
+						<div class="row-head">
+							<span class="author">{m.author || 'CPR team'}</span>
+							<time>{formatTime(m.occurredAt)}</time>
+						</div>
+						<p>{summarise(m.body)}</p>
+					</li>
+				{/each}
+			</ul>
+			{#if messages.length > 8}
+				<p class="muted small">…plus {messages.length - 8} more updates from the team.</p>
+			{/if}
+		{/if}
 	{/if}
 </section>
 
@@ -210,7 +192,7 @@
 		font-size: 0.8rem;
 		color: #6b7280;
 	}
-	.row-head .type {
+	.row-head .author {
 		font-weight: 600;
 		color: #111827;
 	}

@@ -498,11 +498,8 @@
 	{:else if projects.length === 0}
 		<div class="state-card">No projects found</div>
 	{:else}
-		<!-- Today on site — positive-progress field updates with photos -->
-		<DailyUpdate
-			dealId={String(projects[0].id)}
-			endpointBuilder={(id) => `/api/client/daily-update/${encodeURIComponent(id)}`}
-		/>
+		<!-- Today on site — positive Cliq updates + WorkDrive Photos folder -->
+		<DailyUpdate dealId={String(projects[0].id)} />
 
 		<!-- Project Bot -->
 		<section class="section">

@@ -1,44 +1,52 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { getZohoTokens, upsertZohoTokens, getFieldUpdatesByDeal } from '$lib/server/db';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { supabase, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { getPortalPrincipal } from '$lib/server/designer';
 import { getDealsForClient } from '$lib/server/projects';
+import { listWorkDriveFolder, extractWorkDriveFolderId } from '$lib/server/workdrive';
 import type { RequestHandler } from './$types';
 
 /**
- * Client-facing "Today on site" feed.
+ * "Today on site" feed for the client dashboard.
  *
- * Returns the most recent Field_Updates entries for a deal that belongs to
- * the logged-in client, in the same shape the trade endpoint returns so the
- * shared <DailyUpdate /> component renders both portals identically.
+ * Pulls TWO data sources:
  *
- * Photos: pulls trade-portal uploads from Supabase Storage (the bucket the
- * trade app writes to) and matches them to Zoho Field_Updates by timestamp
- * proximity (Zoho first, Supabase within 2 minutes after).
+ *  1. **Internal Cliq messages** for the deal's channel from the past
+ *     {windowHours} — these are the team's daily progress notes. Already
+ *     synced to Supabase by the bot cron, so we just query the database.
+ *
+ *  2. **WorkDrive Photos folder** — every image file in the deal's `Photos`
+ *     top-level subfolder (the staff-curated progress photo set). Fetched
+ *     live from the Zoho WorkDrive API.
+ *
+ * Output is filtered to positive progress only — any message containing a
+ * problem / issue / delay keyword is dropped before sending to the client.
  */
 
-const ZOHO_API_BASE = env.ZOHO_API_BASE || 'https://www.zohoapis.com';
+const DEFAULT_WINDOW_HOURS = Number(env.DAILY_UPDATE_WINDOW_HOURS ?? '36');
 
-// Field_Updates is a custom module — CPR's vintage may name it Field_Updates,
-// Field_Updates1, etc. Try each candidate via the Deal related-list URL.
-const FIELD_UPDATES_MODULES = (() => {
-	const envValue = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
-	const set = new Set<string>(
-		envValue.split(',').map((v) => v.trim()).filter(Boolean)
-	);
-	set.add('Field_Updates');
-	for (let i = 1; i <= 10; i += 1) set.add(`Field_Updates${i}`);
-	return Array.from(set);
-})();
+const NEGATIVE_RE =
+	/\b(problem|issue|broken|damag(e|ed|es)|delay(ed|s)?|fail(ed|ure|s)?|cracked|leak(ed|ing|s)?|missing|wrong|incorrect|holdup|stuck|blocked|concern|risk|hazard|injury|accident|complaint)\b/i;
 
-interface DailyUpdateItem {
+interface DailyMessage {
 	id: string;
-	createdAt: string | null;
-	updatedAt: string | null;
-	type: string | null;
-	body: string | null;
-	photos: Array<{ name: string; url: string }>;
+	occurredAt: string;
+	author: string | null;
+	body: string;
+}
+
+interface DailyPhoto {
+	id: string;
+	name: string;
+	url: string;
+	modifiedTime: string | null;
+}
+
+interface DailyUpdatePayload {
+	messages: DailyMessage[];
+	photos: DailyPhoto[];
+	windowHours: number;
 }
 
 async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: string }> {
@@ -60,101 +68,120 @@ async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: stri
 	return { accessToken, apiDomain };
 }
 
-function safeText(v: any): string | null {
-	if (typeof v === 'string' && v.trim()) return v.trim();
-	return null;
-}
-
-function normalizePhotos(rawPhoto: any, recordId: string): Array<{ name: string; url: string }> {
-	if (!rawPhoto) return [];
-	const items: any[] = Array.isArray(rawPhoto) ? rawPhoto : [rawPhoto];
-	const out: Array<{ name: string; url: string }> = [];
-	for (const item of items) {
-		if (!item) continue;
-		if (typeof item === 'string' && item.startsWith('http')) {
-			out.push({ name: 'Photo', url: item });
-			continue;
-		}
-		if (typeof item === 'object') {
-			const url =
-				safeText(item.url) ??
-				safeText(item.download_url) ??
-				safeText(item.preview_url) ??
-				null;
-			const name = safeText(item.file_name) ?? safeText(item.name) ?? 'Photo';
-			if (url) out.push({ name, url });
-		}
+async function fetchRecentCliqMessages(
+	dealId: string,
+	windowHours: number
+): Promise<DailyMessage[]> {
+	const cutoffIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+	const { data, error } = await supabase
+		.from('bot_documents')
+		.select('id, author, occurred_at, body')
+		.eq('deal_id', dealId)
+		.eq('source', 'zoho_cliq_internal')
+		.gte('occurred_at', cutoffIso)
+		.order('occurred_at', { ascending: false })
+		.limit(80);
+	if (error) {
+		console.warn('[client/daily-update] cliq query failed:', error.message);
+		return [];
+	}
+	const out: DailyMessage[] = [];
+	for (const row of data ?? []) {
+		const body = String((row as any).body ?? '').trim();
+		if (!body) continue;
+		if (NEGATIVE_RE.test(body)) continue;
+		out.push({
+			id: String((row as any).id),
+			occurredAt: String((row as any).occurred_at),
+			author: ((row as any).author as string | null) ?? null,
+			body
+		});
 	}
 	return out;
 }
 
-function inferType(record: Record<string, any>): string | null {
-	return (
-		safeText(record.Update_Type) ??
-		safeText(record.update_type) ??
-		safeText(record.Type) ??
-		null
-	);
-}
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tif?f)$/i;
+const IMAGE_MIME_RE = /^image\//i;
 
-function normalize(record: Record<string, any>): DailyUpdateItem {
-	const id = String(record?.id ?? '');
-	return {
-		id,
-		createdAt: safeText(record.Created_Time) ?? safeText(record.created_time) ?? null,
-		updatedAt: safeText(record.Modified_Time) ?? safeText(record.modified_time) ?? null,
-		type: inferType(record),
-		body: safeText(record.Note) ?? safeText(record.note) ?? null,
-		photos: normalizePhotos(record.Photo ?? record.photo, id)
-	};
-}
-
-async function fetchFieldUpdatesForDeal(
+async function findPhotosFolderId(
 	accessToken: string,
-	dealId: string,
+	rootFolderId: string,
 	apiDomain?: string
-): Promise<Record<string, any>[]> {
-	const base = (apiDomain || ZOHO_API_BASE).replace(/\/$/, '');
-	// Walk the candidate related-list URLs. Stop at the first one that returns
-	// data (or 204 = no entries for the deal in that module).
-	const errors: string[] = [];
-	for (const moduleName of FIELD_UPDATES_MODULES) {
-		const url = `${base}/crm/v8/Deals/${encodeURIComponent(dealId)}/${encodeURIComponent(moduleName)}?per_page=40&sort_by=Created_Time&sort_order=desc`;
-		try {
-			const response = await fetch(url, {
-				method: 'GET',
-				signal: AbortSignal.timeout(15000),
-				headers: {
-					Authorization: `Zoho-oauthtoken ${accessToken}`,
-					'Content-Type': 'application/json'
-				}
-			});
-			if (response.status === 204) {
-				// Module exists but no entries for this deal — return empty cleanly.
-				return [];
+): Promise<string | null> {
+	const visit = async (
+		folderId: string,
+		depth: number
+	): Promise<string | null> => {
+		if (depth > 2) return null;
+		const items = await listWorkDriveFolder(accessToken, folderId, apiDomain).catch(() => []);
+		// Look for a folder literally named "Photos" first (case-insensitive).
+		for (const it of items) {
+			if (it.type === 'folder' && /^photos$/i.test(it.name)) {
+				return it.id;
 			}
-			if (response.status === 404) {
-				// Wrong module name — try the next candidate.
-				continue;
-			}
-			if (!response.ok) {
-				const text = await response.text().catch(() => '');
-				errors.push(`${moduleName} -> ${response.status}: ${text.slice(0, 120)}`);
-				continue;
-			}
-			const payload = await response.json().catch(() => null);
-			const data = Array.isArray(payload?.data) ? payload.data : [];
-			return data;
-		} catch (err) {
-			errors.push(`${moduleName} -> ${err instanceof Error ? err.message : 'fetch failed'}`);
 		}
-	}
-	throw new Error(
-		`No Field_Updates module returned data. Tried: ${errors.join(' | ').slice(0, 400)}`
-	);
+		// Otherwise recurse one level into known parent folders that often host
+		// a Photos subfolder (e.g. Client Portal).
+		for (const it of items) {
+			if (it.type !== 'folder') continue;
+			if (/^(client portal|progress|site|jobsite|on.?site)$/i.test(it.name)) {
+				const nested = await visit(it.id, depth + 1);
+				if (nested) return nested;
+			}
+		}
+		return null;
+	};
+	return visit(rootFolderId, 0);
 }
 
-export const GET: RequestHandler = async ({ params, cookies }) => {
+async function fetchWorkDrivePhotos(
+	accessToken: string,
+	apiDomain: string | undefined,
+	dealId: string,
+	windowHours: number
+): Promise<DailyPhoto[]> {
+	const dealRes = await zohoApiCall(
+		accessToken,
+		`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID`,
+		{},
+		apiDomain
+	);
+	const rec = dealRes?.data?.[0] ?? {};
+	const rawId = typeof rec.WorkDrive_Folder_ID === 'string' ? rec.WorkDrive_Folder_ID.trim() : '';
+	const rootId = extractWorkDriveFolderId(rawId) || rawId || null;
+	if (!rootId) return [];
+
+	const photosFolderId = await findPhotosFolderId(accessToken, rootId, apiDomain);
+	if (!photosFolderId) return [];
+
+	const items = await listWorkDriveFolder(accessToken, photosFolderId, apiDomain).catch(() => []);
+	const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
+	const photos: DailyPhoto[] = [];
+	for (const it of items) {
+		if (it.type !== 'file') continue;
+		const isImage =
+			IMAGE_EXT_RE.test(it.name) || (typeof it.mime === 'string' && IMAGE_MIME_RE.test(it.mime));
+		if (!isImage) continue;
+		const modifiedMs = it.modifiedTime ? Date.parse(it.modifiedTime) : Number.NaN;
+		// Treat undated files as "recent enough" so a new folder still renders
+		// rather than appearing empty.
+		if (Number.isFinite(modifiedMs) && modifiedMs < cutoff) continue;
+		photos.push({
+			id: it.id,
+			name: it.name,
+			url: `https://workdrive.zoho.com/file/${encodeURIComponent(it.id)}`,
+			modifiedTime: it.modifiedTime ?? null
+		});
+	}
+	photos.sort((a, b) => {
+		const aT = a.modifiedTime ? Date.parse(a.modifiedTime) : 0;
+		const bT = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
+		return bT - aT;
+	});
+	return photos.slice(0, 18);
+}
+
+export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	const dealId = (params.dealId ?? '').trim();
 	if (!dealId) return json({ message: 'Deal ID required' }, { status: 400 });
 
@@ -178,68 +205,24 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		return json({ message: 'Access denied' }, { status: 403 });
 	}
 
+	const windowHours = Math.min(
+		Math.max(Number(url.searchParams.get('hours') ?? DEFAULT_WINDOW_HOURS), 1),
+		24 * 14
+	);
+
 	try {
-		const { accessToken, apiDomain } = await getAccessToken();
-		const raw = await fetchFieldUpdatesForDeal(accessToken, dealId, apiDomain);
-		const normalized = raw.map(normalize).filter((u) => u.id);
-
-		// Merge Supabase-stored photos (trade-portal uploads) by timestamp proximity.
+		const messages = await fetchRecentCliqMessages(dealId, windowHours);
+		let photos: DailyPhoto[] = [];
 		try {
-			const supabaseUpdates = await getFieldUpdatesByDeal(dealId);
-			const withPhotos = supabaseUpdates.filter(
-				(r: any) => Array.isArray(r.photo_ids) && r.photo_ids.length > 0
-			);
-			if (withPhotos.length > 0) {
-				const matched = new Set<string>();
-				const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
-				for (const supaRec of withPhotos) {
-					const supaTime = new Date(supaRec.created_at).getTime();
-					let bestMatch: DailyUpdateItem | null = null;
-					let bestScore = -Infinity;
-					for (const item of normalized) {
-						if (matched.has(item.id)) continue;
-						const zohoTime = new Date(item.createdAt ?? 0).getTime();
-						const diff = supaTime - zohoTime;
-						if (diff < -30_000 || diff > 2 * 60_000) continue;
-						let score = 2 * 60_000 - diff;
-						const supaNote = (supaRec.note ?? '').trim();
-						const zohoNote = (item.body ?? '').trim();
-						if (supaNote && zohoNote && supaNote === zohoNote) score += 10 * 60_000;
-						if (score > bestScore) {
-							bestScore = score;
-							bestMatch = item;
-						}
-					}
-					if (bestMatch) {
-						matched.add(bestMatch.id);
-						const existingUrls = new Set(bestMatch.photos.map((p) => p.url));
-						const newPhotos = (supaRec.photo_ids as string[])
-							.filter((id: string) => {
-								const ext = id.split('.').pop()?.toLowerCase() ?? '';
-								return !VIDEO_EXTS.has(ext);
-							})
-							.map((id: string) => ({
-								name: id.split('/').pop() ?? 'Photo',
-								url: `/api/trade/photos/storage/${id}`
-							}))
-							.filter((p) => !existingUrls.has(p.url));
-						bestMatch.photos = [...bestMatch.photos, ...newPhotos];
-					}
-				}
-			}
+			const { accessToken, apiDomain } = await getAccessToken();
+			photos = await fetchWorkDrivePhotos(accessToken, apiDomain, dealId, windowHours);
 		} catch (err) {
-			console.warn('[client/daily-update] Supabase photo merge failed:', err);
+			console.warn('[client/daily-update] photos fetch failed:', err);
 		}
-
-		normalized.sort((a, b) => {
-			const aT = new Date(a.createdAt ?? a.updatedAt ?? 0).getTime();
-			const bT = new Date(b.createdAt ?? b.updatedAt ?? 0).getTime();
-			return bT - aT;
-		});
-
-		return json({ data: normalized });
+		const payload: DailyUpdatePayload = { messages, photos, windowHours };
+		return json(payload);
 	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Failed to fetch updates';
+		const message = err instanceof Error ? err.message : 'Failed to load daily update';
 		console.error('[client/daily-update] error', { dealId, message });
 		return json({ message }, { status: 500 });
 	}
