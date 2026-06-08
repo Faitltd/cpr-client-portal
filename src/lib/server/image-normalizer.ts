@@ -86,16 +86,61 @@ export function shouldNormalize(file: { type?: string; name?: string; size?: num
 }
 
 /**
+ * iPhone HEIC files arrive in a format sharp's bundled libheif often can't
+ * decode on Render's Node 22 binary (`No decoding plugin installed for this
+ * compression format`). Detect by signature and pre-decode to JPEG via the
+ * pure-JS heic-convert library, then hand that JPEG to sharp for the
+ * resize / re-encode / thumbnail pipeline.
+ */
+function looksLikeHeic(buf: Buffer, fileName?: string): boolean {
+	if (fileName) {
+		const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+		if (ext === 'heic' || ext === 'heif') return true;
+	}
+	// ISO BMFF container; bytes 4-11 contain 'ftyp' + brand.
+	if (buf.length < 12) return false;
+	if (buf.slice(4, 8).toString('ascii') !== 'ftyp') return false;
+	const brand = buf.slice(8, 12).toString('ascii').toLowerCase();
+	return /^(heic|heix|hevc|hevx|mif1|msf1|heim|heis|hevm|hevs)/.test(brand);
+}
+
+async function decodeHeicToJpeg(buf: Buffer): Promise<Buffer> {
+	const heicConvert = (await import('heic-convert')).default;
+	const output = await heicConvert({
+		buffer: buf,
+		format: 'JPEG',
+		quality: 0.95
+	});
+	return Buffer.from(output);
+}
+
+/**
  * Normalize a buffer. Throws on hard decode failure; the caller can fall
  * back to storing the original.
  */
-export async function normalizeImage(buf: Buffer): Promise<NormalizedImage> {
+export async function normalizeImage(buf: Buffer, fileName?: string): Promise<NormalizedImage> {
 	const sharpMod = await import('sharp');
 	const sharp = sharpMod.default;
 	const originalBytes = buf.byteLength;
 
+	// HEIC pre-pass — sharp's bundled libheif doesn't reliably support all
+	// HEIC compression formats on Render. Convert to JPEG first.
+	let workingBuf = buf;
+	if (looksLikeHeic(buf, fileName)) {
+		try {
+			workingBuf = await decodeHeicToJpeg(buf);
+		} catch (err) {
+			// If heic-convert fails too, let sharp try one more time (some
+			// "HEIC" files are actually JPEG with wrong extension).
+			console.warn(
+				'[image-normalizer] heic-convert failed, falling back to sharp:',
+				err instanceof Error ? err.message : err
+			);
+		}
+	}
+
 	// First pass: read metadata to know orientation + dimensions.
-	const image = sharp(buf, { failOn: 'none' }).rotate(); // applies EXIF orientation
+	const image = sharp(workingBuf, { failOn: 'none' }).rotate(); // applies EXIF orientation
 	const meta = await image.metadata();
 
 	const longEdge = Math.max(meta.width ?? 0, meta.height ?? 0);

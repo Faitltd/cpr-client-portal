@@ -89,7 +89,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			if (!isVideo && shouldNormalize({ type: file.type, name: file.name, size: file.size })) {
 				try {
 					const input = Buffer.from(uploadBuffer);
-					const norm = await normalizeImage(input);
+					const norm = await normalizeImage(input, file.name);
 					uploadBuffer = norm.full;
 					uploadContentType = norm.contentType;
 					storagePath = `${prefix}/${timestamp}-${random}.${norm.ext}`;
