@@ -1,8 +1,9 @@
 import { json } from '@sveltejs/kit';
 import { supabase, getTradeSession, getSession } from '$lib/server/db';
+import { shouldNormalize, normalizeImage } from '$lib/server/image-normalizer';
 import type { RequestHandler } from './$types';
 
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024;  // 10MB
+const MAX_IMAGE_SIZE = 25 * 1024 * 1024;  // 25MB pre-normalization (handles big HEIC/4K)
 const MAX_VIDEO_SIZE = 200 * 1024 * 1024; // 200MB
 const MAX_FILES = 5;
 const BUCKET = 'trade-photos';
@@ -76,13 +77,50 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 
 			const timestamp = Date.now();
 			const random = Math.random().toString(36).slice(2, 8);
-			const storagePath = `${prefix}/${timestamp}-${random}.${ext}`;
 
-			const arrayBuffer = await file.arrayBuffer();
+			let storagePath = `${prefix}/${timestamp}-${random}.${ext}`;
+			let uploadBuffer: Buffer | ArrayBuffer = await file.arrayBuffer();
+			let uploadContentType = file.type;
+			let thumbPath: string | null = null;
+
+			// Normalize images: HEIC → JPEG, resize 4K → 2048, re-encode at
+			// quality 82, generate a thumbnail. Video files and animated GIFs
+			// pass through untouched.
+			if (!isVideo && shouldNormalize({ type: file.type, name: file.name, size: file.size })) {
+				try {
+					const input = Buffer.from(uploadBuffer);
+					const norm = await normalizeImage(input);
+					uploadBuffer = norm.full;
+					uploadContentType = norm.contentType;
+					storagePath = `${prefix}/${timestamp}-${random}.${norm.ext}`;
+					thumbPath = `${prefix}/${timestamp}-${random}-thumb.${norm.ext}`;
+					console.log(
+						`[photo-upload] normalized ${file.name}: ${norm.originalBytes} → ${norm.normalizedBytes} bytes (${norm.width}x${norm.height})`
+					);
+					// Upload the thumbnail in parallel with the main image.
+					const { error: thumbErr } = await supabase.storage
+						.from(BUCKET)
+						.upload(thumbPath, norm.thumb, {
+							contentType: norm.contentType,
+							upsert: false
+						});
+					if (thumbErr) {
+						console.warn('[photo-upload] thumbnail upload failed:', thumbErr.message);
+						thumbPath = null;
+					}
+				} catch (err) {
+					console.warn(
+						'[photo-upload] normalization failed, storing original:',
+						err instanceof Error ? err.message : err
+					);
+					// Fall through with the original buffer.
+				}
+			}
+
 			const { error: uploadError } = await supabase.storage
 				.from(BUCKET)
-				.upload(storagePath, arrayBuffer, {
-					contentType: file.type,
+				.upload(storagePath, uploadBuffer, {
+					contentType: uploadContentType,
 					upsert: false
 				});
 
@@ -97,7 +135,10 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			uploaded.push({
 				id: storagePath,
 				url: `/api/trade/photos/storage/${storagePath}`,
-				name: file.name
+				name: file.name,
+				...(thumbPath
+					? { thumbnailUrl: `/api/trade/photos/storage/${thumbPath}` }
+					: {})
 			});
 		}
 
