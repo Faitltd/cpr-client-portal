@@ -78,19 +78,22 @@ async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: stri
 	return { accessToken, apiDomain };
 }
 
-async function fetchRecentInternalCliqMessages(
+async function fetchRecentDealCliqMessages(
 	dealId: string,
 	windowHours: number
 ): Promise<DailyMessage[]> {
 	const cutoffIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+	// Query BOTH the deal's internal Cliq channel (CPR staff discussions)
+	// AND its external channel (CPR ↔ client conversations). Either is a
+	// legitimate "what happened today on this project" signal.
 	const { data, error } = await supabase
 		.from('bot_documents')
-		.select('id, author, occurred_at, body')
+		.select('id, source, author, occurred_at, body')
 		.eq('deal_id', dealId)
-		.eq('source', 'zoho_cliq_internal')
+		.in('source', ['zoho_cliq_internal', 'zoho_cliq_external'])
 		.gte('occurred_at', cutoffIso)
 		.order('occurred_at', { ascending: false })
-		.limit(80);
+		.limit(120);
 	if (error) {
 		console.warn('[client/daily-update] cliq query failed:', error.message);
 		return [];
@@ -100,8 +103,10 @@ async function fetchRecentInternalCliqMessages(
 		const body = String((row as any).body ?? '').trim();
 		if (!body) continue;
 		if (NEGATIVE_RE.test(body)) continue;
+		const source = String((row as any).source ?? '');
+		const prefix = source === 'zoho_cliq_external' ? 'external' : 'internal';
 		out.push({
-			id: `internal:${(row as any).id}`,
+			id: `${prefix}:${(row as any).id}`,
 			occurredAt: String((row as any).occurred_at),
 			author: ((row as any).author as string | null) ?? null,
 			body
@@ -447,7 +452,7 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 	);
 
 	try {
-		const internalMessages = await fetchRecentInternalCliqMessages(dealId, windowHours);
+		const internalMessages = await fetchRecentDealCliqMessages(dealId, windowHours);
 
 		let fieldUpdateMessages: DailyMessage[] = [];
 		let photos: DailyPhoto[] = [];
