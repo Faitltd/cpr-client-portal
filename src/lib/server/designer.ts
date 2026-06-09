@@ -348,6 +348,7 @@ export async function getOnHoldDeals(): Promise<DesignerDealSummary[]> {
 const FINANCIALS_EXCLUDED_STAGES: ReadonlySet<string> = new Set([
 	'lost',
 	'ballpark needed',
+	'ballpark review needed',
 	'ballpark review booked',
 	'pda needed'
 ]);
