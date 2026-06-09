@@ -38,7 +38,9 @@ const OPTIONAL_ZOHO_SCOPES = [
 	'ZohoMail.organization.accounts.READ',
 	'ZohoMail.accounts.READ',
 	'ZohoMail.messages.READ',
-	'ZohoMail.folders.READ'
+	'ZohoMail.folders.READ',
+	'ZohoCalendar.calendar.READ',
+	'ZohoCalendar.event.READ'
 ] as const;
 
 const ALLOWED_ZOHO_SCOPES = new Set<string>([...REQUIRED_ZOHO_SCOPES, ...OPTIONAL_ZOHO_SCOPES]);

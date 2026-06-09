@@ -18,6 +18,7 @@ const ALL_SOURCES = [
 	'zoho_projects_task',
 	'zoho_projects_activity',
 	'zoho_sign_request',
+	'zoho_calendar',
 	'transcript'
 ] as const;
 

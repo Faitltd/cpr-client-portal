@@ -4,10 +4,19 @@ import { env } from '$env/dynamic/private';
 import { createAdminSession, getAdminSessionMaxAge, isAdminConfigured } from '$lib/server/admin';
 import { isValidAdminSession } from '$lib/server/admin';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
+import { getAdminUserAuthByEmail } from '$lib/server/db';
+import { verifyPassword } from '$lib/server/password';
 import type { Actions, PageServerLoad } from './$types';
 
 const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
-const PORTAL_ADMIN_EMAIL = normalizeEmailAddress(env.PORTAL_ADMIN_EMAIL || 'ray@homecpr.pro');
+// Allow one or more admin emails (comma-separated). Falls back to the single
+// PORTAL_ADMIN_EMAIL, then to the original default. All share PORTAL_ADMIN_PASSWORD.
+const PORTAL_ADMIN_EMAILS = new Set(
+	(env.PORTAL_ADMIN_EMAILS || env.PORTAL_ADMIN_EMAIL || 'ray@homecpr.pro')
+		.split(',')
+		.map((value) => normalizeEmailAddress(value))
+		.filter(Boolean)
+);
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	if (isValidAdminSession(cookies.get('admin_session'))) {
@@ -33,11 +42,27 @@ export const actions: Actions = {
 			return fail(401, { message: 'Invalid email or password.' });
 		}
 
-		if (email !== PORTAL_ADMIN_EMAIL) {
-			return fail(401, { message: 'Invalid email or password.' });
+		// Path 1 — env admin: an allowed email + the shared PORTAL_ADMIN_PASSWORD.
+		const isEnvAdmin =
+			PORTAL_ADMIN_EMAILS.has(email) &&
+			Boolean(PORTAL_ADMIN_PASSWORD) &&
+			password === PORTAL_ADMIN_PASSWORD;
+
+		// Path 2 — per-user admin: a row in admin_users with its own hashed password.
+		let isDbAdmin = false;
+		if (!isEnvAdmin) {
+			try {
+				const adminUser = await getAdminUserAuthByEmail(email);
+				isDbAdmin =
+					!!adminUser &&
+					adminUser.active !== false &&
+					(await verifyPassword(password, adminUser.password_hash));
+			} catch (err) {
+				console.error('[admin-login] admin_users lookup failed', err);
+			}
 		}
 
-		if (!PORTAL_ADMIN_PASSWORD || password !== PORTAL_ADMIN_PASSWORD) {
+		if (!isEnvAdmin && !isDbAdmin) {
 			return fail(401, { message: 'Invalid email or password.' });
 		}
 

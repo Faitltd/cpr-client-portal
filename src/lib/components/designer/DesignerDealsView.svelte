@@ -284,37 +284,39 @@
 
 	.tabs {
 		display: flex;
-		gap: 0.25rem;
-		border-bottom: 1px solid #e5e7eb;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		background: #eef2f7;
+		padding: 0.35rem;
+		border-radius: 0.7rem;
 	}
 
 	.tab {
-		padding: 0.55rem 0.95rem;
-		color: #6b7280;
+		padding: 0.5rem 1rem;
+		color: #334155;
 		font-weight: 600;
 		font-size: 0.9rem;
 		text-decoration: none;
-		border-bottom: 2px solid transparent;
-		margin-bottom: -1px;
-		transition: color 0.15s ease, border-color 0.15s ease;
+		border-radius: 0.5rem;
+		border: 1px solid transparent;
+		background: transparent;
+		transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 	}
 
 	button.tab {
-		background: none;
-		border-left: 0;
-		border-right: 0;
-		border-top: 0;
 		cursor: pointer;
 		font: inherit;
 	}
 
 	.tab:hover {
-		color: #111827;
+		background: #dbe3ee;
+		color: #0f172a;
 	}
 
 	.tab.active {
-		color: #0f172a;
-		border-bottom-color: #b45309;
+		background: #111827;
+		color: #ffffff;
+		border-color: #111827;
 	}
 
 	.deals {

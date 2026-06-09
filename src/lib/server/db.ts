@@ -633,6 +633,81 @@ export async function listDesigners(): Promise<DesignerListItem[]> {
 	return (data as DesignerListItem[]) || [];
 }
 
+// ---------------------------------------------------------------------------
+// Admin users (role: admin) — per-user accounts with their own hashed password.
+// Coexists with the env-based PORTAL_ADMIN_EMAIL(S)/PORTAL_ADMIN_PASSWORD login.
+// ---------------------------------------------------------------------------
+
+export interface AdminUser {
+	id: string;
+	email: string;
+	name?: string | null;
+	active?: boolean | null;
+}
+
+export interface AdminUserAuth {
+	id: string;
+	email: string;
+	password_hash: string | null;
+	active?: boolean | null;
+}
+
+export async function getAdminUserAuthByEmail(email: string): Promise<AdminUserAuth | null> {
+	const normalized = normalizeEmailAddress(email);
+	if (!normalized) return null;
+
+	const { data, error } = await getSupabase()
+		.from('admin_users')
+		.select('id, email, password_hash, active')
+		.eq('email', normalized)
+		.maybeSingle();
+
+	if (error) throw new Error(`Admin user lookup failed: ${error.message}`);
+	return data ? normalizeAuthRecord(data as AdminUserAuth) : null;
+}
+
+export async function upsertAdminUser(
+	input: { email: string; name?: string | null; active?: boolean }
+): Promise<AdminUser> {
+	const row = {
+		email: normalizeEmailAddress(input.email),
+		name: input.name ?? null,
+		active: input.active ?? true,
+		updated_at: new Date().toISOString()
+	};
+
+	const { data, error } = await getSupabase()
+		.from('admin_users')
+		.upsert([row], { onConflict: 'email', defaultToNull: false })
+		.select('id, email, name, active')
+		.single();
+
+	if (error) throw new Error(`Admin user upsert failed: ${error.message}`);
+	return data as AdminUser;
+}
+
+export async function setAdminUserPassword(adminUserId: string, passwordHash: string): Promise<void> {
+	const { error } = await getSupabase()
+		.from('admin_users')
+		.update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+		.eq('id', adminUserId);
+
+	if (error) throw new Error(`Admin user password update failed: ${error.message}`);
+}
+
+export type AdminUserListItem = { id: string; email: string; name: string | null; active: boolean | null };
+
+export async function listAdminUsers(): Promise<AdminUserListItem[]> {
+	const { data, error } = await getSupabase()
+		.from('admin_users')
+		.select('id, email, name, active')
+		.order('name', { ascending: true, nullsFirst: false })
+		.order('email', { ascending: true });
+
+	if (error) throw new Error(`Admin user list failed: ${error.message}`);
+	return (data as AdminUserListItem[]) || [];
+}
+
 
 /**
  * Fetch latest Zoho tokens

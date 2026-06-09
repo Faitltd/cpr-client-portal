@@ -8,6 +8,7 @@ import { syncCrmEmailsForDeal } from './ingest-crm-emails';
 import { syncWorkDriveForDeal } from './ingest-workdrive';
 import { syncProjectsForDeal } from './ingest-projects';
 import { syncSignForDeal } from './ingest-sign';
+import { syncCalendarForDeal } from './ingest-calendar';
 
 export type SyncSource =
 	| 'cliq'
@@ -16,7 +17,8 @@ export type SyncSource =
 	| 'crm_email'
 	| 'workdrive'
 	| 'projects'
-	| 'sign';
+	| 'sign'
+	| 'calendar';
 export type SyncTrigger = 'cron' | 'manual' | 'admin';
 
 // Stages to EXCLUDE from sync. Default is just "Lost". Override via env if you
@@ -174,7 +176,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 	const sources =
 		opts.sources && opts.sources.length > 0
 			? opts.sources
-			: (['cliq', 'mail', 'books', 'crm_email', 'workdrive'] as SyncSource[]);
+			: (['cliq', 'mail', 'books', 'crm_email', 'workdrive', 'calendar'] as SyncSource[]);
 	const startedAt = Date.now();
 
 	const { data: runInsert, error: runErr } = await supabase
@@ -218,7 +220,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 	for (const d of deals) {
 		const summary: DealSyncSummary = { deal_id: d.id, deal_name: d.name, stage: d.stage };
 		try {
-			const [cliq, books, mail, crmEmail, workdrive, projects, sign] = await Promise.all([
+			const [cliq, books, mail, crmEmail, workdrive, projects, sign, calendar] = await Promise.all([
 				sources.includes('cliq')
 					? syncCliqForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
 					: null,
@@ -239,6 +241,9 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 					: null,
 				sources.includes('sign')
 					? syncSignForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
+					: null,
+				sources.includes('calendar')
+					? syncCalendarForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
 					: null
 			]);
 			if (cliq) summary.cliq = tallyCliq(cliq);
@@ -248,6 +253,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 			if (workdrive) summary.workdrive = tallyWorkdrive(workdrive);
 			if (projects) (summary as any).projects = projects;
 			if (sign) (summary as any).sign = sign;
+			if (calendar) (summary as any).calendar = calendar;
 
 			const allErrs = [
 				summary.cliq?.error,
@@ -256,7 +262,8 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 				summary.crm_email?.error,
 				summary.workdrive?.error,
 				(projects as any)?.error,
-				(sign as any)?.error
+				(sign as any)?.error,
+				(calendar as any)?.error
 			].filter(Boolean) as string[];
 
 			// "Expected" errors = data hasn't been set up on the Deal yet (not a
