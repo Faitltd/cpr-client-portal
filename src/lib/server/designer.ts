@@ -10,6 +10,7 @@ import {
 } from '$lib/server/db';
 import { normalizeDealRecord } from '$lib/server/auth';
 import { getLatestDesignerNotesBulk } from '$lib/server/designer-notes';
+import { getBooksCustomerByEmail, listInvoicesForCustomer } from '$lib/server/books';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { createLogger } from '$lib/server/logger';
 import {
@@ -569,6 +570,196 @@ export async function getDesignerDashboardContext(
 		deals,
 		warning
 	};
+}
+
+// ---------------------------------------------------------------------------
+// Financials — CRM contract Amount + Zoho Books invoiced/paid.
+// Books invoices are keyed by customer (contact email), not by deal, so the
+// invoiced/paid figures are the customer's totals. Grand totals dedupe by
+// customer so a client with multiple deals isn't counted twice.
+// ---------------------------------------------------------------------------
+
+export type DealFinancials = {
+	invoiced: number;
+	paid: number;
+	balance: number;
+	invoiceCount: number;
+};
+
+export type DealFinancialRow = {
+	id: string;
+	name: string;
+	stage: string | null;
+	contactName: string | null;
+	contactId: string | null;
+	amount: number | null;
+	closingDate: string | null;
+	email: string | null;
+	books: DealFinancials | null;
+};
+
+export type DesignerFinancials = {
+	rows: DealFinancialRow[];
+	totals: {
+		contractValue: number;
+		invoiced: number;
+		paid: number;
+		balance: number;
+		dealCount: number;
+		valuedCount: number;
+	};
+	booksAvailable: boolean;
+	warning: string;
+};
+
+function toFinancialAmount(value: unknown): number | null {
+	if (value === null || value === undefined || value === '') return null;
+	const n = typeof value === 'number' ? value : Number(String(value).replace(/[^0-9.\-]/g, ''));
+	return Number.isFinite(n) ? n : null;
+}
+
+async function mapLimited<T, R>(
+	items: T[],
+	limit: number,
+	fn: (item: T) => Promise<R>
+): Promise<R[]> {
+	const out: R[] = new Array(items.length);
+	let next = 0;
+	const workerCount = Math.min(Math.max(1, limit), items.length || 1);
+	const workers = Array.from({ length: workerCount }, async () => {
+		while (next < items.length) {
+			const idx = next++;
+			out[idx] = await fn(items[idx]);
+		}
+	});
+	await Promise.all(workers);
+	return out;
+}
+
+async function fetchContactEmailsByIds(
+	ctx: AdminZohoContext,
+	ids: string[]
+): Promise<Map<string, string>> {
+	const map = new Map<string, string>();
+	const unique = Array.from(new Set(ids.filter(Boolean)));
+	const chunkSize = 100;
+	for (let i = 0; i < unique.length; i += chunkSize) {
+		const chunk = unique.slice(i, i + chunkSize);
+		try {
+			const response = await zohoCall(ctx, `/Contacts?ids=${chunk.join(',')}&fields=Email`);
+			const records = Array.isArray(response?.data) ? response.data : [];
+			for (const rec of records) {
+				const id = rec?.id ? String(rec.id) : '';
+				const email = typeof rec?.Email === 'string' ? rec.Email.trim().toLowerCase() : '';
+				if (id && email) map.set(id, email);
+			}
+		} catch (err) {
+			log.warn('Contact email fetch failed', {
+				error: err instanceof Error ? err.message : String(err)
+			});
+		}
+	}
+	return map;
+}
+
+async function fetchBooksForEmails(
+	accessToken: string,
+	emails: string[]
+): Promise<Map<string, DealFinancials>> {
+	const byEmail = new Map<string, DealFinancials>();
+	const unique = Array.from(new Set(emails.filter(Boolean)));
+	await mapLimited(unique, 3, async (email) => {
+		try {
+			const customer = await getBooksCustomerByEmail(accessToken, email);
+			const customerId = customer?.contact_id;
+			if (!customerId) return;
+			const invoices = await listInvoicesForCustomer(accessToken, customerId);
+			let invoiced = 0;
+			let balance = 0;
+			let invoiceCount = 0;
+			for (const inv of Array.isArray(invoices) ? invoices : []) {
+				invoiced += toFinancialAmount(inv?.total) ?? 0;
+				balance += toFinancialAmount(inv?.balance) ?? 0;
+				invoiceCount += 1;
+			}
+			byEmail.set(email, { invoiced, paid: invoiced - balance, balance, invoiceCount });
+		} catch (err) {
+			log.warn('Books fetch failed for customer', {
+				error: err instanceof Error ? err.message : String(err)
+			});
+		}
+	});
+	return byEmail;
+}
+
+function sumContractTotals(rows: DealFinancialRow[]) {
+	const totals = {
+		contractValue: 0,
+		invoiced: 0,
+		paid: 0,
+		balance: 0,
+		dealCount: rows.length,
+		valuedCount: 0
+	};
+	for (const row of rows) {
+		if (row.amount !== null) {
+			totals.contractValue += row.amount;
+			totals.valuedCount += 1;
+		}
+	}
+	return totals;
+}
+
+export async function getDealsFinancials(
+	deals: DesignerDealSummary[]
+): Promise<DesignerFinancials> {
+	const rows: DealFinancialRow[] = deals.map((deal) => {
+		const fields = (deal.fields ?? {}) as Record<string, unknown>;
+		return {
+			id: deal.id,
+			name: deal.name,
+			stage: deal.stage,
+			contactName: deal.contactName,
+			contactId: deal.contactId,
+			amount: toFinancialAmount(fields.Amount),
+			closingDate: typeof fields.Closing_Date === 'string' ? fields.Closing_Date : null,
+			email: null,
+			books: null
+		};
+	});
+
+	try {
+		const ctx = await resolveAdminZohoContext();
+		const emailById = await fetchContactEmailsByIds(
+			ctx,
+			rows.map((row) => row.contactId || '')
+		);
+		for (const row of rows) {
+			row.email = row.contactId ? emailById.get(row.contactId) ?? null : null;
+		}
+
+		const booksByEmail = await fetchBooksForEmails(
+			ctx.accessToken,
+			rows.map((row) => row.email || '')
+		);
+		for (const row of rows) {
+			row.books = row.email ? booksByEmail.get(row.email) ?? null : null;
+		}
+
+		const totals = sumContractTotals(rows);
+		// Dedupe Books totals by customer so multi-deal clients aren't double counted.
+		for (const fin of booksByEmail.values()) {
+			totals.invoiced += fin.invoiced;
+			totals.paid += fin.paid;
+			totals.balance += fin.balance;
+		}
+
+		return { rows, totals, booksAvailable: booksByEmail.size > 0, warning: '' };
+	} catch (err) {
+		const warning = err instanceof Error ? err.message : 'Unable to load Books financials';
+		log.warn('getDealsFinancials failed', { warning });
+		return { rows, totals: sumContractTotals(rows), booksAvailable: false, warning };
+	}
 }
 
 // ---------------------------------------------------------------------------

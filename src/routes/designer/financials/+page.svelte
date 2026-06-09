@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
+
+	type Books = { invoiced: number; paid: number; balance: number; invoiceCount: number };
 
 	export let data: PageData;
 
@@ -10,6 +13,37 @@
 	});
 
 	$: rows = data.rows ?? [];
+
+	let booksLoading = true;
+	let booksWarning = '';
+	let booksById = new Map<string, Books | null>();
+	let bookTotals: { invoiced: number; paid: number; balance: number } | null = null;
+
+	const money = (n: number | null | undefined) =>
+		n === null || n === undefined ? '—' : usd.format(n);
+
+	onMount(async () => {
+		try {
+			const res = await fetch('/api/designer/financials');
+			if (!res.ok) {
+				booksWarning = 'Could not load invoice data from Zoho Books.';
+				booksLoading = false;
+				return;
+			}
+			const payload = await res.json();
+			const map = new Map<string, Books | null>();
+			for (const row of payload.rows ?? []) {
+				map.set(row.id, row.books ?? null);
+			}
+			booksById = map;
+			bookTotals = payload.totals ?? null;
+			booksWarning = payload.warning || '';
+			booksLoading = false;
+		} catch {
+			booksWarning = 'Could not load invoice data from Zoho Books.';
+			booksLoading = false;
+		}
+	});
 </script>
 
 <svelte:head>
@@ -19,19 +53,26 @@
 {#if data.warning}
 	<div class="warning">{data.warning}</div>
 {/if}
+{#if booksWarning}
+	<div class="warning">{booksWarning}</div>
+{/if}
 
 <div class="summary">
 	<div class="stat">
-		<span class="stat-label">Total pipeline value</span>
+		<span class="stat-label">Contract value</span>
 		<span class="stat-value">{usd.format(data.total)}</span>
 	</div>
 	<div class="stat">
-		<span class="stat-label">Deals</span>
-		<span class="stat-value">{data.count}</span>
+		<span class="stat-label">Invoiced</span>
+		<span class="stat-value">{booksLoading ? '…' : money(bookTotals?.invoiced ?? 0)}</span>
 	</div>
 	<div class="stat">
-		<span class="stat-label">With an amount</span>
-		<span class="stat-value">{data.valuedCount}</span>
+		<span class="stat-label">Paid</span>
+		<span class="stat-value">{booksLoading ? '…' : money(bookTotals?.paid ?? 0)}</span>
+	</div>
+	<div class="stat">
+		<span class="stat-label">Outstanding</span>
+		<span class="stat-value">{booksLoading ? '…' : money(bookTotals?.balance ?? 0)}</span>
 	</div>
 </div>
 
@@ -45,23 +86,34 @@
 					<th>Deal</th>
 					<th>Client</th>
 					<th>Stage</th>
-					<th class="num">Amount</th>
+					<th class="num">Contract</th>
+					<th class="num">Invoiced</th>
+					<th class="num">Paid</th>
+					<th class="num">Balance</th>
 					<th>Closing</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#each rows as row (row.id)}
+					{@const books = booksById.get(row.id)}
 					<tr>
 						<td class="name">{row.name}</td>
 						<td>{row.contactName ?? '—'}</td>
 						<td>{#if row.stage}<span class="badge">{row.stage}</span>{:else}—{/if}</td>
-						<td class="num">{row.amount === null ? '—' : usd.format(row.amount)}</td>
+						<td class="num">{money(row.amount)}</td>
+						<td class="num">{booksLoading ? '…' : money(books?.invoiced)}</td>
+						<td class="num">{booksLoading ? '…' : money(books?.paid)}</td>
+						<td class="num">{booksLoading ? '…' : money(books?.balance)}</td>
 						<td>{row.closingDate ?? '—'}</td>
 					</tr>
 				{/each}
 			</tbody>
 		</table>
 	</div>
+	<p class="caption">
+		Invoiced / Paid / Balance come from each client's Zoho Books account (customer-level totals,
+		not split per deal). Contract value is the deal amount in the CRM.
+	</p>
 {/if}
 
 <style>
@@ -73,7 +125,7 @@
 	}
 
 	.stat {
-		flex: 1 1 160px;
+		flex: 1 1 150px;
 		border: 1px solid #e5e7eb;
 		border-radius: 10px;
 		background: #fff;
@@ -145,6 +197,12 @@
 		padding: 0.1rem 0.6rem;
 		font-weight: 600;
 		font-size: 0.8rem;
+	}
+
+	.caption {
+		margin: 0.6rem 0 0;
+		font-size: 0.8rem;
+		color: #6b7280;
 	}
 
 	.warning {
