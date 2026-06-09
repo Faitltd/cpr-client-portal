@@ -43,10 +43,22 @@ async function refreshSignCache(accessToken: string, email: string, cacheKey: st
 
 		const details = await getRequestDetails(accessToken, requestId);
 		const actions = details?.actions || [];
+		const normalizedEmail = email.toLowerCase();
+		// Only surface a contract if the logged-in user is actually a recipient on
+		// it. Zoho's recipient_email search filter is unreliable and can return
+		// the full org-wide request list, so ownership is enforced here. Without
+		// this check, every client (and any internal user) sees everyone's
+		// contracts.
+		const isRecipient = actions.some((item: any) => {
+			const recipientEmail = (item.recipient_email || item.recipientEmail || '').toLowerCase();
+			return recipientEmail === normalizedEmail;
+		});
+		if (!isRecipient) continue;
+
 		const action = actions.find((item: any) => {
 			const actionType = (item.action_type || item.actionType || '').toLowerCase();
 			const recipientEmail = (item.recipient_email || item.recipientEmail || '').toLowerCase();
-			return actionType === 'sign' && recipientEmail === email.toLowerCase();
+			return actionType === 'sign' && recipientEmail === normalizedEmail;
 		});
 
 		const name =
@@ -95,6 +107,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		}
 
 		const email = String(session.client.email || '').toLowerCase();
+		if (!email) {
+			return json({ data: [] });
+		}
 		const cacheKey = buildCacheKey('sign-requests', email);
 		const cached = await getCache(cacheKey);
 		if (cached) {

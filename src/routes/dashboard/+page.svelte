@@ -899,6 +899,8 @@
 {/if}
 
 	<!-- Documents (contracts + uploaded files + external Client Portal folder) -->
+	<!-- Only shown when the user has at least one project; documents are scoped to that project. -->
+	{#if projects.length > 0}
 	<section class="section">
 		<button class="section-header" type="button" on:click={() => (documentsOpen = !documentsOpen)}>
 			<span class="section-header-left">
@@ -967,6 +969,7 @@
 			{/if}
 		{/if}
 	</section>
+	{/if}
 
 	<!-- Access Info -->
 	<section class="section">
