@@ -341,13 +341,26 @@ export async function getOnHoldDeals(): Promise<DesignerDealSummary[]> {
 }
 
 /**
- * Deals across every stage except Lost — used by the Financials view so it
- * covers current/in-progress projects (Project Created), On Hold, and
- * Completed, not just the active pre-construction pipeline shown on the main
- * dashboard. Stageless deals are included so nothing financial is dropped.
+ * Stages excluded from the Financials view. Lost deals carry no real money, and
+ * the early pre-quote stages below never have invoice/contract figures, so they
+ * only add empty rows.
+ */
+const FINANCIALS_EXCLUDED_STAGES: ReadonlySet<string> = new Set([
+	'lost',
+	'ballpark needed',
+	'ballpark review booked',
+	'pda needed'
+]);
+
+/**
+ * Deals for the Financials view — every stage except the financially-empty ones
+ * in FINANCIALS_EXCLUDED_STAGES. Covers current/in-progress projects (Project
+ * Created), On Hold, and Completed, not just the active pre-construction
+ * pipeline shown on the main dashboard. Stageless deals are included so nothing
+ * financial is dropped.
  */
 export async function getDealsForFinancials(): Promise<DesignerDealSummary[]> {
-	const deals = await paginateFilteredDeals((stage) => stage !== 'lost');
+	const deals = await paginateFilteredDeals((stage) => !FINANCIALS_EXCLUDED_STAGES.has(stage));
 	return overlayCachedDesignerNotes(deals);
 }
 
