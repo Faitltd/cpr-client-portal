@@ -435,15 +435,25 @@ export async function getDealNotes(dealId: string): Promise<DesignerNote[]> {
  * Create a Zoho CRM Note against a Deal. Zoho stamps `Created_Time` itself —
  * we don't send a timestamp with the request.
  */
-export async function createDealNote(dealId: string, content: string): Promise<DesignerNote> {
+export async function createDealNote(
+	dealId: string,
+	content: string,
+	author?: string | null
+): Promise<DesignerNote> {
 	if (typeof content !== 'string' || content.trim() === '') {
 		throw new Error('Note content is required.');
 	}
+	// All notes are written through the admin Zoho token, so Zoho stamps
+	// Created_By as the admin. Designers have no Zoho identity, so we record the
+	// real author in the note title (`Designer Note: <name>`) and surface that as
+	// the owner in mapNote().
+	const trimmedAuthor = typeof author === 'string' ? author.trim() : '';
+	const noteTitle = trimmedAuthor ? `Designer Note: ${trimmedAuthor}` : 'Designer Note';
 	const ctx = await resolveAdminZohoContext();
 	const body = {
 		data: [
 			{
-				Note_Title: 'Designer Note',
+				Note_Title: noteTitle,
 				Note_Content: content,
 				Parent_Id: dealId,
 				se_module: 'Deals'
@@ -814,13 +824,20 @@ function filterToEditable(
 }
 
 function mapNote(raw: any): DesignerNote {
+	const title = typeof raw?.Note_Title === 'string' ? raw.Note_Title : null;
+	// Portal notes carry their real author in the title ("Designer Note: <name>").
+	// Fall back to the Zoho record owner for notes created directly in the CRM.
+	const authorMatch = title ? title.match(/^Designer Note:\s*(.+)$/) : null;
+	const owner_name = authorMatch
+		? authorMatch[1].trim()
+		: raw?.Owner?.name ?? raw?.Created_By?.name ?? null;
 	return {
 		id: String(raw?.id ?? ''),
-		Note_Title: raw?.Note_Title ?? null,
+		Note_Title: title,
 		Note_Content: raw?.Note_Content ?? null,
 		Created_Time: raw?.Created_Time ?? null,
 		Modified_Time: raw?.Modified_Time ?? null,
-		owner_name: raw?.Owner?.name ?? raw?.Created_By?.name ?? null
+		owner_name
 	};
 }
 

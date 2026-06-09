@@ -82,7 +82,8 @@ export const POST: RequestHandler = async ({ cookies, params, request }) => {
 	}
 
 	try {
-		const note = await createDealNote(dealId, content);
+		const author = auth.session.designer.name?.trim() || auth.session.designer.email || null;
+		const note = await createDealNote(dealId, content, author);
 		const payload: NoteResponse = { note };
 		return json(payload, { status: 201 });
 	} catch (err) {
