@@ -22,7 +22,7 @@ function toDateString(value: unknown): string | null {
 }
 
 export const load: PageServerLoad = async ({ cookies }) => {
-	const context = await getDesignerDashboardContext(cookies.get('portal_session'));
+	const context = await getDesignerDashboardContext(cookies.get('portal_session'), 'financials');
 	if (!context) {
 		throw redirect(302, '/auth/portal?next=/designer/financials');
 	}

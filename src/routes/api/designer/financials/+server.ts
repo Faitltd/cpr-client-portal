@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import {
-	getAllDeals,
+	getDealsForFinancials,
 	getDealsFinancials,
 	isNoAdminTokensError,
 	requireDesigner
@@ -15,7 +15,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	if (!auth.ok) return auth.response;
 
 	try {
-		const deals = await getAllDeals();
+		const deals = await getDealsForFinancials();
 		const financials = await getDealsFinancials(deals);
 		return json(financials);
 	} catch (err) {

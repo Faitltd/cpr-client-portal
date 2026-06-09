@@ -341,6 +341,17 @@ export async function getOnHoldDeals(): Promise<DesignerDealSummary[]> {
 }
 
 /**
+ * Deals across every stage except Lost — used by the Financials view so it
+ * covers current/in-progress projects (Project Created), On Hold, and
+ * Completed, not just the active pre-construction pipeline shown on the main
+ * dashboard. Stageless deals are included so nothing financial is dropped.
+ */
+export async function getDealsForFinancials(): Promise<DesignerDealSummary[]> {
+	const deals = await paginateFilteredDeals((stage) => stage !== 'lost');
+	return overlayCachedDesignerNotes(deals);
+}
+
+/**
  * Most-recent-edited wins reconciliation between Zoho and the Supabase cache.
  *
  *  • If the cached edit is NEWER than Zoho's Modified_Time → use the cached
@@ -538,7 +549,7 @@ export type DesignerDashboardContext = {
  * that should redirect to the login screen. Zoho failures surface via
  * `warning` so the page can render an empty list rather than 500.
  */
-export type DesignerDashboardScope = 'active' | 'project-created' | 'on-hold';
+export type DesignerDashboardScope = 'active' | 'project-created' | 'on-hold' | 'financials';
 
 export async function getDesignerDashboardContext(
 	sessionToken: string | null | undefined,
@@ -559,7 +570,9 @@ export async function getDesignerDashboardContext(
 				? await getProjectCreatedDeals()
 				: scope === 'on-hold'
 					? await getOnHoldDeals()
-					: await getAllDeals();
+					: scope === 'financials'
+						? await getDealsForFinancials()
+						: await getAllDeals();
 	} catch (err) {
 		warning = err instanceof Error ? err.message : 'Unable to load deals';
 		log.warn('getDesignerDashboardContext: deal load failed', { scope, warning });
