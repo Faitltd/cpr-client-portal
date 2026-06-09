@@ -9,6 +9,7 @@
 		'/designer/projects': 'Project Created',
 		'/designer/on-hold': 'On Hold',
 		'/designer/tasks': 'Tasks',
+		'/designer/financials': 'Financials',
 		'/designer/chat': 'CPR Bot'
 	};
 
@@ -34,6 +35,9 @@
 				>On Hold</a
 			>
 			<a class="tab" class:active={pathname === '/designer/tasks'} href="/designer/tasks">Tasks</a>
+			<a class="tab" class:active={pathname === '/designer/financials'} href="/designer/financials"
+				>Financials</a
+			>
 			{#if data.canChat}
 				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Bot</a>
 			{/if}
