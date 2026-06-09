@@ -17,4 +17,6 @@
 	{designerLabel}
 	heading="Active Deals"
 	emptyMessage="No active deals found."
+	showHeader={false}
+	showTabs={false}
 />

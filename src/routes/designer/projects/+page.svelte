@@ -17,4 +17,6 @@
 	{designerLabel}
 	heading="Project Created"
 	emptyMessage="No deals currently in Project Created stage."
+	showHeader={false}
+	showTabs={false}
 />

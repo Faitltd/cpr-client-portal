@@ -17,4 +17,6 @@
 	{designerLabel}
 	heading="On Hold"
 	emptyMessage="No deals currently On Hold."
+	showHeader={false}
+	showTabs={false}
 />
