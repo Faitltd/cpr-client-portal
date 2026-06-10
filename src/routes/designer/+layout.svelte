@@ -5,6 +5,8 @@
 	export let data: LayoutData;
 
 	const TITLES: Record<string, string> = {
+		'/designer/trade-dashboard': 'Trade Dashboard',
+		'/designer/field-update': 'Field Update',
 		'/designer': 'Active Deals',
 		'/designer/projects': 'Project Created',
 		'/designer/on-hold': 'On Hold',
@@ -27,6 +29,18 @@
 			</p>
 		</div>
 		<nav class="tabs" aria-label="Designer views">
+			{#if data.hasTrade}
+				<a
+					class="tab"
+					class:active={pathname === '/designer/trade-dashboard'}
+					href="/designer/trade-dashboard">Trade Dashboard</a
+				>
+				<a
+					class="tab"
+					class:active={pathname === '/designer/field-update'}
+					href="/designer/field-update">Field Update</a
+				>
+			{/if}
 			<a class="tab" class:active={pathname === '/designer'} href="/designer">Active Deals</a>
 			<a class="tab" class:active={pathname === '/designer/projects'} href="/designer/projects"
 				>Project Created</a

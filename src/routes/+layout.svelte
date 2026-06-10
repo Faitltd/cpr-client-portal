@@ -4,7 +4,11 @@
 	import { onDestroy } from 'svelte';
 
 	$: pathname = $page.url.pathname;
+	// When a page is embedded in an iframe (?embed=1), hide the global header so
+	// it renders cleanly inside the designer portal's tabbed layout.
+	$: isEmbed = $page.url.searchParams.get('embed') === '1';
 	$: showClientNav =
+		!isEmbed &&
 		pathname !== '/' &&
 		!pathname.startsWith('/admin') &&
 		!pathname.startsWith('/auth');

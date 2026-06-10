@@ -49,6 +49,11 @@
 	// chrome (back link, header, deal selector) and let the parent tab supply
 	// the project context. Driven by ?embed=1 in the URL.
 	const embedMode = browser ? new URL(window.location.href).searchParams.get('embed') === '1' : false;
+	// When embedded without a preselected deal (the designer-portal Field Update
+	// tab), still show the deal selector so the user can choose a project.
+	const hasDealParam = browser
+		? Boolean(new URL(window.location.href).searchParams.get('deal'))
+		: false;
 
 	// Re-evaluate after mount in case the URL is only available client-side.
 	onMount(() => {
@@ -341,7 +346,7 @@
 			<p>No deals found for your account yet.</p>
 		</div>
 	{:else}
-		{#if !embedMode}
+		{#if !embedMode || !hasDealParam}
 			<div class="trade-selector card">
 				<label for="trade-deal">Select Deal</label>
 				<select id="trade-deal" bind:value={selectedDealId}>

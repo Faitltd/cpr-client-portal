@@ -24,6 +24,13 @@
 	type DashboardTab = 'trade' | 'designer';
 	let activeTab: DashboardTab = 'trade';
 
+	// When embedded in the designer portal (?embed=1), the portal already exposes
+	// a dedicated Field Update tab, so the standalone "Submit Field Update" button
+	// is hidden here to avoid duplication.
+	const embedMode = browser
+		? new URL(window.location.href).searchParams.get('embed') === '1'
+		: false;
+
 	onMount(async () => {
 		try {
 			const res = await fetch('/api/trade/deals');
@@ -760,13 +767,15 @@
 					</svg>
 					Project Bot
 				</a>
-				<a class="field-update-btn" href={fieldUpdateUrl}>
-					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<rect x="3" y="2" width="14" height="16" rx="2"/>
-						<path d="M7 6h6M7 10h6M7 14h4"/>
-					</svg>
-					Submit Field Update
-				</a>
+				{#if !embedMode}
+					<a class="field-update-btn" href={fieldUpdateUrl}>
+						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<rect x="3" y="2" width="14" height="16" rx="2"/>
+							<path d="M7 6h6M7 10h6M7 14h4"/>
+						</svg>
+						Submit Field Update
+					</a>
+				{/if}
 			</div>
 		{/if}
 	</header>

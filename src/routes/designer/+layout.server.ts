@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { getPortalPrincipal } from '$lib/server/designer';
+import { getTradePartnerAuthByEmail } from '$lib/server/db';
 import type { LayoutServerLoad } from './$types';
 
 const ALLOWED_CHAT_EMAILS = new Set(
@@ -25,8 +26,18 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	const email = (principal.session.designer.email ?? '').toLowerCase();
 	const canChat = ALLOWED_CHAT_EMAILS.has(email);
 
+	// Dual-role: designers who are also trade partners get the Trade Dashboard +
+	// Field Update tabs. Detected by a matching trade-partner record.
+	let hasTrade = false;
+	try {
+		hasTrade = Boolean(await getTradePartnerAuthByEmail(email));
+	} catch {
+		hasTrade = false;
+	}
+
 	return {
 		designer: principal.session.designer,
-		canChat
+		canChat,
+		hasTrade
 	};
 };

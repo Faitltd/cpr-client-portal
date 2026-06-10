@@ -133,10 +133,36 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			maxAge: 60 * 60 * 24 * 7
 		});
 
-		if (expectsJson) {
-			return json({ message: 'Login successful.', redirect: '/designer', role: 'designer' });
+		// Dual-role: a designer who is also a trade partner gets a trade_session
+		// too, so the embedded Trade Dashboard / Field Update tabs authenticate,
+		// and lands on the Trade Dashboard tab by default.
+		let designerLanding = '/designer';
+		const tradePartnerForDesigner = await getTradePartnerAuthByEmail(email);
+		if (tradePartnerForDesigner) {
+			const tradeSessionId = createHash('sha256')
+				.update(`${tradePartnerForDesigner.id}:${Date.now()}:${Math.random()}`)
+				.digest('hex');
+			await createTradeSession({
+				session_token: tradeSessionId,
+				trade_partner_id: tradePartnerForDesigner.id,
+				expires_at: sessionExpiresAt,
+				ip_address: ipAddress,
+				user_agent: request.headers.get('user-agent')
+			});
+			cookies.set('trade_session', tradeSessionId, {
+				path: '/',
+				httpOnly: true,
+				secure: !dev,
+				sameSite: 'strict',
+				maxAge: 60 * 60 * 24 * 7
+			});
+			designerLanding = '/designer/trade-dashboard';
 		}
-		throw redirect(303, '/designer');
+
+		if (expectsJson) {
+			return json({ message: 'Login successful.', redirect: designerLanding, role: 'designer' });
+		}
+		throw redirect(303, designerLanding);
 	}
 
 	// ── Client check ────────────────────────────────────────────────────
