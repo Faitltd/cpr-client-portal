@@ -50,6 +50,12 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		return new Response('Not found', { status: 404 });
 	}
 
+	// Uploads only ever write `clients/{id}/...` or `{tradePartnerId}/...`;
+	// reject anything that tries to escape or probe the bucket.
+	if (storagePath.includes('..') || storagePath.startsWith('/') || storagePath.includes('\\')) {
+		return new Response('Forbidden', { status: 403 });
+	}
+
 	const { data, error } = await supabase.storage.from(BUCKET).download(storagePath);
 
 	if (error || !data) {
@@ -58,14 +64,15 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 	const ext = storagePath.split('.').pop()?.toLowerCase() || 'jpg';
 	const contentType = EXT_CONTENT_TYPE[ext] || 'application/octet-stream';
-	const arrayBuffer = await data.arrayBuffer();
 
-	return new Response(arrayBuffer, {
+	// Stream the blob instead of buffering it — videos can be up to 200MB and
+	// buffering them per-request can OOM the server.
+	return new Response(data.stream(), {
 		status: 200,
 		headers: {
 			'Content-Type': contentType,
 			'Cache-Control': 'private, max-age=3600',
-			'Content-Length': String(arrayBuffer.byteLength)
+			'Content-Length': String(data.size)
 		}
 	});
 };

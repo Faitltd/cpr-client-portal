@@ -52,10 +52,26 @@ export async function exchangeCodeForTokens(code: string, redirectUri: string): 
 	};
 }
 
+// Single-flight guard: concurrent requests that all see an expired token
+// would otherwise fire simultaneous refresh calls, tripping Zoho's refresh
+// rate limit and clobbering each other's DB writes. Dedupe by refresh token.
+const inFlightRefreshes = new Map<string, Promise<ZohoToken>>();
+
 /**
  * Refresh an expired access token
  */
 export async function refreshAccessToken(refreshToken: string): Promise<ZohoToken> {
+	const existing = inFlightRefreshes.get(refreshToken);
+	if (existing) return existing;
+
+	const promise = doRefreshAccessToken(refreshToken).finally(() => {
+		inFlightRefreshes.delete(refreshToken);
+	});
+	inFlightRefreshes.set(refreshToken, promise);
+	return promise;
+}
+
+async function doRefreshAccessToken(refreshToken: string): Promise<ZohoToken> {
 	const params = new URLSearchParams({
 		grant_type: 'refresh_token',
 		client_id: ZOHO_CLIENT_ID,
