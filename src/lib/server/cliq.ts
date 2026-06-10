@@ -195,10 +195,28 @@ export interface CliqMessageRead {
 }
 
 function pickPlainText(msg: any): string {
-	if (typeof msg?.content?.text === 'string') return msg.content.text;
-	if (typeof msg?.text === 'string') return msg.text;
+	if (typeof msg?.content?.text === 'string' && msg.content.text.trim()) return msg.content.text;
+	if (typeof msg?.text === 'string' && msg.text.trim()) return msg.text;
 	if (typeof msg?.content === 'string') return msg.content;
 	if (typeof msg?.message === 'string') return msg.message;
+
+	// File/attachment messages carry their text as a caption (`comment`), not
+	// `text` — e.g. "I've attached a breakdown…" alongside a PDF. Without this,
+	// those messages extract as empty and the ingest pipeline drops them.
+	const content = msg?.content;
+	if (content && typeof content === 'object') {
+		const caption = [content.comment, content.caption, content.note].find(
+			(v: unknown) => typeof v === 'string' && (v as string).trim()
+		) as string | undefined;
+		const fileNames = ([] as any[])
+			.concat(content.file ?? [], content.files ?? [], content.attachments ?? [])
+			.map((f: any) => f?.name ?? f?.title ?? f?.file_name)
+			.filter((n: unknown): n is string => typeof n === 'string' && n.length > 0);
+		const parts: string[] = [];
+		if (caption) parts.push(caption.trim());
+		if (fileNames.length) parts.push(`[attached: ${fileNames.join(', ')}]`);
+		if (parts.length) return parts.join('\n');
+	}
 	return '';
 }
 

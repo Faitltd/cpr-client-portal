@@ -8,6 +8,12 @@ import { chunkText, embed } from './embeddings';
 const DEFAULT_BACKFILL_DAYS = Number(process.env.BOT_CLIQ_BACKFILL_DAYS ?? '90');
 const PAGE_LIMIT = 100;
 const MAX_PAGES_PER_RUN = 30;
+// Re-scan this far behind the cursor every run. Ingestion is idempotent
+// (deduped on source+source_id+hash), so the cost is a page or two of
+// re-fetched messages — and it self-heals messages that a past run dropped
+// (parse gaps, transient embed failures) without a manual cursor reset.
+const RESYNC_OVERLAP_MS =
+	Math.max(0, Number(process.env.BOT_CLIQ_OVERLAP_HOURS ?? '48')) * 60 * 60 * 1000;
 
 type CliqSource = 'zoho_cliq_internal' | 'zoho_cliq_external';
 
@@ -266,7 +272,7 @@ async function syncChannel(
 	}
 
 	const state = await getCursor(source, dealId);
-	let fromTime = state.fromTime;
+	let fromTime = Math.min(state.fromTime, Date.now() - RESYNC_OVERLAP_MS);
 	let chatId = state.chatId ?? handle.chatId ?? null;
 	let latestSeen = fromTime;
 	let pages = 0;

@@ -215,6 +215,54 @@ Do not acknowledge that financial fields exist on the Deal. Do not cite retrieve
 `.trim();
 
 
+/**
+ * Complete Books picture for the Deal, independent of similarity retrieval.
+ * Top-k retrieval only surfaces a few invoice chunks, so questions like
+ * "what's the total invoiced / outstanding?" were answered from a partial
+ * view. This loads EVERY ingested Books record (invoices, estimates,
+ * payments) for the deal — they're small rendered summaries — so the model
+ * can total them. Returns null when the deal has no Books records.
+ */
+const BOOKS_BLOCK_MAX_CHARS = 14000;
+
+async function buildBooksFinancialBlock(dealId: string): Promise<string | null> {
+	const { data, error } = await supabase
+		.from('bot_documents')
+		.select('source, subject, body, occurred_at')
+		.eq('deal_id', dealId)
+		.in('source', ['zoho_books_invoice', 'zoho_books_estimate', 'zoho_books_payment'])
+		.order('occurred_at', { ascending: true });
+
+	if (error) {
+		console.warn('[bot/chat] books financial block fetch failed:', error.message);
+		return null;
+	}
+	if (!data || data.length === 0) return null;
+
+	const lines: string[] = [
+		`All Zoho Books records for this Deal (${data.length} total). This list is COMPLETE — use it for any question about totals, amounts invoiced, payments received, or outstanding balance. Sum these records rather than guessing.`,
+		''
+	];
+	let used = 0;
+	for (const doc of data) {
+		// First 3 lines of the rendered record carry number/status/date/total/
+		// balance — enough to aggregate. Line-item detail still arrives via
+		// the Retrieved context when relevant.
+		const summary = String(doc.body ?? '')
+			.split('\n')
+			.slice(0, 3)
+			.join(' · ');
+		const entry = `- [${doc.source}] ${doc.occurred_at?.slice(0, 10) ?? ''} ${summary}`;
+		if (used + entry.length > BOOKS_BLOCK_MAX_CHARS) {
+			lines.push(`… (${data.length} records total; list truncated)`);
+			break;
+		}
+		lines.push(entry);
+		used += entry.length;
+	}
+	return lines.join('\n');
+}
+
 function buildSourcesSearchedBlock(retrieved: RetrievedChunk[]): string {
 	const bySource = new Map<string, RetrievedChunk[]>();
 	for (const c of retrieved) {
@@ -369,6 +417,16 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 	}
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
+	// Complete Books financial picture — omitted entirely for trade partners
+	// (hideFinancials); internal-cost lines scrubbed for clients.
+	let booksBlock: string | null = null;
+	if (!opts.hideFinancials) {
+		booksBlock = await buildBooksFinancialBlock(opts.dealId);
+		if (booksBlock && opts.hideInternalFinancials) {
+			booksBlock = scrubInternalFinancialsFromBlock(booksBlock);
+		}
+	}
+
 	const sourceCounts: Record<string, number> = {};
 	for (const c of retrieved) sourceCounts[c.source] = (sourceCounts[c.source] ?? 0) + 1;
 	console.log(
@@ -390,6 +448,9 @@ export async function runChat(opts: RunChatOptions): Promise<ReadableStream<Uint
 		promptParts.push(
 			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
 		);
+	}
+	if (booksBlock) {
+		promptParts.push('\n# Books financial records (complete list for this Deal)\n' + booksBlock);
 	}
 
 	// Inject a literal numbered list of every WorkDrive doc retrieved (one
@@ -522,6 +583,16 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 	}
 	const sourcesSearchedBlock = buildSourcesSearchedBlock(retrieved);
 
+	// Complete Books financial picture — omitted entirely for trade partners
+	// (hideFinancials); internal-cost lines scrubbed for clients.
+	let booksBlock: string | null = null;
+	if (!opts.hideFinancials) {
+		booksBlock = await buildBooksFinancialBlock(opts.dealId);
+		if (booksBlock && opts.hideInternalFinancials) {
+			booksBlock = scrubInternalFinancialsFromBlock(booksBlock);
+		}
+	}
+
 	const promptParts = [
 		SYSTEM_PROMPT,
 		'\n# Deal context\n' + dealBlock,
@@ -533,6 +604,9 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 		promptParts.push(
 			'\n# Retrieved context\n(no entries matched the question — see "Sources searched" block above)'
 		);
+	}
+	if (booksBlock) {
+		promptParts.push('\n# Books financial records (complete list for this Deal)\n' + booksBlock);
 	}
 
 	// Inject a literal numbered list of every WorkDrive doc retrieved (one
