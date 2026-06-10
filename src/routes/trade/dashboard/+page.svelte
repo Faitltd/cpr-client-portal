@@ -728,9 +728,17 @@
 <div class="dashboard">
 	<header class="dash-header">
 		<div class="dash-header-text">
-			<h1>Dashboard</h1>
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
+		<a
+			class="fu-submit-btn"
+			href={'/trade/field-update' + (selectedDealId ? '?deal=' + encodeURIComponent(selectedDealId) : '')}
+		>
+			<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<path d="M10 4v12M4 10h12"/>
+			</svg>
+			Submit Field Update
+		</a>
 	</header>
 
 	{#if dealsLoading}
@@ -1031,15 +1039,6 @@
 		{/if}
 
 		{#if selectedDeal && dealTab === 'field_updates'}
-			<div class="fu-actions">
-				<a class="fu-submit-btn" href={'/trade/field-update?deal=' + encodeURIComponent(selectedDealId)}>
-					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<path d="M10 4v12M4 10h12"/>
-					</svg>
-					Submit Field Update
-				</a>
-			</div>
-
 			<!-- Field update history -->
 			<div class="card section-card">
 				<h3 class="section-title">
@@ -1201,15 +1200,11 @@
 		margin-bottom: 1.25rem;
 	}
 
-	.dash-header-text h1 {
-		margin: 0 0 0.15rem;
-		font-size: 1.5rem;
-	}
-
 	.dash-welcome {
 		margin: 0;
 		color: #6b7280;
-		font-size: 0.9rem;
+		font-size: 1rem;
+		font-weight: 600;
 	}
 
 	.folder-section {
@@ -1343,10 +1338,6 @@
 		border: none;
 		padding: 0;
 		margin: 0;
-	}
-
-	.fu-actions {
-		margin-bottom: 1rem;
 	}
 
 	.fu-submit-btn {
