@@ -1095,11 +1095,10 @@ export async function getDealNotes(accessToken: string, dealId: string, apiDomai
  */
 export async function listAllContacts(accessToken: string, apiDomain?: string): Promise<ClientProfile[]> {
 	const perPage = 200;
-	let page = 1;
-	let more = true;
+	const maxPages = 50; // hard cap so a misbehaving more_records flag can't loop forever
 	const results: ClientProfile[] = [];
 
-	while (more) {
+	for (let page = 1; page <= maxPages; page += 1) {
 		const response = await zohoApiCall(
 			accessToken,
 			`/Contacts?fields=${encodeURIComponent(CONTACT_FIELDS)}&page=${page}&per_page=${perPage}`,
@@ -1114,8 +1113,10 @@ export async function listAllContacts(accessToken: string, apiDomain?: string): 
 			}
 		}
 
-		more = Boolean(response.info?.more_records);
-		page += 1;
+		if (!response.info?.more_records || contacts.length === 0) break;
+		if (page === maxPages) {
+			log.warn('listAllContacts truncated at page cap', { maxPages, fetched: results.length });
+		}
 	}
 
 	return results;
@@ -1283,6 +1284,7 @@ export async function listTradePartnersWithStats(
 		try {
 			let page = 1;
 			let more = true;
+			const maxPages = 50; // hard cap so a misbehaving more_records flag can't loop forever
 			const resultsById = new Map<string, TradePartnerProfile>();
 			let missingEmail = 0;
 			let recovered = 0;
@@ -1330,7 +1332,10 @@ export async function listTradePartnersWithStats(
 					}
 				}
 
-				more = Boolean(response.info?.more_records);
+				more = Boolean(response.info?.more_records) && page < maxPages;
+				if (page === maxPages) {
+					log.warn('listTradePartnersWithStats truncated at page cap', { moduleName, maxPages });
+				}
 				page += 1;
 			}
 
@@ -1410,11 +1415,10 @@ async function listDealContactIdsForStages(
 	apiDomain?: string
 ): Promise<string[]> {
 	const perPage = 200;
-	let page = 1;
-	let more = true;
+	const maxPages = 50; // hard cap so a misbehaving more_records flag can't loop forever
 	const ids = new Set<string>();
 
-	while (more) {
+	for (let page = 1; page <= maxPages; page += 1) {
 		const response = await zohoApiCall(
 			accessToken,
 			`/Deals?fields=${encodeURIComponent('Stage,Contact_Name')}&page=${page}&per_page=${perPage}`,
@@ -1430,8 +1434,10 @@ async function listDealContactIdsForStages(
 			if (contactId) ids.add(contactId);
 		}
 
-		more = Boolean(response.info?.more_records);
-		page += 1;
+		if (!response.info?.more_records || deals.length === 0) break;
+		if (page === maxPages) {
+			log.warn('listDealContactIdsForStages truncated at page cap', { maxPages });
+		}
 	}
 
 	return Array.from(ids);
