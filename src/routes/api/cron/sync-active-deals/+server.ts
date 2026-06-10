@@ -1,7 +1,15 @@
 import { json } from '@sveltejs/kit';
+import { timingSafeEqual } from 'crypto';
 import { env } from '$env/dynamic/private';
 import { syncAll } from '$lib/server/bot/sync-all';
 import type { RequestHandler } from './$types';
+
+function secretMatches(expected: string, got: string): boolean {
+	const a = Buffer.from(expected);
+	const b = Buffer.from(got);
+	if (a.length !== b.length) return false;
+	return timingSafeEqual(a, b);
+}
 
 /**
  * Scheduled background sync of every active deal. Hit by a Render Cron Job
@@ -17,7 +25,7 @@ import type { RequestHandler } from './$types';
 export const POST: RequestHandler = async ({ request }) => {
 	const expected = env.BOT_CRON_SECRET;
 	const got = request.headers.get('x-cron-secret') ?? '';
-	if (!expected || got !== expected) {
+	if (!expected || !secretMatches(expected, got)) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
 

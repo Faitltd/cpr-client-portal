@@ -57,14 +57,18 @@ function extractUser(body: any): { id: string; email: string; name: string } {
  */
 export const POST: RequestHandler = async ({ request }) => {
 	// Token check — Cliq lets you set a custom header on bot webhooks.
-	if (BOT_TOKEN) {
-		const provided =
-			request.headers.get('x-cliq-bot-token') ??
-			request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
-			'';
-		if (provided !== BOT_TOKEN) {
-			return json({ text: 'Unauthorized.' }, { status: 401 });
-		}
+	// Fail closed: without ZOHO_CLIQ_BOT_TOKEN configured this endpoint would
+	// accept unauthenticated requests from anyone on the internet.
+	if (!BOT_TOKEN) {
+		console.error('[cliq-bot] ZOHO_CLIQ_BOT_TOKEN not configured; rejecting webhook');
+		return json({ text: 'Unauthorized.' }, { status: 401 });
+	}
+	const provided =
+		request.headers.get('x-cliq-bot-token') ??
+		request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
+		'';
+	if (provided !== BOT_TOKEN) {
+		return json({ text: 'Unauthorized.' }, { status: 401 });
 	}
 
 	let body: any;

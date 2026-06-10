@@ -52,9 +52,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		// SvelteKit may render its HTML error page for unexpected throws, which causes
 		// 'Unexpected token <' errors on the client when it tries to JSON.parse the response.
 		if (event.url.pathname.startsWith('/api/')) {
+			// Log the real error server-side; never echo internals (Zoho/OAuth/DB
+			// messages) back to the browser.
 			console.error(`[hooks] Unhandled API error on ${event.url.pathname}:`, err);
-			const message = err instanceof Error ? err.message : 'Internal server error';
-			return new Response(JSON.stringify({ message }), {
+			return new Response(JSON.stringify({ message: 'Internal server error' }), {
 				status: 500,
 				headers: { 'Content-Type': 'application/json' }
 			});
@@ -66,6 +67,5 @@ export const handle: Handle = async ({ event, resolve }) => {
 /** Ensure unexpected errors always produce JSON for API routes. */
 export const handleError: HandleServerError = ({ error, event }) => {
 	console.error(`[handleError] ${event.url.pathname}:`, error);
-	const message = error instanceof Error ? error.message : 'Internal server error';
-	return { message };
+	return { message: 'Internal server error' };
 };
