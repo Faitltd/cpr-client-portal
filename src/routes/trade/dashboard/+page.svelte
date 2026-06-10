@@ -1031,15 +1031,6 @@
 		{/if}
 
 		{#if selectedDeal && dealTab === 'field_updates'}
-			<!-- Submit a field update -->
-			<div class="card embedded-form">
-				<iframe
-					title="Field Update"
-					src={'/trade/field-update?embed=1&deal=' + encodeURIComponent(selectedDealId)}
-					class="field-update-iframe"
-				></iframe>
-			</div>
-
 			<!-- Field update history -->
 			<div class="card section-card">
 				<h3 class="section-title">
@@ -1825,15 +1816,5 @@
 	}
 	.tab-bar .tab:hover {
 		color: #111827;
-	}
-	.embedded-form {
-		padding: 0;
-		overflow: hidden;
-	}
-	.field-update-iframe {
-		width: 100%;
-		height: 1400px;
-		border: 0;
-		display: block;
 	}
 </style>
