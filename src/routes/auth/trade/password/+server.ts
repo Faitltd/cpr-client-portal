@@ -1,6 +1,6 @@
 import { json, redirect } from '@sveltejs/kit';
-import { createHash } from 'crypto';
 import { dev } from '$app/environment';
+import { generateSessionToken } from '$lib/server/session-token';
 import { env } from '$env/dynamic/private';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { createTradeSession, getTradePartnerAuthByEmail } from '$lib/server/db';
@@ -68,9 +68,7 @@ async function handleTradeLogin({
 		throw redirect(303, '/auth/trade?error=invalid');
 	}
 
-	const sessionId = createHash('sha256')
-		.update(`${tradePartner.id}:${Date.now()}:${Math.random()}`)
-		.digest('hex');
+	const sessionId = generateSessionToken();
 	const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 	const ipAddress = getClientAddress ? getClientAddress() : null;
 

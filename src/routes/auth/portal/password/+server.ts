@@ -1,6 +1,6 @@
 import { json, redirect } from '@sveltejs/kit';
-import { createHash } from 'crypto';
 import { dev } from '$app/environment';
+import { generateSessionToken } from '$lib/server/session-token';
 import { env } from '$env/dynamic/private';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import {
@@ -101,9 +101,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		designer.active !== false &&
 		(await verifyPassword(password, designer.password_hash))
 	) {
-		const sessionId = createHash('sha256')
-			.update(`${designer.id}:${Date.now()}:${Math.random()}`)
-			.digest('hex');
+		const sessionId = generateSessionToken();
 		const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 		const ipAddress = getClientAddress ? getClientAddress() : null;
 
@@ -138,9 +136,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	const effectiveClientId = repairedClient?.id || client?.id || '';
 
 	if (effectiveClientId && (clientPasswordValid || repairedClient)) {
-		const sessionId = createHash('sha256')
-			.update(`${effectiveClientId}:${Date.now()}:${Math.random()}`)
-			.digest('hex');
+		const sessionId = generateSessionToken();
 		const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 		const ipAddress = getClientAddress ? getClientAddress() : null;
 
@@ -169,9 +165,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	// ── Trade partner check ─────────────────────────────────────────────
 	const tradePartner = await getTradePartnerAuthByEmail(email);
 	if (tradePartner && (await verifyTradePartnerLogin(tradePartner, password))) {
-		const sessionId = createHash('sha256')
-			.update(`${tradePartner.id}:${Date.now()}:${Math.random()}`)
-			.digest('hex');
+		const sessionId = generateSessionToken();
 		const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 		const ipAddress = getClientAddress ? getClientAddress() : null;
 

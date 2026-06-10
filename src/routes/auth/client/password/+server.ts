@@ -1,6 +1,6 @@
 import { json, redirect } from '@sveltejs/kit';
-import { createHash } from 'crypto';
 import { dev } from '$app/environment';
+import { generateSessionToken } from '$lib/server/session-token';
 import { createSession, getClientAuthByEmail } from '$lib/server/db';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { reconcileClientPhoneLogin } from '$lib/server/client-login';
@@ -54,9 +54,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		throw redirect(303, '/auth/client?error=invalid');
 	}
 
-	const sessionId = createHash('sha256')
-		.update(`${effectiveClientId}:${Date.now()}:${Math.random()}`)
-		.digest('hex');
+	const sessionId = generateSessionToken();
 	const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 	const ipAddress = getClientAddress ? getClientAddress() : null;
 

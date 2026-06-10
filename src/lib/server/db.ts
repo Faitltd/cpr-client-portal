@@ -296,6 +296,7 @@ export async function createSession(sessionData: ClientSessionRecord): Promise<v
  * Get session by session token with client data
  */
 export async function getSession(sessionToken: string): Promise<ClientSession | null> {
+	const nowIso = new Date().toISOString();
 	const { data, error } = await getSupabase()
 		.from('client_sessions')
 		.select(
@@ -314,6 +315,7 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
 			 )`
 		)
 		.eq('session_token', sessionToken)
+		.gt('expires_at', nowIso)
 		.single();
 
 	if (error || !data || !data.clients) return null;
@@ -427,6 +429,7 @@ export async function createTradeSession(sessionData: TradeSessionRecord): Promi
  * Get trade partner session by session token
  */
 export async function getTradeSession(sessionToken: string): Promise<TradeSession | null> {
+	const nowIso = new Date().toISOString();
 	const { data, error } = await getSupabase()
 		.from('trade_sessions')
 		.select(
@@ -443,6 +446,7 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
 			 )`
 		)
 		.eq('session_token', sessionToken)
+		.gt('expires_at', nowIso)
 		.single();
 
 	if (error || !data || !data.trade_partners) return null;
