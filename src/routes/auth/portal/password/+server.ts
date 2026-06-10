@@ -139,9 +139,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		let designerLanding = '/designer';
 		const tradePartnerForDesigner = await getTradePartnerAuthByEmail(email);
 		if (tradePartnerForDesigner) {
-			const tradeSessionId = createHash('sha256')
-				.update(`${tradePartnerForDesigner.id}:${Date.now()}:${Math.random()}`)
-				.digest('hex');
+			const tradeSessionId = generateSessionToken();
 			await createTradeSession({
 				session_token: tradeSessionId,
 				trade_partner_id: tradePartnerForDesigner.id,
