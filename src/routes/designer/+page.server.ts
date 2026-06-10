@@ -7,7 +7,9 @@ import {
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ cookies }) => {
-	const context = await getDesignerDashboardContext(cookies.get('portal_session'));
+	// 'crm' scope: active + Project Created + On Hold, so all three view
+	// selector buttons on the CRM tab have data.
+	const context = await getDesignerDashboardContext(cookies.get('portal_session'), 'crm');
 	if (!context) {
 		throw redirect(302, '/auth/portal?next=/designer');
 	}

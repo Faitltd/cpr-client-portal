@@ -323,6 +323,21 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
 }
 
 /**
+ * Deals for the CRM tab — active deals PLUS Project Created and On Hold, so
+ * the client-side view selector (Project Created / Active Deals / On Hold)
+ * has data for every view. Only Completed and Lost stay hidden.
+ */
+export async function getCrmDeals(): Promise<DesignerDealSummary[]> {
+	const deals = await paginateFilteredDeals(
+		(stage) =>
+			!ACTIVE_VIEW_EXCLUDED_STAGES.has(stage) ||
+			stage === PROJECT_CREATED_STAGE ||
+			stage === ON_HOLD_STAGE
+	);
+	return overlayCachedDesignerNotes(deals);
+}
+
+/**
  * Deals whose Stage is exactly "Project Created" — the dedicated projects view.
  * Stageless deals are NOT included here.
  */
@@ -573,7 +588,7 @@ export type DesignerDashboardContext = {
  * that should redirect to the login screen. Zoho failures surface via
  * `warning` so the page can render an empty list rather than 500.
  */
-export type DesignerDashboardScope = 'active' | 'project-created' | 'on-hold' | 'financials';
+export type DesignerDashboardScope = 'active' | 'crm' | 'project-created' | 'on-hold' | 'financials';
 
 export async function getDesignerDashboardContext(
 	sessionToken: string | null | undefined,
@@ -596,7 +611,9 @@ export async function getDesignerDashboardContext(
 					? await getOnHoldDeals()
 					: scope === 'financials'
 						? await getDealsForFinancials()
-						: await getAllDeals();
+						: scope === 'crm'
+							? await getCrmDeals()
+							: await getAllDeals();
 	} catch (err) {
 		warning = err instanceof Error ? err.message : 'Unable to load deals';
 		log.warn('getDesignerDashboardContext: deal load failed', { scope, warning });
