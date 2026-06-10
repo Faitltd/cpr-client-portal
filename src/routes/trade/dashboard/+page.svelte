@@ -1031,6 +1031,15 @@
 		{/if}
 
 		{#if selectedDeal && dealTab === 'field_updates'}
+			<div class="fu-actions">
+				<a class="fu-submit-btn" href={'/trade/field-update?deal=' + encodeURIComponent(selectedDealId)}>
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M10 4v12M4 10h12"/>
+					</svg>
+					Submit Field Update
+				</a>
+			</div>
+
 			<!-- Field update history -->
 			<div class="card section-card">
 				<h3 class="section-title">
@@ -1334,6 +1343,28 @@
 		border: none;
 		padding: 0;
 		margin: 0;
+	}
+
+	.fu-actions {
+		margin-bottom: 1rem;
+	}
+
+	.fu-submit-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: #111827;
+		color: #fff;
+		text-decoration: none;
+		font-weight: 700;
+		font-size: 0.95rem;
+		padding: 0.65rem 1.1rem;
+		border-radius: 10px;
+		min-height: 44px;
+	}
+
+	.fu-submit-btn:hover {
+		background: #1f2937;
 	}
 
 	.count-badge {
