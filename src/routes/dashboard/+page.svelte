@@ -256,7 +256,7 @@
 	let emailBodies = new Map<string, { loading: boolean; content: string | null; error: string | null }>();
 
 	const sanitizeEmailHtml = (raw: string): string => {
-		// Lightweight allowlist: strip <script>/<style>/<iframe>, drop on* handlers
+		// Lightweight allowlist: strip script/style/iframe tags, drop on* handlers
 		// and javascript: URLs. The full body is from Zoho-stored mail which is
 		// already moderated, but defense-in-depth — the client portal is the
 		// homeowner's surface, not internal staff.
