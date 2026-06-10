@@ -1,8 +1,8 @@
 <svelte:head>
-	<title>Trade Dashboard · Designer · CPR Portal</title>
+	<title>Field Dashboard · Designer · CPR Portal</title>
 </svelte:head>
 
-<iframe title="Trade Dashboard" src="/trade/dashboard?embed=1" class="embed-frame"></iframe>
+<iframe title="Field Dashboard" src="/trade/dashboard?embed=1" class="embed-frame"></iframe>
 
 <style>
 	.embed-frame {

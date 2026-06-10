@@ -14,7 +14,7 @@
 				<a
 					class="tab"
 					class:active={pathname === '/designer/trade-dashboard'}
-					href="/designer/trade-dashboard">Trade Dashboard</a
+					href="/designer/trade-dashboard">Field Dashboard</a
 				>
 				<a
 					class="tab"
