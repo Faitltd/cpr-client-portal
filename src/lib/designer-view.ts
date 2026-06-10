@@ -2,16 +2,16 @@ export type DesignerViewKey = 'active' | 'project-created' | 'on-hold';
 
 export const DESIGNER_VIEW_TABS = [
 	{
-		key: 'active',
-		label: 'Active Deals',
-		href: '/designer',
-		emptyMessage: 'No active deals found.'
-	},
-	{
 		key: 'project-created',
 		label: 'Project Created',
 		href: '/designer/projects',
 		emptyMessage: 'No deals currently in Project Created stage.'
+	},
+	{
+		key: 'active',
+		label: 'Active Deals',
+		href: '/designer',
+		emptyMessage: 'No active deals found.'
 	},
 	{
 		key: 'on-hold',

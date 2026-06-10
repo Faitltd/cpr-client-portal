@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>Active Deals · Designer · CPR Portal</title>
+	<title>CRM · Designer · CPR Portal</title>
 </svelte:head>
 
 <DesignerDealsView
@@ -15,8 +15,10 @@
 	warning={data.warning}
 	fieldDescriptors={data.fieldDescriptors}
 	{designerLabel}
-	heading="Active Deals"
-	emptyMessage="No active deals found."
+	heading="CRM"
+	emptyMessage="No deals found."
 	showHeader={false}
-	showTabs={false}
+	showTabs={true}
+	tabMode="inline"
+	initialView="active"
 />

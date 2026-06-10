@@ -4,30 +4,11 @@
 
 	export let data: LayoutData;
 
-	const TITLES: Record<string, string> = {
-		'/designer/trade-dashboard': 'Trade Dashboard',
-		'/designer/field-update': 'Field Update',
-		'/designer': 'Active Deals',
-		'/designer/projects': 'Project Created',
-		'/designer/on-hold': 'On Hold',
-		'/designer/tasks': 'Tasks',
-		'/designer/financials': 'Financials',
-		'/designer/chat': 'CPR Bot'
-	};
-
 	$: pathname = $page.url.pathname;
-	$: title = TITLES[pathname] ?? 'Designer';
-	$: designerLabel = data.designer?.name ?? data.designer?.email ?? 'Designer';
 </script>
 
 <header class="designer-bar">
 	<div class="bar-inner">
-		<div class="bar-head">
-			<h1>{title}</h1>
-			<p class="muted">
-				Signed in as <strong>{designerLabel}</strong> · <a href="/api/logout">Sign out</a>
-			</p>
-		</div>
 		<nav class="tabs" aria-label="Designer views">
 			{#if data.hasTrade}
 				<a
@@ -41,12 +22,12 @@
 					href="/designer/field-update">Field Update</a
 				>
 			{/if}
-			<a class="tab" class:active={pathname === '/designer'} href="/designer">Active Deals</a>
-			<a class="tab" class:active={pathname === '/designer/projects'} href="/designer/projects"
-				>Project Created</a
-			>
-			<a class="tab" class:active={pathname === '/designer/on-hold'} href="/designer/on-hold"
-				>On Hold</a
+			<a
+				class="tab"
+				class:active={pathname === '/designer' ||
+					pathname === '/designer/projects' ||
+					pathname === '/designer/on-hold'}
+				href="/designer">CRM</a
 			>
 			<a class="tab" class:active={pathname === '/designer/tasks'} href="/designer/tasks">Tasks</a>
 			<a class="tab" class:active={pathname === '/designer/financials'} href="/designer/financials"
@@ -74,29 +55,7 @@
 	.bar-inner {
 		max-width: 1100px;
 		margin: 0 auto;
-		padding: 1.25rem 1rem 0;
-	}
-
-	.bar-head {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-end;
-		gap: 1rem;
-		flex-wrap: wrap;
-		margin-bottom: 0.75rem;
-	}
-
-	h1 {
-		margin: 0;
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: #0f172a;
-	}
-
-	.muted {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.9rem;
+		padding: 1rem 1rem 0;
 	}
 
 	.tabs {
