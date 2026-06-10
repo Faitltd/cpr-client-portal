@@ -5,6 +5,7 @@ import { env } from '$env/dynamic/private';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { createTradeSession, getTradePartnerAuthByEmail } from '$lib/server/db';
 import { verifyTradePartnerLogin } from '$lib/server/trade-login';
+import { checkLoginRateLimit } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
 
 const isJsonRequest = (request: Request) =>
@@ -58,6 +59,17 @@ async function handleTradeLogin({
 			return json({ message: 'Invalid email or password.' }, { status: 401 });
 		}
 		throw redirect(303, '/auth/trade?error=invalid');
+	}
+
+	const rateLimit = checkLoginRateLimit(email, getClientAddress ? getClientAddress() : null);
+	if (!rateLimit.allowed) {
+		if (expectsJson) {
+			return json(
+				{ message: 'Too many login attempts. Please try again later.' },
+				{ status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSec) } }
+			);
+		}
+		throw redirect(303, '/auth/trade?error=rate_limited');
 	}
 
 	const tradePartner = await getTradePartnerAuthByEmail(email);

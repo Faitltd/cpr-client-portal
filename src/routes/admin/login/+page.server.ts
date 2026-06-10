@@ -6,6 +6,7 @@ import { isValidAdminSession } from '$lib/server/admin';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { getAdminUserAuthByEmail } from '$lib/server/db';
 import { verifyPassword } from '$lib/server/password';
+import { checkLoginRateLimit } from '$lib/server/rate-limit';
 import type { Actions, PageServerLoad } from './$types';
 
 const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
@@ -29,7 +30,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, cookies }) => {
+	default: async ({ request, cookies, getClientAddress }) => {
 		if (!isAdminConfigured()) {
 			return fail(500, { message: 'Admin password not configured.' });
 		}
@@ -40,6 +41,11 @@ export const actions: Actions = {
 
 		if (!email || !password) {
 			return fail(401, { message: 'Invalid email or password.' });
+		}
+
+		const rateLimit = checkLoginRateLimit(email, getClientAddress ? getClientAddress() : null);
+		if (!rateLimit.allowed) {
+			return fail(429, { message: 'Too many login attempts. Please try again later.' });
 		}
 
 		// Path 1 — env admin: an allowed email + the shared PORTAL_ADMIN_PASSWORD.

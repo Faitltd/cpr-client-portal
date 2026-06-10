@@ -5,6 +5,7 @@ import { createSession, getClientAuthByEmail } from '$lib/server/db';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { reconcileClientPhoneLogin } from '$lib/server/client-login';
 import { verifyClientPasswordInput } from '$lib/server/client-password';
+import { checkLoginRateLimit } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
 
 const isJsonRequest = (request: Request) =>
@@ -38,6 +39,17 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 			return json({ message: 'Invalid email or password.' }, { status: 401 });
 		}
 		throw redirect(303, '/auth/client?error=invalid');
+	}
+
+	const rateLimit = checkLoginRateLimit(email, getClientAddress ? getClientAddress() : null);
+	if (!rateLimit.allowed) {
+		if (expectsJson) {
+			return json(
+				{ message: 'Too many login attempts. Please try again later.' },
+				{ status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSec) } }
+			);
+		}
+		throw redirect(303, '/auth/client?error=rate_limited');
 	}
 
 	const client = await getClientAuthByEmail(email);
