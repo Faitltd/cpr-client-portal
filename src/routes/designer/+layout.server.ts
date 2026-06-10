@@ -11,6 +11,15 @@ const ALLOWED_CHAT_EMAILS = new Set(
 		.filter(Boolean)
 );
 
+// Admins see an extra Admin tab linking to the portal-passwords / sync page.
+// Configurable via PORTAL_ADMIN_EMAILS (comma-separated); defaults to Ray.
+const ADMIN_EMAILS = new Set(
+	(env.PORTAL_ADMIN_EMAILS ?? 'ray@homecpr.pro')
+		.split(',')
+		.map((s) => s.trim().toLowerCase())
+		.filter(Boolean)
+);
+
 export const load: LayoutServerLoad = async ({ cookies }) => {
 	const principal = await getPortalPrincipal(cookies.get('portal_session'));
 
@@ -38,6 +47,7 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	return {
 		designer: principal.session.designer,
 		canChat,
-		hasTrade
+		hasTrade,
+		isAdmin: ADMIN_EMAILS.has(email)
 	};
 };

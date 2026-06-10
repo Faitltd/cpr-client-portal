@@ -36,6 +36,9 @@
 			{#if data.canChat}
 				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Bot</a>
 			{/if}
+			{#if data.isAdmin}
+				<a class="tab tab-admin" href="/admin/clients">Admin</a>
+			{/if}
 		</nav>
 	</div>
 </header>
@@ -88,6 +91,17 @@
 		background: #111827;
 		color: #ffffff;
 		border-color: #111827;
+	}
+
+	.tab-admin {
+		margin-left: auto;
+		border-color: #b45309;
+		color: #92400e;
+	}
+
+	.tab-admin:hover {
+		background: #fff7ed;
+		color: #7c2d12;
 	}
 
 	.designer-content {
