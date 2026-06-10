@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import DesignerDealsView from '$lib/components/designer/DesignerDealsView.svelte';
+	import DealCard from '$lib/components/designer/DealCard.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
 	import type { DealFieldDescriptor, DesignerDealSummary } from '$lib/types/designer';
@@ -20,16 +21,9 @@
 	let designerDeals: DesignerDealSummary[] = [];
 	let designerFieldDescriptors: DealFieldDescriptor[] = [];
 	let selectedDealId = '';
-	let dealTab: 'details' | 'field_update' = 'details';
+	let dealTab: 'details' | 'tasks' | 'field_updates' | 'change_orders' = 'details';
 	type DashboardTab = 'trade' | 'designer';
 	let activeTab: DashboardTab = 'trade';
-
-	// When embedded in the designer portal (?embed=1), the portal already exposes
-	// a dedicated Field Update tab, so the standalone "Submit Field Update" button
-	// is hidden here to avoid duplication.
-	const embedMode = browser
-		? new URL(window.location.href).searchParams.get('embed') === '1'
-		: false;
 
 	onMount(async () => {
 		try {
@@ -58,6 +52,10 @@
 	});
 
 	$: selectedDeal = deals.find((deal) => deal.id === selectedDealId);
+	// Designer Homepage data for the selected project — rendered read-only
+	// inside the Details tab so trade partners see the designer sections
+	// (Core, Scope, Address, Access & links, notes) without leaving the tab.
+	$: selectedDesignerDeal = designerDeals.find((d) => d.id === selectedDealId);
 
 	function setActiveTab(tab: DashboardTab) {
 		activeTab = tab;
@@ -274,16 +272,16 @@
 		return combined;
 	})();
 
-	// When details section opens, kick off Scopes + Designs URL fetches for current deal
-	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastSowDealId) {
+	// When the Details tab is active, kick off Scopes + Designs URL fetches for current deal
+	$: if (browser && dealTab === 'details' && selectedDealId && selectedDealId !== lastSowDealId) {
 		lastSowDealId = selectedDealId;
 		loadSowUrl(selectedDealId);
 	}
-	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastDesignsDealId) {
+	$: if (browser && dealTab === 'details' && selectedDealId && selectedDealId !== lastDesignsDealId) {
 		lastDesignsDealId = selectedDealId;
 		loadDesignsUrl(selectedDealId);
 	}
-	$: if (browser && designsOpen && selectedDealId && selectedDealId !== lastFilesDealId) {
+	$: if (browser && dealTab === 'details' && selectedDealId && selectedDealId !== lastFilesDealId) {
 		lastFilesDealId = selectedDealId;
 		loadFiles(selectedDealId);
 	}
@@ -609,11 +607,6 @@
 	let lastFieldUpdatesDealId = '';
 	let fieldUpdatesController: AbortController | null = null;
 
-	// Collapsible state — collapsed by default
-	let designsOpen = false;
-	let tasksOpen = false;
-	let fieldUpdatesOpen = false;
-
 
 	const loadFieldUpdates = async (dealId: string) => {
 		if (!dealId) return;
@@ -677,12 +670,7 @@
 		loadFieldUpdates(selectedDealId);
 	}
 
-	$: fieldUpdateUrl = selectedDealId
-		? `/trade/field-update?deal=${encodeURIComponent(selectedDealId)}`
-		: '/trade/field-update';
-
 	// --- Change Order request form ---
-	let changeOrdersOpen = false;
 	let coPanelOpen = false;
 	let coNote = '';
 	let coPhotoUploadRef: PhotoUpload;
@@ -756,28 +744,6 @@
 			<h1>Dashboard</h1>
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
-		{#if activeTab === 'trade'}
-			<div class="header-actions">
-				<a class="bot-btn" href="/trade/bot">
-					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<rect x="3" y="4" width="14" height="11" rx="2"/>
-						<circle cx="8" cy="9" r="1" fill="currentColor"/>
-						<circle cx="12" cy="9" r="1" fill="currentColor"/>
-						<path d="M7 13h6"/>
-					</svg>
-					Project Bot
-				</a>
-				{#if !embedMode}
-					<a class="field-update-btn" href={fieldUpdateUrl}>
-						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-							<rect x="3" y="2" width="14" height="16" rx="2"/>
-							<path d="M7 6h6M7 10h6M7 14h4"/>
-						</svg>
-						Submit Field Update
-					</a>
-				{/if}
-			</div>
-		{/if}
 	</header>
 
 	<div class="dashboard-tabs" role="tablist" aria-label="Dashboard views">
@@ -857,25 +823,26 @@
 					class="tab"
 					class:active={dealTab === 'details'}
 					on:click={() => (dealTab = 'details')}
-				>Project Details</button>
+				>Details</button>
 				<button
 					type="button"
 					class="tab"
-					class:active={dealTab === 'field_update'}
-					on:click={() => (dealTab = 'field_update')}
-				>Field Update</button>
+					class:active={dealTab === 'tasks'}
+					on:click={() => (dealTab = 'tasks')}
+				>Tasks{#if tasks.length > 0}&nbsp;<span class="count-badge">{tasks.length}</span>{/if}</button>
+				<button
+					type="button"
+					class="tab"
+					class:active={dealTab === 'field_updates'}
+					on:click={() => (dealTab = 'field_updates')}
+				>Field Updates{#if fieldUpdates.length > 0}&nbsp;<span class="count-badge">{fieldUpdates.length}</span>{/if}</button>
+				<button
+					type="button"
+					class="tab"
+					class:active={dealTab === 'change_orders'}
+					on:click={() => (dealTab = 'change_orders')}
+				>Change Orders</button>
 			</div>
-
-			{#if dealTab === 'field_update'}
-				<div class="card embedded-form">
-					<iframe
-						title="Field Update"
-						src={'/trade/field-update?embed=1&deal=' + encodeURIComponent(selectedDealId)}
-						class="field-update-iframe"
-					></iframe>
-				</div>
-			{/if}
-
 		{/if}
 
 		{#if selectedDeal && dealTab === 'details'}
@@ -910,29 +877,17 @@
 					</div>
 			</div>
 
-			<!-- Details collapsible -->
-			<div class="card collapsible-card">
-				<button
-					class="collapsible-toggle"
-					type="button"
-					on:click={() => (designsOpen = !designsOpen)}
-					aria-expanded={designsOpen}
-				>
-					<span class="collapsible-title">
-						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-							<path d="M4 4h12v12H4z"/>
-							<path d="M4 16l4-5 3 3 2-2 3 4"/>
-							<circle cx="13" cy="8" r="1.5"/>
-						</svg>
-						Details
-					</span>
-					<svg class="chevron" class:rotated={designsOpen} width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-						<path d="M5 8l5 5 5-5"/>
+			<!-- Files & links -->
+			<div class="card section-card">
+				<h3 class="section-title">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+						<path d="M4 4h12v12H4z"/>
+						<path d="M4 16l4-5 3 3 2-2 3 4"/>
+						<circle cx="13" cy="8" r="1.5"/>
 					</svg>
-				</button>
-
-				{#if designsOpen}
-					<div class="collapsible-body">
+					Files &amp; Links
+				</h3>
+				<div class="section-body">
 						{#if (sowLoading || designsLoading || filesLoading) && designsFiles.length === 0 && sowFiles.length === 0 && designFiles.length === 0}
 							<p class="muted">Loading details...</p>
 						{:else}
@@ -1030,34 +985,45 @@
 							{/if}
 						{/if}
 					</div>
-				{/if}
 			</div>
 
-			<!-- Tasks collapsible -->
-			<div class="card collapsible-card">
-				<button
-					class="collapsible-toggle"
-					type="button"
-					on:click={() => (tasksOpen = !tasksOpen)}
-					aria-expanded={tasksOpen}
-				>
-					<span class="collapsible-title">
+			<!-- Designer Homepage sections (read-only) -->
+			{#if selectedDesignerDeal}
+				<div class="card section-card">
+					<h3 class="section-title">
 						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-							<path d="M4 5h12M4 10h8M4 15h10"/>
-							<circle cx="17" cy="10" r="3"/>
+							<path d="M10 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L10 14.4l-4.8 2.5.9-5.4L2.2 7.7l5.4-.8L10 2z"/>
 						</svg>
-						Tasks
-						{#if !tasksLoading && tasks.length > 0}
-							<span class="count-badge">{tasks.length}</span>
-						{/if}
-					</span>
-					<svg class="chevron" class:rotated={tasksOpen} width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-						<path d="M5 8l5 5 5-5"/>
-					</svg>
-				</button>
+						Designer Info
+					</h3>
+					<div class="section-body designer-embed">
+						{#key selectedDesignerDeal.id}
+							<DealCard
+								deal={selectedDesignerDeal}
+								fieldDescriptors={designerFieldDescriptors}
+								readonly={true}
+								expanded={true}
+							/>
+						{/key}
+					</div>
+				</div>
+			{/if}
+		{/if}
 
-				{#if tasksOpen}
-					<div class="collapsible-body">
+		{#if selectedDeal && dealTab === 'tasks'}
+			<!-- Tasks -->
+			<div class="card section-card">
+				<h3 class="section-title">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+						<path d="M4 5h12M4 10h8M4 15h10"/>
+						<circle cx="17" cy="10" r="3"/>
+					</svg>
+					Tasks
+					{#if !tasksLoading && tasks.length > 0}
+						<span class="count-badge">{tasks.length}</span>
+					{/if}
+				</h3>
+				<div class="section-body">
 						{#if tasksLoading && tasks.length === 0}
 							<p class="muted">Loading tasks...</p>
 						{:else if tasksError && tasks.length === 0}
@@ -1068,7 +1034,7 @@
 						{:else if tasks.length === 0}
 							<p class="muted">No tasks found for this project.</p>
 						{:else}
-							{#each taskGroups as group}
+						{#each taskGroups as group}
 								{#if taskGroups.length > 1}
 									<p class="task-group-name">{group.name}</p>
 								{/if}
@@ -1104,7 +1070,6 @@
 							{/each}
 						{/if}
 					</div>
-				{/if}
 				{#if isZohoProject}
 					<div class="task-submit-row">
 						<button class="task-submit-btn" type="button" on:click={submitTasks} disabled={taskSubmitting}>
@@ -1116,37 +1081,31 @@
 					</div>
 				{/if}
 			</div>
+		{/if}
 
-			<!-- Field Updates collapsible -->
-			<div class="card collapsible-card">
-				<button
-					class="collapsible-toggle"
-					type="button"
-					on:click={() => (fieldUpdatesOpen = !fieldUpdatesOpen)}
-					aria-expanded={fieldUpdatesOpen}
-				>
-					<span class="collapsible-title">
-						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-							<rect x="3" y="2" width="14" height="16" rx="2"/>
-							<path d="M7 6h6M7 10h6M7 14h4"/>
-						</svg>
-						Field Updates
-						{#if !fieldUpdatesLoading && fieldUpdates.length > 0}
-							<span class="count-badge">{fieldUpdates.length}</span>
-						{/if}
-					</span>
-					<svg
-						class="chevron"
-						class:rotated={fieldUpdatesOpen}
-						width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-						aria-hidden="true"
-					>
-						<path d="M5 8l5 5 5-5"/>
+		{#if selectedDeal && dealTab === 'field_updates'}
+			<!-- Submit a field update -->
+			<div class="card embedded-form">
+				<iframe
+					title="Field Update"
+					src={'/trade/field-update?embed=1&deal=' + encodeURIComponent(selectedDealId)}
+					class="field-update-iframe"
+				></iframe>
+			</div>
+
+			<!-- Field update history -->
+			<div class="card section-card">
+				<h3 class="section-title">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+						<rect x="3" y="2" width="14" height="16" rx="2"/>
+						<path d="M7 6h6M7 10h6M7 14h4"/>
 					</svg>
-				</button>
-
-				{#if fieldUpdatesOpen}
-					<div class="collapsible-body">
+					Submitted Updates
+					{#if !fieldUpdatesLoading && fieldUpdates.length > 0}
+						<span class="count-badge">{fieldUpdates.length}</span>
+					{/if}
+				</h3>
+				<div class="section-body">
 						{#if fieldUpdatesLoading}
 							<p class="muted">Loading field updates...</p>
 						{:else if fieldUpdatesError}
@@ -1195,36 +1154,20 @@
 							</div>
 						{/if}
 					</div>
-				{/if}
 			</div>
+		{/if}
 
+		{#if selectedDeal && dealTab === 'change_orders'}
 			<!-- Change Orders -->
-			<div class="card collapsible-card">
-				<button
-					class="collapsible-toggle"
-					type="button"
-					on:click={() => (changeOrdersOpen = !changeOrdersOpen)}
-					aria-expanded={changeOrdersOpen}
-				>
-					<span class="collapsible-title">
-						<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-							<path d="M12 2l6 6-10 10H2v-6L12 2z"/>
-							<path d="M9 5l6 6"/>
-						</svg>
-						Change Orders
-					</span>
-					<svg
-						class="chevron"
-						class:rotated={changeOrdersOpen}
-						width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-						aria-hidden="true"
-					>
-						<path d="M5 8l5 5 5-5"/>
+			<div class="card section-card">
+				<h3 class="section-title">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+						<path d="M12 2l6 6-10 10H2v-6L12 2z"/>
+						<path d="M9 5l6 6"/>
 					</svg>
-				</button>
-
-				{#if changeOrdersOpen}
-					<div class="collapsible-body">
+					Change Orders
+				</h3>
+				<div class="section-body">
 						<div class="co-request-area">
 							{#if coSuccess}
 								<div class="co-banner co-banner-success">{coSuccess}</div>
@@ -1290,9 +1233,7 @@
 							{/if}
 						</div>
 					</div>
-				{/if}
 			</div>
-
 		{/if}
 	{/if}
 </div>
@@ -1352,27 +1293,6 @@
 		font-size: 0.9rem;
 	}
 
-	.header-actions {
-		display: inline-flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	.bot-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.45rem;
-		padding: 0.55rem 0.9rem;
-		background: #1e40af;
-		color: #ffffff;
-		border-radius: 0.5rem;
-		font-weight: 600;
-		font-size: 0.92rem;
-		text-decoration: none;
-	}
-	.bot-btn:hover {
-		background: #1e3a8a;
-	}
-
 	.folder-section {
 		margin-bottom: 1.25rem;
 	}
@@ -1409,27 +1329,6 @@
 	}
 	.muted.small {
 		font-size: 0.85rem;
-	}
-
-	.field-update-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		background: #111827;
-		color: #fff;
-		text-decoration: none;
-		font-weight: 700;
-		font-size: 0.95rem;
-		padding: 0.65rem 1.1rem;
-		border-radius: 10px;
-		min-height: 44px;
-		white-space: nowrap;
-		transition: background 0.15s;
-		-webkit-tap-highlight-color: transparent;
-	}
-
-	.field-update-btn:hover {
-		background: #1f2937;
 	}
 
 	.card {
@@ -1501,43 +1400,36 @@
 		margin-bottom: 0;
 	}
 
-	/* Collapsible cards */
-	.collapsible-card {
+	/* Section cards (one per data set, shown by the active tab) */
+	.section-card {
 		padding: 0;
 		overflow: hidden;
 	}
 
-	.collapsible-toggle {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
-		background: none;
-		border: none;
-		padding: 1.1rem 1.25rem;
-		cursor: pointer;
-		text-align: left;
-		-webkit-tap-highlight-color: transparent;
-		border-radius: 12px;
-	}
-
-	.collapsible-toggle:hover {
-		background: #f9fafb;
-	}
-
-	.collapsible-title {
+	.section-title {
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
 		font-size: 1rem;
 		font-weight: 700;
 		color: #111827;
+		margin: 0;
+		padding: 1.1rem 1.25rem 0.5rem;
 	}
 
-	.collapsible-title svg {
+	.section-title svg {
 		color: #6b7280;
 		flex-shrink: 0;
+	}
+
+	.section-body {
+		padding: 0 1.25rem 1.25rem;
+	}
+
+	.designer-embed :global(section.card) {
+		border: none;
+		padding: 0;
+		margin: 0;
 	}
 
 	.count-badge {
@@ -1551,21 +1443,6 @@
 		border-radius: 999px;
 		padding: 0.1rem 0.5rem;
 		min-width: 1.4rem;
-	}
-
-	.chevron {
-		color: #9ca3af;
-		flex-shrink: 0;
-		transition: transform 0.2s ease;
-	}
-
-	.chevron.rotated {
-		transform: rotate(180deg);
-	}
-
-	.collapsible-body {
-		padding: 0 1.25rem 1.25rem;
-		border-top: 1px solid #f3f4f6;
 	}
 
 	/* Field updates */
@@ -1864,11 +1741,11 @@
 			padding: 1.5rem;
 		}
 
-		.collapsible-toggle {
-			padding: 1.25rem 1.5rem;
+		.section-title {
+			padding: 1.25rem 1.5rem 0.5rem;
 		}
 
-		.collapsible-body {
+		.section-body {
 			padding: 0 1.5rem 1.5rem;
 		}
 	}
@@ -2014,8 +1891,12 @@
 		gap: 0.25rem;
 		border-bottom: 1px solid #e5e7eb;
 		margin: 1rem 0;
+		overflow-x: auto;
 	}
 	.tab-bar .tab {
+		display: inline-flex;
+		align-items: center;
+		white-space: nowrap;
 		padding: 0.55rem 1rem;
 		border: none;
 		background: transparent;
