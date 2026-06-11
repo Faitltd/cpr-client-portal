@@ -82,6 +82,7 @@
 				<button class="btn btn-ghost" type="submit">Audit Project Mapping</button>
 			</form>
 			<a class="btn btn-dark" href="/auth/login">Reconnect Zoho OAuth</a>
+			<a class="btn btn-ghost" href="/admin/bot/users">Bot Users</a>
 		</div>
 	</section>
 

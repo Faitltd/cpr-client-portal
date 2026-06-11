@@ -37,7 +37,12 @@
 				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Bot</a>
 			{/if}
 			{#if data.isAdmin}
-				<a class="tab tab-admin" href="/admin/clients">Admin</a>
+				<span class="admin-group" aria-label="Admin tabs">
+					<a class="tab tab-admin" href="/admin/clients">Client Admin</a>
+					<a class="tab tab-admin" href="/admin/leads">Leads</a>
+					<a class="tab tab-admin" href="/admin/bot">Bot</a>
+					<a class="tab tab-admin" href="/admin/process-map">Process Map</a>
+				</span>
 			{/if}
 		</nav>
 	</div>
@@ -93,8 +98,14 @@
 		border-color: #111827;
 	}
 
-	.tab-admin {
+	.admin-group {
 		margin-left: auto;
+		display: inline-flex;
+		gap: 0.4rem;
+		flex-wrap: wrap;
+	}
+
+	.tab-admin {
 		border-color: #b45309;
 		color: #92400e;
 	}

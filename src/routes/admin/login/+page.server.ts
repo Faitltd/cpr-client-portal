@@ -4,7 +4,14 @@ import { env } from '$env/dynamic/private';
 import { createAdminSession, getAdminSessionMaxAge, isAdminConfigured } from '$lib/server/admin';
 import { isValidAdminSession } from '$lib/server/admin';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
-import { getAdminUserAuthByEmail } from '$lib/server/db';
+import {
+	createDesignerSession,
+	createTradeSession,
+	getAdminUserAuthByEmail,
+	getDesignerAuthByEmail,
+	getTradePartnerAuthByEmail
+} from '$lib/server/db';
+import { generateSessionToken } from '$lib/server/session-token';
 import { verifyPassword } from '$lib/server/password';
 import { checkLoginRateLimit } from '$lib/server/rate-limit';
 import type { Actions, PageServerLoad } from './$types';
@@ -81,6 +88,58 @@ export const actions: Actions = {
 			maxAge: getAdminSessionMaxAge()
 		});
 
-		throw redirect(302, '/admin');
+		// Seed designer + trade sessions for the admin's email so they land on
+		// the full designer dashboard (same tabs as designers) with the admin
+		// tabs added. Falls back to /admin if there's no designer account.
+		let landing = '/admin';
+		try {
+			const designer = await getDesignerAuthByEmail(email);
+			if (designer && designer.active !== false) {
+				const sessionExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+				const ipAddress = getClientAddress ? getClientAddress() : null;
+				const userAgent = request.headers.get('user-agent');
+
+				const portalToken = generateSessionToken();
+				await createDesignerSession({
+					session_token: portalToken,
+					designer_id: designer.id,
+					expires_at: sessionExpiresAt,
+					ip_address: ipAddress,
+					user_agent: userAgent
+				});
+				cookies.set('portal_session', portalToken, {
+					path: '/',
+					httpOnly: true,
+					secure: !dev,
+					sameSite: 'strict',
+					maxAge: 60 * 60 * 24 * 7
+				});
+
+				const tradePartner = await getTradePartnerAuthByEmail(email);
+				if (tradePartner) {
+					const tradeToken = generateSessionToken();
+					await createTradeSession({
+						session_token: tradeToken,
+						trade_partner_id: tradePartner.id,
+						expires_at: sessionExpiresAt,
+						ip_address: ipAddress,
+						user_agent: userAgent
+					});
+					cookies.set('trade_session', tradeToken, {
+						path: '/',
+						httpOnly: true,
+						secure: !dev,
+						sameSite: 'strict',
+						maxAge: 60 * 60 * 24 * 7
+					});
+				}
+
+				landing = '/designer';
+			}
+		} catch (err) {
+			console.error('[admin-login] designer session seed failed', err);
+		}
+
+		throw redirect(302, landing);
 	}
 };
