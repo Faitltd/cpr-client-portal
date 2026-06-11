@@ -27,6 +27,36 @@ async function getAccessToken() {
 	return { accessToken, apiDomain };
 }
 
+// WorkDrive often reports no usable mime type, which forces a download.
+// Derive the content type from the extension so browsers render what they
+// can (PDFs, images, video, text) inline.
+const EXT_MIME: Record<string, string> = {
+	pdf: 'application/pdf',
+	png: 'image/png',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	svg: 'image/svg+xml',
+	heic: 'image/heic',
+	bmp: 'image/bmp',
+	txt: 'text/plain; charset=utf-8',
+	csv: 'text/csv; charset=utf-8',
+	mp4: 'video/mp4',
+	mov: 'video/quicktime',
+	webm: 'video/webm',
+	mp3: 'audio/mpeg',
+	wav: 'audio/wav'
+};
+
+function resolveContentType(name: string, mime: string | null): string {
+	const ext = (name.split('.').pop() || '').toLowerCase();
+	const fromExt = EXT_MIME[ext];
+	if (fromExt) return fromExt;
+	if (mime && mime !== 'application/octet-stream' && mime.includes('/')) return mime;
+	return 'application/octet-stream';
+}
+
 /**
  * Streams a single document from the deal's Client Portal folder through the
  * org's Zoho token. Only files that actually live in that folder (or its
@@ -64,7 +94,7 @@ export const GET: RequestHandler = async ({ cookies, params, setHeaders }) => {
 
 	const safeName = file.name.replace(/["\\\r\n]/g, '');
 	setHeaders({
-		'Content-Type': file.mime || 'application/octet-stream',
+		'Content-Type': resolveContentType(file.name, file.mime),
 		'Content-Disposition': `inline; filename="${safeName}"`,
 		'Cache-Control': 'private, max-age=300'
 	});
