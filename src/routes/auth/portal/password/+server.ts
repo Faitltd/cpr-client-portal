@@ -134,9 +134,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 		});
 
 		// Dual-role: a designer who is also a trade partner gets a trade_session
-		// too, so the embedded Trade Dashboard / Field Update tabs authenticate,
-		// and lands on the Trade Dashboard tab by default.
-		let designerLanding = '/designer';
+		// too, so the embedded Field Dashboard / Field Update tabs authenticate.
+		// Everyone lands on the CRM tab (/designer).
+		const designerLanding = '/designer';
 		const tradePartnerForDesigner = await getTradePartnerAuthByEmail(email);
 		if (tradePartnerForDesigner) {
 			const tradeSessionId = generateSessionToken();
@@ -154,7 +154,6 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 				sameSite: 'strict',
 				maxAge: 60 * 60 * 24 * 7
 			});
-			designerLanding = '/designer/trade-dashboard';
 		}
 
 		if (expectsJson) {
