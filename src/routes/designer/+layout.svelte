@@ -33,7 +33,8 @@
 			<a class="tab" class:active={pathname === '/designer/financials'} href="/designer/financials"
 				>Financials</a
 			>
-			{#if data.canChat}
+			<!-- Admins use the amber Bot tab instead of the designer CPR Bot tab -->
+			{#if data.canChat && !data.isAdmin}
 				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Bot</a>
 			{/if}
 			{#if data.isAdmin}
