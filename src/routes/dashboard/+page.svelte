@@ -581,8 +581,8 @@
 		<!-- Schedule a Project Review — always visible at the top -->
 		<section class="review-banner">
 			<div class="review-banner-text">
-				<h2>Schedule a Project Review</h2>
-				<p>15-minute call with your project team · Tuesday–Thursday, 4–5 PM</p>
+				<h2>Schedule a 15-minute Project Review</h2>
+				<p>Bring your questions! · Tuesday–Thursday, 4–5 PM</p>
 			</div>
 			<button class="review-btn" type="button" on:click={toggleBooking} aria-expanded={bookingOpen}>
 				{bookingOpen ? 'Hide scheduler' : 'Pick a time'}
