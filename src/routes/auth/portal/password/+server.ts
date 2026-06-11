@@ -19,6 +19,7 @@ import {
 	getAdminSessionMaxAge,
 	isAdminConfigured
 } from '$lib/server/admin';
+import { seedPortalSessionsForAdmin } from '$lib/server/admin-portal-session';
 import { verifyPassword } from '$lib/server/password';
 import { checkLoginRateLimit } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
@@ -86,10 +87,19 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 				sameSite: 'strict',
 				maxAge: getAdminSessionMaxAge()
 			});
+			// Seed designer + trade sessions so the admin gets the full designer
+			// dashboard (same tabs as designers) with the admin tabs added.
+			const seeded = await seedPortalSessionsForAdmin(
+				cookies,
+				email || PORTAL_ADMIN_EMAIL,
+				getClientAddress ? getClientAddress() : null,
+				request.headers.get('user-agent')
+			);
+			const adminLanding = seeded ? '/designer' : '/admin';
 			if (expectsJson) {
-				return json({ message: 'Login successful.', redirect: '/admin', role: 'admin' });
+				return json({ message: 'Login successful.', redirect: adminLanding, role: 'admin' });
 			}
-			throw redirect(303, '/admin');
+			throw redirect(303, adminLanding);
 		}
 	}
 
