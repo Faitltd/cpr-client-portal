@@ -40,6 +40,19 @@ export async function getBooksCustomerByEmail(accessToken: string, email: string
 	return response.contacts?.[0] || null;
 }
 
+export async function listEstimatesForCustomer(accessToken: string, customerId: string) {
+	if (!ZOHO_BOOKS_ORG_ID) {
+		throw new Error('Missing ZOHO_BOOKS_ORG_ID');
+	}
+	const response = await zohoBooksApiCall(
+		accessToken,
+		`/estimates?organization_id=${encodeURIComponent(ZOHO_BOOKS_ORG_ID)}&customer_id=${encodeURIComponent(
+			customerId
+		)}&sort_column=date&sort_order=D`
+	);
+	return response.estimates || [];
+}
+
 export async function listInvoicesForCustomer(accessToken: string, customerId: string) {
 	if (!ZOHO_BOOKS_ORG_ID) {
 		throw new Error('Missing ZOHO_BOOKS_ORG_ID');

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
 
-	type Books = { invoiced: number; paid: number; balance: number; invoiceCount: number };
+	type Books = { quoted: number; invoiced: number; paid: number; balance: number; invoiceCount: number };
 
 	export let data: PageData;
 
@@ -228,9 +228,10 @@
 					<th>Client</th>
 					<th>Stage</th>
 					<th class="num">Contract</th>
+					<th class="num">Quoted</th>
 					<th class="num">Invoiced</th>
 					<th class="num">Paid</th>
-					<th class="num">Balance</th>
+					<th class="num">Remaining</th>
 					<th>Closing</th>
 				</tr>
 			</thead>
@@ -254,6 +255,7 @@
 						<td>{row.contactName ?? '—'}</td>
 						<td>{#if row.stage}<span class="badge">{row.stage}</span>{:else}—{/if}</td>
 						<td class="num">{money(row.amount)}</td>
+						<td class="num">{booksLoading ? '…' : money(books?.quoted)}</td>
 						<td class="num">{booksLoading ? '…' : money(books?.invoiced)}</td>
 						<td class="num">{booksLoading ? '…' : money(books?.paid)}</td>
 						<td class="num">{booksLoading ? '…' : money(books?.balance)}</td>
@@ -261,7 +263,7 @@
 					</tr>
 					{#if expandedDealId === row.id}
 						<tr class="detail-row">
-							<td colspan="8">
+							<td colspan="9">
 								{#if booksLoading}
 									<p class="detail-muted">Loading…</p>
 								{:else if !rowEmail}

@@ -10,7 +10,11 @@ import {
 } from '$lib/server/db';
 import { normalizeDealRecord } from '$lib/server/auth';
 import { getLatestDesignerNotesBulk } from '$lib/server/designer-notes';
-import { getBooksCustomerByEmail, listInvoicesForCustomer } from '$lib/server/books';
+import {
+	getBooksCustomerByEmail,
+	listEstimatesForCustomer,
+	listInvoicesForCustomer
+} from '$lib/server/books';
 import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
 import { createLogger } from '$lib/server/logger';
 import {
@@ -635,6 +639,7 @@ export async function getDesignerDashboardContext(
 // ---------------------------------------------------------------------------
 
 export type DealFinancials = {
+	quoted: number;
 	invoiced: number;
 	paid: number;
 	balance: number;
@@ -728,16 +733,32 @@ async function fetchBooksForEmails(
 			const customer = await getBooksCustomerByEmail(accessToken, email);
 			const customerId = customer?.contact_id;
 			if (!customerId) return;
-			const invoices = await listInvoicesForCustomer(accessToken, customerId);
+			const [invoices, estimates] = await Promise.all([
+				listInvoicesForCustomer(accessToken, customerId),
+				listEstimatesForCustomer(accessToken, customerId).catch(() => [])
+			]);
 			let invoiced = 0;
-			let balance = 0;
+			let invoiceBalance = 0;
 			let invoiceCount = 0;
 			for (const inv of Array.isArray(invoices) ? invoices : []) {
 				invoiced += toFinancialAmount(inv?.total) ?? 0;
-				balance += toFinancialAmount(inv?.balance) ?? 0;
+				invoiceBalance += toFinancialAmount(inv?.balance) ?? 0;
 				invoiceCount += 1;
 			}
-			byEmail.set(email, { invoiced, paid: invoiced - balance, balance, invoiceCount });
+			const paid = invoiced - invoiceBalance;
+			// Total quoted: accepted/invoiced Books estimates (drafts, declined
+			// and expired quotes don't count toward the project value).
+			let quoted = 0;
+			for (const est of Array.isArray(estimates) ? estimates : []) {
+				const status = String(est?.status ?? '').toLowerCase();
+				if (status === 'accepted' || status === 'invoiced') {
+					quoted += toFinancialAmount(est?.total) ?? 0;
+				}
+			}
+			// Remaining balance = total quoted minus what's been paid. Falls back
+			// to the invoice balance when the customer has no counted quotes.
+			const balance = quoted > 0 ? quoted - paid : invoiceBalance;
+			byEmail.set(email, { quoted, invoiced, paid, balance, invoiceCount });
 		} catch (err) {
 			log.warn('Books fetch failed for customer', {
 				error: err instanceof Error ? err.message : String(err)
