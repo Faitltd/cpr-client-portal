@@ -162,28 +162,6 @@
 	// Photos
 	let photosOpen = false;
 
-	// Designs
-	let designsOpen = false;
-	let designUrl: string | null = null;
-	let designLoading = false;
-
-	async function loadDesignLink() {
-		if (projects.length === 0) return;
-		designLoading = true;
-		try {
-			const pid = projects[0].id;
-			const res = await fetch(`/api/project/${encodeURIComponent(pid)}/designs`);
-			if (res.ok) {
-				const data = await res.json();
-				designUrl = data?.url || null;
-			}
-		} catch {
-			designUrl = null;
-		} finally {
-			designLoading = false;
-		}
-	}
-
 	// Contracts / Documents / Access Info
 	let contracts: any[] = [];
 	let contractsLoading = true;
@@ -522,8 +500,6 @@
 				loadProjectTasks(pid);
 			}
 			projectDocumentsLoading = false;
-
-			loadDesignLink();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
 		} finally {
@@ -596,30 +572,6 @@
 							</div>
 						{/each}
 					</div>
-				{/if}
-			{/if}
-		</section>
-
-		<!-- Designs -->
-		<section class="section">
-			<button class="section-header" type="button" on:click={() => (designsOpen = !designsOpen)}>
-				<span class="section-header-left">
-					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="M4 16l4-5 3 3 2-2 3 4"/><circle cx="13" cy="8" r="1.5"/></svg>
-					Designs
-				</span>
-				<span class="toggle-icon">{designsOpen ? '−' : '+'}</span>
-			</button>
-			{#if designsOpen}
-				{#if designLoading}
-					<p class="muted-text">Loading...</p>
-				{:else if designUrl}
-					<div class="doc-list">
-						<div class="doc-item">
-							<a href={designUrl} target="_blank" rel="noreferrer" class="doc-link">View Designs</a>
-						</div>
-					</div>
-				{:else}
-					<p class="muted-text">No designs available.</p>
 				{/if}
 			{/if}
 		</section>

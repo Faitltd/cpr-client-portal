@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getDealsForClient } from '$lib/server/projects';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { listClientPortalFiles } from '$lib/server/client-portal-files';
+import { listAllClientDocuments } from '$lib/server/client-portal-files';
 import { getOrCreateWorkDriveFileShare } from '$lib/server/workdrive-shares';
 import type { RequestHandler } from './$types';
 
@@ -44,9 +44,9 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 
 	const { accessToken, apiDomain } = await getAccessToken();
 
-	const { files, folderId } = await listClientPortalFiles(accessToken, dealId, apiDomain);
-	if (!folderId) {
-		return json({ files: [], message: 'Client portal folder not found for this project' });
+	const files = await listAllClientDocuments(accessToken, dealId, apiDomain);
+	if (files.length === 0) {
+		return json({ files: [], message: 'No documents found for this project yet.' });
 	}
 
 	// Prefer an external WorkDrive share (opens the doc in Zoho's viewer with

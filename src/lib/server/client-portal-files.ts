@@ -27,6 +27,36 @@ function normalizeName(value: string) {
 	return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+const DESIGN_FOLDER_NAMES = [
+	'design and planning',
+	'design & planning',
+	'designs and planning',
+	'designs',
+	'design'
+];
+const SOW_FOLDER_NAMES = ['sow', 'scope of work', 'scopes', 'scope', 'scope of works'];
+
+async function findSubfolderByNames(
+	accessToken: string,
+	parentId: string,
+	names: string[],
+	apiDomain?: string
+): Promise<WorkDriveItem | null> {
+	const items = await listWorkDriveFolder(accessToken, parentId, apiDomain).catch(
+		() => [] as WorkDriveItem[]
+	);
+	const folders = items.filter((i) => i.type === 'folder');
+	for (const target of names) {
+		const match = folders.find((f) => normalizeName(f.name) === target);
+		if (match) return match;
+	}
+	for (const target of names) {
+		const match = folders.find((f) => normalizeName(f.name).includes(target));
+		if (match) return match;
+	}
+	return null;
+}
+
 async function resolveFolderIdFromField(
 	accessToken: string,
 	field: unknown,
@@ -157,4 +187,103 @@ export async function listClientPortalFiles(
 	);
 
 	return { files, folderId };
+}
+
+/**
+ * Files in the Trade Scope (SOW) folder — lives inside the Designs folder
+ * under the project root, with a fallback to a root-level SOW folder.
+ */
+export async function listTradeScopeFiles(
+	accessToken: string,
+	dealId: string,
+	apiDomain?: string
+): Promise<ClientPortalFile[]> {
+	let sowFolderId = '';
+	try {
+		const cached = await getCachedFolder(dealId, 'sow');
+		if (cached?.folderId) sowFolderId = cached.folderId;
+	} catch {
+		/* cache miss is fine */
+	}
+
+	if (!sowFolderId) {
+		const dealResponse = await zohoApiCall(
+			accessToken,
+			`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID`,
+			{},
+			apiDomain
+		);
+		const deal = dealResponse?.data?.[0] ?? {};
+		const rawRoot =
+			typeof deal?.WorkDrive_Folder_ID === 'string' ? deal.WorkDrive_Folder_ID.trim() : '';
+		const rootId = extractWorkDriveFolderId(rawRoot) || rawRoot;
+		if (!rootId) return [];
+
+		const designsFolder = await findSubfolderByNames(
+			accessToken,
+			rootId,
+			DESIGN_FOLDER_NAMES,
+			apiDomain
+		);
+		let sowFolder = designsFolder
+			? await findSubfolderByNames(accessToken, designsFolder.id, SOW_FOLDER_NAMES, apiDomain)
+			: null;
+		if (!sowFolder) {
+			sowFolder = await findSubfolderByNames(accessToken, rootId, SOW_FOLDER_NAMES, apiDomain);
+		}
+		if (!sowFolder) {
+			log.info('Trade scope folder not found', { dealId, rootId });
+			return [];
+		}
+		sowFolderId = sowFolder.id;
+		try {
+			await setCachedFolder(dealId, 'sow', sowFolderId, sowFolder.name);
+		} catch {
+			/* non-fatal */
+		}
+	}
+
+	const items = await listWorkDriveFolder(accessToken, sowFolderId, apiDomain).catch(
+		() => [] as WorkDriveItem[]
+	);
+	return items
+		.filter((it) => it.type === 'file')
+		.map((it) => ({
+			id: it.id,
+			name: it.name,
+			folder: 'Trade Scope',
+			mime: it.mime ?? null,
+			modifiedTime: it.modifiedTime ?? null
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Everything the client Documents section lists: Client Portal folder files
+ * plus the Trade Scope (SOW) files. Also the allowlist for the download proxy.
+ */
+export async function listAllClientDocuments(
+	accessToken: string,
+	dealId: string,
+	apiDomain?: string
+): Promise<ClientPortalFile[]> {
+	const [portal, tradeScope] = await Promise.all([
+		listClientPortalFiles(accessToken, dealId, apiDomain).catch(() => ({
+			files: [] as ClientPortalFile[],
+			folderId: null
+		})),
+		listTradeScopeFiles(accessToken, dealId, apiDomain).catch(() => [] as ClientPortalFile[])
+	]);
+	// Dedupe by file id in case the SOW folder also appears under Client Portal
+	const seen = new Set<string>();
+	const combined: ClientPortalFile[] = [];
+	for (const f of [...portal.files, ...tradeScope]) {
+		if (seen.has(f.id)) continue;
+		seen.add(f.id);
+		combined.push(f);
+	}
+	combined.sort(
+		(a, b) => (a.folder ?? '').localeCompare(b.folder ?? '') || a.name.localeCompare(b.name)
+	);
+	return combined;
 }

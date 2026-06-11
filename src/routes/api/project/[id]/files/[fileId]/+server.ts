@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getDealsForClient } from '$lib/server/projects';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { listClientPortalFiles } from '$lib/server/client-portal-files';
+import { listAllClientDocuments } from '$lib/server/client-portal-files';
 import { downloadWorkDriveFile } from '$lib/server/workdrive';
 import type { RequestHandler } from './$types';
 
@@ -81,7 +81,7 @@ export const GET: RequestHandler = async ({ cookies, params, setHeaders }) => {
 
 	const { accessToken, apiDomain } = await getAccessToken();
 
-	const { files } = await listClientPortalFiles(accessToken, dealId, apiDomain);
+	const files = await listAllClientDocuments(accessToken, dealId, apiDomain);
 	const file = files.find((f) => f.id === fileId);
 	if (!file) throw error(404, 'Document not found in this project');
 
