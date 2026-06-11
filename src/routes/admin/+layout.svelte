@@ -1,47 +1,51 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 
-	const year = new Date().getFullYear();
 	$: pathname = $page.url.pathname;
+	$: isLogin = pathname === '/admin/login';
 	$: isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 </script>
 
+<!-- Mirrors the designer portal chrome exactly: same header, same tab bar,
+     same content width — so switching between /designer and /admin tabs
+     doesn't change the layout. -->
 <div class="admin-shell">
-	<header class="admin-header">
-		<div class="admin-header-inner">
-			<a class="admin-logo" href="/designer">
-				<img src="/favicon.png" alt="CPR Remodeling" width="32" height="32" style="object-fit:contain;" />
-				<span>Admin</span>
+	<header class="portal-header">
+		<div class="portal-header-inner">
+			<a class="portal-logo" href="/designer">
+				<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+					<rect width="28" height="28" rx="6" fill="#111827"/>
+					<text x="14" y="19" text-anchor="middle" font-size="14" font-weight="800" fill="#fff" font-family="system-ui">C</text>
+				</svg>
+				<span>CPR</span>
 			</a>
-			<a class="logout-link" href="/admin/logout">Log out</a>
+			<a class="header-logout" href="/admin/logout">Log out</a>
 		</div>
-		<!-- Same tab row as the designer portal, plus the admin tabs -->
-		{#if pathname !== '/admin/login'}
-		<div class="bar-inner">
-			<nav class="tabs" aria-label="Portal views">
-				<a class="tab" href="/designer/trade-dashboard">Field Dashboard</a>
-				<a class="tab" href="/designer/field-update">Field Update</a>
-				<a class="tab" href="/designer">CRM</a>
-				<a class="tab" href="/designer/tasks">Tasks</a>
-				<a class="tab" href="/designer/financials">Financials</a>
-				<span class="admin-group" aria-label="Admin tabs">
-					<a class="tab tab-admin" class:active={isActive('/admin/clients')} href="/admin/clients">Client Admin</a>
-					<a class="tab tab-admin" class:active={isActive('/admin/leads')} href="/admin/leads">Leads</a>
-					<a class="tab tab-admin" class:active={isActive('/admin/bot')} href="/admin/bot">Bot</a>
-					<a class="tab tab-admin" class:active={isActive('/admin/process-map')} href="/admin/process-map">Process Map</a>
-				</span>
-			</nav>
-		</div>
-		{/if}
 	</header>
+
+	{#if !isLogin}
+		<div class="designer-bar">
+			<div class="bar-inner">
+				<nav class="tabs" aria-label="Portal views">
+					<a class="tab" href="/designer/trade-dashboard">Field Dashboard</a>
+					<a class="tab" href="/designer/field-update">Field Update</a>
+					<a class="tab" href="/designer">CRM</a>
+					<a class="tab" href="/designer/tasks">Tasks</a>
+					<a class="tab" href="/designer/financials">Financials</a>
+					<span class="admin-group" aria-label="Admin tabs">
+						<a class="tab tab-admin" class:active={isActive('/admin/clients')} href="/admin/clients">Client Admin</a>
+						<a class="tab tab-admin" class:active={isActive('/admin/leads')} href="/admin/leads">Leads</a>
+						<a class="tab tab-admin" class:active={isActive('/admin/bot')} href="/admin/bot">Bot</a>
+						<a class="tab tab-admin" class:active={isActive('/admin/process-map')} href="/admin/process-map">Process Map</a>
+					</span>
+				</nav>
+			</div>
+		</div>
+	{/if}
 
 	<main class="admin-content">
 		<slot />
 	</main>
-
-	<footer class="admin-footer">
-		<div class="admin-footer-inner">&copy; {year} CPR Portal</div>
-	</footer>
 </div>
 
 <style>
@@ -52,11 +56,10 @@
 		width: 100%;
 		max-width: 100%;
 		overflow-x: clip;
-		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 	}
 
-	/* ── Header ──────────────────────────────────────── */
-	.admin-header {
+	/* ── Header — identical to the root portal header ── */
+	.portal-header {
 		position: sticky;
 		top: 0;
 		z-index: 100;
@@ -66,8 +69,8 @@
 		-webkit-backdrop-filter: blur(12px);
 	}
 
-	.admin-header-inner {
-		max-width: 1100px;
+	.portal-header-inner {
+		max-width: 1200px;
 		margin: 0 auto;
 		padding: 0 1rem;
 		min-height: 56px;
@@ -77,7 +80,7 @@
 		gap: 0.75rem;
 	}
 
-	.admin-logo {
+	.portal-logo {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
@@ -88,22 +91,32 @@
 		letter-spacing: -0.01em;
 	}
 
-	.logout-link {
+	.header-logout {
 		font-size: 0.85rem;
 		font-weight: 500;
-		color: #6b7280;
+		color: #9ca3af;
 		text-decoration: none;
+		padding: 0.45rem 0.75rem;
+		border-radius: 8px;
+		transition: color 0.15s;
 	}
 
-	.logout-link:hover {
-		color: #111827;
+	.header-logout:hover {
+		color: #374151;
 	}
 
-	/* ── Tab row (matches the designer portal) ───────── */
+	/* ── Tab bar — identical to the designer portal bar ── */
+	.designer-bar {
+		position: sticky;
+		top: 56px;
+		z-index: 30;
+		background: #ffffff;
+	}
+
 	.bar-inner {
 		max-width: 1100px;
 		margin: 0 auto;
-		padding: 0 1rem 0.75rem;
+		padding: 1rem 1rem 0;
 	}
 
 	.tabs {
@@ -132,12 +145,6 @@
 		color: #0f172a;
 	}
 
-	.tab.active {
-		background: #111827;
-		color: #ffffff;
-		border-color: #111827;
-	}
-
 	.admin-group {
 		margin-left: auto;
 		display: inline-flex;
@@ -161,31 +168,13 @@
 		border-color: #92400e;
 	}
 
-	/* ── Content & Footer ────────────────────────────── */
+	/* ── Content — same width as designer-content ────── */
 	.admin-content {
 		flex: 1;
 		width: 100%;
-		max-width: 100%;
-	}
-
-	.admin-footer {
-		margin-top: auto;
-		border-top: 1px solid #e5e7eb;
-		background: rgba(255, 255, 255, 0.9);
-	}
-
-	.admin-footer-inner {
 		max-width: 1100px;
 		margin: 0 auto;
-		padding: 1rem 1.5rem;
-		color: #9ca3af;
-		font-size: 0.8rem;
-	}
-
-	@media (max-width: 767px) {
-		.admin-header-inner {
-			padding-top: 0.6rem;
-			padding-bottom: 0.6rem;
-		}
+		padding: 1.25rem 1rem 3rem;
+		box-sizing: border-box;
 	}
 </style>
