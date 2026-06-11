@@ -112,7 +112,7 @@
 				placeholder="Search deals, clients, addresses…"
 				bind:value={query}
 			/>
-			{#if !isSectionMode}
+			{#if !isSectionMode && !isInlineMode}
 				<label class="sr-only" for="stage-filter">Filter by stage</label>
 				<select id="stage-filter" bind:value={stageFilter}>
 					<option value="">All stages</option>
@@ -132,7 +132,8 @@
 				placeholder="Search deals, clients, addresses…"
 				bind:value={query}
 			/>
-			{#if !isSectionMode}
+			<!-- Inline mode: the view tabs already scope by stage, no dropdown needed -->
+			{#if !isSectionMode && !isInlineMode}
 				<label class="sr-only" for="stage-filter-embedded">Filter by stage</label>
 				<select id="stage-filter-embedded" bind:value={stageFilter}>
 					<option value="">All stages</option>
