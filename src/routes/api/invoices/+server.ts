@@ -1,7 +1,11 @@
 import { json, error } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
-import { getBooksCustomerByEmail, listInvoicesForCustomer } from '$lib/server/books';
+import {
+	getBooksCustomerByEmail,
+	listEstimatesForCustomer,
+	listInvoicesForCustomer
+} from '$lib/server/books';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ cookies }) => {
@@ -37,11 +41,26 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 		const customer = await getBooksCustomerByEmail(accessToken, session.client.email);
 		if (!customer) {
-			return json({ data: [] });
+			return json({ data: [], quotedTotal: 0 });
 		}
 
-		const invoices = await listInvoicesForCustomer(accessToken, customer.contact_id);
-		return json({ data: invoices });
+		const [invoices, estimates] = await Promise.all([
+			listInvoicesForCustomer(accessToken, customer.contact_id),
+			listEstimatesForCustomer(accessToken, customer.contact_id).catch(() => [])
+		]);
+
+		// Total quoted: accepted/invoiced Books estimates. Drives the client's
+		// Remaining Balance (quoted minus paid) on the dashboard.
+		let quotedTotal = 0;
+		for (const est of Array.isArray(estimates) ? estimates : []) {
+			const status = String(est?.status ?? '').toLowerCase();
+			if (status === 'accepted' || status === 'invoiced') {
+				const total = Number(est?.total || 0);
+				if (!Number.isNaN(total)) quotedTotal += total;
+			}
+		}
+
+		return json({ data: invoices, quotedTotal });
 	} catch (err) {
 		console.error('Failed to fetch invoices:', err);
 		throw error(500, 'Failed to fetch invoices');

@@ -399,6 +399,11 @@
 		{ total: 0, balance: 0 }
 	);
 	$: amountPaid = Math.max(0, invoiceTotals.total - invoiceTotals.balance);
+	// Remaining = total quoted (accepted/invoiced Books estimates) minus paid.
+	// Falls back to the open-invoice balance when no quotes are on file.
+	let quotedTotal = 0;
+	$: remainingBalance =
+		quotedTotal > 0 ? Math.max(0, quotedTotal - amountPaid) : invoiceTotals.balance;
 	$: changeOrders = invoices.filter((invoice) => {
 		const number = String(invoice?.invoice_number || invoice?.invoice_id || '').trim();
 		return number.toUpperCase().startsWith('CO');
@@ -527,6 +532,7 @@
 			if (invoicesRes.ok) {
 				const invoicesData = await invoicesRes.json();
 				invoices = invoicesData.data || [];
+				quotedTotal = Number(invoicesData.quotedTotal || 0);
 			} else if (invoicesRes.status !== 401) {
 				invoiceError = 'Failed to fetch invoices';
 			}
@@ -727,13 +733,19 @@
 			</button>
 			{#if financialOpen}
 			<div class="summary-grid">
+				{#if quotedTotal > 0}
+					<div class="summary-card">
+						<span class="summary-label">Project Total</span>
+						<span class="summary-value">${quotedTotal.toLocaleString()}</span>
+					</div>
+				{/if}
 				<div class="summary-card">
 					<span class="summary-label">Amount Paid</span>
 					<span class="summary-value">${amountPaid.toLocaleString()}</span>
 				</div>
 				<div class="summary-card">
 					<span class="summary-label">Remaining Balance</span>
-					<span class="summary-value">${invoiceTotals.balance.toLocaleString()}</span>
+					<span class="summary-value">${remainingBalance.toLocaleString()}</span>
 				</div>
 			</div>
 			{/if}
