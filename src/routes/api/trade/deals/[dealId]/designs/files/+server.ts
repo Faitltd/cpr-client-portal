@@ -127,11 +127,17 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 	// portal share, which is the wrong destination for staff/trade partners.
 	const dealRes = await zohoApiCall(
 		accessToken,
-		`/Deals/${encodeURIComponent(dealId)}?fields=WorkDrive_Folder_ID`,
+		`/Deals/${encodeURIComponent(dealId)}?fields=${encodeURIComponent('WorkDrive_Folder_ID,WD_Project_Folder')}`,
 		{},
 		apiDomain
 	);
 	const rec = dealRes?.data?.[0] ?? {};
+	// External (no-Zoho-login) share for the client's project folder — trade
+	// partners don't have Zoho accounts, so prefer this over the internal URL.
+	const externalProjectUrl =
+		typeof rec.WD_Project_Folder === 'string' && /^https?:\/\//i.test(rec.WD_Project_Folder.trim())
+			? rec.WD_Project_Folder.trim()
+			: null;
 	const rawId = typeof rec.WorkDrive_Folder_ID === 'string' ? rec.WorkDrive_Folder_ID.trim() : '';
 	// Accept either a bare folder id or a pasted URL like
 	// https://workdrive.zoho.com/folder/<id> — extractWorkDriveFolderId returns
@@ -186,9 +192,9 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		sow: sowFiles,
 		designsFolderName: designsFolder?.name ?? null,
 		sowFolderName: sowFolder?.name ?? null,
-		// Internal WorkDrive URLs built from WorkDrive_Folder_ID. Requires the
-		// user to be signed in to Zoho — staff/trade-partner destination.
-		projectFolderUrl: buildInternalFolderUrl(projectFolderId),
+		// Project folder: external WD_Project_Folder share when available (works
+		// without a Zoho login), else the internal WorkDrive URL.
+		projectFolderUrl: externalProjectUrl ?? buildInternalFolderUrl(projectFolderId),
 		designsFolderUrl: designsFolder ? buildInternalFolderUrl(designsFolder.id) : null,
 		sowFolderUrl: sowFolder ? buildInternalFolderUrl(sowFolder.id) : null
 	});
