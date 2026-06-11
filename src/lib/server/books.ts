@@ -40,6 +40,16 @@ export async function getBooksCustomerByEmail(accessToken: string, email: string
 	return response.contacts?.[0] || null;
 }
 
+/**
+ * Quote statuses that count toward the project's quoted total: accepted, or
+ * any invoiced state (Books uses 'invoiced' and 'partially_invoiced').
+ * Drafts, sent, declined, and expired quotes don't count.
+ */
+export function isCountedQuoteStatus(status: unknown): boolean {
+	const s = String(status ?? '').toLowerCase();
+	return s === 'accepted' || s.includes('invoiced');
+}
+
 export async function listEstimatesForCustomer(accessToken: string, customerId: string) {
 	if (!ZOHO_BOOKS_ORG_ID) {
 		throw new Error('Missing ZOHO_BOOKS_ORG_ID');

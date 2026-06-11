@@ -12,6 +12,7 @@ import { normalizeDealRecord } from '$lib/server/auth';
 import { getLatestDesignerNotesBulk } from '$lib/server/designer-notes';
 import {
 	getBooksCustomerByEmail,
+	isCountedQuoteStatus,
 	listEstimatesForCustomer,
 	listInvoicesForCustomer
 } from '$lib/server/books';
@@ -746,12 +747,10 @@ async function fetchBooksForEmails(
 				invoiceCount += 1;
 			}
 			const paid = invoiced - invoiceBalance;
-			// Total quoted: accepted/invoiced Books estimates (drafts, declined
-			// and expired quotes don't count toward the project value).
+			// Total quoted: accepted or (partially) invoiced Books estimates.
 			let quoted = 0;
 			for (const est of Array.isArray(estimates) ? estimates : []) {
-				const status = String(est?.status ?? '').toLowerCase();
-				if (status === 'accepted' || status === 'invoiced') {
+				if (isCountedQuoteStatus(est?.status)) {
 					quoted += toFinancialAmount(est?.total) ?? 0;
 				}
 			}

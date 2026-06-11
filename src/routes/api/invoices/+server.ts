@@ -3,6 +3,7 @@ import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
 import {
 	getBooksCustomerByEmail,
+	isCountedQuoteStatus,
 	listEstimatesForCustomer,
 	listInvoicesForCustomer
 } from '$lib/server/books';
@@ -49,12 +50,11 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			listEstimatesForCustomer(accessToken, customer.contact_id).catch(() => [])
 		]);
 
-		// Total quoted: accepted/invoiced Books estimates. Drives the client's
-		// Remaining Balance (quoted minus paid) on the dashboard.
+		// Total quoted: accepted or (partially) invoiced Books estimates.
+		// Drives the client's Balance (price minus invoiced) on the dashboard.
 		let quotedTotal = 0;
 		for (const est of Array.isArray(estimates) ? estimates : []) {
-			const status = String(est?.status ?? '').toLowerCase();
-			if (status === 'accepted' || status === 'invoiced') {
+			if (isCountedQuoteStatus(est?.status)) {
 				const total = Number(est?.total || 0);
 				if (!Number.isNaN(total)) quotedTotal += total;
 			}
