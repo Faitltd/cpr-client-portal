@@ -191,6 +191,56 @@
 	let projectDocuments: any[] = [];
 	let projectDocumentsLoading = true;
 	let clientPortalUrl: string | null = null;
+
+	// WorkDrive Client Portal folder listing — fetched lazily when the
+	// Documents section is first opened so the dashboard load stays fast.
+	type PortalFile = {
+		id: string;
+		name: string;
+		folder: string | null;
+		url: string | null;
+		modifiedTime: string | null;
+	};
+	let portalFiles: PortalFile[] = [];
+	let portalFilesLoading = false;
+	let portalFilesLoaded = false;
+	let portalFilesMessage = '';
+
+	const loadPortalFiles = async () => {
+		if (!accessProjectId || portalFilesLoading || portalFilesLoaded) return;
+		portalFilesLoading = true;
+		portalFilesMessage = '';
+		try {
+			const res = await fetch(`/api/project/${accessProjectId}/files`);
+			const payload = await res.json().catch(() => ({}));
+			if (res.ok) {
+				portalFiles = Array.isArray(payload?.files) ? payload.files : [];
+				portalFilesMessage = payload?.message || '';
+				portalFilesLoaded = true;
+			} else {
+				portalFilesMessage = payload?.message || 'Unable to load documents.';
+			}
+		} catch {
+			portalFilesMessage = 'Unable to load documents.';
+		} finally {
+			portalFilesLoading = false;
+		}
+	};
+
+	$: if (documentsOpen && accessProjectId && !portalFilesLoaded && !portalFilesLoading) {
+		loadPortalFiles();
+	}
+
+	$: portalFileGroups = (() => {
+		const map = new Map<string, PortalFile[]>();
+		for (const f of portalFiles) {
+			const key = f.folder ?? '';
+			const list = map.get(key) ?? [];
+			list.push(f);
+			map.set(key, list);
+		}
+		return Array.from(map.entries()).map(([folder, files]) => ({ folder, files }));
+	})();
 	let accessProjectId = '';
 	let wifiInput = '';
 	let doorCodeInput = ''
@@ -910,6 +960,31 @@
 			<span class="toggle-icon">{documentsOpen ? '−' : '+'}</span>
 		</button>
 		{#if documentsOpen}
+			{#if portalFilesLoading}
+				<p class="muted-text">Loading documents…</p>
+			{:else if portalFiles.length > 0}
+				{#each portalFileGroups as group (group.folder)}
+					{#if group.folder}
+						<p class="docs-subhead">{group.folder}</p>
+					{/if}
+					<div class="doc-list">
+						{#each group.files as file (file.id)}
+							<div class="doc-item">
+								{#if file.url}
+									<a href={file.url} target="_blank" rel="noreferrer noopener" class="doc-link">{file.name}</a>
+								{:else}
+									<span class="doc-link">{file.name}</span>
+								{/if}
+								{#if file.modifiedTime}
+									<span class="meta-text">{new Date(file.modifiedTime).toLocaleDateString()}</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/each}
+			{:else if portalFilesMessage}
+				<p class="muted-text">{portalFilesMessage}</p>
+			{/if}
 			{#if clientPortalUrl}
 				<div class="doc-list">
 					<div class="doc-item">
@@ -963,7 +1038,7 @@
 						{/each}
 					</div>
 				{/if}
-				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0 && !clientPortalUrl}
+				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0 && portalFiles.length === 0 && !clientPortalUrl}
 					<p class="muted-text">No documents linked to this project yet.</p>
 				{/if}
 			{/if}
