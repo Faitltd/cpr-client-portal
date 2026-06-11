@@ -399,11 +399,12 @@
 		{ total: 0, balance: 0 }
 	);
 	$: amountPaid = Math.max(0, invoiceTotals.total - invoiceTotals.balance);
-	// Remaining = total quoted (accepted/invoiced Books estimates) minus paid.
-	// Falls back to the open-invoice balance when no quotes are on file.
+	// Mirrors the Books quote view: Price (quote total), Invoiced, and
+	// Balance = Price minus Invoiced. Falls back to the open-invoice balance
+	// when no quotes are on file.
 	let quotedTotal = 0;
 	$: remainingBalance =
-		quotedTotal > 0 ? Math.max(0, quotedTotal - amountPaid) : invoiceTotals.balance;
+		quotedTotal > 0 ? Math.max(0, quotedTotal - invoiceTotals.total) : invoiceTotals.balance;
 	$: changeOrders = invoices.filter((invoice) => {
 		const number = String(invoice?.invoice_number || invoice?.invoice_id || '').trim();
 		return number.toUpperCase().startsWith('CO');
@@ -735,16 +736,16 @@
 			<div class="summary-grid">
 				{#if quotedTotal > 0}
 					<div class="summary-card">
-						<span class="summary-label">Project Total</span>
+						<span class="summary-label">Price</span>
 						<span class="summary-value">${quotedTotal.toLocaleString()}</span>
 					</div>
 				{/if}
 				<div class="summary-card">
-					<span class="summary-label">Amount Paid</span>
-					<span class="summary-value">${amountPaid.toLocaleString()}</span>
+					<span class="summary-label">Invoiced</span>
+					<span class="summary-value">${invoiceTotals.total.toLocaleString()}</span>
 				</div>
 				<div class="summary-card">
-					<span class="summary-label">Remaining Balance</span>
+					<span class="summary-label">Balance</span>
 					<span class="summary-value">${remainingBalance.toLocaleString()}</span>
 				</div>
 			</div>
