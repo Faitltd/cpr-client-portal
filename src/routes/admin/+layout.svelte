@@ -1,22 +1,38 @@
 <script lang="ts">
+	import { page } from '$app/stores';
+
 	const year = new Date().getFullYear();
+	$: pathname = $page.url.pathname;
+	$: isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 </script>
 
 <div class="admin-shell">
 	<header class="admin-header">
 		<div class="admin-header-inner">
-			<a class="admin-logo" href="/admin">
+			<a class="admin-logo" href="/designer">
 				<img src="/favicon.png" alt="CPR Remodeling" width="32" height="32" style="object-fit:contain;" />
 				<span>Admin</span>
 			</a>
-			<div class="header-actions">
-			<a class="nav-link" href="/admin/leads">Leads</a>
-			<a class="nav-link" href="/admin/bot">Bot</a>
-			<a class="nav-link" href="/admin/process-map">Process Map</a>
-			<a class="client-admin-btn" href="/admin/clients">Client Admin</a>
 			<a class="logout-link" href="/admin/logout">Log out</a>
 		</div>
+		<!-- Same tab row as the designer portal, plus the admin tabs -->
+		{#if pathname !== '/admin/login'}
+		<div class="bar-inner">
+			<nav class="tabs" aria-label="Portal views">
+				<a class="tab" href="/designer/trade-dashboard">Field Dashboard</a>
+				<a class="tab" href="/designer/field-update">Field Update</a>
+				<a class="tab" href="/designer">CRM</a>
+				<a class="tab" href="/designer/tasks">Tasks</a>
+				<a class="tab" href="/designer/financials">Financials</a>
+				<span class="admin-group" aria-label="Admin tabs">
+					<a class="tab tab-admin" class:active={isActive('/admin/clients')} href="/admin/clients">Client Admin</a>
+					<a class="tab tab-admin" class:active={isActive('/admin/leads')} href="/admin/leads">Leads</a>
+					<a class="tab tab-admin" class:active={isActive('/admin/bot')} href="/admin/bot">Bot</a>
+					<a class="tab tab-admin" class:active={isActive('/admin/process-map')} href="/admin/process-map">Process Map</a>
+				</span>
+			</nav>
 		</div>
+		{/if}
 	</header>
 
 	<main class="admin-content">
@@ -51,7 +67,7 @@
 	}
 
 	.admin-header-inner {
-		max-width: 1200px;
+		max-width: 1100px;
 		margin: 0 auto;
 		padding: 0 1rem;
 		min-height: 56px;
@@ -72,51 +88,6 @@
 		letter-spacing: -0.01em;
 	}
 
-	.header-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		min-width: 0;
-		max-width: 100%;
-		overflow-x: auto;
-		-webkit-overflow-scrolling: touch;
-		scrollbar-width: none;
-	}
-
-	.header-actions::-webkit-scrollbar {
-		display: none;
-	}
-
-	.client-admin-btn {
-		font-size: 0.82rem;
-		font-weight: 600;
-		color: #fff;
-		background: #111827;
-		text-decoration: none;
-		padding: 0.35rem 0.85rem;
-		border-radius: 6px;
-		white-space: nowrap;
-	}
-
-	.client-admin-btn:hover {
-		background: #374151;
-	}
-
-	.nav-link {
-		font-size: 0.82rem;
-		font-weight: 600;
-		color: #374151;
-		text-decoration: none;
-		padding: 0.35rem 0.65rem;
-		border-radius: 6px;
-		white-space: nowrap;
-	}
-
-	.nav-link:hover {
-		background: #f3f4f6;
-		color: #111827;
-	}
-
 	.logout-link {
 		font-size: 0.85rem;
 		font-weight: 500;
@@ -126,6 +97,68 @@
 
 	.logout-link:hover {
 		color: #111827;
+	}
+
+	/* ── Tab row (matches the designer portal) ───────── */
+	.bar-inner {
+		max-width: 1100px;
+		margin: 0 auto;
+		padding: 0 1rem 0.75rem;
+	}
+
+	.tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		background: #eef2f7;
+		padding: 0.35rem;
+		border-radius: 0.7rem;
+	}
+
+	.tab {
+		padding: 0.5rem 1rem;
+		color: #334155;
+		font-weight: 600;
+		font-size: 0.9rem;
+		text-decoration: none;
+		border-radius: 0.5rem;
+		border: 1px solid transparent;
+		background: transparent;
+		transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.tab:hover {
+		background: #dbe3ee;
+		color: #0f172a;
+	}
+
+	.tab.active {
+		background: #111827;
+		color: #ffffff;
+		border-color: #111827;
+	}
+
+	.admin-group {
+		margin-left: auto;
+		display: inline-flex;
+		gap: 0.4rem;
+		flex-wrap: wrap;
+	}
+
+	.tab-admin {
+		border-color: #b45309;
+		color: #92400e;
+	}
+
+	.tab-admin:hover {
+		background: #fff7ed;
+		color: #7c2d12;
+	}
+
+	.tab-admin.active {
+		background: #92400e;
+		color: #fff;
+		border-color: #92400e;
 	}
 
 	/* ── Content & Footer ────────────────────────────── */
@@ -142,35 +175,17 @@
 	}
 
 	.admin-footer-inner {
-		max-width: 1200px;
+		max-width: 1100px;
 		margin: 0 auto;
 		padding: 1rem 1.5rem;
 		color: #9ca3af;
 		font-size: 0.8rem;
 	}
 
-	@media (min-width: 768px) {
-		.admin-header-inner {
-			padding: 0 2rem;
-		}
-
-		.admin-footer-inner {
-			padding: 1rem 2rem;
-		}
-	}
-
 	@media (max-width: 767px) {
 		.admin-header-inner {
 			padding-top: 0.6rem;
 			padding-bottom: 0.6rem;
-			flex-wrap: wrap;
-			align-items: flex-start;
-		}
-
-		.header-actions {
-			width: 100%;
-			padding-bottom: 0.15rem;
-			white-space: nowrap;
 		}
 	}
 </style>
