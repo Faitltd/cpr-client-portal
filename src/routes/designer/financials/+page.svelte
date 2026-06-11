@@ -78,6 +78,66 @@
 		return { invoiced, paid, balance };
 	})();
 
+	// Invoice drill-down — click a deal name to expand its invoice list.
+	type InvoiceRow = {
+		id: string;
+		number: string;
+		date: string | null;
+		dueDate: string | null;
+		status: string | null;
+		total: number | null;
+		balance: number | null;
+	};
+	let expandedDealId: string | null = null;
+	let invoicesByEmail = new Map<string, InvoiceRow[]>();
+	let invoiceLoadingEmails = new Set<string>();
+	let invoiceErrorByEmail = new Map<string, string>();
+
+	function toggleInvoices(rowId: string) {
+		expandedDealId = expandedDealId === rowId ? null : rowId;
+	}
+
+	async function loadInvoices(email: string) {
+		invoiceLoadingEmails = new Set([...invoiceLoadingEmails, email]);
+		try {
+			const res = await fetch(
+				`/api/designer/financials/invoices?email=${encodeURIComponent(email)}`
+			);
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(payload?.message || `Failed to load invoices (${res.status})`);
+			const next = new Map(invoicesByEmail);
+			next.set(email, Array.isArray(payload?.invoices) ? payload.invoices : []);
+			invoicesByEmail = next;
+		} catch (err) {
+			const next = new Map(invoiceErrorByEmail);
+			next.set(email, err instanceof Error ? err.message : 'Failed to load invoices');
+			invoiceErrorByEmail = next;
+		} finally {
+			const next = new Set(invoiceLoadingEmails);
+			next.delete(email);
+			invoiceLoadingEmails = next;
+		}
+	}
+
+	// Fetch when a row is expanded and its Books email is known.
+	$: if (expandedDealId && !booksLoading) {
+		const email = emailById.get(expandedDealId);
+		if (
+			email &&
+			!invoicesByEmail.has(email) &&
+			!invoiceLoadingEmails.has(email) &&
+			!invoiceErrorByEmail.has(email)
+		) {
+			loadInvoices(email);
+		}
+	}
+
+	const fmtDate = (value: string | null) => {
+		if (!value) return '—';
+		const d = new Date(value);
+		return Number.isNaN(d.valueOf()) ? value : d.toLocaleDateString();
+	};
+
 	onMount(async () => {
 		try {
 			const res = await fetch('/api/designer/financials');
@@ -177,8 +237,20 @@
 			<tbody>
 				{#each visibleRows as row (row.id)}
 					{@const books = booksById.get(row.id)}
+					{@const rowEmail = emailById.get(row.id)}
 					<tr>
-						<td class="name">{row.name}</td>
+						<td class="name">
+							<button
+								type="button"
+								class="name-btn"
+								on:click={() => toggleInvoices(row.id)}
+								aria-expanded={expandedDealId === row.id}
+								title="Show invoice breakdown"
+							>
+								<span class="caret">{expandedDealId === row.id ? '▾' : '▸'}</span>
+								{row.name}
+							</button>
+						</td>
 						<td>{row.contactName ?? '—'}</td>
 						<td>{#if row.stage}<span class="badge">{row.stage}</span>{:else}—{/if}</td>
 						<td class="num">{money(row.amount)}</td>
@@ -187,6 +259,51 @@
 						<td class="num">{booksLoading ? '…' : money(books?.balance)}</td>
 						<td>{row.closingDate ?? '—'}</td>
 					</tr>
+					{#if expandedDealId === row.id}
+						<tr class="detail-row">
+							<td colspan="8">
+								{#if booksLoading}
+									<p class="detail-muted">Loading…</p>
+								{:else if !rowEmail}
+									<p class="detail-muted">No Zoho Books customer is linked to this deal.</p>
+								{:else if invoiceLoadingEmails.has(rowEmail)}
+									<p class="detail-muted">Loading invoices…</p>
+								{:else if invoiceErrorByEmail.get(rowEmail)}
+									<p class="detail-muted detail-error">{invoiceErrorByEmail.get(rowEmail)}</p>
+								{:else}
+									{@const invs = invoicesByEmail.get(rowEmail) ?? []}
+									{#if invs.length === 0}
+										<p class="detail-muted">No invoices found for this client.</p>
+									{:else}
+										<table class="inv-table">
+											<thead>
+												<tr>
+													<th>Invoice #</th>
+													<th>Date</th>
+													<th>Due</th>
+													<th>Status</th>
+													<th class="num">Total</th>
+													<th class="num">Balance</th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each invs as inv (inv.id)}
+													<tr>
+														<td>{inv.number || '—'}</td>
+														<td>{fmtDate(inv.date)}</td>
+														<td>{fmtDate(inv.dueDate)}</td>
+														<td class="inv-status">{inv.status || '—'}</td>
+														<td class="num">{money(inv.total)}</td>
+														<td class="num">{money(inv.balance)}</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									{/if}
+								{/if}
+							</td>
+						</tr>
+					{/if}
 				{/each}
 			</tbody>
 		</table>
@@ -238,6 +355,84 @@
 
 	.link:hover {
 		text-decoration: underline;
+	}
+
+	/* Invoice drill-down */
+	.name-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		font-weight: 600;
+		color: #1d4ed8;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.name-btn:hover {
+		text-decoration: underline;
+	}
+
+	.caret {
+		color: #9ca3af;
+		font-size: 0.75rem;
+	}
+
+	.detail-row td {
+		background: #f8fafc;
+		padding: 0.75rem 1rem 1rem;
+	}
+
+	.detail-muted {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.88rem;
+	}
+
+	.detail-error {
+		color: #b91c1c;
+	}
+
+	.inv-table {
+		width: 100%;
+		border-collapse: collapse;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		overflow: hidden;
+		font-size: 0.87rem;
+	}
+
+	.inv-table th {
+		text-align: left;
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #6b7280;
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f9fafb;
+	}
+
+	.inv-table td {
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid #f3f4f6;
+		background: #fff;
+	}
+
+	.inv-table tr:last-child td {
+		border-bottom: none;
+	}
+
+	.inv-table .num {
+		text-align: right;
+	}
+
+	.inv-status {
+		text-transform: capitalize;
 	}
 
 	.chips {

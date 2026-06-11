@@ -816,6 +816,37 @@ export async function getDealsFinancials(
 	}
 }
 
+export interface BooksInvoiceSummary {
+	id: string;
+	number: string;
+	date: string | null;
+	dueDate: string | null;
+	status: string | null;
+	total: number | null;
+	balance: number | null;
+}
+
+/**
+ * Detailed invoice list for a Books customer (by email) — invoice numbers,
+ * dates, status, totals. Backs the Financials drill-down.
+ */
+export async function listBooksInvoicesForEmail(email: string): Promise<BooksInvoiceSummary[]> {
+	const ctx = await resolveAdminZohoContext();
+	const customer = await getBooksCustomerByEmail(ctx.accessToken, email);
+	const customerId = customer?.contact_id;
+	if (!customerId) return [];
+	const invoices = await listInvoicesForCustomer(ctx.accessToken, customerId);
+	return (Array.isArray(invoices) ? invoices : []).map((inv: any) => ({
+		id: String(inv?.invoice_id ?? ''),
+		number: String(inv?.invoice_number ?? ''),
+		date: typeof inv?.date === 'string' ? inv.date : null,
+		dueDate: typeof inv?.due_date === 'string' ? inv.due_date : null,
+		status: typeof inv?.status === 'string' ? inv.status : null,
+		total: toFinancialAmount(inv?.total),
+		balance: toFinancialAmount(inv?.balance)
+	}));
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
