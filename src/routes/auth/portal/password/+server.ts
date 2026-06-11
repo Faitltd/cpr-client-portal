@@ -26,6 +26,13 @@ import type { RequestHandler } from './$types';
 
 const PORTAL_ADMIN_PASSWORD = env.PORTAL_ADMIN_PASSWORD || '';
 const PORTAL_ADMIN_EMAIL = normalizeEmailAddress(env.PORTAL_ADMIN_EMAIL || 'ray@homecpr.pro');
+// Same admin email set as /admin/login: plural env first, then singular, then default.
+const PORTAL_ADMIN_EMAILS_SET = new Set(
+	(env.PORTAL_ADMIN_EMAILS || env.PORTAL_ADMIN_EMAIL || 'ray@homecpr.pro')
+		.split(',')
+		.map((value) => normalizeEmailAddress(value))
+		.filter(Boolean)
+);
 
 const isJsonRequest = (request: Request) =>
 	request.headers.get('content-type')?.includes('application/json') ?? false;
@@ -76,7 +83,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	// check the admin password first so admin is never shadowed by other roles.
 	const adminConfigured = isAdminConfigured();
 	if (adminConfigured && PORTAL_ADMIN_PASSWORD) {
-		const isAdminEmail = email === PORTAL_ADMIN_EMAIL;
+		const isAdminEmail = email === PORTAL_ADMIN_EMAIL || PORTAL_ADMIN_EMAILS_SET.has(email);
 		const isNoEmail = !email;
 		if ((isAdminEmail || isNoEmail) && password === PORTAL_ADMIN_PASSWORD) {
 			const session = createAdminSession();
