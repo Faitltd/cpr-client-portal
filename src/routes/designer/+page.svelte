@@ -20,5 +20,5 @@
 	showHeader={false}
 	showTabs={true}
 	tabMode="inline"
-	initialView="active"
+	initialView="project-created"
 />

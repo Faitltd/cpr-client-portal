@@ -23,11 +23,15 @@
 		a === NONE ? 1 : b === NONE ? -1 : a.localeCompare(b)
 	);
 
-	// Selected stages — start with all enabled once stages are known.
+	// Selected stages — default to Project Created only; fall back to all
+	// stages if no deals are in that stage.
 	let selected: Set<string> = new Set();
 	let initialized = false;
 	$: if (!initialized && allStages.length > 0) {
-		selected = new Set(allStages);
+		const projectCreated = allStages.filter(
+			(key) => key !== NONE && key.toLowerCase().includes('project created')
+		);
+		selected = projectCreated.length > 0 ? new Set(projectCreated) : new Set(allStages);
 		initialized = true;
 	}
 
