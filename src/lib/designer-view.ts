@@ -1,4 +1,4 @@
-export type DesignerViewKey = 'active' | 'project-created' | 'on-hold';
+export type DesignerViewKey = 'active' | 'project-created' | 'on-hold' | 'lost';
 
 export const DESIGNER_VIEW_TABS = [
 	{
@@ -18,6 +18,12 @@ export const DESIGNER_VIEW_TABS = [
 		label: 'On Hold',
 		href: '/designer/on-hold',
 		emptyMessage: 'No deals currently On Hold.'
+	},
+	{
+		key: 'lost',
+		label: 'Lost',
+		href: '/designer',
+		emptyMessage: 'No lost deals.'
 	}
 ] as const satisfies ReadonlyArray<{
 	key: DesignerViewKey;
@@ -51,6 +57,7 @@ export function normalizeDesignerStageName(raw: unknown): string {
 export function isDesignerStageInView(stage: string, view: DesignerViewKey): boolean {
 	if (view === 'project-created') return stage === 'project created';
 	if (view === 'on-hold') return stage === 'on hold';
+	if (view === 'lost') return stage === 'lost';
 	return !ACTIVE_VIEW_EXCLUDED_STAGES.has(stage);
 }
 

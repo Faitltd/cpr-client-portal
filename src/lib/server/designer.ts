@@ -323,16 +323,17 @@ export async function getAllDeals(): Promise<DesignerDealSummary[]> {
 }
 
 /**
- * Deals for the CRM tab — active deals PLUS Project Created and On Hold, so
- * the client-side view selector (Project Created / Active Deals / On Hold)
- * has data for every view. Only Completed and Lost stay hidden.
+ * Deals for the CRM tab — active deals PLUS Project Created, On Hold, and
+ * Lost, so the client-side view selector has data for every view. Only
+ * Completed stays hidden.
  */
 export async function getCrmDeals(): Promise<DesignerDealSummary[]> {
 	const deals = await paginateFilteredDeals(
 		(stage) =>
 			!ACTIVE_VIEW_EXCLUDED_STAGES.has(stage) ||
 			stage === PROJECT_CREATED_STAGE ||
-			stage === ON_HOLD_STAGE
+			stage === ON_HOLD_STAGE ||
+			stage === 'lost'
 	);
 	return overlayCachedDesignerNotes(deals);
 }
