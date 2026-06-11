@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import ClientChatPanel from '$lib/components/ClientChatPanel.svelte';
 	import DailyUpdate from '$lib/components/DailyUpdate.svelte';
@@ -450,6 +450,42 @@
 		}
 	};
 
+	// ── Project Review booking (Zoho Bookings inline embed) ──────────
+	const BOOKING_URL = 'https://homecpr.zohobookings.com/portal-embed#/4636703000003236055';
+	const BOOKING_SCRIPT = 'https://bookings.nimbuspop.com/assets/embed.js';
+	let bookingOpen = false;
+	let bookingInitialized = false;
+	let bookingError = '';
+
+	async function toggleBooking() {
+		bookingOpen = !bookingOpen;
+		if (!bookingOpen || bookingInitialized) return;
+		await tick(); // container must be in the DOM before the embed mounts
+		const init = () => {
+			try {
+				(window as any).Bookings?.inlineEmbed({
+					url: BOOKING_URL,
+					parent: '#booking-inline-container',
+					height: '600px'
+				});
+				bookingInitialized = true;
+			} catch {
+				bookingError = 'Could not load the scheduler. Please refresh and try again.';
+			}
+		};
+		if ((window as any).Bookings) {
+			init();
+			return;
+		}
+		const script = document.createElement('script');
+		script.src = BOOKING_SCRIPT;
+		script.onload = init;
+		script.onerror = () => {
+			bookingError = 'Could not load the scheduler. Please refresh and try again.';
+		};
+		document.head.appendChild(script);
+	}
+
 	onMount(async () => {
 		fetch('/api/client/email-preferences')
 			.then(async (res) => {
@@ -542,6 +578,27 @@
 	{:else if projects.length === 0}
 		<div class="state-card">No projects found</div>
 	{:else}
+		<!-- Schedule a Project Review — always visible at the top -->
+		<section class="review-banner">
+			<div class="review-banner-text">
+				<h2>Schedule a Project Review</h2>
+				<p>15-minute call with your project team · Tuesday–Thursday, 4–5 PM</p>
+			</div>
+			<button class="review-btn" type="button" on:click={toggleBooking} aria-expanded={bookingOpen}>
+				{bookingOpen ? 'Hide scheduler' : 'Pick a time'}
+			</button>
+		</section>
+		{#if bookingOpen}
+			<section class="review-embed">
+				{#if bookingError}
+					<p class="review-error">{bookingError}</p>
+				{:else if !bookingInitialized}
+					<p class="review-loading">Loading available times…</p>
+				{/if}
+				<div id="booking-inline-container"></div>
+			</section>
+		{/if}
+
 		<!-- Today on site — positive Cliq updates + WorkDrive Photos folder -->
 		<DailyUpdate dealId={String(projects[0].id)} />
 
@@ -1126,6 +1183,69 @@
 	/* ── Sections ─────────────────────────────────────── */
 	.section {
 		margin-bottom: 1.25rem;
+	}
+
+	/* ── Project Review booking banner ───────────────── */
+	.review-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 1.25rem;
+		padding: 1rem 1.25rem;
+		background: #fffbeb;
+		border: 1px solid #fcd34d;
+		border-radius: 12px;
+	}
+
+	.review-banner-text h2 {
+		margin: 0 0 0.2rem;
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: #92400e;
+	}
+
+	.review-banner-text p {
+		margin: 0;
+		color: #b45309;
+		font-size: 0.9rem;
+	}
+
+	.review-btn {
+		background: #111827;
+		color: #fff;
+		border: none;
+		border-radius: 10px;
+		padding: 0.7rem 1.3rem;
+		font-weight: 700;
+		font-size: 0.95rem;
+		min-height: 44px;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.review-btn:hover {
+		background: #1f2937;
+	}
+
+	.review-embed {
+		margin: -0.5rem 0 1.25rem;
+		padding: 0.75rem;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+	}
+
+	.review-loading,
+	.review-error {
+		margin: 0.5rem 0.5rem 0.75rem;
+		color: #6b7280;
+		font-size: 0.9rem;
+	}
+
+	.review-error {
+		color: #b91c1c;
 	}
 
 	.section-header {
