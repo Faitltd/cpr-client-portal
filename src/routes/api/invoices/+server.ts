@@ -3,6 +3,7 @@ import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { refreshAccessToken } from '$lib/server/zoho';
 import {
 	getBooksCustomerByEmail,
+	getEstimateById,
 	isCountedQuoteStatus,
 	listEstimatesForCustomer,
 	listInvoicesForCustomer
@@ -52,15 +53,44 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 		// Total quoted: accepted or (partially) invoiced Books estimates.
 		// Drives the client's Balance (price minus invoiced) on the dashboard.
+		const countedEstimates = (Array.isArray(estimates) ? estimates : []).filter((est) =>
+			isCountedQuoteStatus(est?.status)
+		);
 		let quotedTotal = 0;
-		for (const est of Array.isArray(estimates) ? estimates : []) {
-			if (isCountedQuoteStatus(est?.status)) {
-				const total = Number(est?.total || 0);
-				if (!Number.isNaN(total)) quotedTotal += total;
+		for (const est of countedEstimates) {
+			const total = Number(est?.total || 0);
+			if (!Number.isNaN(total)) quotedTotal += total;
+		}
+
+		// Change orders live on the quote as line items named "Change Order #…".
+		// Pull them from the counted quotes' details for the dashboard.
+		const changeOrderItems: Array<{
+			name: string;
+			description: string | null;
+			total: number;
+			quoteNumber: string | null;
+			quoteDate: string | null;
+		}> = [];
+		for (const est of countedEstimates.slice(0, 5)) {
+			const estimateId = String(est?.estimate_id ?? '');
+			if (!estimateId) continue;
+			const detail = await getEstimateById(accessToken, estimateId).catch(() => null);
+			const lineItems = Array.isArray(detail?.line_items) ? detail.line_items : [];
+			for (const item of lineItems) {
+				const name = String(item?.name ?? '');
+				if (!/change\s*order/i.test(name)) continue;
+				const total = Number(item?.item_total ?? item?.rate ?? 0);
+				changeOrderItems.push({
+					name,
+					description: item?.description ? String(item.description) : null,
+					total: Number.isNaN(total) ? 0 : total,
+					quoteNumber: detail?.estimate_number ? String(detail.estimate_number) : null,
+					quoteDate: detail?.date ? String(detail.date) : null
+				});
 			}
 		}
 
-		return json({ data: invoices, quotedTotal });
+		return json({ data: invoices, quotedTotal, changeOrderItems });
 	} catch (err) {
 		console.error('Failed to fetch invoices:', err);
 		throw error(500, 'Failed to fetch invoices');

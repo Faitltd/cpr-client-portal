@@ -405,6 +405,16 @@
 	let quotedTotal = 0;
 	$: remainingBalance =
 		quotedTotal > 0 ? Math.max(0, quotedTotal - invoiceTotals.total) : invoiceTotals.balance;
+
+	// Change orders pulled from the quote's "Change Order #…" line items.
+	type ChangeOrderItem = {
+		name: string;
+		description: string | null;
+		total: number;
+		quoteNumber: string | null;
+		quoteDate: string | null;
+	};
+	let changeOrderItems: ChangeOrderItem[] = [];
 	$: changeOrders = invoices.filter((invoice) => {
 		const number = String(invoice?.invoice_number || invoice?.invoice_id || '').trim();
 		return number.toUpperCase().startsWith('CO');
@@ -534,6 +544,9 @@
 				const invoicesData = await invoicesRes.json();
 				invoices = invoicesData.data || [];
 				quotedTotal = Number(invoicesData.quotedTotal || 0);
+				changeOrderItems = Array.isArray(invoicesData.changeOrderItems)
+					? invoicesData.changeOrderItems
+					: [];
 			} else if (invoicesRes.status !== 401) {
 				invoiceError = 'Failed to fetch invoices';
 			}
@@ -880,11 +893,27 @@
 				{/if}
 			</div>
 
+			{#if changeOrderItems.length > 0}
+				<div class="co-item-list">
+					{#each changeOrderItems as item}
+						<div class="co-item">
+							<div class="co-item-info">
+								<span class="co-item-name">{item.name}</span>
+								{#if item.description}
+									<span class="co-item-desc">{item.description}</span>
+								{/if}
+							</div>
+							<span class="co-item-price">${item.total.toLocaleString()}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
 			{#if invoiceError}
 				<p class="muted-text error-text">{invoiceError}</p>
-			{:else if changeOrders.length === 0}
+			{:else if changeOrders.length === 0 && changeOrderItems.length === 0}
 				<p class="muted-text">No previous change orders.</p>
-			{:else}
+			{:else if changeOrders.length > 0}
 				<div class="card-list">
 					{#each changeOrders as invoice}
 						<div class="invoice-card">
@@ -1737,8 +1766,49 @@
 	/* ── Financial summary ────────────────────────────── */
 	.summary-grid {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: 1fr;
 		gap: 0.75rem;
+	}
+
+	/* Change-order items from the quote */
+	.co-item-list {
+		display: grid;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+	}
+
+	.co-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+		background: #fff;
+	}
+
+	.co-item-info {
+		display: grid;
+		gap: 0.15rem;
+		min-width: 0;
+	}
+
+	.co-item-name {
+		font-weight: 600;
+		color: #111827;
+		font-size: 0.92rem;
+	}
+
+	.co-item-desc {
+		color: #6b7280;
+		font-size: 0.85rem;
+	}
+
+	.co-item-price {
+		font-weight: 700;
+		color: #111827;
+		white-space: nowrap;
 	}
 
 	.summary-card {

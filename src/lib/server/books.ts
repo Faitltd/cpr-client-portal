@@ -63,6 +63,18 @@ export async function listEstimatesForCustomer(accessToken: string, customerId: 
 	return response.estimates || [];
 }
 
+/** Full estimate detail (includes line_items). */
+export async function getEstimateById(accessToken: string, estimateId: string) {
+	if (!ZOHO_BOOKS_ORG_ID) {
+		throw new Error('Missing ZOHO_BOOKS_ORG_ID');
+	}
+	const response = await zohoBooksApiCall(
+		accessToken,
+		`/estimates/${encodeURIComponent(estimateId)}?organization_id=${encodeURIComponent(ZOHO_BOOKS_ORG_ID)}`
+	);
+	return response.estimate || null;
+}
+
 export async function listInvoicesForCustomer(accessToken: string, customerId: string) {
 	if (!ZOHO_BOOKS_ORG_ID) {
 		throw new Error('Missing ZOHO_BOOKS_ORG_ID');
