@@ -216,6 +216,11 @@
 	$: portalDocs = portalFiles.filter((f) => !isImageFile(f));
 	$: portalPhotos = portalFiles.filter(isImageFile);
 
+	// CRM file attachments split the same way — images render under Photos.
+	const isImageAttachment = (doc: any) => IMAGE_EXT_RE.test(String(doc?.File_Name || ''));
+	$: attachmentDocs = projectDocuments.filter((d) => !isImageAttachment(d));
+	$: attachmentPhotos = projectDocuments.filter(isImageAttachment);
+
 	$: portalFileGroups = (() => {
 		const map = new Map<string, PortalFile[]>();
 		for (const f of portalDocs) {
@@ -569,7 +574,7 @@
 			{#if photosOpen}
 				{#if portalFilesLoading}
 					<p class="muted-text">Loading photos…</p>
-				{:else if portalPhotos.length > 0}
+				{:else if portalPhotos.length > 0 || attachmentPhotos.length > 0}
 					<div class="doc-list">
 						{#each portalPhotos as file (file.id)}
 							<div class="doc-item">
@@ -583,10 +588,16 @@
 								{/if}
 							</div>
 						{/each}
+						{#each attachmentPhotos as doc (doc.id)}
+							<div class="doc-item">
+								<a href={`/api/project/${accessProjectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank" class="doc-link">{doc.File_Name}</a>
+								<span class="meta-text">{new Date(doc.Created_Time).toLocaleDateString()}</span>
+							</div>
+						{/each}
 					</div>
 				{/if}
 				{@const photoLinks = projects.filter(p => getProgressPhotosLink(p))}
-				{#if photoLinks.length === 0 && portalPhotos.length === 0 && !portalFilesLoading}
+				{#if photoLinks.length === 0 && portalPhotos.length === 0 && attachmentPhotos.length === 0 && !portalFilesLoading}
 					<p class="muted-text">No photos available.</p>
 				{:else if photoLinks.length > 0}
 					<div class="doc-list">
@@ -1010,10 +1021,10 @@
 						{/each}
 					</div>
 				{/if}
-				{#if projectDocuments.length > 0}
+				{#if attachmentDocs.length > 0}
 					<p class="docs-subhead">Files</p>
 					<div class="doc-list">
-						{#each projectDocuments as doc}
+						{#each attachmentDocs as doc}
 							<div class="doc-item">
 								<a href={`/api/project/${accessProjectId}/documents/${doc.id}?fileName=${encodeURIComponent(doc.File_Name)}`} target="_blank" class="doc-link">{doc.File_Name}</a>
 								<span class="meta-text">{new Date(doc.Created_Time).toLocaleDateString()}</span>
@@ -1021,7 +1032,7 @@
 						{/each}
 					</div>
 				{/if}
-				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0 && portalDocs.length === 0 && !clientPortalUrl}
+				{#if !contractError && contracts.length === 0 && attachmentDocs.length === 0 && portalDocs.length === 0 && !clientPortalUrl}
 					<p class="muted-text">No documents linked to this project yet.</p>
 				{/if}
 			{/if}
