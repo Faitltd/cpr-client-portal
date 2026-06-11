@@ -205,13 +205,20 @@
 		}
 	};
 
-	$: if (documentsOpen && accessProjectId && !portalFilesLoaded && !portalFilesLoading) {
+	$: if ((documentsOpen || photosOpen) && accessProjectId && !portalFilesLoaded && !portalFilesLoading) {
 		loadPortalFiles();
 	}
 
+	// Images belong in the Photos section; everything else stays in Documents.
+	const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i;
+	const isImageFile = (f: PortalFile) =>
+		IMAGE_EXT_RE.test(f.name) || (f.mime ?? '').startsWith('image/');
+	$: portalDocs = portalFiles.filter((f) => !isImageFile(f));
+	$: portalPhotos = portalFiles.filter(isImageFile);
+
 	$: portalFileGroups = (() => {
 		const map = new Map<string, PortalFile[]>();
-		for (const f of portalFiles) {
+		for (const f of portalDocs) {
 			const key = f.folder ?? '';
 			const list = map.get(key) ?? [];
 			list.push(f);
@@ -344,6 +351,12 @@
 		payload?.error || payload?.message || fallback;
 	const readJson = async (res: Response) => res.json().catch(() => ({}));
 	const getProgressPhotosLink = (deal: any) => {
+		// Prefer the WD_Photos external share — it points at the Photos folder
+		// itself and needs no Zoho login.
+		const wdPhotos = deal?.WD_Photos;
+		if (typeof wdPhotos === 'string' && /^https?:\/\//i.test(wdPhotos.trim())) {
+			return wdPhotos.trim();
+		}
 		const crmLink = deal?.Client_Portal_Folder || deal?.External_Link;
 		if (typeof crmLink === 'string' && /^https?:\/\//i.test(crmLink.trim())) {
 			return crmLink.trim();
@@ -554,10 +567,28 @@
 				<span class="toggle-icon">{photosOpen ? '−' : '+'}</span>
 			</button>
 			{#if photosOpen}
+				{#if portalFilesLoading}
+					<p class="muted-text">Loading photos…</p>
+				{:else if portalPhotos.length > 0}
+					<div class="doc-list">
+						{#each portalPhotos as file (file.id)}
+							<div class="doc-item">
+								{#if file.url}
+									<a href={file.url} target="_blank" rel="noreferrer noopener" class="doc-link">{file.name}</a>
+								{:else}
+									<span class="doc-link">{file.name}</span>
+								{/if}
+								{#if file.modifiedTime}
+									<span class="meta-text">{new Date(file.modifiedTime).toLocaleDateString()}</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
 				{@const photoLinks = projects.filter(p => getProgressPhotosLink(p))}
-				{#if photoLinks.length === 0}
+				{#if photoLinks.length === 0 && portalPhotos.length === 0 && !portalFilesLoading}
 					<p class="muted-text">No photos available.</p>
-				{:else}
+				{:else if photoLinks.length > 0}
 					<div class="doc-list">
 						{#each photoLinks as project}
 							{@const link = getProgressPhotosLink(project)}
@@ -914,7 +945,7 @@
 		{#if documentsOpen}
 			{#if portalFilesLoading}
 				<p class="muted-text">Loading documents…</p>
-			{:else if portalFiles.length > 0}
+			{:else if portalDocs.length > 0}
 				{#each portalFileGroups as group (group.folder)}
 					{#if group.folder}
 						<p class="docs-subhead">{group.folder}</p>
@@ -990,7 +1021,7 @@
 						{/each}
 					</div>
 				{/if}
-				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0 && portalFiles.length === 0 && !clientPortalUrl}
+				{#if !contractError && contracts.length === 0 && projectDocuments.length === 0 && portalDocs.length === 0 && !clientPortalUrl}
 					<p class="muted-text">No documents linked to this project yet.</p>
 				{/if}
 			{/if}

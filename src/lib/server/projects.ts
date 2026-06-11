@@ -56,7 +56,8 @@ const CRM_DEAL_REHYDRATE_BASE_FIELDS = [
 	'Project_ID',
 	'Zoho_Projects_ID',
 	'Client_Portal_Folder',
-	'External_Link'
+	'External_Link',
+	'WD_Photos'
 ];
 const DEAL_PROJECT_FIELD_CACHE_TTL_MS = 60 * 60 * 1000;
 
