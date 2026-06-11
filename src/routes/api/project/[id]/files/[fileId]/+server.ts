@@ -1,9 +1,9 @@
-import { json, error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getDealsForClient } from '$lib/server/projects';
 import { refreshAccessToken } from '$lib/server/zoho';
 import { listClientPortalFiles } from '$lib/server/client-portal-files';
-import { getOrCreateWorkDriveFileShare } from '$lib/server/workdrive-shares';
+import { downloadWorkDriveFile } from '$lib/server/workdrive';
 import type { RequestHandler } from './$types';
 
 async function getAccessToken() {
@@ -27,7 +27,13 @@ async function getAccessToken() {
 	return { accessToken, apiDomain };
 }
 
-export const GET: RequestHandler = async ({ cookies, params }) => {
+/**
+ * Streams a single document from the deal's Client Portal folder through the
+ * org's Zoho token. Only files that actually live in that folder (or its
+ * immediate subfolders) are served, so the client session can't fetch
+ * arbitrary WorkDrive files.
+ */
+export const GET: RequestHandler = async ({ cookies, params, setHeaders }) => {
 	const sessionToken = cookies.get('portal_session');
 	if (!sessionToken) throw error(401, 'Not authenticated');
 
@@ -35,7 +41,8 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 	if (!session?.client) throw error(401, 'Invalid session');
 
 	const dealId = String(params.id || '').trim();
-	if (!dealId) throw error(400, 'Deal ID required');
+	const fileId = String(params.fileId || '').trim();
+	if (!dealId || !fileId) throw error(400, 'Deal ID and file ID required');
 
 	const deals = await getDealsForClient(session.client.zoho_contact_id, session.client.email);
 	if (!deals.some((deal: any) => String(deal?.id || '').trim() === dealId)) {
@@ -44,30 +51,22 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 
 	const { accessToken, apiDomain } = await getAccessToken();
 
-	const { files, folderId } = await listClientPortalFiles(accessToken, dealId, apiDomain);
-	if (!folderId) {
-		return json({ files: [], message: 'Client portal folder not found for this project' });
+	const { files } = await listClientPortalFiles(accessToken, dealId, apiDomain);
+	const file = files.find((f) => f.id === fileId);
+	if (!file) throw error(404, 'Document not found in this project');
+
+	let buffer: Buffer;
+	try {
+		buffer = await downloadWorkDriveFile(accessToken, fileId, apiDomain);
+	} catch {
+		throw error(502, 'Unable to download this document right now');
 	}
 
-	// Prefer an external WorkDrive share (opens the doc in Zoho's viewer with
-	// no login). If share minting fails, fall back to our authenticated
-	// download proxy so the link always opens the document.
-	const enriched = await Promise.all(
-		files.map(async (f) => {
-			const share = await getOrCreateWorkDriveFileShare({
-				accessToken,
-				apiDomain,
-				fileId: f.id,
-				fileName: f.name
-			}).catch(() => null);
-			return {
-				...f,
-				url:
-					share ??
-					`/api/project/${encodeURIComponent(dealId)}/files/${encodeURIComponent(f.id)}?name=${encodeURIComponent(f.name)}`
-			};
-		})
-	);
-
-	return json({ files: enriched });
+	const safeName = file.name.replace(/["\\\r\n]/g, '');
+	setHeaders({
+		'Content-Type': file.mime || 'application/octet-stream',
+		'Content-Disposition': `inline; filename="${safeName}"`,
+		'Cache-Control': 'private, max-age=300'
+	});
+	return new Response(new Uint8Array(buffer));
 };
