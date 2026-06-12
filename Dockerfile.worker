@@ -5,8 +5,9 @@ WORKDIR /app
 # FFmpeg for video transcoding
 RUN apk add --no-cache ffmpeg
 
-COPY package*.json ./
-RUN npm ci --omit=dev
+# The worker only needs supabase-js + ws. Installing the full app tree pulls
+# in native modules (canvas via pdf-to-img) that won't compile on Alpine.
+RUN npm install --no-save @supabase/supabase-js@^2.39.0 ws@^8.21.0
 
 COPY worker ./worker
 
