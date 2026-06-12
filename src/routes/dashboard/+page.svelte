@@ -1854,13 +1854,18 @@
 		display: grid;
 		gap: 0.6rem;
 		margin-top: 0.75rem;
+		justify-items: start;
 	}
 
 	.invoice-card {
-		padding: 1rem;
+		padding: 1rem 1.25rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		background: #fff;
+		width: fit-content;
+		min-width: 16rem;
+		max-width: 100%;
+		box-sizing: border-box;
 	}
 
 	.invoice-info {
@@ -1888,7 +1893,7 @@
 
 	.invoice-amounts {
 		display: flex;
-		gap: 1rem;
+		gap: 2rem;
 		margin-bottom: 0.75rem;
 	}
 
@@ -1925,6 +1930,7 @@
 		display: grid;
 		gap: 0.6rem;
 		margin-top: 0.75rem;
+		justify-items: start;
 	}
 
 	.email-item {
@@ -1935,6 +1941,9 @@
 		border-left: 3px solid transparent;
 		border-radius: 0 8px 8px 0;
 		background: #fafafa;
+		width: fit-content;
+		max-width: 100%;
+		box-sizing: border-box;
 	}
 
 	.email-outbound {
@@ -2066,13 +2075,20 @@
 	.email-pref-card {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
+		justify-content: flex-start;
+		gap: 1.5rem;
 		padding: 0.65rem 0.85rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 10px;
 		background: #fff;
 		flex-wrap: wrap;
+		width: fit-content;
+		max-width: 100%;
+		box-sizing: border-box;
+	}
+
+	.email-pref-card select {
+		width: auto;
 	}
 
 	.email-pref-info {
@@ -2343,7 +2359,13 @@
 		padding: 1rem 0.25rem 0.5rem;
 		display: flex;
 		flex-direction: column;
+		align-items: flex-start;
 		gap: 0.35rem;
+		max-width: 22rem;
+	}
+
+	.account-body input {
+		width: 100%;
 	}
 
 	.account-subhead {
