@@ -29,7 +29,8 @@
 	let loading = true;
 	let error = '';
 	let invoiceError = '';
-	let financialOpen = true;
+	// Only the chatbot section starts expanded.
+	let financialOpen = false;
 	let invoicesOpen = false;
 	let changeOrdersOpen = false;
 	let emailUpdatesOpen = false;
