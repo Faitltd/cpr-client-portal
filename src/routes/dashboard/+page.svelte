@@ -1293,10 +1293,11 @@
 	.section-header {
 		width: 100%;
 		box-sizing: border-box;
+		position: relative;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		padding: 0.7rem 0.85rem;
+		justify-content: center;
+		padding: 0.7rem 2.4rem;
 		border: 1px solid #e5e7eb;
 		background: #f8fafc;
 		border-radius: 10px;
@@ -1305,6 +1306,13 @@
 		cursor: pointer;
 		color: #111827;
 		-webkit-tap-highlight-color: transparent;
+	}
+
+	.section-header .toggle-icon {
+		position: absolute;
+		right: 0.85rem;
+		top: 50%;
+		transform: translateY(-50%);
 	}
 
 	.section-header:hover {
@@ -1768,6 +1776,7 @@
 		display: grid;
 		grid-template-columns: 1fr;
 		gap: 0.75rem;
+		justify-items: start;
 	}
 
 	/* Change-order items from the quote */
@@ -1780,12 +1789,15 @@
 	.co-item {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
+		justify-content: flex-start;
+		gap: 1.5rem;
 		padding: 0.75rem 1rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 10px;
 		background: #fff;
+		width: fit-content;
+		max-width: 100%;
+		box-sizing: border-box;
 	}
 
 	.co-item-info {
@@ -1812,13 +1824,15 @@
 	}
 
 	.summary-card {
-		padding: 0.85rem;
+		padding: 0.85rem 1.25rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		background: #f8fafc;
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
+		width: fit-content;
+		min-width: 11rem;
 	}
 
 	.summary-label {
@@ -2238,12 +2252,15 @@
 	.doc-item {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
+		justify-content: flex-start;
+		gap: 1.5rem;
 		padding: 0.65rem 0.85rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 8px;
 		background: #fff;
+		width: fit-content;
+		max-width: 100%;
+		box-sizing: border-box;
 	}
 
 	.doc-link {
