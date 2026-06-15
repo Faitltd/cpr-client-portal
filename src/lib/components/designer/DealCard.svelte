@@ -233,12 +233,14 @@
 				composerError = data.message || `Failed to save note (${res.status})`;
 				return;
 			}
-			if (data?.note) {
-				notes = [data.note, ...notes];
-				composerText = '';
-				await tick();
-				composerTextarea?.focus({ preventScroll: true });
-			}
+			composerText = '';
+			// Re-read the notes straight from Zoho instead of optimistically
+			// trusting the create response, so the list always reflects what's
+			// actually on the Deal. If a write ever doesn't land, it's visibly
+			// absent rather than showing a phantom note.
+			await loadNotes();
+			await tick();
+			composerTextarea?.focus({ preventScroll: true });
 		} catch (err) {
 			composerError = err instanceof Error ? err.message : 'Failed to save note';
 		} finally {
