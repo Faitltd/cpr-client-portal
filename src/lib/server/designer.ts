@@ -463,6 +463,9 @@ export async function getDealNotes(dealId: string): Promise<DesignerNote[]> {
 		if (hasMore !== true && rows.length < perPage) break;
 	}
 
+	// Guarantee newest-first regardless of how Zoho ordered the related list,
+	// so the portal always surfaces the most recently published notes.
+	notes.sort((a, b) => (b.Created_Time ?? '').localeCompare(a.Created_Time ?? ''));
 	return notes;
 }
 
