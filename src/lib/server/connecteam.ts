@@ -331,6 +331,90 @@ export async function listShiftsForRange(
 }
 
 // ---------------------------------------------------------------------------
+// Week view (shared by the admin + designer schedule pages)
+// ---------------------------------------------------------------------------
+
+const SCHED_TZ = 'America/Denver';
+
+const denverDateStr = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: SCHED_TZ });
+
+function addDaysYmd(ymd: string, n: number): string {
+	const base = new Date(ymd + 'T12:00:00Z');
+	return new Date(base.getTime() + n * 86400000).toISOString().slice(0, 10);
+}
+
+function mondayOfYmd(ymd: string): string {
+	const dow = new Date(ymd + 'T12:00:00Z').getUTCDay(); // 0 Sun .. 6 Sat
+	return addDaysYmd(ymd, -((dow + 6) % 7));
+}
+
+export interface ScheduleWeek {
+	weekStart: string;
+	weekLabel: string;
+	prevWeek: string;
+	nextWeek: string;
+	thisWeek: string;
+	weekDays: { date: string; weekday: string; md: string; isToday: boolean }[];
+	people: string[];
+	allPeople: string[];
+	personFilter: string;
+	shifts: ScheduleShift[];
+}
+
+/** Build the week-grid dataset for a given week + optional person filter. */
+export async function getScheduleWeek(opts: {
+	week?: string;
+	person?: string;
+	extraPeople?: string[];
+}): Promise<ScheduleWeek> {
+	const weekParam = opts.week || '';
+	const personFilter = opts.person || '';
+	const todayYmd = denverDateStr(new Date());
+	const monday = /^\d{4}-\d{2}-\d{2}$/.test(weekParam)
+		? mondayOfYmd(weekParam)
+		: mondayOfYmd(todayYmd);
+
+	const weekDays = Array.from({ length: 7 }, (_, i) => {
+		const date = addDaysYmd(monday, i);
+		const dt = new Date(date + 'T12:00:00Z');
+		return {
+			date,
+			weekday: dt.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' }),
+			md: dt.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'numeric', day: 'numeric' }),
+			isToday: date === todayYmd
+		};
+	});
+
+	const startISO = new Date(addDaysYmd(monday, -1) + 'T00:00:00Z').toISOString();
+	const endISO = new Date(addDaysYmd(monday, 8) + 'T00:00:00Z').toISOString();
+	const allShifts = await listShiftsForRange(startISO, endISO);
+
+	const allPeople = Array.from(
+		new Set(
+			[...(opts.extraPeople ?? []), ...allShifts.map((s) => s.person)].filter(
+				(x): x is string => Boolean(x)
+			)
+		)
+	).sort((a, b) => a.localeCompare(b));
+
+	const people = personFilter ? allPeople.filter((p) => p === personFilter) : allPeople;
+	const shifts = personFilter ? allShifts.filter((s) => s.person === personFilter) : allShifts;
+
+	return {
+		weekStart: monday,
+		weekLabel: `${weekDays[0].md} – ${weekDays[6].md}`,
+		prevWeek: addDaysYmd(monday, -7),
+		nextWeek: addDaysYmd(monday, 7),
+		thisWeek: mondayOfYmd(todayYmd),
+		weekDays,
+		people,
+		allPeople,
+		personFilter,
+		shifts
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Feed management (admin)
 // ---------------------------------------------------------------------------
 
