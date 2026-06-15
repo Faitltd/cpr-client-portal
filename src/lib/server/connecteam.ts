@@ -283,3 +283,38 @@ export async function listUpcomingShifts(limit = 500): Promise<ScheduleShift[]> 
 	if (error) throw new Error(`Failed to load shifts: ${error.message}`);
 	return (data ?? []) as ScheduleShift[];
 }
+
+// ---------------------------------------------------------------------------
+// Feed management (admin)
+// ---------------------------------------------------------------------------
+
+export interface FeedListItem {
+	id: string;
+	label: string | null;
+	ics_url: string;
+	active: boolean | null;
+	last_synced_at: string | null;
+	last_sync_error: string | null;
+	last_shift_count: number | null;
+}
+
+export async function listFeeds(): Promise<FeedListItem[]> {
+	const { data, error } = await supabase
+		.from('connecteam_feeds')
+		.select('id, label, ics_url, active, last_synced_at, last_sync_error, last_shift_count')
+		.order('created_at', { ascending: true });
+	if (error) throw new Error(`Failed to load feeds: ${error.message}`);
+	return (data ?? []) as FeedListItem[];
+}
+
+export async function addFeed(label: string, icsUrl: string): Promise<void> {
+	const { error } = await supabase
+		.from('connecteam_feeds')
+		.insert({ label: label || null, ics_url: icsUrl, active: true });
+	if (error) throw new Error(error.message);
+}
+
+export async function deleteFeed(id: string): Promise<void> {
+	const { error } = await supabase.from('connecteam_feeds').delete().eq('id', id);
+	if (error) throw new Error(error.message);
+}
