@@ -721,10 +721,12 @@ export function renderRetrievedContextBlock(chunks: RetrievedChunk[]): string | 
  * each chunk's subject so the context renderer shows which deal a passage came
  * from. Stateless and deal-agnostic.
  */
+export type CrossDealChunk = RetrievedChunk & { deal_id: string | null };
+
 export async function retrieveAllDeals(opts: {
 	query: string;
 	k?: number;
-}): Promise<RetrievedChunk[]> {
+}): Promise<CrossDealChunk[]> {
 	const query = opts.query.trim();
 	if (!query) return [];
 	const k = opts.k ?? 16;
@@ -742,9 +744,10 @@ export async function retrieveAllDeals(opts: {
 	return rows.map((r) => ({
 		chunk_id: r.chunk_id,
 		document_id: r.document_id,
+		deal_id: r.deal_id ?? null,
 		content: r.content,
 		source: r.source,
-		subject: r.deal_id ? `[Deal ${r.deal_id}] ${r.subject ?? ''}`.trim() : r.subject,
+		subject: r.subject,
 		author: r.author,
 		occurred_at: r.occurred_at,
 		source_url: r.source_url,

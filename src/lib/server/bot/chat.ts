@@ -7,7 +7,8 @@ import {
 	retrieveRelevant,
 	retrieveAllDeals,
 	renderRetrievedContextBlock,
-	type RetrievedChunk
+	type RetrievedChunk,
+	type CrossDealChunk
 } from './retrieve';
 
 const ALL_SOURCES = [
@@ -697,18 +698,48 @@ export async function runMasterChatNonStreaming(opts: {
 		k: 18
 	}).catch((err) => {
 		console.warn('[bot/master] retrieval failed:', err);
-		return [] as RetrievedChunk[];
+		return [] as CrossDealChunk[];
 	});
 
-	const retrievedBlock = renderRetrievedContextBlock(retrieved);
+	// Resolve project names for the deals that showed up, so the assistant can
+	// attribute each fact to a named project instead of an opaque Zoho id.
+	const uniqueDealIds = Array.from(
+		new Set(retrieved.map((c) => c.deal_id).filter((id): id is string => Boolean(id)))
+	).slice(0, 12);
+	const nameEntries = await Promise.all(
+		uniqueDealIds.map(async (id) => {
+			try {
+				const ctx = await getDealContext(id);
+				return [id, ctx.name?.trim() || `Deal ${id}`] as const;
+			} catch {
+				return [id, `Deal ${id}`] as const;
+			}
+		})
+	);
+	const dealNames = new Map<string, string>(nameEntries);
+	const labelFor = (id: string | null) =>
+		id ? dealNames.get(id) ?? `Deal ${id}` : 'Unknown project';
+
+	// Fold the project name into each chunk's subject so the existing renderer
+	// shows which project a passage belongs to.
+	const labeled: RetrievedChunk[] = retrieved.map((c) => ({
+		...c,
+		subject: `[Project: ${labelFor(c.deal_id)}] ${c.subject ?? ''}`.trim()
+	}));
+	const retrievedBlock = renderRetrievedContextBlock(labeled);
+
+	const projectsOverview = uniqueDealIds.length
+		? uniqueDealIds.map((id) => `- ${labelFor(id)} (Zoho id ${id})`).join('\n')
+		: '(none)';
 
 	const promptParts = [
 		SYSTEM_PROMPT,
 		'\n# Master assistant scope\n' +
-			'You are the CPR master assistant. The retrieved context below is pulled from ALL deals at once; each passage is tagged with the deal it came from as "[Deal <id>]". Answer across deals, and when a fact belongs to a specific deal, name that deal id. If the retrieved context does not contain the answer, say so plainly instead of guessing.'
+			'You are the CPR master assistant. The retrieved context below is pulled from ALL projects at once; each passage is tagged with the project it came from as "[Project: <name>]". Answer across projects, and ALWAYS attribute facts to the named project they came from (never leave a job unattributed). If asked which project something is for, use the project name from the tag. If the retrieved context does not contain the answer, say so plainly instead of guessing.',
+		'\n# Projects referenced in this answer\n' + projectsOverview
 	];
 	if (retrievedBlock) {
-		promptParts.push('\n# Retrieved context across all deals (cite as [#N])\n' + retrievedBlock);
+		promptParts.push('\n# Retrieved context across all projects (cite as [#N])\n' + retrievedBlock);
 	} else {
 		promptParts.push('\n# Retrieved context\n(no entries matched the question)');
 	}
