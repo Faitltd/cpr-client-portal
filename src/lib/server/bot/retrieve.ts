@@ -723,6 +723,46 @@ export function renderRetrievedContextBlock(chunks: RetrievedChunk[]): string | 
  */
 export type CrossDealChunk = RetrievedChunk & { deal_id: string | null };
 
+/**
+ * Most-recent activity across EVERY deal within the last `days`. Powers the
+ * Master Bot's recency awareness so "what happened this week" style questions
+ * pull the latest messages/tasks/emails org-wide, not just semantic matches.
+ */
+async function fetchRecentChunksAllDeals(days: number, limit: number): Promise<CrossDealChunk[]> {
+	const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+	const { data, error } = await supabase
+		.from('bot_documents')
+		.select(
+			'id, deal_id, source, subject, author, occurred_at, source_url, bot_chunks!inner(id, content)'
+		)
+		.gte('occurred_at', cutoff)
+		.order('occurred_at', { ascending: false })
+		.limit(limit);
+	if (error) {
+		console.warn('[bot/retrieve] cross-deal recency fetch failed:', error.message);
+		return [];
+	}
+	const out: CrossDealChunk[] = [];
+	for (const doc of (data ?? []) as any[]) {
+		const chunks = Array.isArray(doc.bot_chunks) ? doc.bot_chunks : [];
+		const firstChunk = chunks[0];
+		if (!firstChunk) continue;
+		out.push({
+			chunk_id: firstChunk.id,
+			document_id: doc.id,
+			deal_id: doc.deal_id ?? null,
+			content: firstChunk.content,
+			source: doc.source,
+			subject: doc.subject ?? null,
+			author: doc.author ?? null,
+			occurred_at: doc.occurred_at,
+			source_url: doc.source_url ?? null,
+			similarity: 0
+		});
+	}
+	return out;
+}
+
 export async function retrieveAllDeals(opts: {
 	query: string;
 	k?: number;
@@ -731,26 +771,43 @@ export async function retrieveAllDeals(opts: {
 	if (!query) return [];
 	const k = opts.k ?? 16;
 
+	// Date-bound questions ("this week", "yesterday", "last 3 days") also pull
+	// the latest activity across all deals so recent items aren't missed when
+	// they rank low on pure semantic similarity.
+	const windowDays = detectTimeWindow(query);
+
 	const [embedding] = await embed([query]);
 	const vectorLiteral = `[${embedding.join(',')}]`;
 
-	const { data, error } = await supabase.rpc('bot_match_chunks_all', {
-		p_query_embedding: vectorLiteral,
-		p_k: k
-	});
-	if (error) throw new Error(`bot_match_chunks_all failed: ${error.message}`);
+	const [matchRes, recent] = await Promise.all([
+		supabase.rpc('bot_match_chunks_all', { p_query_embedding: vectorLiteral, p_k: k }),
+		windowDays ? fetchRecentChunksAllDeals(windowDays, 40) : Promise.resolve([] as CrossDealChunk[])
+	]);
+	if (matchRes.error) throw new Error(`bot_match_chunks_all failed: ${matchRes.error.message}`);
 
-	const rows = (data ?? []) as Array<RetrievedChunk & { deal_id?: string | null }>;
-	return rows.map((r) => ({
-		chunk_id: r.chunk_id,
-		document_id: r.document_id,
-		deal_id: r.deal_id ?? null,
-		content: r.content,
-		source: r.source,
-		subject: r.subject,
-		author: r.author,
-		occurred_at: r.occurred_at,
-		source_url: r.source_url,
-		similarity: r.similarity
-	}));
+	const semantic = ((matchRes.data ?? []) as Array<RetrievedChunk & { deal_id?: string | null }>).map(
+		(r) => ({
+			chunk_id: r.chunk_id,
+			document_id: r.document_id,
+			deal_id: r.deal_id ?? null,
+			content: r.content,
+			source: r.source,
+			subject: r.subject,
+			author: r.author,
+			occurred_at: r.occurred_at,
+			source_url: r.source_url,
+			similarity: r.similarity
+		})
+	);
+
+	// Merge semantic + recency, de-duped by chunk. Semantic leads (most relevant
+	// to the question); recency fills in the latest activity for the window.
+	const merged: CrossDealChunk[] = [];
+	const seen = new Set<string>();
+	for (const c of [...semantic, ...recent]) {
+		if (seen.has(c.chunk_id)) continue;
+		seen.add(c.chunk_id);
+		merged.push(c);
+	}
+	return merged.slice(0, 45);
 }
