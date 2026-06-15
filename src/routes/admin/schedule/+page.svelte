@@ -128,15 +128,11 @@
 					{#each group.shifts as shift (shift.id)}
 						<div class="shift">
 							<div class="shift-main">
+								<span class="person">{shift.person ?? 'Unassigned'}</span>
+								<span class="job">{shift.title ?? 'Untitled'}</span>
 								<span class="time">{timeLabel(shift.starts_at)}–{timeLabel(shift.ends_at)}</span>
-								<span class="title">{shift.title ?? 'Untitled'}</span>
 							</div>
 							{#if shift.location}<div class="loc">{shift.location}</div>{/if}
-							{#if shift.crew?.length}
-								<div class="crew">
-									{#each shift.crew as person}<span class="chip">{person}</span>{/each}
-								</div>
-							{/if}
 						</div>
 					{/each}
 				</div>
@@ -332,33 +328,22 @@
 		font-weight: 600;
 		font-size: 0.85rem;
 		white-space: nowrap;
+		margin-left: auto;
 	}
 
-	.title {
-		font-weight: 600;
+	.person {
+		font-weight: 700;
 		color: #0f172a;
+	}
+
+	.job {
+		color: #334155;
 	}
 
 	.loc {
 		color: #6b7280;
 		font-size: 0.85rem;
 		margin-top: 0.2rem;
-	}
-
-	.crew {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-		margin-top: 0.5rem;
-	}
-
-	.chip {
-		background: #eef2f7;
-		color: #1f2937;
-		border-radius: 999px;
-		padding: 0.1rem 0.6rem;
-		font-size: 0.8rem;
-		font-weight: 600;
 	}
 
 	.empty {

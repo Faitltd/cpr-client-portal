@@ -264,6 +264,7 @@ export async function syncConnecteamFeeds(): Promise<FeedSyncResult[]> {
 export interface ScheduleShift {
 	id: string;
 	uid: string;
+	person: string | null;
 	title: string | null;
 	location: string | null;
 	starts_at: string | null;
@@ -271,17 +272,56 @@ export interface ScheduleShift {
 	crew: string[];
 }
 
-/** Upcoming shifts (today onward by default) for the schedule view. */
-export async function listUpcomingShifts(limit = 500): Promise<ScheduleShift[]> {
+/**
+ * Upcoming shifts (today onward) for the schedule view. Each shift is
+ * attributed to the person whose feed it came from (the feed label), and exact
+ * person+job+time duplicates are collapsed so a shared job shows one row per
+ * person rather than repeating.
+ */
+export async function listUpcomingShifts(limit = 1000): Promise<ScheduleShift[]> {
 	const since = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
 	const { data, error } = await supabase
 		.from('connecteam_shifts')
-		.select('id, uid, title, location, starts_at, ends_at, crew')
+		.select('id, uid, title, location, starts_at, ends_at, crew, connecteam_feeds(label)')
 		.gte('starts_at', since)
 		.order('starts_at', { ascending: true })
 		.limit(limit);
 	if (error) throw new Error(`Failed to load shifts: ${error.message}`);
-	return (data ?? []) as ScheduleShift[];
+
+	const rows = (data ?? []).map((r: any) => {
+		const feed = Array.isArray(r.connecteam_feeds) ? r.connecteam_feeds[0] : r.connecteam_feeds;
+		return {
+			id: r.id,
+			uid: r.uid,
+			person: feed?.label ?? null,
+			title: r.title,
+			location: r.location,
+			starts_at: r.starts_at,
+			ends_at: r.ends_at,
+			crew: r.crew ?? []
+		} as ScheduleShift;
+	});
+
+	// Collapse exact duplicates (same person doing the same job at the same time).
+	const seen = new Set<string>();
+	const deduped: ScheduleShift[] = [];
+	for (const r of rows) {
+		const key = `${r.person ?? ''}|${r.title ?? ''}|${r.starts_at ?? ''}|${r.ends_at ?? ''}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		deduped.push(r);
+	}
+
+	// Sort by start, then person, then job.
+	deduped.sort((a, b) => {
+		const t = (a.starts_at ?? '').localeCompare(b.starts_at ?? '');
+		if (t !== 0) return t;
+		const p = (a.person ?? '').localeCompare(b.person ?? '');
+		if (p !== 0) return p;
+		return (a.title ?? '').localeCompare(b.title ?? '');
+	});
+
+	return deduped;
 }
 
 // ---------------------------------------------------------------------------
