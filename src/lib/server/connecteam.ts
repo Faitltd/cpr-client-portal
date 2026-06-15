@@ -272,22 +272,8 @@ export interface ScheduleShift {
 	crew: string[];
 }
 
-/**
- * Upcoming shifts (today onward) for the schedule view. Each shift is
- * attributed to the person whose feed it came from (the feed label), and exact
- * person+job+time duplicates are collapsed so a shared job shows one row per
- * person rather than repeating.
- */
-export async function listUpcomingShifts(limit = 1000): Promise<ScheduleShift[]> {
-	const since = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-	const { data, error } = await supabase
-		.from('connecteam_shifts')
-		.select('id, uid, title, location, starts_at, ends_at, crew, connecteam_feeds(label)')
-		.gte('starts_at', since)
-		.order('starts_at', { ascending: true })
-		.limit(limit);
-	if (error) throw new Error(`Failed to load shifts: ${error.message}`);
-
+/** Map raw rows to ScheduleShift (person = feed label) and collapse exact dupes. */
+function toScheduleShifts(data: any[]): ScheduleShift[] {
 	const rows = (data ?? []).map((r: any) => {
 		const feed = Array.isArray(r.connecteam_feeds) ? r.connecteam_feeds[0] : r.connecteam_feeds;
 		return {
@@ -302,7 +288,6 @@ export async function listUpcomingShifts(limit = 1000): Promise<ScheduleShift[]>
 		} as ScheduleShift;
 	});
 
-	// Collapse exact duplicates (same person doing the same job at the same time).
 	const seen = new Set<string>();
 	const deduped: ScheduleShift[] = [];
 	for (const r of rows) {
@@ -312,16 +297,37 @@ export async function listUpcomingShifts(limit = 1000): Promise<ScheduleShift[]>
 		deduped.push(r);
 	}
 
-	// Sort by start, then person, then job.
-	deduped.sort((a, b) => {
-		const t = (a.starts_at ?? '').localeCompare(b.starts_at ?? '');
-		if (t !== 0) return t;
-		const p = (a.person ?? '').localeCompare(b.person ?? '');
-		if (p !== 0) return p;
-		return (a.title ?? '').localeCompare(b.title ?? '');
-	});
-
+	deduped.sort((a, b) => (a.starts_at ?? '').localeCompare(b.starts_at ?? ''));
 	return deduped;
+}
+
+/** Upcoming shifts (today onward). */
+export async function listUpcomingShifts(limit = 1000): Promise<ScheduleShift[]> {
+	const since = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+	const { data, error } = await supabase
+		.from('connecteam_shifts')
+		.select('id, uid, title, location, starts_at, ends_at, crew, connecteam_feeds(label)')
+		.gte('starts_at', since)
+		.order('starts_at', { ascending: true })
+		.limit(limit);
+	if (error) throw new Error(`Failed to load shifts: ${error.message}`);
+	return toScheduleShifts(data ?? []);
+}
+
+/** Shifts whose start falls in [startISO, endISO) — used by the week grid. */
+export async function listShiftsForRange(
+	startISO: string,
+	endISO: string
+): Promise<ScheduleShift[]> {
+	const { data, error } = await supabase
+		.from('connecteam_shifts')
+		.select('id, uid, title, location, starts_at, ends_at, crew, connecteam_feeds(label)')
+		.gte('starts_at', startISO)
+		.lt('starts_at', endISO)
+		.order('starts_at', { ascending: true })
+		.limit(3000);
+	if (error) throw new Error(`Failed to load shifts: ${error.message}`);
+	return toScheduleShifts(data ?? []);
 }
 
 // ---------------------------------------------------------------------------
