@@ -714,3 +714,40 @@ export function renderRetrievedContextBlock(chunks: RetrievedChunk[]): string | 
 	});
 	return lines.join('\n\n');
 }
+
+/**
+ * Cross-deal semantic retrieval for the admin Master Bot. Searches the whole
+ * corpus (every deal) via bot_match_chunks_all, then folds the deal id into
+ * each chunk's subject so the context renderer shows which deal a passage came
+ * from. Stateless and deal-agnostic.
+ */
+export async function retrieveAllDeals(opts: {
+	query: string;
+	k?: number;
+}): Promise<RetrievedChunk[]> {
+	const query = opts.query.trim();
+	if (!query) return [];
+	const k = opts.k ?? 16;
+
+	const [embedding] = await embed([query]);
+	const vectorLiteral = `[${embedding.join(',')}]`;
+
+	const { data, error } = await supabase.rpc('bot_match_chunks_all', {
+		p_query_embedding: vectorLiteral,
+		p_k: k
+	});
+	if (error) throw new Error(`bot_match_chunks_all failed: ${error.message}`);
+
+	const rows = (data ?? []) as Array<RetrievedChunk & { deal_id?: string | null }>;
+	return rows.map((r) => ({
+		chunk_id: r.chunk_id,
+		document_id: r.document_id,
+		content: r.content,
+		source: r.source,
+		subject: r.deal_id ? `[Deal ${r.deal_id}] ${r.subject ?? ''}`.trim() : r.subject,
+		author: r.author,
+		occurred_at: r.occurred_at,
+		source_url: r.source_url,
+		similarity: r.similarity
+	}));
+}

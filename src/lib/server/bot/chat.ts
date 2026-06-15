@@ -3,7 +3,12 @@ import { env } from '$env/dynamic/private';
 import { supabase } from '$lib/server/db';
 import { SYSTEM_PROMPT } from './prompts';
 import { getDealContext, renderDealContextBlock } from './deal-context';
-import { retrieveRelevant, renderRetrievedContextBlock, type RetrievedChunk } from './retrieve';
+import {
+	retrieveRelevant,
+	retrieveAllDeals,
+	renderRetrievedContextBlock,
+	type RetrievedChunk
+} from './retrieve';
 
 const ALL_SOURCES = [
 	'zoho_mail',
@@ -669,4 +674,56 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
 	const reply = completion.choices?.[0]?.message?.content ?? '';
 	await persistMessage(opts.threadId, 'assistant', reply);
 	return reply;
+}
+
+/**
+ * Master assistant — answers across ALL deals at once. Uses cross-deal vector
+ * retrieval (bot_match_chunks_all) instead of a single-deal scope, so it can
+ * reason over the whole corpus. Stateless (no thread persistence): the client
+ * sends the full message history each turn. Admin-only.
+ */
+export async function runMasterChatNonStreaming(opts: {
+	adminEmail: string;
+	messages: ChatMessage[];
+}): Promise<string> {
+	const lastUser = opts.messages.at(-1);
+	if (!lastUser || lastUser.role !== 'user') {
+		throw new Error('Last message must be a user turn');
+	}
+
+	const retrievalQuery = buildRetrievalQuery(opts.messages);
+	const retrieved = await retrieveAllDeals({
+		query: retrievalQuery || lastUser.content,
+		k: 18
+	}).catch((err) => {
+		console.warn('[bot/master] retrieval failed:', err);
+		return [] as RetrievedChunk[];
+	});
+
+	const retrievedBlock = renderRetrievedContextBlock(retrieved);
+
+	const promptParts = [
+		SYSTEM_PROMPT,
+		'\n# Master assistant scope\n' +
+			'You are the CPR master assistant. The retrieved context below is pulled from ALL deals at once; each passage is tagged with the deal it came from as "[Deal <id>]". Answer across deals, and when a fact belongs to a specific deal, name that deal id. If the retrieved context does not contain the answer, say so plainly instead of guessing.'
+	];
+	if (retrievedBlock) {
+		promptParts.push('\n# Retrieved context across all deals (cite as [#N])\n' + retrievedBlock);
+	} else {
+		promptParts.push('\n# Retrieved context\n(no entries matched the question)');
+	}
+	const systemPrompt = promptParts.join('\n');
+
+	const openai = getOpenAI();
+	const completion = await openai.chat.completions.create({
+		model: CHAT_MODEL,
+		stream: false,
+		temperature: 0.2,
+		messages: [
+			{ role: 'system', content: systemPrompt },
+			...opts.messages.map((m) => ({ role: m.role, content: m.content }))
+		]
+	});
+
+	return completion.choices?.[0]?.message?.content ?? '';
 }
