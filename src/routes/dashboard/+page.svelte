@@ -1777,7 +1777,7 @@
 		display: grid;
 		grid-template-columns: 1fr;
 		gap: 0.75rem;
-		justify-items: start;
+		justify-items: center;
 	}
 
 	/* Change-order items from the quote */
@@ -1785,6 +1785,7 @@
 		display: grid;
 		gap: 0.5rem;
 		margin-bottom: 1rem;
+		justify-items: center;
 	}
 
 	.co-item {
@@ -1855,7 +1856,7 @@
 		display: grid;
 		gap: 0.6rem;
 		margin-top: 0.75rem;
-		justify-items: start;
+		justify-items: center;
 	}
 
 	.invoice-card {
