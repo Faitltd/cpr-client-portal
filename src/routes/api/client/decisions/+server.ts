@@ -2,11 +2,9 @@ import { json } from '@sveltejs/kit';
 import {
 	getApprovalsForDeal,
 	getSession,
-	getZohoTokens,
-	updateApprovalStatus,
-	upsertZohoTokens
+	updateApprovalStatus
 } from '$lib/server/db';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 type ZohoDeal = {
@@ -32,23 +30,12 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			return json({ error: 'Unauthorized' }, { status: 401 });
 		}
 
-		const tokens = await getZohoTokens();
-		if (!tokens) {
+		const valid = await ensureValidZohoToken();
+		if (!valid) {
 			throw new Error('Zoho tokens not configured');
 		}
 
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: new Date(refreshed.expires_at).toISOString(),
-				scope: tokens.scope
-			});
-		}
+		const accessToken = valid.accessToken;
 
 		const zohoContactId = session.client.zoho_contact_id;
 		const dealsResponse = await fetch(
@@ -128,23 +115,12 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			return json({ error: 'Invalid request body' }, { status: 400 });
 		}
 
-		const tokens = await getZohoTokens();
-		if (!tokens) {
+		const valid = await ensureValidZohoToken();
+		if (!valid) {
 			throw new Error('Zoho tokens not configured');
 		}
 
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: new Date(refreshed.expires_at).toISOString(),
-				scope: tokens.scope
-			});
-		}
+		const accessToken = valid.accessToken;
 
 		const zohoContactId = session.client.zoho_contact_id;
 		const dealsResponse = await fetch(

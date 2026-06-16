@@ -3,12 +3,10 @@ import {
 	createFieldIssue,
 	getFieldIssuesByTradePartner,
 	getTradeSession,
-	getZohoTokens,
-	supabase,
-	upsertZohoTokens
+	supabase
 } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 const VALID_ISSUE_TYPES = new Set([
@@ -22,38 +20,12 @@ const VALID_ISSUE_TYPES = new Set([
 ]);
 const VALID_SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) {
-		return date.toISOString();
-	}
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) {
-			return fallbackDate.toISOString();
-		}
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw new Error('Zoho tokens not configured');
 	}
-
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
 
 	return accessToken;
 }

@@ -1,11 +1,7 @@
 import { env } from '$env/dynamic/private';
-import {
-	createTranscodingJob,
-	getZohoTokens,
-	supabase,
-	upsertZohoTokens
-} from '$lib/server/db';
-import { getZohoApiBase, refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { createTranscodingJob, supabase } from '$lib/server/db';
+import { getZohoApiBase, zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 
 export const ZOHO_FIELD_UPDATES_MODULE = env.ZOHO_FIELD_UPDATES_MODULE || 'Field_Updates';
 /** Explicit override — set this in your env to skip auto-discovery entirely */
@@ -58,43 +54,16 @@ export function buildZohoFieldUpdateName(label: string, submitterName: string, n
 	return `${label} — ${submitterName} — ${now.toLocaleDateString()}`;
 }
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) {
-		return date.toISOString();
-	}
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) {
-			return fallbackDate.toISOString();
-		}
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 export async function getAccessTokenAndDomain(): Promise<{
 	accessToken: string;
 	apiDomain?: string;
 }> {
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw new Error('Zoho tokens not configured');
 	}
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
-
-	return { accessToken, apiDomain: tokens.api_domain || undefined };
+	return { accessToken: valid.accessToken, apiDomain: valid.apiDomain };
 }
 
 let cachedDealField: string | null = null;
@@ -347,4 +316,51 @@ export async function createCrmFieldUpdate(
 	}
 
 	return { zohoRecordId, dealField };
+}
+
+export interface FieldUpdateListItem {
+	id: string;
+	name: string | null;
+	type: string | null;
+	note: string | null;
+	created: string | null;
+	dealId: string | null;
+	dealName: string | null;
+}
+
+/**
+ * Fetch recent field updates across ALL deals (admin oversight view). Uses the
+ * admin Zoho token, newest first.
+ */
+export async function getAllFieldUpdates(limit = 150): Promise<FieldUpdateListItem[]> {
+	const { accessToken, apiDomain } = await getAccessTokenAndDomain();
+	const dealField =
+		ZOHO_FIELD_UPDATES_DEAL_FIELD || (await discoverDealLookupField(accessToken, apiDomain));
+	const fieldList = ['Name', 'Note', 'Update_Type', 'Created_Time', dealField]
+		.filter(Boolean)
+		.join(',');
+
+	const perPage = Math.min(Math.max(limit, 1), 200);
+	const response = await zohoApiCall(
+		accessToken,
+		`/${encodeURIComponent(ZOHO_FIELD_UPDATES_MODULE)}?fields=${encodeURIComponent(
+			fieldList
+		)}&sort_by=Created_Time&sort_order=desc&per_page=${perPage}`,
+		{ signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS) },
+		apiDomain
+	);
+
+	const rows = Array.isArray(response?.data) ? response.data : [];
+	return rows.map((r: any): FieldUpdateListItem => {
+		const dealLookup = dealField ? r[dealField] : null;
+		return {
+			id: String(r.id ?? ''),
+			name: typeof r.Name === 'string' ? r.Name : null,
+			type: typeof r.Update_Type === 'string' ? r.Update_Type : null,
+			note: typeof r.Note === 'string' ? r.Note : null,
+			created: typeof r.Created_Time === 'string' ? r.Created_Time : null,
+			dealId: dealLookup?.id ? String(dealLookup.id) : null,
+			dealName: dealLookup?.name ?? null
+		};
+	});
 }

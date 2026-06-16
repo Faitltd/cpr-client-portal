@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { supabase, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { supabase } from '$lib/server/db';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { getPortalPrincipal } from '$lib/server/designer';
 import { getDealsForClient } from '$lib/server/projects';
 import { listWorkDriveFolder, extractWorkDriveFolderId } from '$lib/server/workdrive';
@@ -63,21 +64,10 @@ interface DailyUpdatePayload {
 }
 
 async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: string }> {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw new Error('Zoho tokens not configured');
-	let accessToken = tokens.access_token;
-	const apiDomain = tokens.api_domain || undefined;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: new Date(refreshed.expires_at).toISOString(),
-			scope: tokens.scope
-		});
-	}
+	const valid = await ensureValidZohoToken();
+	if (!valid) throw new Error('Zoho tokens not configured');
+	const accessToken = valid.accessToken;
+	const apiDomain = valid.apiDomain;
 	return { accessToken, apiDomain };
 }
 

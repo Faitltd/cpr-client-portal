@@ -1,29 +1,17 @@
 import { json, error } from '@sveltejs/kit';
-import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getSession } from '$lib/server/db';
 import { getDealsForClient } from '$lib/server/projects';
-import { refreshAccessToken } from '$lib/server/zoho';
 import { listAllClientDocuments } from '$lib/server/client-portal-files';
 import { getOrCreateWorkDriveFileShare } from '$lib/server/workdrive-shares';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw error(500, 'Zoho tokens not configured');
+	const valid = await ensureValidZohoToken();
+	if (!valid) throw error(500, 'Zoho tokens not configured');
 
-	let accessToken = tokens.access_token;
-	let apiDomain = tokens.api_domain || undefined;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		apiDomain = refreshed.api_domain || apiDomain;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: new Date(refreshed.expires_at).toISOString(),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
+	const apiDomain = valid.apiDomain;
 	return { accessToken, apiDomain };
 }
 

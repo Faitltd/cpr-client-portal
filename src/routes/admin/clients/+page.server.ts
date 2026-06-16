@@ -7,11 +7,11 @@ import {
 	listTradePartnersWithStats
 } from '$lib/server/auth';
 import { getProject, isProjectsPortalConfigured, parseZohoProjectIds } from '$lib/server/projects';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { isValidAdminSession } from '$lib/server/admin';
 import {
 	clearClients,
-	getZohoTokens,
 	listClients,
 	listDesigners,
 	listTradePartnersForAdmin,
@@ -19,8 +19,7 @@ import {
 	setDesignerPassword,
 	setTradePartnerPassword,
 	upsertClient,
-	upsertTradePartner,
-	upsertZohoTokens
+	upsertTradePartner
 } from '$lib/server/db';
 import { normalizeEmailAddress } from '$lib/server/auth-normalization';
 import { normalizeClientPhonePassword } from '$lib/server/client-password';
@@ -52,21 +51,6 @@ function requireAdmin(session: string | undefined) {
 	if (!isValidAdminSession(session)) {
 		throw redirect(302, '/admin/login');
 	}
-}
-
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) {
-		return date.toISOString();
-	}
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) {
-			return fallbackDate.toISOString();
-		}
-	}
-	// Short expiry to force a refresh soon if Zoho returned an invalid date.
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
 }
 
 function getLookupName(value: unknown) {
@@ -154,25 +138,14 @@ export const actions: Actions = {
 	sync: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
 		try {
-			const tokens = await getZohoTokens();
-			if (!tokens) {
+			const valid = await ensureValidZohoToken();
+			if (!valid) {
 				return fail(500, { message: 'Zoho is not connected yet.' });
 			}
 
 			await clearClients();
 
-			let accessToken = tokens.access_token;
-			if (new Date(tokens.expires_at) < new Date()) {
-				const refreshed = await refreshAccessToken(tokens.refresh_token);
-				accessToken = refreshed.access_token;
-				await upsertZohoTokens({
-					user_id: tokens.user_id,
-					access_token: refreshed.access_token,
-					refresh_token: refreshed.refresh_token,
-					expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-					scope: tokens.scope
-				});
-			}
+			const accessToken = valid.accessToken;
 
 				let synced = 0;
 				let errors = 0;
@@ -229,23 +202,12 @@ export const actions: Actions = {
 	},
 	debugDealStages: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
-		const tokens = await getZohoTokens();
-		if (!tokens) {
+		const valid = await ensureValidZohoToken();
+		if (!valid) {
 			return fail(500, { message: 'Zoho is not connected yet.' });
 		}
 
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-				scope: tokens.scope
-			});
-		}
+		const accessToken = valid.accessToken;
 
 		const perPage = 200;
 		let page = 1;
@@ -286,23 +248,12 @@ export const actions: Actions = {
 		syncTradePartners: async ({ cookies }) => {
 		requireAdmin(cookies.get('admin_session'));
 		try {
-			const tokens = await getZohoTokens();
-			if (!tokens) {
+			const valid = await ensureValidZohoToken();
+			if (!valid) {
 				return fail(500, { message: 'Zoho is not connected yet.' });
 			}
 
-			let accessToken = tokens.access_token;
-			if (new Date(tokens.expires_at) < new Date()) {
-				const refreshed = await refreshAccessToken(tokens.refresh_token);
-				accessToken = refreshed.access_token;
-				await upsertZohoTokens({
-					user_id: tokens.user_id,
-					access_token: refreshed.access_token,
-					refresh_token: refreshed.refresh_token,
-					expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-					scope: tokens.scope
-				});
-			}
+			const accessToken = valid.accessToken;
 
 			let synced = 0;
 			let errors = 0;
@@ -344,23 +295,12 @@ export const actions: Actions = {
 		auditProjects: async ({ cookies }) => {
 			requireAdmin(cookies.get('admin_session'));
 
-			const tokens = await getZohoTokens();
-			if (!tokens) {
+			const valid = await ensureValidZohoToken();
+			if (!valid) {
 				return fail(500, { message: 'Zoho is not connected yet.' });
 			}
 
-			let accessToken = tokens.access_token;
-			if (new Date(tokens.expires_at) < new Date()) {
-				const refreshed = await refreshAccessToken(tokens.refresh_token);
-				accessToken = refreshed.access_token;
-				await upsertZohoTokens({
-					user_id: tokens.user_id,
-					access_token: refreshed.access_token,
-					refresh_token: refreshed.refresh_token,
-					expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-					scope: tokens.scope
-				});
-			}
+			const accessToken = valid.accessToken;
 
 			const perPage = 200;
 			let page = 1;
@@ -525,23 +465,12 @@ export const actions: Actions = {
 			return fail(400, { message: 'Enter a Zoho trade partner ID.' });
 		}
 
-		const tokens = await getZohoTokens();
-		if (!tokens) {
+		const valid = await ensureValidZohoToken();
+		if (!valid) {
 			return fail(500, { message: 'Zoho is not connected yet.' });
 		}
 
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-				scope: tokens.scope
-			});
-		}
+		const accessToken = valid.accessToken;
 
 		const debug = await debugTradePartnerRecord(accessToken, zohoId);
 		if (!debug) {

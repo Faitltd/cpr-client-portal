@@ -9,8 +9,9 @@
 
 import { json } from '@sveltejs/kit';
 import { isValidAdminSession } from '$lib/server/admin';
-import { getZohoTokens, upsertZohoTokens, supabase } from '$lib/server/db';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { supabase } from '$lib/server/db';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
@@ -55,34 +56,13 @@ function buildZohoFieldUpdateName(label: string, submitterName: string, createdA
 	return `${label} — ${submitterName} — ${safeDate.toLocaleDateString()}`;
 }
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fb = new Date(fallback as any);
-		if (!Number.isNaN(fb.getTime())) return fb.toISOString();
-	}
-	return new Date().toISOString();
-}
-
 async function getAccessTokenAndDomain() {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw new Error('Zoho tokens not configured');
+	const valid = await ensureValidZohoToken();
+	if (!valid) throw new Error('Zoho tokens not configured');
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
 
-	return { accessToken, apiDomain: tokens.api_domain || undefined };
+	return { accessToken, apiDomain: valid.tokens.api_domain || undefined };
 }
 
 async function discoverDealLookupField(accessToken: string, apiDomain?: string): Promise<string | null> {

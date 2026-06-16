@@ -3,8 +3,6 @@ import { env } from '$env/dynamic/private';
 import {
 	getDesignerSession,
 	getSession,
-	getZohoTokens,
-	upsertZohoTokens,
 	type ClientSession,
 	type DesignerSession
 } from '$lib/server/db';
@@ -16,7 +14,8 @@ import {
 	listEstimatesForCustomer,
 	listInvoicesForCustomer
 } from '$lib/server/books';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { createLogger } from '$lib/server/logger';
 import {
 	DESIGNER_FETCH_FIELD_KEYS,
@@ -97,41 +96,18 @@ type AdminZohoContext = {
 	apiDomain: string | undefined;
 };
 
-function toSafeIso(value: unknown, fallback?: unknown): string {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback !== undefined) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 /**
  * Return a currently-valid admin access token, refreshing and persisting if needed.
  * Throws if no admin tokens have been stored yet (admin must complete OAuth first).
  * Reuses the refresh/persist pattern from `trade-page-data.ts`.
  */
 async function resolveAdminZohoContext(): Promise<AdminZohoContext> {
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw new Error('No Zoho admin tokens stored. Complete admin OAuth first.');
 	}
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
-
-	return { accessToken, apiDomain: tokens.api_domain || undefined };
+	return { accessToken: valid.accessToken, apiDomain: valid.apiDomain };
 }
 
 /**
@@ -383,6 +359,18 @@ const FINANCIALS_EXCLUDED_STAGES: ReadonlySet<string> = new Set([
  */
 export async function getDealsForFinancials(): Promise<DesignerDealSummary[]> {
 	const deals = await paginateFilteredDeals((stage) => !FINANCIALS_EXCLUDED_STAGES.has(stage));
+	return overlayCachedDesignerNotes(deals);
+}
+
+/**
+ * Deals in the active field/construction stages — used by the admin Field
+ * Dashboard to show every job the field teams are working on (across all trade
+ * partners), not just one person's assignments.
+ */
+const FIELD_STAGES: ReadonlySet<string> = new Set(['project created', 'project started']);
+
+export async function getFieldDeals(): Promise<DesignerDealSummary[]> {
+	const deals = await paginateFilteredDeals((stage) => FIELD_STAGES.has(stage));
 	return overlayCachedDesignerNotes(deals);
 }
 

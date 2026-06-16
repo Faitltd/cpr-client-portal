@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
-import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { getTokenInfo, refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { getTradeSession } from '$lib/server/db';
+import { getTokenInfo, zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { env } from '$env/dynamic/private';
 import { debugTradePartnerRecord, getTradePartnerDeals } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
@@ -33,16 +34,6 @@ const DEAL_FIELDS = [
 	'Portal_Trade_Partners'
 ].join(',');
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 function parseList(value: string | undefined, fallback: string) {
 	return (value || fallback)
 		.split(',')
@@ -66,23 +57,11 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		throw error(400, 'Trade partner is missing Zoho ID');
 	}
 
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw error(500, 'Zoho tokens not configured');
 	}
-
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
 
 	const modules = parseList(ZOHO_TRADE_PARTNERS_MODULE, 'Trade_Partners');
 	const relatedLists = parseList(ZOHO_TRADE_PARTNER_RELATED_LIST, 'Deals3');

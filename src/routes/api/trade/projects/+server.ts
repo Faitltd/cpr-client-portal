@@ -1,22 +1,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getTradeSession } from '$lib/server/db';
 import { getTradePartnerDeals, isTradePortalVisibleStage } from '$lib/server/auth';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { getDealProjectIdsForLinking, getProject, getDealTaskSummaries, matchDealsToProjectsByName, debugGetProjectCatalog } from '$lib/server/projects';
 
 const MAX_CONCURRENCY = 3;
 const PROJECT_TASK_PREVIEW_LIMIT = 4;
-
-function toSafeIso(value: unknown, fallback?: unknown) {
-  const date = new Date(value as any);
-  if (!Number.isNaN(date.getTime())) return date.toISOString();
-  if (fallback) {
-    const fallbackDate = new Date(fallback as any);
-    if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-  }
-  return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
 
 function normalizeProjectResponse(payload: any) {
   if (!payload) return null;
@@ -120,21 +110,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
     return json({ projects: [] });
   }
 
-  const tokens = await getZohoTokens();
-  if (!tokens) throw error(500, 'Zoho not configured');
-
-  let accessToken = tokens.access_token;
-  if (new Date(tokens.expires_at) < new Date()) {
-    const refreshed = await refreshAccessToken(tokens.refresh_token);
-    accessToken = refreshed.access_token;
-    await upsertZohoTokens({
-      user_id: tokens.user_id,
-      access_token: refreshed.access_token,
-      refresh_token: refreshed.refresh_token,
-      expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-      scope: tokens.scope
-    });
-  }
+  const valid = await ensureValidZohoToken();
+  if (!valid) throw error(500, 'Zoho not configured');
+  const accessToken = valid.accessToken;
 
   let deals: any[] = [];
   try {

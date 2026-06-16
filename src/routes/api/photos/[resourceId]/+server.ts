@@ -1,42 +1,19 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { getTradeSession } from '$lib/server/db';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 
 const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9]+$/;
 const PRIMARY_BASE_URL = 'https://download.zoho.com/v1/workdrive/download';
 const FALLBACK_BASE_URL = 'https://workdrive.zoho.com/api/v1/download';
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw new Error('Zoho tokens not configured');
 	}
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: tokens.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
-
-	return accessToken;
+	return valid.accessToken;
 }
 
 type FetchAttempt = {

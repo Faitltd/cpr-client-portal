@@ -2,33 +2,16 @@ import { findContactsByEmail } from './auth';
 import { normalizeClientPhonePassword } from './client-password';
 import {
 	getClientByEmail,
-	getZohoTokens,
 	setClientPassword,
 	upsertClient,
-	upsertZohoTokens,
 	type Client
 } from './db';
 import { hashPassword } from './password';
-import { refreshAccessToken } from './zoho';
+import { ensureValidZohoToken } from './zoho-token';
 
 async function getValidZohoAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) return null;
-
-	if (new Date(tokens.expires_at) >= new Date()) {
-		return tokens.access_token;
-	}
-
-	const refreshed = await refreshAccessToken(tokens.refresh_token);
-	await upsertZohoTokens({
-		user_id: tokens.user_id,
-		access_token: refreshed.access_token,
-		refresh_token: refreshed.refresh_token,
-		expires_at: new Date(refreshed.expires_at).toISOString(),
-		scope: tokens.scope
-	});
-
-	return refreshed.access_token;
+	const valid = await ensureValidZohoToken();
+	return valid?.accessToken ?? null;
 }
 
 export async function reconcileClientPhoneLogin(email: string, password: string): Promise<Client | null> {

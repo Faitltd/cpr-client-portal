@@ -2,9 +2,10 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { isValidAdminSession } from '$lib/server/admin';
 import { isPortalActiveStage } from '$lib/server/auth';
-import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getSession } from '$lib/server/db';
 import { getDealsForClient, getProjectLinksForClient, parseZohoProjectIds } from '$lib/server/projects';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 
 const BASE_DEAL_FIELDS = ['id', 'Deal_Name', 'Stage', 'Created_Time', 'Modified_Time', 'Contact_Name'];
 const MAX_SAMPLE_DEALS = 20;
@@ -16,16 +17,6 @@ const REQUIRED_PROJECT_SCOPES = [
 	'ZohoProjects.milestones.READ',
 	'ZohoProjects.users.READ'
 ];
-
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
 
 function getArray(payload: any, ...keys: string[]) {
 	for (const key of keys) {
@@ -165,23 +156,12 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		}
 	}
 
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw error(500, 'Zoho tokens not configured');
 	}
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: tokens.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
 
 	let fields: any[] = [];
 	let relatedLists: any[] = [];
@@ -282,7 +262,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		};
 	});
 
-	const scopeTokens = normalizeScopeTokens(tokens.scope ?? null);
+	const scopeTokens = normalizeScopeTokens(valid.tokens.scope ?? null);
 	const missingProjectScopes = REQUIRED_PROJECT_SCOPES.filter((scope) => !scopeTokens.includes(scope));
 	let clientMappingPreview: {
 		dealsCount: number;
@@ -349,7 +329,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 	return json({
 		mode: hasAdminSession ? 'admin' : 'client',
-		scope: tokens.scope ?? null,
+		scope: valid.tokens.scope ?? null,
 		scopeInfo: {
 			tokenCount: scopeTokens.length,
 			scopeTokens,

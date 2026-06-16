@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { isValidAdminSession } from '$lib/server/admin';
-import { getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { refreshAccessToken, getZohoApiBase } from '$lib/server/zoho';
+import { getZohoApiBase } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 const ALLOWED_FIELDS = new Set(['Photos', 'Image_Upload_4', 'File_Upload_1']);
@@ -14,25 +14,11 @@ function checkAdmin(cookies: Parameters<RequestHandler>[0]['cookies']): Response
 }
 
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw new Error('Zoho not connected');
+	const valid = await ensureValidZohoToken();
+	if (!valid) throw new Error('Zoho not connected');
 
-	let accessToken = tokens.access_token;
-	let apiDomain = tokens.api_domain ?? undefined;
-
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: new Date(refreshed.expires_at).toISOString(),
-			scope: tokens.scope,
-			api_domain: apiDomain || null
-		});
-	}
+	const accessToken = valid.accessToken;
+	const apiDomain = valid.apiDomain;
 
 	return { accessToken, apiDomain };
 }

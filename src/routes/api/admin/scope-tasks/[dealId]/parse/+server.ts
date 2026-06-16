@@ -3,8 +3,9 @@ import { env } from '$env/dynamic/private';
 import OpenAI from 'openai';
 import pdfParse from 'pdf-parse';
 import { isValidAdminSession } from '$lib/server/admin';
-import { getZohoTokens, upsertZohoTokens, bulkUpsertScopeTasks } from '$lib/server/db';
-import { refreshAccessToken, zohoApiCall, getZohoApiBase } from '$lib/server/zoho';
+import { bulkUpsertScopeTasks } from '$lib/server/db';
+import { zohoApiCall, getZohoApiBase } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 function checkAdmin(cookies: Parameters<RequestHandler>[0]['cookies']): Response | null {
@@ -83,26 +84,11 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
 }
 
 async function getZohoAuth(): Promise<{ accessToken: string; apiDomain: string | undefined } | null> {
-	const tokens = await getZohoTokens();
-	if (!tokens) return null;
+	const valid = await ensureValidZohoToken();
+	if (!valid) return null;
 
-	let accessToken = tokens.access_token;
-	let apiDomain = tokens.api_domain ?? undefined;
-
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
-
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: new Date(refreshed.expires_at).toISOString(),
-			scope: tokens.scope,
-			api_domain: apiDomain || null
-		});
-	}
+	const accessToken = valid.accessToken;
+	const apiDomain = valid.apiDomain;
 
 	return { accessToken, apiDomain };
 }

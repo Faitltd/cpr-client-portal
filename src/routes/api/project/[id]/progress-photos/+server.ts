@@ -1,39 +1,26 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getSession } from '$lib/server/db';
 import { getDealsForClient } from '$lib/server/projects';
 import {
 	getProgressPhotosLinkCandidates,
 	pickBestProgressPhotosFallback,
 	resolveProgressPhotosLink
 } from '$lib/server/progress-photos';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 
 const DEAL_LINK_CACHE_TTL_MS = 60 * 1000;
 
 const resolvedDealLinkCache = new Map<string, { fetchedAt: number; url: string }>();
 
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw error(500, 'Zoho tokens not configured');
 	}
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: new Date(refreshed.expires_at).toISOString(),
-			scope: tokens.scope
-		});
-		return { accessToken, apiDomain: refreshed.api_domain || undefined };
-	}
-
-	return { accessToken, apiDomain: tokens.api_domain || undefined };
+	return { accessToken: valid.accessToken, apiDomain: valid.apiDomain };
 }
 
 async function canClientAccessDeal(session: Awaited<ReturnType<typeof getSession>>, dealId: string) {

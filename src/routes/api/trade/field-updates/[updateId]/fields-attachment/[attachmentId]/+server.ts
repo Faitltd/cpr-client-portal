@@ -1,7 +1,8 @@
 import { error } from '@sveltejs/kit';
-import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getTradeSession } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { getZohoApiBase, refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { getZohoApiBase, zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
@@ -17,20 +18,6 @@ const FIELD_UPDATES_MODULE_CANDIDATES = (() => {
 	for (let i = 1; i <= 10; i += 1) candidates.add(`Field_Updates${i}`);
 	return Array.from(candidates);
 })();
-
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) {
-		return date.toISOString();
-	}
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) {
-			return fallbackDate.toISOString();
-		}
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
 
 function safeFileName(value: string) {
 	return value.replace(/[^\x20-\x7E]/g, '_').replace(/[/\\]/g, '_').replace(/"/g, "'");
@@ -226,25 +213,13 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		throw error(400, 'Field update ID and attachment ID are required');
 	}
 
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw error(500, 'Zoho tokens not configured');
 	}
+	const accessToken = valid.accessToken;
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
-
-	const apiDomain = tokens.api_domain || undefined;
+	const apiDomain = valid.tokens.api_domain || undefined;
 
 	// Authorize: the update must be related to a deal the trade partner can access.
 	let updateRecord: any = null;

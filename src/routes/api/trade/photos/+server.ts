@@ -1,10 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { getTradeSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getTradeSession } from '$lib/server/db';
 import { getCachedFolder, setCachedFolder } from '$lib/server/folder-cache';
 import { createLogger } from '$lib/server/logger';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import {
 	buildDealFolderCandidates,
 	extractExternalLinkHash,
@@ -264,36 +264,13 @@ async function resolveFieldUpdatesFolder(
 	return null;
 }
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw new Error('Zoho tokens not configured');
 	}
-
-	let accessToken = tokens.access_token;
-	let apiDomain = tokens.api_domain || undefined;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		apiDomain = refreshed.api_domain || apiDomain;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: tokens.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
+	const apiDomain = valid.apiDomain;
 
 	return { accessToken, apiDomain };
 }

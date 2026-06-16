@@ -1,12 +1,7 @@
 import { createHash } from 'crypto';
-import {
-	getZohoTokens,
-	getZohoTokenByUserId,
-	supabase,
-	upsertZohoTokens,
-	type ZohoTokens
-} from '$lib/server/db';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { supabase } from '$lib/server/db';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken, ensureValidZohoTokenByUserId } from '$lib/server/zoho-token';
 import { chunkText, embed } from './embeddings';
 
 export interface CrmEmailSyncResult {
@@ -17,41 +12,20 @@ export interface CrmEmailSyncResult {
 	error?: string;
 }
 
-async function refreshIfNeeded(
-	tokens: ZohoTokens
-): Promise<{ accessToken: string; apiDomain?: string }> {
-	let accessToken = tokens.access_token;
-	let apiDomain: string | undefined = tokens.api_domain ?? undefined;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		apiDomain = refreshed.api_domain || apiDomain;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: new Date(refreshed.expires_at).toISOString(),
-			scope: tokens.scope,
-			user_email: tokens.user_email ?? null
-		});
-	}
-	return { accessToken, apiDomain };
-}
-
 async function getPrimaryAccessToken(): Promise<{ accessToken: string; apiDomain?: string }> {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw new Error('Zoho not connected');
-	return refreshIfNeeded(tokens);
+	const valid = await ensureValidZohoToken();
+	if (!valid) throw new Error('Zoho not connected');
+	return { accessToken: valid.accessToken, apiDomain: valid.apiDomain };
 }
 
 async function getOwnerAccessToken(
 	ownerId: string | null
 ): Promise<{ accessToken: string; apiDomain?: string } | null> {
 	if (!ownerId) return null;
-	const tokens = await getZohoTokenByUserId(ownerId);
-	if (!tokens) return null;
 	try {
-		return await refreshIfNeeded(tokens);
+		const valid = await ensureValidZohoTokenByUserId(ownerId);
+		if (!valid) return null;
+		return { accessToken: valid.accessToken, apiDomain: valid.apiDomain };
 	} catch (err) {
 		console.warn(
 			`[bot/ingest-crm-emails] refresh failed for user ${ownerId}:`,

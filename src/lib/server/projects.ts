@@ -1,7 +1,7 @@
 import { env } from '$env/dynamic/private';
 import { findContactByEmail, getContactDeals, isPortalActiveStage } from './auth';
-import { getZohoTokens, upsertZohoTokens } from './db';
-import { refreshAccessToken, zohoApiCall } from './zoho';
+import { zohoApiCall } from './zoho';
+import { ensureValidZohoToken } from './zoho-token';
 import { createLogger } from '$lib/server/logger';
 
 const log = createLogger('projects');
@@ -1637,23 +1637,9 @@ async function getValidAccessToken(): Promise<string> {
 	if (accessTokenInFlight) return accessTokenInFlight;
 
 	accessTokenInFlight = (async () => {
-		const tokens = await getZohoTokens();
-		if (!tokens) throw new Error('No Zoho tokens found');
-
-		const expiresAtMs = new Date(tokens.expires_at).getTime();
-		if (Number.isFinite(expiresAtMs) && expiresAtMs > Date.now()) {
-			return tokens.access_token;
-		}
-
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: new Date(refreshed.expires_at).toISOString(),
-			scope: tokens.scope ?? null
-		});
-		return refreshed.access_token;
+		const valid = await ensureValidZohoToken();
+		if (!valid) throw new Error('No Zoho tokens found');
+		return valid.accessToken;
 	})();
 
 	try {

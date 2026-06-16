@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { isValidAdminSession } from '$lib/server/admin';
-import { getZohoTokens, upsertZohoTokens, supabase } from '$lib/server/db';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { supabase } from '$lib/server/db';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 function checkAdmin(cookies: Parameters<RequestHandler>[0]['cookies']): Response | null {
@@ -11,34 +12,12 @@ function checkAdmin(cookies: Parameters<RequestHandler>[0]['cookies']): Response
 	return null;
 }
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fb = new Date(fallback as any);
-		if (!Number.isNaN(fb.getTime())) return fb.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw new Error('Zoho is not connected yet.');
+	const valid = await ensureValidZohoToken();
+	if (!valid) throw new Error('Zoho is not connected yet.');
 
-	let accessToken = tokens.access_token;
-	const apiDomain = (tokens as any).api_domain || undefined;
-
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
+	const apiDomain = (valid.tokens as any).api_domain || undefined;
 
 	return { accessToken, apiDomain };
 }

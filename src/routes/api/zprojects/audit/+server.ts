@@ -2,9 +2,9 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { isValidAdminSession } from '$lib/server/admin';
 import { isPortalActiveStage } from '$lib/server/auth';
-import { getZohoTokens, upsertZohoTokens } from '$lib/server/db';
 import { getProject, parseZohoProjectIds } from '$lib/server/projects';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 
 const AUDIT_DEAL_FIELDS = ['Deal_Name', 'Stage', 'Contact_Name', 'Project_ID', 'Zoho_Projects_ID', 'Modified_Time'].join(',');
 
@@ -27,16 +27,6 @@ async function mapWithConcurrency<T, R>(
 	return results;
 }
 
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
-
 function getLookupName(value: unknown) {
 	if (!value || typeof value !== 'object') return null;
 	const record = value as Record<string, unknown>;
@@ -57,23 +47,12 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		throw error(401, 'Admin only');
 	}
 
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		throw error(500, 'Zoho tokens not configured');
 	}
 
-	let accessToken = tokens.access_token;
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: refreshed.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
+	const accessToken = valid.accessToken;
 
 	const perPage = 200;
 	let page = 1;

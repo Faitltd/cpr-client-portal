@@ -1,14 +1,15 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { isValidAdminSession } from '$lib/server/admin';
-import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
+import { getSession } from '$lib/server/db';
 import {
 	getProgressPhotosLinkCandidates,
 	pickBestProgressPhotosFallback,
 	resolveProgressPhotosLink
 } from '$lib/server/progress-photos';
 import { getDealsForClient } from '$lib/server/projects';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 
 const REQUIRED_WORKDRIVE_SCOPES = ['WorkDrive.files.READ', 'WorkDrive.folders.READ'];
 const MAX_PROBES = 8;
@@ -20,16 +21,6 @@ type PortalSession = {
 		email: string;
 	};
 };
-
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) return date.toISOString();
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate.toISOString();
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
-}
 
 function normalizeScopeTokens(rawScope: string | null | undefined) {
 	return (rawScope || '')
@@ -245,26 +236,13 @@ async function probeCandidate(url: string) {
 }
 
 async function getAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) throw error(500, 'Zoho tokens not configured');
+	const valid = await ensureValidZohoToken();
+	if (!valid) throw error(500, 'Zoho tokens not configured');
 
-	let accessToken = tokens.access_token;
-	let apiDomain = tokens.api_domain || undefined;
+	const accessToken = valid.accessToken;
+	const apiDomain = valid.apiDomain;
 
-	if (new Date(tokens.expires_at) < new Date()) {
-		const refreshed = await refreshAccessToken(tokens.refresh_token);
-		accessToken = refreshed.access_token;
-		apiDomain = refreshed.api_domain || apiDomain;
-		await upsertZohoTokens({
-			user_id: tokens.user_id,
-			access_token: refreshed.access_token,
-			refresh_token: tokens.refresh_token,
-			expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-			scope: tokens.scope
-		});
-	}
-
-	return { accessToken, apiDomain, scope: tokens.scope || '' };
+	return { accessToken, apiDomain, scope: valid.tokens.scope || '' };
 }
 
 async function resolvePortalSession(cookies: { get(name: string): string | undefined }) {

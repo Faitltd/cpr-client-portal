@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { getTradeSession, getZohoTokens, upsertZohoTokens, getFieldUpdatesByDeal } from '$lib/server/db';
+import { getTradeSession, getFieldUpdatesByDeal } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 
@@ -160,20 +161,6 @@ function pickCanonicalDealIdForQuery(deal: any, requestedDealId: string) {
 
 	if (isLikelyZohoId(requestedDealId)) return requestedDealId;
 	return preferred.find(Boolean) || candidates.find(Boolean) || requestedDealId;
-}
-
-function toSafeIso(value: unknown, fallback?: unknown) {
-	const date = new Date(value as any);
-	if (!Number.isNaN(date.getTime())) {
-		return date.toISOString();
-	}
-	if (fallback) {
-		const fallbackDate = new Date(fallback as any);
-		if (!Number.isNaN(fallbackDate.getTime())) {
-			return fallbackDate.toISOString();
-		}
-	}
-	return new Date(Date.now() + 5 * 60 * 1000).toISOString();
 }
 
 type ZohoErrorInfo = {
@@ -924,26 +911,15 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 		return json({ message: 'Deal ID required' }, { status: 400 });
 	}
 
-	const tokens = await getZohoTokens();
-	if (!tokens) {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
 		return json({ message: 'Zoho tokens not configured' }, { status: 500 });
 	}
 
 	try {
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: toSafeIso(refreshed.expires_at, tokens.expires_at),
-				scope: tokens.scope
-			});
-		}
+		const accessToken = valid.accessToken;
 
-		const apiDomain = tokens.api_domain || undefined;
+		const apiDomain = valid.tokens.api_domain || undefined;
 		const resolvedDealId = await resolveAuthorizedDealId(accessToken, dealId, tradePartnerId, apiDomain);
 		if (!resolvedDealId) {
 			console.warn('Trade field updates access denied', { dealId, tradePartnerId });

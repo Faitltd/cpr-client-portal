@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
-import { getSession, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { getSession } from '$lib/server/db';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import {
 	getBooksCustomerByEmail,
 	getEstimateById,
@@ -23,23 +23,12 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			throw error(401, 'Invalid session');
 		}
 
-		const tokens = await getZohoTokens();
-		if (!tokens) {
+		const valid = await ensureValidZohoToken();
+		if (!valid) {
 			throw error(500, 'Zoho tokens not configured');
 		}
 
-		let accessToken = tokens.access_token;
-		if (new Date(tokens.expires_at) < new Date()) {
-			const newTokens = await refreshAccessToken(tokens.refresh_token);
-			accessToken = newTokens.access_token;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: newTokens.access_token,
-				refresh_token: newTokens.refresh_token,
-				expires_at: new Date(newTokens.expires_at).toISOString(),
-				scope: tokens.scope
-			});
-		}
+		const accessToken = valid.accessToken;
 
 		const customer = await getBooksCustomerByEmail(accessToken, session.client.email);
 		if (!customer) {

@@ -2,8 +2,6 @@ import { json } from '@sveltejs/kit';
 import { isValidAdminSession } from '$lib/server/admin';
 import {
 	getScopeTasksByDeal,
-	getZohoTokens,
-	upsertZohoTokens,
 	createGenerationLog,
 	updateGenerationLog,
 	createApproval
@@ -16,7 +14,8 @@ import {
 	sleep
 } from '$lib/server/projects';
 import { addBusinessDays } from '$lib/server/scope-mapper';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 function checkAdmin(cookies: Parameters<RequestHandler>[0]['cookies']): Response | null {
@@ -107,25 +106,10 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
 			let dealDisplayName = dealId;
 			try {
-				const tokens = await getZohoTokens();
-				if (tokens) {
-					let accessToken = tokens.access_token;
-					let apiDomain = tokens.api_domain ?? undefined;
-
-					if (new Date(tokens.expires_at) < new Date()) {
-						const refreshed = await refreshAccessToken(tokens.refresh_token);
-						accessToken = refreshed.access_token;
-						apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
-
-						await upsertZohoTokens({
-							user_id: tokens.user_id,
-							access_token: refreshed.access_token,
-							refresh_token: refreshed.refresh_token,
-							expires_at: new Date(refreshed.expires_at).toISOString(),
-							scope: tokens.scope,
-							api_domain: apiDomain || null
-						});
-					}
+				const valid = await ensureValidZohoToken();
+				if (valid) {
+					const accessToken = valid.accessToken;
+					const apiDomain = valid.apiDomain;
 
 					const dealResult = await zohoApiCall(
 						accessToken,
@@ -269,25 +253,10 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			});
 
 			try {
-				const tokens = await getZohoTokens();
-				if (tokens) {
-					let accessToken = tokens.access_token;
-					let apiDomain = tokens.api_domain ?? undefined;
-
-					if (new Date(tokens.expires_at) < new Date()) {
-						const refreshed = await refreshAccessToken(tokens.refresh_token);
-						accessToken = refreshed.access_token;
-						apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
-
-						await upsertZohoTokens({
-							user_id: tokens.user_id,
-							access_token: refreshed.access_token,
-							refresh_token: refreshed.refresh_token,
-							expires_at: new Date(refreshed.expires_at).toISOString(),
-							scope: tokens.scope,
-							api_domain: apiDomain || null
-						});
-					}
+				const valid = await ensureValidZohoToken();
+				if (valid) {
+					const accessToken = valid.accessToken;
+					const apiDomain = valid.apiDomain;
 
 					await zohoApiCall(
 						accessToken,

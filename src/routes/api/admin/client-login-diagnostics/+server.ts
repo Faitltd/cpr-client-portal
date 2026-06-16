@@ -2,28 +2,15 @@ import { json } from '@sveltejs/kit';
 import { isValidAdminSession } from '$lib/server/admin';
 import { findContactsByEmail } from '$lib/server/auth';
 import { normalizeClientPhonePassword } from '$lib/server/client-password';
-import { getClientByEmail, getZohoTokens, upsertZohoTokens } from '$lib/server/db';
-import { refreshAccessToken } from '$lib/server/zoho';
+import { getClientByEmail } from '$lib/server/db';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
 
 async function getValidZohoAccessToken() {
-	const tokens = await getZohoTokens();
-	if (!tokens) return null;
+	const valid = await ensureValidZohoToken();
+	if (!valid) return null;
 
-	if (new Date(tokens.expires_at) >= new Date()) {
-		return tokens.access_token;
-	}
-
-	const refreshed = await refreshAccessToken(tokens.refresh_token);
-	await upsertZohoTokens({
-		user_id: tokens.user_id,
-		access_token: refreshed.access_token,
-		refresh_token: refreshed.refresh_token,
-		expires_at: new Date(refreshed.expires_at).toISOString(),
-		scope: tokens.scope
-	});
-
-	return refreshed.access_token;
+	return valid.accessToken;
 }
 
 export const GET: RequestHandler = async ({ cookies, url }) => {

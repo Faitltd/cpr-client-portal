@@ -3,14 +3,13 @@ import {
 	createGenerationLog,
 	getScopeDefinition,
 	getTaskTemplatesByProjectType,
-	getZohoTokens,
 	updateGenerationLog,
-	updateScopeStatus,
-	upsertZohoTokens
+	updateScopeStatus
 } from '$lib/server/db';
 import { createZohoPhase, createZohoProject, createZohoTask, createZohoTasklist, sleep } from '$lib/server/projects';
 import { mapScopeToTasks } from '$lib/server/scope-mapper';
-import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
+import { zohoApiCall } from '$lib/server/zoho';
+import { ensureValidZohoToken } from '$lib/server/zoho-token';
 
 /**
  * Fetch the deal name from Zoho CRM for use as the project name.
@@ -18,29 +17,14 @@ import { refreshAccessToken, zohoApiCall } from '$lib/server/zoho';
  */
 async function getDealDisplayName(dealId: string): Promise<string> {
 	try {
-		const tokens = await getZohoTokens();
-		if (!tokens) {
+		const valid = await ensureValidZohoToken();
+		if (!valid) {
 			console.warn('[getDealDisplayName] No Zoho tokens found');
 			return dealId;
 		}
 
-		let accessToken = tokens.access_token;
-		let apiDomain = tokens.api_domain ?? undefined;
-
-		if (new Date(tokens.expires_at) < new Date()) {
-			console.log('[getDealDisplayName] Token expired, refreshing...');
-			const refreshed = await refreshAccessToken(tokens.refresh_token);
-			accessToken = refreshed.access_token;
-			apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
-			await upsertZohoTokens({
-				user_id: tokens.user_id,
-				access_token: refreshed.access_token,
-				refresh_token: refreshed.refresh_token,
-				expires_at: new Date(refreshed.expires_at).toISOString(),
-				scope: tokens.scope,
-				api_domain: apiDomain || null
-			});
-		}
+		const accessToken = valid.accessToken;
+		const apiDomain = valid.apiDomain;
 
 		console.log('[getDealDisplayName] Fetching deal', dealId, 'apiDomain:', apiDomain);
 		const deal = await zohoApiCall(accessToken, '/Deals/' + dealId, { method: 'GET' }, apiDomain);
@@ -221,26 +205,11 @@ export async function generateProject(
 		});
 
 		try {
-			const tokens = await getZohoTokens();
+			const valid = await ensureValidZohoToken();
 
-			if (tokens) {
-				let accessToken = tokens.access_token;
-				let apiDomain = tokens.api_domain ?? undefined;
-
-				if (new Date(tokens.expires_at) < new Date()) {
-					const refreshed = await refreshAccessToken(tokens.refresh_token);
-					accessToken = refreshed.access_token;
-					apiDomain = refreshed.api_domain || tokens.api_domain || undefined;
-
-					await upsertZohoTokens({
-						user_id: tokens.user_id,
-						access_token: refreshed.access_token,
-						refresh_token: refreshed.refresh_token,
-						expires_at: new Date(refreshed.expires_at).toISOString(),
-						scope: tokens.scope,
-						api_domain: apiDomain || null
-					});
-				}
+			if (valid) {
+				const accessToken = valid.accessToken;
+				const apiDomain = valid.apiDomain;
 
 				await zohoApiCall(
 					accessToken,
