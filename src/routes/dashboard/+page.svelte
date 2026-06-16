@@ -1226,6 +1226,10 @@
 	/* ── Sections ─────────────────────────────────────── */
 	.section {
 		margin-bottom: 1.25rem;
+		padding: 0.75rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		background: #fff;
 	}
 
 	/* ── Project Review booking banner ───────────────── */
