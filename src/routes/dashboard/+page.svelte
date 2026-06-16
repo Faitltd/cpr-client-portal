@@ -737,12 +737,8 @@
 			{/if}
 		</section>
 
-		<!-- Financials -->
-		<section class="section financials">
-			<h2 class="financials-heading">Financials</h2>
-			<div class="financials-grid">
-			<!-- Financial Summary (far right on desktop, top on mobile) -->
-			<section class="section financials-summary-col">
+		<!-- Financial Summary -->
+		<section class="section">
 			<button class="section-header" type="button" on:click={() => (financialOpen = !financialOpen)}>
 				<span class="section-header-left">
 					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v2M10 16v2M2 10h2M16 10h2"/><circle cx="10" cy="10" r="5"/></svg>
@@ -768,11 +764,10 @@
 				</div>
 			</div>
 			{/if}
-			</section>
+		</section>
 
-			<div class="financials-main-col">
-			<!-- Invoices -->
-			<section class="section">
+		<!-- Invoices -->
+		<section class="section">
 			<button class="section-header" type="button" on:click={() => (invoicesOpen = !invoicesOpen)}>
 				<span class="section-header-left">
 					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="14" height="16" rx="2"/><path d="M7 6h6M7 10h6M7 14h4"/></svg>
@@ -953,9 +948,6 @@
 				</div>
 			{/if}
 			{/if}
-			</section>
-			</div>
-			</div>
 		</section>
 
 		<!-- Email Updates Timeline -->
@@ -1234,52 +1226,6 @@
 	/* ── Sections ─────────────────────────────────────── */
 	.section {
 		margin-bottom: 1.25rem;
-	}
-
-	/* ── Financials consolidated section ──────────────── */
-	.financials-heading {
-		margin: 0 0 1rem;
-		font-size: 1.15rem;
-		font-weight: 700;
-		color: #111827;
-	}
-
-	.financials-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 1.25rem;
-	}
-
-	.financials-summary-col,
-	.financials-main-col > .section:last-child {
-		margin-bottom: 0;
-	}
-
-	.financials-main-col {
-		display: flex;
-		flex-direction: column;
-		gap: 1.25rem;
-	}
-
-	.financials-main-col > .section {
-		margin-bottom: 0;
-	}
-
-	@media (min-width: 900px) {
-		.financials-grid {
-			flex-direction: row;
-			align-items: flex-start;
-		}
-		.financials-main-col {
-			order: 1;
-			flex: 1;
-			min-width: 0;
-		}
-		.financials-summary-col {
-			order: 2;
-			width: 320px;
-			flex-shrink: 0;
-		}
 	}
 
 	/* ── Project Review booking banner ───────────────── */
