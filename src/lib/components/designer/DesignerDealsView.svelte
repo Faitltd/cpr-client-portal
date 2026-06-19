@@ -181,7 +181,7 @@
 						href="/designer/chat"
 						aria-current={pathname === '/designer/chat' ? 'page' : undefined}
 					>
-						CPR Bot
+						CPR Assistant
 					</a>
 				{/if}
 			{/if}

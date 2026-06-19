@@ -355,7 +355,7 @@
 
 		{#each messages as msg, i (i)}
 			<div class="bubble bubble-{msg.role}">
-				<div class="bubble-role">{msg.role === 'user' ? 'You' : 'Bot'}</div>
+				<div class="bubble-role">{msg.role === 'user' ? 'You' : 'CPR Assistant'}</div>
 				{#if msg.content}
 					<div class="bubble-body">{@html renderMessage(msg.content)}</div>
 				{:else}

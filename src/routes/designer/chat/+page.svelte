@@ -15,7 +15,7 @@
 </script>
 
 <svelte:head>
-	<title>CPR Bot · Designer · CPR Portal</title>
+	<title>CPR Assistant · Designer · CPR Portal</title>
 </svelte:head>
 
 <section class="chat-page">

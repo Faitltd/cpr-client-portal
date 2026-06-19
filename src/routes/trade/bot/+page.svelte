@@ -18,12 +18,12 @@
 </script>
 
 <svelte:head>
-	<title>Project Bot — CPR Trade Portal</title>
+	<title>CPR Assistant — CPR Trade Portal</title>
 </svelte:head>
 
 <section class="bot-page">
 	<header class="bot-header">
-		<h1>Project Bot</h1>
+		<h1>CPR Assistant</h1>
 		<p class="bot-subtitle">
 			Ask about your assigned projects — scope, address, access notes, and project documents.
 			{#if data.tradePartner?.name}<br /><span class="who">Signed in as {data.tradePartner.name}.</span>{/if}

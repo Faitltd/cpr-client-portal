@@ -15,7 +15,7 @@ function authorize(request: Request, cookies: Parameters<RequestHandler>[0]['coo
 
 function parseSources(raw: unknown): SyncSource[] | undefined {
 	if (!Array.isArray(raw)) return undefined;
-	const allowed = new Set(['cliq', 'mail', 'books']);
+	const allowed = new Set(['cliq', 'cliq_channels', 'mail', 'books']);
 	const out = raw.filter((x): x is SyncSource => typeof x === 'string' && allowed.has(x));
 	return out.length > 0 ? out : undefined;
 }

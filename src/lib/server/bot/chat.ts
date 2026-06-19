@@ -683,19 +683,35 @@ export async function runChatNonStreaming(opts: RunChatOptions): Promise<string>
  * reason over the whole corpus. Stateless (no thread persistence): the client
  * sends the full message history each turn. Admin-only.
  */
+// Communications assistant scope: email + Cliq only (deal-linked Cliq plus the
+// company-wide channels ingested under sentinel deal ids).
+const COMMS_SOURCES = [
+	'zoho_mail',
+	'zoho_cliq_internal',
+	'zoho_cliq_external',
+	'zoho_cliq_channel'
+];
+
 export async function runMasterChatNonStreaming(opts: {
 	adminEmail: string;
 	messages: ChatMessage[];
+	/** 'deal' = cross-deal over everything (default); 'comms' = email + Cliq only. */
+	mode?: 'deal' | 'comms';
 }): Promise<string> {
 	const lastUser = opts.messages.at(-1);
 	if (!lastUser || lastUser.role !== 'user') {
 		throw new Error('Last message must be a user turn');
 	}
+	const mode = opts.mode ?? 'deal';
 
 	const retrievalQuery = buildRetrievalQuery(opts.messages);
 	const retrieved = await retrieveAllDeals({
 		query: retrievalQuery || lastUser.content,
-		k: 18
+		k: 18,
+		includeSources: mode === 'comms' ? COMMS_SOURCES : null,
+		// The deal master stays strictly deal-scoped — company-wide Cliq channels
+		// belong to the Comms assistant, not here.
+		excludeSources: mode === 'deal' ? ['zoho_cliq_channel'] : null
 	}).catch((err) => {
 		console.warn('[bot/master] retrieval failed:', err);
 		return [] as CrossDealChunk[];
@@ -706,8 +722,13 @@ export async function runMasterChatNonStreaming(opts: {
 	const uniqueDealIds = Array.from(
 		new Set(retrieved.map((c) => c.deal_id).filter((id): id is string => Boolean(id)))
 	).slice(0, 12);
+	// Sentinel deal ids (e.g. "__cliq__<channelId>") are company-wide Cliq
+	// channels, not real Deals — don't try to resolve them in CRM. The chunk's
+	// subject already carries the "#channel" name for attribution.
+	const isSentinel = (id: string) => id.startsWith('__');
 	const nameEntries = await Promise.all(
 		uniqueDealIds.map(async (id) => {
+			if (isSentinel(id)) return [id, 'Cliq channels (company-wide)'] as const;
 			try {
 				const ctx = await getDealContext(id);
 				return [id, ctx.name?.trim() || `Deal ${id}`] as const;
@@ -729,13 +750,16 @@ export async function runMasterChatNonStreaming(opts: {
 	const retrievedBlock = renderRetrievedContextBlock(labeled);
 
 	const projectsOverview = uniqueDealIds.length
-		? uniqueDealIds.map((id) => `- ${labelFor(id)} (Zoho id ${id})`).join('\n')
+		? uniqueDealIds.map((id) => (isSentinel(id) ? `- ${labelFor(id)}` : `- ${labelFor(id)} (Zoho id ${id})`)).join('\n')
 		: '(none)';
 
+	const scopeBlurb =
+		mode === 'comms'
+			? 'You are the CPR Communications Assistant. The retrieved context below is drawn ONLY from email and Cliq messages across the whole company. Use it to answer questions about conversations, threads, who said what, follow-ups, and action items. Each passage is tagged with the project or channel it came from as "[Project: <name>]". Attribute facts to that source. If the retrieved context does not contain the answer, say so plainly instead of guessing.'
+			: 'You are the CPR master assistant. The retrieved context below is pulled from ALL projects at once; each passage is tagged with the project it came from as "[Project: <name>]". Answer across projects, and ALWAYS attribute facts to the named project they came from (never leave a job unattributed). If asked which project something is for, use the project name from the tag. If the retrieved context does not contain the answer, say so plainly instead of guessing.';
 	const promptParts = [
 		SYSTEM_PROMPT,
-		'\n# Master assistant scope\n' +
-			'You are the CPR master assistant. The retrieved context below is pulled from ALL projects at once; each passage is tagged with the project it came from as "[Project: <name>]". Answer across projects, and ALWAYS attribute facts to the named project they came from (never leave a job unattributed). If asked which project something is for, use the project name from the tag. If the retrieved context does not contain the answer, say so plainly instead of guessing.',
+		'\n# Assistant scope\n' + scopeBlurb,
 		'\n# Projects referenced in this answer\n' + projectsOverview
 	];
 	if (retrievedBlock) {

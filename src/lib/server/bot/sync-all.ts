@@ -3,6 +3,7 @@ import { supabase } from '$lib/server/db';
 import { zohoApiCall } from '$lib/server/zoho';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { syncCliqForDeal } from './ingest-cliq';
+import { syncAllCliqChannels } from './ingest-cliq-channels';
 import { syncBooksForDeal } from './ingest-books';
 import { syncMailForDeal } from './ingest-mail';
 import { syncCrmEmailsForDeal } from './ingest-crm-emails';
@@ -13,6 +14,7 @@ import { syncCalendarForDeal } from './ingest-calendar';
 
 export type SyncSource =
 	| 'cliq'
+	| 'cliq_channels'
 	| 'books'
 	| 'mail'
 	| 'crm_email'
@@ -162,8 +164,12 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 	const sources =
 		opts.sources && opts.sources.length > 0
 			? opts.sources
-			: (['cliq', 'mail', 'books', 'crm_email', 'workdrive', 'calendar'] as SyncSource[]);
+			: (['cliq', 'cliq_channels', 'mail', 'books', 'crm_email', 'workdrive', 'calendar'] as SyncSource[]);
 	const startedAt = Date.now();
+
+	// Cliq channels are org-wide, not per-Deal, so sync them once per run (not
+	// inside the per-deal loop). Skipped when a dealIds subset was requested.
+	let cliqChannelsResult: any = null;
 
 	const { data: runInsert, error: runErr } = await supabase
 		.from('bot_sync_runs')
@@ -202,6 +208,14 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 	const dealSummaries: DealSyncSummary[] = [];
 	let ok = 0;
 	let errs = 0;
+
+	if (sources.includes('cliq_channels') && !(opts.dealIds && opts.dealIds.length > 0)) {
+		try {
+			cliqChannelsResult = await syncAllCliqChannels();
+		} catch (err) {
+			cliqChannelsResult = { error: err instanceof Error ? err.message : 'cliq_channels failed' };
+		}
+	}
 
 	for (const d of deals) {
 		const summary: DealSyncSummary = { deal_id: d.id, deal_name: d.name, stage: d.stage };
@@ -287,7 +301,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 			ok_count: ok,
 			error_count: errs,
 			deals: dealSummaries,
-			summary: { sources }
+			summary: { sources, cliq_channels: cliqChannelsResult }
 		})
 		.eq('id', runId);
 

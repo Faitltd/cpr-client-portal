@@ -52,7 +52,7 @@
 </script>
 
 <svelte:head>
-	<title>Bot Users — CPR Admin</title>
+	<title>CPR Assistant Users — CPR Admin</title>
 </svelte:head>
 
 <section class="page">
@@ -60,8 +60,8 @@
 		<div>
 			<h1>Connected Zoho Users</h1>
 			<p class="sub">
-				Each CPR team member must connect once so the bot can read their CRM-linked emails.
-				The primary user is what the bot uses for CRM, Cliq, and Books operations.
+				Each CPR team member must connect once so CPR Assistant can read their CRM-linked emails.
+				The primary user is what CPR Assistant uses for CRM, Cliq, and Books operations.
 			</p>
 		</div>
 		<a class="link" href="/admin/bot">← Back to chat</a>

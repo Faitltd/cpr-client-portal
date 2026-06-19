@@ -38,15 +38,15 @@
 					>Schedule</a
 				>
 			{/if}
-			<!-- Admins use the amber Bot tab instead of the designer CPR Bot tab -->
+			<!-- Admins use the amber Assistant tab instead of the designer CPR Assistant tab -->
 			{#if data.canChat && !data.isAdmin}
-				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Bot</a>
+				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Assistant</a>
 			{/if}
 			{#if data.isAdmin}
 				<span class="admin-group" aria-label="Admin tabs">
 					<a class="tab tab-admin" href="/admin/clients">Client Admin</a>
 					<a class="tab tab-admin" href="/admin/leads">Leads</a>
-					<a class="tab tab-admin" href="/admin/bot">Bot</a>
+					<a class="tab tab-admin" href="/admin/bot">CPR Assistant</a>
 					<a class="tab tab-admin" href="/admin/schedule">Schedule</a>
 					<a class="tab tab-admin" href="/admin/process-map">Process Map</a>
 				</span>

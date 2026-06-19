@@ -179,6 +179,7 @@
 		folder: string | null;
 		url: string | null;
 		modifiedTime: string | null;
+		mime?: string | null;
 	};
 	let portalFiles: PortalFile[] = [];
 	let portalFilesLoading = false;
@@ -623,12 +624,12 @@
 		<!-- Today on site — positive Cliq updates + WorkDrive Photos folder -->
 		<DailyUpdate dealId={String(projects[0].id)} />
 
-		<!-- Project Bot -->
+		<!-- Project Assistant -->
 		<section class="section">
 			<button class="section-header" type="button" on:click={() => (botOpen = !botOpen)}>
 				<span class="section-header-left">
 					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="8"/><circle cx="7" cy="9" r="1" fill="currentColor"/><circle cx="13" cy="9" r="1" fill="currentColor"/><path d="M7 13h6"/></svg>
-					Ask CPR Bot
+					Ask CPR Assistant
 				</span>
 				<span class="toggle-icon">{botOpen ? '−' : '+'}</span>
 			</button>

@@ -643,6 +643,7 @@ const SOURCE_LABEL: Record<string, string> = {
 	zoho_mail: 'Email',
 	zoho_cliq_internal: 'Cliq · internal',
 	zoho_cliq_external: 'Cliq · external',
+	zoho_cliq_channel: 'Cliq · channel',
 	zoho_crm_note: 'CRM note',
 	zoho_crm_field: 'Deal field',
 	zoho_projects_task: 'Projects · task',
@@ -680,6 +681,7 @@ const SOURCE_PRIORITY: Record<string, number> = {
 	zoho_crm_note: 55,
 	zoho_crm_field: 55,
 	zoho_mail: 40,
+	zoho_cliq_channel: 35,
 	zoho_cliq_internal: 30,
 	zoho_cliq_external: 20,
 	sms: 15
@@ -766,27 +768,46 @@ async function fetchRecentChunksAllDeals(days: number, limit: number): Promise<C
 export async function retrieveAllDeals(opts: {
 	query: string;
 	k?: number;
+	/** If set, keep ONLY chunks whose source is in this list. */
+	includeSources?: string[] | null;
+	/** If set, drop any chunk whose source is in this list. */
+	excludeSources?: string[] | null;
 }): Promise<CrossDealChunk[]> {
 	const query = opts.query.trim();
 	if (!query) return [];
 	const k = opts.k ?? 16;
 
+	const include =
+		opts.includeSources && opts.includeSources.length > 0 ? new Set(opts.includeSources) : null;
+	const exclude =
+		opts.excludeSources && opts.excludeSources.length > 0 ? new Set(opts.excludeSources) : null;
+	const sourceOk = (s: string) =>
+		(include ? include.has(s) : true) && (exclude ? !exclude.has(s) : true);
+
+	// When restricting to an include-list we over-fetch so enough in-scope
+	// chunks survive the post-filter; bot_match_chunks_all can't filter by
+	// source in SQL, so we filter here.
+	const fetchK = include ? Math.max(k * 6, 90) : exclude ? Math.max(k * 2, 32) : k;
+
 	// Date-bound questions ("this week", "yesterday", "last 3 days") also pull
 	// the latest activity across all deals so recent items aren't missed when
 	// they rank low on pure semantic similarity.
 	const windowDays = detectTimeWindow(query);
+	const recencyLimit = include ? 120 : 40;
 
 	const [embedding] = await embed([query]);
 	const vectorLiteral = `[${embedding.join(',')}]`;
 
 	const [matchRes, recent] = await Promise.all([
-		supabase.rpc('bot_match_chunks_all', { p_query_embedding: vectorLiteral, p_k: k }),
-		windowDays ? fetchRecentChunksAllDeals(windowDays, 40) : Promise.resolve([] as CrossDealChunk[])
+		supabase.rpc('bot_match_chunks_all', { p_query_embedding: vectorLiteral, p_k: fetchK }),
+		windowDays
+			? fetchRecentChunksAllDeals(windowDays, recencyLimit)
+			: Promise.resolve([] as CrossDealChunk[])
 	]);
 	if (matchRes.error) throw new Error(`bot_match_chunks_all failed: ${matchRes.error.message}`);
 
-	const semantic = ((matchRes.data ?? []) as Array<RetrievedChunk & { deal_id?: string | null }>).map(
-		(r) => ({
+	const semantic = ((matchRes.data ?? []) as Array<RetrievedChunk & { deal_id?: string | null }>)
+		.map((r) => ({
 			chunk_id: r.chunk_id,
 			document_id: r.document_id,
 			deal_id: r.deal_id ?? null,
@@ -797,14 +818,16 @@ export async function retrieveAllDeals(opts: {
 			occurred_at: r.occurred_at,
 			source_url: r.source_url,
 			similarity: r.similarity
-		})
-	);
+		}))
+		.filter((c) => sourceOk(c.source));
+
+	const recentFiltered = recent.filter((c) => sourceOk(c.source));
 
 	// Merge semantic + recency, de-duped by chunk. Semantic leads (most relevant
 	// to the question); recency fills in the latest activity for the window.
 	const merged: CrossDealChunk[] = [];
 	const seen = new Set<string>();
-	for (const c of [...semantic, ...recent]) {
+	for (const c of [...semantic, ...recentFiltered]) {
 		if (seen.has(c.chunk_id)) continue;
 		seen.add(c.chunk_id);
 		merged.push(c);

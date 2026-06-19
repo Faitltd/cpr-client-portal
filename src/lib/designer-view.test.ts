@@ -45,13 +45,14 @@ describe('designer view helpers', () => {
 		expect(getDesignerEmptyMessageForView('on-hold')).toBe('No deals currently On Hold.');
 	});
 
-	it('groups deals into all three designer views', () => {
+	it('groups deals into all designer views', () => {
 		const grouped = groupDesignerDealsByView(deals);
 
 		expect(grouped.map((group) => [group.key, group.deals.map((deal) => deal.id)])).toEqual([
-			['active', ['1', '5', '6']],
 			['project-created', ['2']],
-			['on-hold', ['3']]
+			['active', ['1', '5', '6']],
+			['on-hold', ['3']],
+			['lost', []]
 		]);
 	});
 });

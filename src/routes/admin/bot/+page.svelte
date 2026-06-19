@@ -2,8 +2,9 @@
 	import DealSelector from '$lib/components/DealSelector.svelte';
 	import ChatPanel from './ChatPanel.svelte';
 	import MasterChatPanel from './MasterChatPanel.svelte';
+	import CommsChatPanel from './CommsChatPanel.svelte';
 
-	let tab = $state<'deal' | 'master'>('deal');
+	let tab = $state<'deal' | 'master' | 'comms'>('deal');
 	let dealId = $state('');
 	let dealLabel = $state('');
 
@@ -14,21 +15,21 @@
 </script>
 
 <svelte:head>
-	<title>Bot — CPR Admin</title>
+	<title>CPR Assistant — CPR Admin</title>
 </svelte:head>
 
 <section class="bot-page">
 	<header class="bot-header">
-		<h1>CRM Bot</h1>
+		<h1>CPR Assistant</h1>
 		<p class="bot-subtitle">
-			Read-only assistant. The Deal Bot answers about one project; the Master Bot answers across
-			every deal at once.
+			Read-only assistant. The Deal Assistant answers about one project; the Master Assistant
+			answers across every deal at once; the Comms Assistant reads only email and Cliq.
 		</p>
 	</header>
 
 	<nav class="bot-tabs">
 		<button type="button" class="bot-tab" class:active={tab === 'deal'} onclick={() => (tab = 'deal')}>
-			Deal Bot
+			Deal Assistant
 		</button>
 		<button
 			type="button"
@@ -36,7 +37,15 @@
 			class:active={tab === 'master'}
 			onclick={() => (tab = 'master')}
 		>
-			Master Bot
+			Master Assistant
+		</button>
+		<button
+			type="button"
+			class="bot-tab"
+			class:active={tab === 'comms'}
+			onclick={() => (tab = 'comms')}
+		>
+			Comms Assistant
 		</button>
 	</nav>
 
@@ -50,8 +59,10 @@
 		{:else}
 			<div class="bot-empty">Select a Deal to start a conversation.</div>
 		{/if}
-	{:else}
+	{:else if tab === 'master'}
 		<MasterChatPanel />
+	{:else}
+		<CommsChatPanel />
 	{/if}
 </section>
 

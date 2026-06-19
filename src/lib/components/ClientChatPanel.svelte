@@ -172,7 +172,7 @@
 
 		{#each messages as msg, i (i)}
 			<div class="bubble bubble-{msg.role}">
-				<div class="bubble-role">{msg.role === 'user' ? 'You' : 'CPR Bot'}</div>
+				<div class="bubble-role">{msg.role === 'user' ? 'You' : 'CPR Assistant'}</div>
 				<div class="bubble-body">
 					{#if msg.role === 'assistant' && msg.content}
 						{@html renderMarkdown(msg.content)}

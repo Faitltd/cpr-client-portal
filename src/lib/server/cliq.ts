@@ -364,6 +364,81 @@ export async function getCliqChannelById(
 }
 
 /**
+ * One Cliq channel, normalized for ingestion.
+ */
+export interface CliqChannelInfo {
+	channelId: string | null;
+	chatId: string | null;
+	name: string | null;
+	uniqueName: string | null;
+	level: string | null; // organization | team | private | external
+	status: string | null; // created | pending | archived
+}
+
+function normalizeChannel(raw: any): CliqChannelInfo | null {
+	if (!raw || typeof raw !== 'object') return null;
+	const chatId = raw.chat_id ?? raw.chatid ?? null;
+	const channelId = raw.channel_id ?? raw.id ?? null;
+	if (!chatId && !channelId) return null;
+	return {
+		channelId: channelId != null ? String(channelId) : null,
+		chatId: chatId != null ? String(chatId) : null,
+		name: typeof raw.name === 'string' ? raw.name : null,
+		uniqueName: typeof raw.unique_name === 'string' ? raw.unique_name : null,
+		level: typeof raw.level === 'string' ? raw.level : null,
+		status: typeof raw.status === 'string' ? raw.status : null
+	};
+}
+
+/**
+ * List every Cliq channel the authenticated user can see, paging through
+ * next_token. By default returns only joined, active channels.
+ *   GET {base}/channels?joined=true&status=created&limit=100
+ * Requires scope: ZohoCliq.Channels.READ
+ */
+export async function listCliqChannels(
+	accessToken: string,
+	opts: { joinedOnly?: boolean; status?: string; maxPages?: number } = {}
+): Promise<{ ok: true; channels: CliqChannelInfo[] } | { ok: false; status?: number; error: string }> {
+	const joinedOnly = opts.joinedOnly ?? true;
+	const status = opts.status ?? 'created';
+	const maxPages = opts.maxPages ?? 20;
+	const out: CliqChannelInfo[] = [];
+	let nextToken: string | null = null;
+	let pages = 0;
+
+	while (pages < maxPages) {
+		pages += 1;
+		const params = new URLSearchParams({ limit: '100' });
+		if (joinedOnly) params.set('joined', 'true');
+		if (status) params.set('status', status);
+		if (nextToken) params.set('next_token', nextToken);
+
+		const res = await cliqGet(accessToken, `/channels?${params.toString()}`);
+		if (!res.ok) return res;
+		const body = res.body ?? {};
+		const list: any[] = Array.isArray(body?.channels)
+			? body.channels
+			: Array.isArray(body?.data?.channels)
+				? body.data.channels
+				: Array.isArray(body?.data)
+					? body.data
+					: [];
+		for (const raw of list) {
+			const ch = normalizeChannel(raw);
+			if (ch) out.push(ch);
+		}
+		nextToken =
+			(typeof body?.next_token === 'string' && body.next_token) ||
+			(typeof body?.data?.next_token === 'string' && body.data.next_token) ||
+			null;
+		if (!nextToken || list.length === 0) break;
+	}
+
+	return { ok: true, channels: out };
+}
+
+/**
  * Read messages from a Cliq chat by its `chat_id`. Pages forward.
  *   GET {base}/chats/{chat_id}/messages?fromtime={epoch_ms}&limit=100
  * Requires scope: ZohoCliq.Messages.READ

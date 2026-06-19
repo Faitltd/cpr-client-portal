@@ -52,13 +52,13 @@
 </script>
 
 <svelte:head>
-	<title>Bot Health — CPR Admin</title>
+	<title>CPR Assistant Health — CPR Admin</title>
 </svelte:head>
 
 <section class="page">
 	<header class="head">
 		<div>
-			<h1>Bot Sync Health</h1>
+			<h1>CPR Assistant Sync Health</h1>
 			<p class="sub">Last 25 sync runs across Cliq, Mail, and Books.</p>
 		</div>
 		<div class="actions">

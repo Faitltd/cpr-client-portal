@@ -12,9 +12,9 @@
 {#if data.isAdmin}
 	<h1 class="title">Field Projects</h1>
 	<DesignerDealsView
-		deals={data.deals}
+		deals={data.deals ?? []}
 		warning={data.warning ?? ''}
-		fieldDescriptors={data.fieldDescriptors}
+		fieldDescriptors={data.fieldDescriptors ?? []}
 		designerLabel="All field projects"
 		heading="Field Projects"
 		emptyMessage="No active field projects right now."
