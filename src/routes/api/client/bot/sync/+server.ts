@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { getBotAccess } from '$lib/server/bot-access';
+import { getBotAccess, buildClientBotAccess } from '$lib/server/bot-access';
+import { getPortalPrincipal } from '$lib/server/designer';
 import { getDealsForClient } from '$lib/server/projects';
 import { syncWorkDriveForDeal } from '$lib/server/bot/ingest-workdrive';
 import { syncProjectsForDeal } from '$lib/server/bot/ingest-projects';
@@ -14,7 +15,15 @@ import type { RequestHandler } from './$types';
  * the client's deal. Client has no Sync UI — this is the only refresh path.
  */
 export const POST: RequestHandler = async ({ request, cookies }) => {
-	const access = await getBotAccess(cookies);
+	let access = await getBotAccess(cookies);
+	// A logged-in client must reach their own sync even if a stale trade/admin
+	// cookie shadows their session in getBotAccess's role precedence.
+	if (!access || (access.role !== 'client' && access.role !== 'admin')) {
+		const principal = await getPortalPrincipal(cookies.get('portal_session'));
+		if (principal?.role === 'client') {
+			access = buildClientBotAccess(principal.session.client as Record<string, any>);
+		}
+	}
 	if (!access || (access.role !== 'client' && access.role !== 'admin')) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}

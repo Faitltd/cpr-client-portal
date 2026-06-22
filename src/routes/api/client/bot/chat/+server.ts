@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { getBotAccess } from '$lib/server/bot-access';
+import { getBotAccess, buildClientBotAccess } from '$lib/server/bot-access';
+import { getPortalPrincipal } from '$lib/server/designer';
 import { runChat, type ChatMessage } from '$lib/server/bot/chat';
 import { getDealsForClient } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
@@ -21,7 +22,17 @@ function isMessage(x: unknown): x is ChatMessage {
 }
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
-	const access = await getBotAccess(cookies);
+	let access = await getBotAccess(cookies);
+	// A logged-in client must always reach their own assistant. getBotAccess
+	// resolves admin→trade→portal, so a stale trade/admin cookie left in the
+	// browser (from testing another role) would otherwise shadow a real client
+	// session and 401 them. Re-resolve the client straight from portal_session.
+	if (!access || (access.role !== 'client' && access.role !== 'admin')) {
+		const principal = await getPortalPrincipal(cookies.get('portal_session'));
+		if (principal?.role === 'client') {
+			access = buildClientBotAccess(principal.session.client as Record<string, any>);
+		}
+	}
 	if (!access || (access.role !== 'client' && access.role !== 'admin')) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}

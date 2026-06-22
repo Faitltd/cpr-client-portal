@@ -81,21 +81,36 @@
 		}
 	};
 
-	// Rollup for the Project progress graph (overall + per-phase/tasklist).
+	// Fixed renovation stages. Each task is bucketed into one of these by
+	// keyword (checked in this priority order); anything unmatched falls to Build.
+	const STAGE_ORDER = ['Design', 'Demo', 'Build', 'Finish'] as const;
+	const STAGE_PATTERNS: Array<{ stage: string; re: RegExp }> = [
+		{ stage: 'Design', re: /\b(design|plan|planning|permit|selection|select|drawing|blueprint|measure|scope|estimat|engineer|layout|approv|contract|proposal|render|order(ing)?\s+material)\b/i },
+		{ stage: 'Demo', re: /\b(demo|demolition|tear[\s-]?out|tear[\s-]?down|remove|removal|haul|gut|strip|disconnect|abate)\b/i },
+		{ stage: 'Finish', re: /\b(finish|final|punch|touch[\s-]?up|clean|walk[\s-]?through|trim|hardware|fixture|paint|caulk|seal|closeout|detail|complete)\b/i },
+		{ stage: 'Build', re: /\b(build|fram|install|rough|plumb|electric|hvac|mechanical|drywall|insulat|concrete|tile|cabinet|counter|construct|sub[\s-]?floor|deck|roof|window|door|siding|stucco|pour|set)\b/i }
+	];
+	const classifyStage = (t: any): string => {
+		const hay = `${getTaskName(t)} ${t?.tasklist?.name ?? t?.tasklist ?? ''} ${t?.milestone?.name ?? ''}`.toLowerCase();
+		for (const { stage, re } of STAGE_PATTERNS) {
+			if (re.test(hay)) return stage;
+		}
+		return 'Build';
+	};
+
+	// Rollup for the Project progress graph (overall + fixed stages).
 	$: taskStats = (() => {
 		const total = tasks.length;
 		const completed = tasks.filter(isTaskComplete).length;
-		const phaseMap = new Map<string, { name: string; total: number; completed: number }>();
+		const buckets = new Map<string, { name: string; total: number; completed: number }>(
+			STAGE_ORDER.map((s) => [s, { name: s, total: 0, completed: 0 }])
+		);
 		for (const t of tasks) {
-			const raw = t?.tasklist?.name ?? t?.tasklist ?? t?.milestone?.name ?? null;
-			const name = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
-			if (!name) continue;
-			const e = phaseMap.get(name) ?? { name, total: 0, completed: 0 };
+			const e = buckets.get(classifyStage(t))!;
 			e.total += 1;
 			if (isTaskComplete(t)) e.completed += 1;
-			phaseMap.set(name, e);
 		}
-		const phases = Array.from(phaseMap.values()).slice(0, 6);
+		const phases = STAGE_ORDER.map((s) => buckets.get(s)!);
 		return { total, completed, phases };
 	})();
 

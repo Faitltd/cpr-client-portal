@@ -170,44 +170,47 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 			}
 		}
 		if (principal?.role === 'client') {
-			const client = principal.session.client as Record<string, any>;
-			return {
-				role: 'client',
-				email: (client.email ?? '').toLowerCase(),
-				// Homeowner-visible sources only. Books estimates expose CPR's
-				// cost build-up (line-item margins), so they're excluded. Cliq
-				// internal is staff-only. Mail is excluded by default because
-				// it routinely contains internal pricing discussions; if you
-				// want clients to see their own client-facing email, switch
-				// the retrieve layer to filter by recipient first.
-				allowedSources: [
-					'workdrive_pdf',
-					'workdrive_docx',
-					'workdrive_xlsx',
-					'zoho_crm_field',
-					'zoho_books_invoice',
-					'zoho_books_payment',
-					'zoho_cliq_external',
-					'zoho_projects_task',
-					'zoho_projects_activity',
-					'zoho_sign_request',
-					'transcript'
-				],
-				// WorkDrive-side gate: clients see only files inside their
-				// deal's "Client Portal" subfolder. Designs, SOW, Permits,
-				// Internal, Cost Build-ups, etc. all stay hidden because they
-				// may carry pre-markup pricing or staff-only material.
-				// (zoho_cliq_internal is already excluded above; only the
-				// external client-facing Cliq channel reaches them.)
-				allowedTopFolders: ['Client Portal'],
-				hideFinancials: false,
-				hideInternalFinancials: true,
-				tradePartnerId: null,
-				clientId: client.id ?? null,
-				clientZohoContactId: client.zoho_contact_id ?? client.zohoContactId ?? null
-			};
+			return buildClientBotAccess(principal.session.client as Record<string, any>);
 		}
 	}
 
 	return null;
+}
+
+/**
+ * Build the homeowner (client) bot access object from a client record. Exposed
+ * so the client-facing endpoints can resolve a client directly from the portal
+ * session — independent of getBotAccess's admin→trade→portal precedence, which
+ * would otherwise let a stale trade/admin cookie shadow a real client session.
+ */
+export function buildClientBotAccess(client: Record<string, any>): BotAccess {
+	return {
+		role: 'client',
+		email: (client.email ?? '').toLowerCase(),
+		// Homeowner-visible sources only. Books estimates expose CPR's cost
+		// build-up (line-item margins), so they're excluded. Cliq internal is
+		// staff-only. Mail is excluded by default because it routinely contains
+		// internal pricing discussions.
+		allowedSources: [
+			'workdrive_pdf',
+			'workdrive_docx',
+			'workdrive_xlsx',
+			'zoho_crm_field',
+			'zoho_books_invoice',
+			'zoho_books_payment',
+			'zoho_cliq_external',
+			'zoho_projects_task',
+			'zoho_projects_activity',
+			'zoho_sign_request',
+			'transcript'
+		],
+		// WorkDrive-side gate: clients see only files inside their deal's
+		// "Client Portal" subfolder.
+		allowedTopFolders: ['Client Portal'],
+		hideFinancials: false,
+		hideInternalFinancials: true,
+		tradePartnerId: null,
+		clientId: client.id ?? null,
+		clientZohoContactId: client.zoho_contact_id ?? client.zohoContactId ?? null
+	};
 }
