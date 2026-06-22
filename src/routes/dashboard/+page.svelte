@@ -1346,13 +1346,13 @@
 		align-items: center;
 		justify-content: center;
 		padding: 0.7rem 2.4rem;
-		border: 1px solid #e5e7eb;
-		background: #f8fafc;
+		border: 1px solid #f1c9c6;
+		background: #fdf3f2;
 		border-radius: 10px;
 		font-size: 0.95rem;
 		font-weight: 700;
 		cursor: pointer;
-		color: #111827;
+		color: #b3322c;
 		-webkit-tap-highlight-color: transparent;
 	}
 
@@ -1364,7 +1364,7 @@
 	}
 
 	.section-header:hover {
-		background: #eef2f7;
+		background: #fbe7e5;
 	}
 
 	/* Non-interactive header variant for external-link sections */
@@ -1373,7 +1373,7 @@
 	}
 
 	.section-header-link:hover {
-		background: #f8fafc;
+		background: #fdf3f2;
 	}
 
 	.section-header-left {
@@ -1384,7 +1384,7 @@
 
 	.section-header-left svg {
 		flex-shrink: 0;
-		color: #6b7280;
+		color: #b3322c;
 	}
 
 	.toggle-icon {
