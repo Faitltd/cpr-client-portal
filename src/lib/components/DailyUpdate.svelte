@@ -3,14 +3,15 @@
 	import { renderMarkdown } from '$lib/markdown';
 
 	export let dealId: string;
-	/** Hours of "recent" — defaults to 36 so an evening visit shows the next morning. */
+	/** Retained for back-compat with other callers; no longer used for display. */
 	export let windowHours = 36;
 	/**
-	 * Which endpoint to call. Defaults to the client endpoint; trade or admin
-	 * callers can pass a different builder if they want to reuse the panel.
+	 * Which endpoint to call. Defaults to the client endpoint, which returns the
+	 * LATEST progress (server-side lookback) rather than a fixed window. Trade or
+	 * admin callers can pass a different builder to reuse the panel.
 	 */
-	export let endpointBuilder: (id: string, hours: number) => string = (id, hours) =>
-		`/api/client/daily-update/${encodeURIComponent(id)}?hours=${hours}`;
+	export let endpointBuilder: (id: string, hours: number) => string = (id) =>
+		`/api/client/daily-update/${encodeURIComponent(id)}`;
 
 	interface DailyPhoto {
 		id: string;
@@ -23,7 +24,15 @@
 	let error = '';
 	let summary = '';
 	let photos: DailyPhoto[] = [];
+	let asOf: string | null = null;
 	let lightboxUrl: string | null = null;
+
+	const asOfLabel = (iso: string | null) => {
+		if (!iso) return '';
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return '';
+		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	};
 
 	async function load(id: string) {
 		if (!id) return;
@@ -38,6 +47,7 @@
 			const payload = await res.json();
 			summary = typeof payload?.summary === 'string' ? payload.summary : '';
 			photos = Array.isArray(payload?.photos) ? payload.photos : [];
+			asOf = typeof payload?.asOf === 'string' ? payload.asOf : null;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load';
 		} finally {
@@ -51,8 +61,8 @@
 
 <section class="daily-card">
 	<header class="card-head">
-		<h3>Today on site</h3>
-		<span class="window-note">Last {windowHours}h</span>
+		<h3>Project status</h3>
+		{#if asOf}<span class="window-note">as of {asOfLabel(asOf)}</span>{/if}
 	</header>
 
 	{#if loading}
@@ -81,7 +91,7 @@
 		{#if summary}
 			<div class="summary">{@html renderMarkdown(summary)}</div>
 		{:else if photos.length === 0}
-			<p class="muted">No new updates in the last {windowHours} hours.</p>
+			<p class="muted">No recent updates yet — your team posts progress here as work moves.</p>
 		{/if}
 	{/if}
 </section>

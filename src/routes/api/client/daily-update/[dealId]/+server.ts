@@ -35,7 +35,12 @@ const FIELDUPDATE_CHAT_ID =
  * problem / issue / delay keyword is dropped before sending to the client.
  */
 
-const DEFAULT_WINDOW_HOURS = Number(env.DAILY_UPDATE_WINDOW_HOURS ?? '36');
+// How far back to GATHER candidate updates. Used to find the *latest* progress
+// even after a quiet weekend — the summary always reflects the most recent
+// meaningful activity, not a fixed short window. Overridable via ?days= (capped).
+const DEFAULT_LOOKBACK_DAYS = Number(env.DAILY_UPDATE_LOOKBACK_DAYS ?? '14');
+// Hard cap on bullet points the client sees — newest / most important first.
+const MAX_BULLETS = 4;
 
 const NEGATIVE_RE =
 	/\b(problem|issue|broken|damag(e|ed|es)|delay(ed|s)?|fail(ed|ure|s)?|cracked|leak(ed|ing|s)?|missing|wrong|incorrect|holdup|stuck|blocked|concern|risk|hazard|injury|accident|complaint)\b/i;
@@ -46,7 +51,7 @@ interface DailyMessage {
 	author: string | null;
 	body: string;
 	subject?: string | null;
-	channel: 'internal' | 'external' | 'mail' | 'field_update';
+	channel: 'internal' | 'external' | 'mail' | 'field_update' | 'task';
 }
 
 interface DailyPhoto {
@@ -61,6 +66,8 @@ interface DailyUpdatePayload {
 	photos: DailyPhoto[];
 	windowHours: number;
 	sourceCount: number;
+	/** ISO timestamp of the newest update reflected in the summary, or null. */
+	asOf: string | null;
 }
 
 async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: string }> {
@@ -73,32 +80,36 @@ async function getAccessToken(): Promise<{ accessToken: string; apiDomain?: stri
 
 const SUMMARY_MODEL = env.DAILY_UPDATE_MODEL || 'gpt-4o-mini';
 
-async function summariseActivity(messages: DailyMessage[], windowHours: number): Promise<string> {
-	if (messages.length === 0) {
-		return `No new updates in the last ${windowHours} hours.`;
-	}
+async function summariseActivity(messages: DailyMessage[]): Promise<string> {
+	if (messages.length === 0) return '';
 	const apiKey = env.OPENAI_API_KEY;
 	if (!apiKey) {
 		console.warn('[client/daily-update] OPENAI_API_KEY not set, returning empty summary');
 		return '';
 	}
 
-	// Trim message bodies and order newest first so the model sees the
-	// freshest signal at the top.
+	// Messages arrive newest-first. Show the model the freshest signal at the
+	// top and label completed tasks so it can prioritise them.
 	const lines = messages.slice(0, 60).map((m) => {
 		const author = m.author ?? 'CPR team';
-		const subject = m.subject ? ` — Subject: ${m.subject}` : '';
+		const subject = m.subject ? ` — ${m.subject}` : '';
+		const tag = m.channel === 'task' ? '[COMPLETED TASK] ' : '';
 		const body = m.body.replace(/\s+/g, ' ').slice(0, 600);
 		const when = new Date(m.occurredAt).toISOString().slice(0, 16).replace('T', ' ');
-		return `[${when}] ${author}${subject}: ${body}`;
+		return `[${when}] ${tag}${author}${subject}: ${body}`;
 	});
 
 	const prompt = [
-		`The following are recent updates from a home-renovation project, gathered from team chat, client emails, and trade-partner field reports over the last ${windowHours} hours.`,
+		`Below are the most recent updates from a home-renovation project, gathered from completed project tasks, client-facing chat, client emails, and trade-partner field reports. They are ordered newest first.`,
 		``,
-		`Summarise the POSITIVE progress and concrete actions for the homeowner — what was done, what was ordered, what's coming next, who is on site. Skip any problems, complaints, delays, or unresolved issues; those are handled separately. Skip anything that's just chit-chat or scheduling logistics with no work content.`,
+		`Write a brief status update for the HOMEOWNER that shows where the project stands right now and the direction it's heading. Prioritise the newest and most important items. Favour completed tasks and concrete milestones (what was finished, what was ordered/scheduled, who is on site, what's next).`,
 		``,
-		`Format as 3-6 short bullet points using markdown "- " hyphens. Be concrete and specific. Use third person past tense. If there's truly nothing positive to share, return: "No new progress to report in the last ${windowHours} hours."`,
+		`Rules:`,
+		`- Maximum ${MAX_BULLETS} bullet points. Fewer is fine. Put the newest / most important first.`,
+		`- Use markdown "- " hyphens. One sentence each, concrete and specific, third person.`,
+		`- Skip problems, complaints, delays, costs/pricing, and pure scheduling chit-chat.`,
+		`- Do not mention internal team logistics that don't affect the homeowner.`,
+		`- If nothing is worth reporting, return an empty response.`,
 		``,
 		`Updates:`,
 		...lines
@@ -119,7 +130,7 @@ async function summariseActivity(messages: DailyMessage[], windowHours: number):
 					{
 						role: 'system',
 						content:
-							'You are a renovation-project assistant who writes short, factual, upbeat progress summaries for homeowners. You only include positive actions and concrete progress. You never mention problems, complaints, or delays.'
+							`You are a renovation-project assistant who writes short, factual, upbeat status updates for homeowners. You show where the project stands and where it's heading, leading with the newest and most important progress. You output at most ${MAX_BULLETS} bullet points. You only include positive actions and concrete progress, and never mention problems, complaints, delays, or costs.`
 					},
 					{ role: 'user', content: prompt }
 				]
@@ -132,11 +143,35 @@ async function summariseActivity(messages: DailyMessage[], windowHours: number):
 		}
 		const payload = await response.json();
 		const text = payload?.choices?.[0]?.message?.content;
-		return typeof text === 'string' ? text.trim() : '';
+		return typeof text === 'string' ? clampBullets(text.trim()) : '';
 	} catch (err) {
 		console.warn('[client/daily-update] summary failed:', err);
 		return '';
 	}
+}
+
+/**
+ * Hard-cap the summary to MAX_BULLETS bullet lines, preserving order (newest /
+ * most important first). Non-bullet lines (a lead sentence, blank lines) are
+ * kept only if they precede the first bullet.
+ */
+function clampBullets(text: string): string {
+	const lines = text.split('\n');
+	const out: string[] = [];
+	let bullets = 0;
+	let seenBullet = false;
+	for (const line of lines) {
+		const isBullet = /^\s*[-*]\s+/.test(line);
+		if (isBullet) {
+			if (bullets >= MAX_BULLETS) break;
+			bullets += 1;
+			seenBullet = true;
+			out.push(line);
+		} else if (!seenBullet) {
+			out.push(line);
+		}
+	}
+	return out.join('\n').trim();
 }
 
 function stripEmailHeaders(body: string): string {
@@ -162,15 +197,16 @@ async function fetchRecentDealActivity(
 ): Promise<DailyMessage[]> {
 	const cutoffIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
 	// Pull from the deal's internal Cliq channel (CPR staff discussions),
-	// external Cliq channel (CPR ↔ client conversations), AND email.
+	// external Cliq channel (CPR ↔ client conversations), email, AND completed
+	// Zoho Projects tasks (already synced as zoho_projects_task documents).
 	const { data, error } = await supabase
 		.from('bot_documents')
 		.select('id, source, author, subject, occurred_at, body')
 		.eq('deal_id', dealId)
-		.in('source', ['zoho_cliq_internal', 'zoho_cliq_external', 'zoho_mail'])
+		.in('source', ['zoho_cliq_internal', 'zoho_cliq_external', 'zoho_mail', 'zoho_projects_task'])
 		.gte('occurred_at', cutoffIso)
 		.order('occurred_at', { ascending: false })
-		.limit(150);
+		.limit(200);
 	if (error) {
 		console.warn('[client/daily-update] activity query failed:', error.message);
 		return [];
@@ -180,6 +216,14 @@ async function fetchRecentDealActivity(
 		const rawBody = String((row as any).body ?? '').trim();
 		if (!rawBody) continue;
 		const source = String((row as any).source ?? '');
+		// Only surface project tasks that are actually DONE — the body carries a
+		// "Status: Completed" (or Closed/Done) line and/or a "Completed: <date>".
+		if (source === 'zoho_projects_task') {
+			const isDone =
+				/\bStatus:\s*(completed|closed|done)\b/i.test(rawBody) ||
+				/\bCompleted:\s*\S/i.test(rawBody);
+			if (!isDone) continue;
+		}
 		const isMail = source === 'zoho_mail';
 		const body = isMail ? stripEmailHeaders(rawBody) : rawBody;
 		if (!body) continue;
@@ -189,7 +233,9 @@ async function fetchRecentDealActivity(
 				? 'internal'
 				: source === 'zoho_cliq_external'
 					? 'external'
-					: 'mail';
+					: source === 'zoho_projects_task'
+						? 'task'
+						: 'mail';
 		out.push({
 			id: `${channel}:${(row as any).id}`,
 			occurredAt: String((row as any).occurred_at),
@@ -539,10 +585,16 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		return json({ message: 'Access denied' }, { status: 403 });
 	}
 
-	const windowHours = Math.min(
-		Math.max(Number(url.searchParams.get('hours') ?? DEFAULT_WINDOW_HOURS), 1),
-		24 * 14
-	);
+	// Gather window. Default: DEFAULT_LOOKBACK_DAYS (so a quiet weekend can't
+	// blank the card — we always show the latest progress). `?days=` overrides;
+	// `?hours=` still honoured for back-compat. Capped at 60 days.
+	const hoursParam = url.searchParams.get('hours');
+	const daysParam = url.searchParams.get('days');
+	const rawHours =
+		hoursParam != null
+			? Number(hoursParam)
+			: (daysParam != null ? Number(daysParam) : DEFAULT_LOOKBACK_DAYS) * 24;
+	const windowHours = Math.min(Math.max(Number.isFinite(rawHours) ? rawHours : DEFAULT_LOOKBACK_DAYS * 24, 1), 24 * 60);
 
 	try {
 		const internalMessages = await fetchRecentDealActivity(dealId, windowHours);
@@ -586,13 +638,15 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 		}
 		messages.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
 
-		const summary = await summariseActivity(messages, windowHours);
+		const summary = await summariseActivity(messages);
+		const asOf = messages.length > 0 ? messages[0].occurredAt : null;
 
 		const payload: DailyUpdatePayload = {
 			summary,
 			photos,
 			windowHours,
-			sourceCount: messages.length
+			sourceCount: messages.length,
+			asOf
 		};
 		return json(payload);
 	} catch (err) {
