@@ -3,6 +3,7 @@
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import ClientChatPanel from '$lib/components/ClientChatPanel.svelte';
 	import DailyUpdate from '$lib/components/DailyUpdate.svelte';
+	import ProjectProgress from '$lib/components/ProjectProgress.svelte';
 
 	interface EmailPref {
 		id: string;
@@ -79,6 +80,24 @@
 			tasksLoading = false;
 		}
 	};
+
+	// Rollup for the Project progress graph (overall + per-phase/tasklist).
+	$: taskStats = (() => {
+		const total = tasks.length;
+		const completed = tasks.filter(isTaskComplete).length;
+		const phaseMap = new Map<string, { name: string; total: number; completed: number }>();
+		for (const t of tasks) {
+			const raw = t?.tasklist?.name ?? t?.tasklist ?? t?.milestone?.name ?? null;
+			const name = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+			if (!name) continue;
+			const e = phaseMap.get(name) ?? { name, total: 0, completed: 0 };
+			e.total += 1;
+			if (isTaskComplete(t)) e.completed += 1;
+			phaseMap.set(name, e);
+		}
+		const phases = Array.from(phaseMap.values()).slice(0, 6);
+		return { total, completed, phases };
+	})();
 
 	// --- Change Order request form ---
 	let coPanelOpen = false;
@@ -623,6 +642,14 @@
 
 		<!-- Today on site — positive Cliq updates + WorkDrive Photos folder -->
 		<DailyUpdate dealId={String(projects[0].id)} />
+
+		<!-- Project progress graph (tasks completed) — always visible below Project status -->
+		<ProjectProgress
+			total={taskStats.total}
+			completed={taskStats.completed}
+			phases={taskStats.phases}
+			loading={tasksLoading && taskStats.total === 0}
+		/>
 
 		<!-- Project Assistant -->
 		<section class="section">
