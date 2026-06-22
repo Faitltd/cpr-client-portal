@@ -55,40 +55,48 @@
 		}
 	}
 
+	let open = true;
+
 	onMount(() => load(dealId));
 	$: if (dealId) load(dealId);
 </script>
 
 <section class="daily-card">
-	<header class="card-head">
-		<h3>Project status</h3>
-		{#if asOf}<span class="window-note">as of {asOfLabel(asOf)}</span>{/if}
-	</header>
+	<button class="card-head" type="button" on:click={() => (open = !open)} aria-expanded={open}>
+		<span class="card-head-left">
+			<span class="pc-accent" aria-hidden="true"></span>
+			<h3>Project status</h3>
+			{#if asOf}<span class="window-note">as of {asOfLabel(asOf)}</span>{/if}
+		</span>
+		<span class="toggle-icon">{open ? '−' : '+'}</span>
+	</button>
 
-	{#if loading}
-		<p class="muted">Loading recent activity…</p>
-	{:else if error}
-		<p class="error">Couldn't load updates: {error}</p>
-	{:else}
-		{#if photos.length > 0}
-			<div class="photo-grid">
-				{#each photos.slice(0, 4) as photo (photo.id)}
-					<button
-						type="button"
-						class="thumb"
-						title={photo.name}
-						on:click={() => (lightboxUrl = photo.url)}
-					>
-						<img src={photo.url} alt={photo.name} loading="lazy" />
-					</button>
-				{/each}
-			</div>
-		{/if}
+	{#if open}
+		{#if loading}
+			<p class="muted">Loading recent activity…</p>
+		{:else if error}
+			<p class="error">Couldn't load updates: {error}</p>
+		{:else}
+			{#if photos.length > 0}
+				<div class="photo-grid">
+					{#each photos.slice(0, 4) as photo (photo.id)}
+						<button
+							type="button"
+							class="thumb"
+							title={photo.name}
+							on:click={() => (lightboxUrl = photo.url)}
+						>
+							<img src={photo.url} alt={photo.name} loading="lazy" />
+						</button>
+					{/each}
+				</div>
+			{/if}
 
-		{#if summary}
-			<div class="summary">{@html renderMarkdown(summary)}</div>
-		{:else if photos.length === 0}
-			<p class="muted">No recent updates yet — your team posts progress here as work moves.</p>
+			{#if summary}
+				<div class="summary">{@html renderMarkdown(summary)}</div>
+			{:else if photos.length === 0}
+				<p class="muted">No recent updates yet — your team posts progress here as work moves.</p>
+			{/if}
 		{/if}
 	{/if}
 </section>
@@ -108,19 +116,51 @@
 		margin: 1rem 0;
 	}
 	.card-head {
+		width: 100%;
+		box-sizing: border-box;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.5rem;
+		gap: 0.5rem;
+		background: #fdf3f2;
+		border: 1px solid #f1c9c6;
+		border-radius: 10px;
+		padding: 0.6rem 0.9rem;
+		margin-bottom: 0.75rem;
+		cursor: pointer;
+		color: #b3322c;
+		-webkit-tap-highlight-color: transparent;
+	}
+	.card-head:hover {
+		background: #fbe7e5;
+	}
+	.card-head-left {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 	}
 	.card-head h3 {
 		margin: 0;
 		font-size: 1rem;
-		font-weight: 600;
+		font-weight: 700;
+		color: #b3322c;
+	}
+	.pc-accent {
+		width: 4px;
+		height: 16px;
+		border-radius: 2px;
+		background: #e11b22;
+		display: inline-block;
+	}
+	.toggle-icon {
+		font-size: 1.15rem;
+		font-weight: 700;
+		line-height: 1;
 	}
 	.window-note {
 		font-size: 0.75rem;
-		color: #6b7280;
+		color: #9b6b67;
+		font-weight: 500;
 	}
 	.photo-grid {
 		display: grid;

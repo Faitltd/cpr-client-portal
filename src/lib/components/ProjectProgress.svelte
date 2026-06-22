@@ -7,6 +7,8 @@
 	export let phases: { name: string; total: number; completed: number }[] = [];
 	export let loading = false;
 
+	let open = true;
+
 	const RED = '#E11B22';
 	const GREEN = '#16a34a';
 	const AMBER = '#f59e0b';
@@ -45,11 +47,15 @@
 </script>
 
 <section class="progress-card">
-	<div class="pc-head">
-		<span class="pc-accent" aria-hidden="true"></span>
-		<h3>Project progress</h3>
-	</div>
+	<button class="pc-head" type="button" on:click={() => (open = !open)} aria-expanded={open}>
+		<span class="pc-head-left">
+			<span class="pc-accent" aria-hidden="true"></span>
+			<h3>Project progress</h3>
+		</span>
+		<span class="toggle-icon">{open ? '−' : '+'}</span>
+	</button>
 
+	{#if open}
 	{#if loading}
 		<div class="pc-skeleton">
 			<div class="sk-ring"></div>
@@ -115,6 +121,7 @@
 			</div>
 		{/if}
 	{/if}
+	{/if}
 </section>
 
 <style>
@@ -127,10 +134,30 @@
 	}
 
 	.pc-head {
+		width: 100%;
+		box-sizing: border-box;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.6rem;
+		background: #fdf3f2;
+		border: 1px solid #f1c9c6;
+		border-radius: 10px;
+		padding: 0.6rem 0.9rem;
+		margin-bottom: 1rem;
+		cursor: pointer;
+		color: #b3322c;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.pc-head:hover {
+		background: #fbe7e5;
+	}
+
+	.pc-head-left {
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
-		margin-bottom: 1rem;
 	}
 
 	.pc-accent {
@@ -145,7 +172,13 @@
 		margin: 0;
 		font-size: 1.05rem;
 		font-weight: 700;
-		color: #111827;
+		color: #b3322c;
+	}
+
+	.toggle-icon {
+		font-size: 1.15rem;
+		font-weight: 700;
+		line-height: 1;
 	}
 
 	.pc-body {
