@@ -431,22 +431,16 @@ const FIELD_UPDATES_MODULES = (() => {
  * Supabase Storage URLs work without Zoho auth so we can hand them straight
  * to the client UI as <img src>.
  */
-async function fetchSupabaseFieldUpdatePhotos(
-	dealId: string,
-	windowHours: number
-): Promise<DailyPhoto[]> {
+async function fetchSupabaseFieldUpdatePhotos(dealId: string): Promise<DailyPhoto[]> {
 	const { getFieldUpdatesByDeal } = await import('$lib/server/db');
 	const updates = await getFieldUpdatesByDeal(dealId).catch(() => [] as any[]);
-	const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
 	const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm', 'mkv', 'wmv', 'hevc']);
 	const photos: DailyPhoto[] = [];
 	const seen = new Set<string>();
 	for (const u of updates) {
 		const createdRaw = (u as any).created_at;
-		const createdMs = typeof createdRaw === 'string' ? Date.parse(createdRaw) : Number.NaN;
-		if (Number.isFinite(createdMs) && createdMs < cutoff) continue;
 		// Client portal shows ONLY the curated client gallery — never the crew's
-		// internal daily-log photos.
+		// internal daily-log photos. No time cutoff: show the latest curated set.
 		const ids: string[] = Array.isArray((u as any).client_photo_ids)
 			? (u as any).client_photo_ids
 			: [];
@@ -499,8 +493,7 @@ async function collectPhotosFolderIds(
 async function fetchWorkDrivePhotos(
 	accessToken: string,
 	apiDomain: string | undefined,
-	dealId: string,
-	windowHours: number
+	dealId: string
 ): Promise<DailyPhoto[]> {
 	const dealRes = await zohoApiCall(
 		accessToken,
@@ -516,7 +509,6 @@ async function fetchWorkDrivePhotos(
 	const photosFolderIds = await collectPhotosFolderIds(accessToken, rootId, apiDomain);
 	if (photosFolderIds.length === 0) return [];
 
-	const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
 	const photos: DailyPhoto[] = [];
 	const seenIds = new Set<string>();
 	for (const folderId of photosFolderIds) {
@@ -528,8 +520,6 @@ async function fetchWorkDrivePhotos(
 				IMAGE_EXT_RE.test(it.name) ||
 				(typeof it.mime === 'string' && IMAGE_MIME_RE.test(it.mime));
 			if (!isImage) continue;
-			const modifiedMs = it.modifiedTime ? Date.parse(it.modifiedTime) : Number.NaN;
-			if (Number.isFinite(modifiedMs) && modifiedMs < cutoff) continue;
 			seenIds.add(it.id);
 			photos.push({
 				id: it.id,
@@ -610,14 +600,15 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 			const deal = await fetchDealNames(accessToken, apiDomain, dealId);
 			let workDrivePhotos: DailyPhoto[] = [];
 			let supabasePhotos: DailyPhoto[] = [];
-			// Only the curated client gallery (client_photo_ids) is shown to the
-			// homeowner. The generic WorkDrive "Photos" scan is intentionally NOT
-			// used here — those folders can hold legacy/internal shots that must
-			// never reach the client. (Curated photos are still archived to
-			// WorkDrive on submit; the Supabase set is the portal's source.)
-			[fieldUpdateMessages, supabasePhotos] = await Promise.all([
+			// Client gallery = the deal's WorkDrive "Client Portal/Photos" folder
+			// (the curated, client-facing set, where new client photos are also
+			// archived) PLUS any curated client_photo_ids in Supabase. Shown as a
+			// gallery of the latest photos, not time-windowed, so existing photos
+			// always appear.
+			[fieldUpdateMessages, workDrivePhotos, supabasePhotos] = await Promise.all([
 				fetchFieldUpdateCliqMessages(accessToken, deal, windowHours),
-				fetchSupabaseFieldUpdatePhotos(dealId, windowHours)
+				fetchWorkDrivePhotos(accessToken, apiDomain, dealId),
+				fetchSupabaseFieldUpdatePhotos(dealId)
 			]);
 			// Merge by id; field-update uploads (most recent activity) win.
 			const seen = new Set<string>();
