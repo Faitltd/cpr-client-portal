@@ -74,11 +74,7 @@
 		<header class="portal-header">
 			<div class="portal-header-inner">
 				<a class="portal-logo" href={isTradePortal ? '/trade/dashboard' : '/dashboard'}>
-					<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-						<rect width="28" height="28" rx="6" fill="#111827"/>
-						<text x="14" y="19" text-anchor="middle" font-size="14" font-weight="800" fill="#fff" font-family="system-ui">C</text>
-					</svg>
-					<span>CPR</span>
+					<img class="portal-logo-img" src="/images/home-cpr-logo.png" alt="Home CPR" />
 				</a>
 
 				{#if isTradePortal && hasTradeSession}
@@ -150,11 +146,13 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-weight: 800;
-		font-size: 1.1rem;
 		text-decoration: none;
-		color: #111827;
-		letter-spacing: -0.01em;
+	}
+
+	.portal-logo-img {
+		height: 34px;
+		width: auto;
+		display: block;
 	}
 
 	/* ── Trade portal inline nav ───────────────────────── */
