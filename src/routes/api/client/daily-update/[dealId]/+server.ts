@@ -6,7 +6,6 @@ import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { getPortalPrincipal } from '$lib/server/designer';
 import { getDealsForClient } from '$lib/server/projects';
 import { listWorkDriveFolder, extractWorkDriveFolderId } from '$lib/server/workdrive';
-import { getOrCreateWorkDriveFileShare } from '$lib/server/workdrive-shares';
 import { getCliqChatMessagesById } from '$lib/server/cliq';
 import type { RequestHandler } from './$types';
 
@@ -530,28 +529,20 @@ async function fetchWorkDrivePhotos(
 		}
 	}
 
-	// Sort newest first BEFORE minting external shares so the top images get
-	// real URLs even if we hit the share-mint cap.
+	// Newest first.
 	photos.sort((a, b) => {
 		const aT = a.modifiedTime ? Date.parse(a.modifiedTime) : 0;
 		const bT = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
 		return bT - aT;
 	});
-	const top = photos.slice(0, 18);
+	const top = photos.slice(0, 12);
 
-	// Mint (or look up cached) external share URLs — clients have no Zoho
-	// account so the internal /file/{id} URL is useless to them.
-	await Promise.all(
-		top.map(async (p) => {
-			const external = await getOrCreateWorkDriveFileShare({
-				accessToken,
-				apiDomain,
-				fileId: p.id,
-				fileName: p.name
-			}).catch(() => null);
-			p.url = external ?? `https://workdrive.zoho.com/file/${encodeURIComponent(p.id)}`;
-		})
-	);
+	// Clients have no Zoho account, so a WorkDrive share/file URL won't render
+	// as <img>. Serve each photo through our authenticated proxy, which streams
+	// the bytes server-side. Renders exactly like the Supabase photos.
+	for (const p of top) {
+		p.url = `/api/client/photos/workdrive/${encodeURIComponent(p.id)}?n=${encodeURIComponent(p.name)}`;
+	}
 	return top;
 }
 
@@ -622,6 +613,8 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 				const bT = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
 				return bT - aT;
 			});
+			// Show only the most recent 4 in the client gallery.
+			photos = photos.slice(0, 4);
 		} catch (err) {
 			console.warn('[client/daily-update] live fetch failed:', err);
 		}

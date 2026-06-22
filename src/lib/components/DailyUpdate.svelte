@@ -72,7 +72,7 @@
 	{:else}
 		{#if photos.length > 0}
 			<div class="photo-grid">
-				{#each photos.slice(0, 12) as photo (photo.id)}
+				{#each photos.slice(0, 4) as photo (photo.id)}
 					<button
 						type="button"
 						class="thumb"
@@ -83,9 +83,6 @@
 					</button>
 				{/each}
 			</div>
-			{#if photos.length > 12}
-				<p class="muted small">…and {photos.length - 12} more new photos in the project folder.</p>
-			{/if}
 		{/if}
 
 		{#if summary}
