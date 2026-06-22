@@ -514,6 +514,90 @@ export function findPhotosFolder(items: WorkDriveItem[]) {
 }
 
 /**
+ * Create a folder inside a WorkDrive parent folder. Returns the new folder id,
+ * or null on failure.
+ */
+export async function createWorkDriveFolder(
+	accessToken: string,
+	parentId: string,
+	name: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const base = getWorkDriveApiBase(apiDomain);
+	const res = await fetch(`${base}/files`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Zoho-oauthtoken ${accessToken}`,
+			'Content-Type': 'application/json',
+			Accept: 'application/vnd.api+json'
+		},
+		body: JSON.stringify({ data: { attributes: { name, parent_id: parentId }, type: 'files' } })
+	});
+	if (!res.ok) {
+		console.warn('[workdrive] createFolder failed', res.status, (await res.text().catch(() => '')).slice(0, 200));
+		return null;
+	}
+	const payload = await res.json().catch(() => null);
+	const id = payload?.data?.id ?? payload?.data?.attributes?.resource_id ?? null;
+	return id ? String(id) : null;
+}
+
+/**
+ * Upload file bytes into a WorkDrive folder via the multipart upload API.
+ * Returns the new file's resource id, or null on failure.
+ */
+export async function uploadFileToWorkDriveFolder(
+	accessToken: string,
+	parentId: string,
+	fileName: string,
+	bytes: Uint8Array | ArrayBuffer,
+	contentType: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const base = getWorkDriveApiBase(apiDomain);
+	const form = new FormData();
+	form.append('parent_id', parentId);
+	form.append('filename', fileName);
+	const blob = new Blob([bytes], { type: contentType || 'application/octet-stream' });
+	form.append('content', blob, fileName);
+	// NOTE: do not set Content-Type — fetch adds the multipart boundary.
+	const res = await fetch(`${base}/upload`, {
+		method: 'POST',
+		headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+		body: form
+	});
+	if (!res.ok) {
+		console.warn('[workdrive] upload failed', res.status, (await res.text().catch(() => '')).slice(0, 200));
+		return null;
+	}
+	const payload = await res.json().catch(() => null);
+	const d = Array.isArray(payload?.data) ? payload.data[0] : payload?.data;
+	const id = d?.attributes?.resource_id ?? d?.id ?? null;
+	return id ? String(id) : null;
+}
+
+/**
+ * Resolve the deal's "Client Portal/Photos" folder, creating "Photos" if it's
+ * missing. Falls back to a "Photos" folder at the deal root when there's no
+ * "Client Portal" subfolder. Returns the destination folder id, or null.
+ */
+export async function resolveOrCreateClientPhotosFolder(
+	accessToken: string,
+	rootFolderId: string,
+	apiDomain?: string
+): Promise<string | null> {
+	const rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain).catch(() => []);
+	const clientPortal = findBestFolderByName(rootItems, ['Client Portal', 'Client Portal Folder']);
+	const containerId = clientPortal?.id ?? rootFolderId;
+	const containerItems = clientPortal
+		? await listWorkDriveFolder(accessToken, containerId, apiDomain).catch(() => [])
+		: rootItems;
+	const photos = findBestFolderByName(containerItems, ['Photos', 'Photo', 'Progress Photos']);
+	if (photos?.id) return photos.id;
+	return createWorkDriveFolder(accessToken, containerId, 'Photos', apiDomain);
+}
+
+/**
  * Download a WorkDrive file's binary content by file id.
  * Tries the documented download host first, then falls back to the older
  * /api/v1/download path. Returns a Buffer on success.

@@ -445,7 +445,11 @@ async function fetchSupabaseFieldUpdatePhotos(
 		const createdRaw = (u as any).created_at;
 		const createdMs = typeof createdRaw === 'string' ? Date.parse(createdRaw) : Number.NaN;
 		if (Number.isFinite(createdMs) && createdMs < cutoff) continue;
-		const ids: string[] = Array.isArray((u as any).photo_ids) ? (u as any).photo_ids : [];
+		// Client portal shows ONLY the curated client gallery — never the crew's
+		// internal daily-log photos.
+		const ids: string[] = Array.isArray((u as any).client_photo_ids)
+			? (u as any).client_photo_ids
+			: [];
 		for (const id of ids) {
 			if (!id || seen.has(id)) continue;
 			const ext = id.split('.').pop()?.toLowerCase() ?? '';
@@ -606,9 +610,13 @@ export const GET: RequestHandler = async ({ params, cookies, url }) => {
 			const deal = await fetchDealNames(accessToken, apiDomain, dealId);
 			let workDrivePhotos: DailyPhoto[] = [];
 			let supabasePhotos: DailyPhoto[] = [];
-			[fieldUpdateMessages, workDrivePhotos, supabasePhotos] = await Promise.all([
+			// Only the curated client gallery (client_photo_ids) is shown to the
+			// homeowner. The generic WorkDrive "Photos" scan is intentionally NOT
+			// used here — those folders can hold legacy/internal shots that must
+			// never reach the client. (Curated photos are still archived to
+			// WorkDrive on submit; the Supabase set is the portal's source.)
+			[fieldUpdateMessages, supabasePhotos] = await Promise.all([
 				fetchFieldUpdateCliqMessages(accessToken, deal, windowHours),
-				fetchWorkDrivePhotos(accessToken, apiDomain, dealId, windowHours),
 				fetchSupabaseFieldUpdatePhotos(dealId, windowHours)
 			]);
 			// Merge by id; field-update uploads (most recent activity) win.

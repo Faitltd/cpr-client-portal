@@ -91,6 +91,7 @@
 
 	// --- Shared state ---
 	let photoUploadRef: PhotoUpload;
+	let clientPhotoUploadRef: PhotoUpload;
 	let submitting = false;
 	let successMessage = '';
 	let errorMessage = '';
@@ -167,6 +168,7 @@
 		coScope = '';
 		coCost = '';
 		photoUploadRef?.reset();
+		clientPhotoUploadRef?.reset();
 	};
 
 	const handleSubmit = async () => {
@@ -184,6 +186,8 @@
 			const photoIdsOrNull = photoIds.length > 0 ? photoIds : null;
 
 			if (submissionType === 'field_update') {
+				const clientPhotoIds = clientPhotoUploadRef?.getPhotoIds() ?? [];
+				const clientPhotoIdsOrNull = clientPhotoIds.length > 0 ? clientPhotoIds : null;
 				const fuRes = await fetch('/api/trade/field-updates', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -191,7 +195,8 @@
 						deal_id: selectedDealId,
 						update_type: 'progress',
 						note: fuNote.trim() || null,
-						photo_ids: photoIdsOrNull
+						photo_ids: photoIdsOrNull,
+						client_photo_ids: clientPhotoIdsOrNull
 					})
 				});
 				if (!fuRes.ok) {
@@ -455,8 +460,24 @@
 				{#if submissionType !== 'schedule_change'}
 					<div class="form-field">
 						<!-- svelte-ignore a11y_label_has_associated_control -->
-						<label>Photos</label>
+						<label>{submissionType === 'field_update' ? 'Daily log photos' : 'Photos'}</label>
+						{#if submissionType === 'field_update'}
+							<p class="field-help">Document everything for the team — progress, issues, conditions. These stay internal (log + Cliq).</p>
+						{/if}
 						<PhotoUpload bind:this={photoUploadRef} maxFiles={20} />
+					</div>
+				{/if}
+
+				{#if submissionType === 'field_update'}
+					<div class="form-field client-gallery">
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label>Client gallery photos <span class="hint-inline">— the homeowner sees these</span></label>
+						<p class="field-help">
+							Add only finished, clean, photogenic shots — no issues or mistakes. These are the
+							ONLY photos shown to the client, and they're saved to the project's WorkDrive
+							Photos folder.
+						</p>
+						<PhotoUpload bind:this={clientPhotoUploadRef} maxFiles={20} />
 					</div>
 				{/if}
 
@@ -566,6 +587,25 @@
 		font-weight: 600;
 		font-size: 0.95rem;
 		color: #111827;
+	}
+
+	.field-help {
+		margin: 0 0 0.25rem;
+		color: #6b7280;
+		font-size: 0.82rem;
+		line-height: 1.4;
+	}
+
+	.hint-inline {
+		font-weight: 500;
+		color: #2563eb;
+	}
+
+	.client-gallery {
+		border: 1px solid #bfdbfe;
+		background: #f0f7ff;
+		border-radius: 8px;
+		padding: 0.9rem;
 	}
 
 	select,

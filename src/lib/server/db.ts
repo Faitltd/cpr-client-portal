@@ -1705,6 +1705,13 @@ export interface FieldUpdate {
 	update_type: string;
 	note: string | null;
 	photo_ids: string[] | null;
+	/**
+	 * Curated, client-facing photos (a subset/separate set chosen by the crew).
+	 * These are the ONLY photos shown in the homeowner portal and are mirrored to
+	 * the deal's WorkDrive "Client Portal/Photos" folder. Optional so existing
+	 * callers and rows are unaffected.
+	 */
+	client_photo_ids?: string[] | null;
 	created_at: string;
 }
 
