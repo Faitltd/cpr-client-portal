@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	// Fire-and-forget. Each source is its own try/catch inside syncAll so a
 	// single failure doesn't stop the rest.
 	syncAll({
-		sources: ['cliq', 'books', 'mail', 'crm_email', 'workdrive', 'projects', 'sign'],
+		sources: ['cliq', 'books', 'mail', 'crm_email', 'workdrive', 'projects', 'sign', 'calendar', 'shifts'],
 		trigger: 'cron'
 	}).catch((err) => {
 		console.warn('[cron/sync-active-deals] syncAll failed:', err?.message ?? err);

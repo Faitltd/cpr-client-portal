@@ -7,6 +7,8 @@ import { syncCrmEmailsForDeal } from '$lib/server/bot/ingest-crm-emails';
 import { syncWorkDriveForDeal } from '$lib/server/bot/ingest-workdrive';
 import { syncProjectsForDeal } from '$lib/server/bot/ingest-projects';
 import { syncSignForDeal } from '$lib/server/bot/ingest-sign';
+import { syncCalendarForDeal } from '$lib/server/bot/ingest-calendar';
+import { syncShiftsForDeal } from '$lib/server/bot/ingest-shifts';
 import type { RequestHandler } from './$types';
 
 type SyncSource =
@@ -17,6 +19,8 @@ type SyncSource =
 	| 'workdrive'
 	| 'projects'
 	| 'sign'
+	| 'calendar'
+	| 'shifts'
 	| 'all';
 
 function isSource(x: string): x is SyncSource {
@@ -28,6 +32,8 @@ function isSource(x: string): x is SyncSource {
 		x === 'workdrive' ||
 		x === 'projects' ||
 		x === 'sign' ||
+		x === 'calendar' ||
+		x === 'shifts' ||
 		x === 'all'
 	);
 }
@@ -54,7 +60,16 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const errors: string[] = [];
 
 	async function runOne(
-		name: 'cliq' | 'books' | 'mail' | 'crm_email' | 'workdrive' | 'projects' | 'sign'
+		name:
+			| 'cliq'
+			| 'books'
+			| 'mail'
+			| 'crm_email'
+			| 'workdrive'
+			| 'projects'
+			| 'sign'
+			| 'calendar'
+			| 'shifts'
 	) {
 		try {
 			if (name === 'cliq') out.cliq = await syncCliqForDeal(dealId);
@@ -65,6 +80,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				out.workdrive = await syncWorkDriveForDeal(dealId, { folderIdOverride });
 			if (name === 'projects') out.projects = await syncProjectsForDeal(dealId);
 			if (name === 'sign') out.sign = await syncSignForDeal(dealId);
+			if (name === 'calendar') out.calendar = await syncCalendarForDeal(dealId);
+			if (name === 'shifts') out.shifts = await syncShiftsForDeal(dealId);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'sync failed';
 			out[name] = { error: msg };
@@ -80,7 +97,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			runOne('crm_email'),
 			runOne('workdrive'),
 			runOne('projects'),
-			runOne('sign')
+			runOne('sign'),
+			runOne('calendar'),
+			runOne('shifts')
 		]);
 	} else {
 		await runOne(sourceArg);
