@@ -33,6 +33,33 @@
 		'Suggest 3 meeting times next week for a site visit.'
 	];
 
+	// Source-group picker. Keys map to SOURCE_GROUPS on the server; the chat
+	// scopes retrieval to the selected groups (intersected with role access).
+	// All selected = no scoping (the role's full set).
+	const SOURCE_GROUP_OPTIONS = [
+		{ key: 'shifts', label: 'Schedule' },
+		{ key: 'calendar', label: 'Bookings' },
+		{ key: 'mail', label: 'Mail' },
+		{ key: 'cliq', label: 'Cliq chat' },
+		{ key: 'documents', label: 'Documents' },
+		{ key: 'books', label: 'Invoices' },
+		{ key: 'projects', label: 'Projects' },
+		{ key: 'contracts', label: 'Contracts' },
+		{ key: 'crm', label: 'CRM notes' },
+		{ key: 'transcripts', label: 'Transcripts' }
+	];
+	let selectedSources = $state<string[]>(SOURCE_GROUP_OPTIONS.map((g) => g.key));
+	const allSourcesSelected = $derived(selectedSources.length === SOURCE_GROUP_OPTIONS.length);
+
+	function toggleSource(key: string) {
+		selectedSources = selectedSources.includes(key)
+			? selectedSources.filter((k) => k !== key)
+			: [...selectedSources, key];
+	}
+	function selectAllSources() {
+		selectedSources = SOURCE_GROUP_OPTIONS.map((g) => g.key);
+	}
+
 	function resetThread() {
 		messages = [];
 		threadId = crypto.randomUUID();
@@ -71,7 +98,8 @@
 				body: JSON.stringify({
 					dealId,
 					threadId,
-					messages: messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
+					messages: messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+					sources: selectedSources
 				})
 			});
 
@@ -369,6 +397,27 @@
 		{/if}
 	</div>
 
+	<div class="source-picker">
+		<span class="source-label">Sources</span>
+		{#each SOURCE_GROUP_OPTIONS as g (g.key)}
+			<button
+				type="button"
+				class="src-chip"
+				class:active={selectedSources.includes(g.key)}
+				onclick={() => toggleSource(g.key)}
+				disabled={busy}
+				aria-pressed={selectedSources.includes(g.key)}
+			>
+				{g.label}
+			</button>
+		{/each}
+		{#if !allSourcesSelected}
+			<button type="button" class="src-reset" onclick={selectAllSources} disabled={busy}>
+				All
+			</button>
+		{/if}
+	</div>
+
 	<div class="composer">
 		<textarea
 			rows="2"
@@ -515,6 +564,53 @@
 
 	.quick:hover:not(:disabled) {
 		background: #e5e7eb;
+	}
+
+	.source-picker {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.4rem 0.1rem 0.1rem;
+	}
+
+	.source-label {
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #6b7280;
+		margin-right: 0.15rem;
+	}
+
+	.src-chip {
+		background: #f3f4f6;
+		border: 1px solid #e5e7eb;
+		border-radius: 9999px;
+		padding: 0.2rem 0.6rem;
+		font-size: 0.78rem;
+		cursor: pointer;
+		color: #6b7280;
+		opacity: 0.7;
+	}
+
+	.src-chip.active {
+		background: #fee2e2;
+		border-color: #fca5a5;
+		color: #991b1b;
+		opacity: 1;
+	}
+
+	.src-chip:hover:not(:disabled) {
+		border-color: #d1d5db;
+	}
+
+	.src-reset {
+		background: transparent;
+		border: none;
+		color: #2563eb;
+		font-size: 0.78rem;
+		cursor: pointer;
+		padding: 0.2rem 0.4rem;
 	}
 
 	.bubble {

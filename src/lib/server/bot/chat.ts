@@ -25,8 +25,51 @@ const ALL_SOURCES = [
 	'zoho_projects_activity',
 	'zoho_sign_request',
 	'zoho_calendar',
+	'cpr_shift',
 	'transcript'
 ] as const;
+
+/**
+ * Friendly source groups for the chat UI's source picker. The client sends the
+ * selected group keys; the server (chat route) expands them to concrete
+ * document sources and intersects the result with the caller's role
+ * permissions. Lets an internal user scope a conversation to e.g. just the
+ * schedule, or schedule + mail.
+ */
+export const SOURCE_GROUPS: Record<string, { label: string; sources: string[] }> = {
+	shifts: { label: 'Schedule', sources: ['cpr_shift'] },
+	calendar: { label: 'Bookings', sources: ['zoho_calendar'] },
+	mail: { label: 'Mail', sources: ['zoho_mail'] },
+	cliq: { label: 'Cliq chat', sources: ['zoho_cliq_internal', 'zoho_cliq_external'] },
+	documents: { label: 'Documents', sources: ['workdrive_pdf', 'workdrive_docx', 'workdrive_xlsx'] },
+	books: { label: 'Invoices', sources: ['zoho_books_invoice', 'zoho_books_estimate', 'zoho_books_payment'] },
+	projects: { label: 'Projects', sources: ['zoho_projects_task', 'zoho_projects_activity'] },
+	contracts: { label: 'Contracts', sources: ['zoho_sign_request'] },
+	crm: { label: 'CRM notes', sources: ['zoho_crm_note', 'zoho_crm_field'] },
+	transcripts: { label: 'Transcripts', sources: ['transcript'] }
+};
+
+/**
+ * Expand selected UI group keys into concrete sources, intersected with the
+ * caller's role permission (`roleAllowed = null` means unrestricted). Returns
+ * `null` when no scoping is requested (use the role default), or a concrete
+ * list otherwise. When the requested groups resolve to nothing the caller is
+ * allowed to see, returns a sentinel that matches no source (empty retrieval)
+ * rather than silently widening to everything.
+ */
+export function resolveSelectedSources(
+	groupKeys: string[] | null | undefined,
+	roleAllowed: string[] | null
+): string[] | null {
+	if (!groupKeys || groupKeys.length === 0) return roleAllowed;
+	const expanded = [
+		...new Set(groupKeys.flatMap((k) => SOURCE_GROUPS[k]?.sources ?? []))
+	];
+	const intersected = roleAllowed
+		? expanded.filter((s) => roleAllowed.includes(s))
+		: expanded;
+	return intersected.length > 0 ? intersected : ['__no_source__'];
+}
 
 // ── Financial scrubbing (trade-partner role) ──────────────────────────────
 // Strips every plausibly-financial signal from the Deal context and retrieved

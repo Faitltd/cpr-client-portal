@@ -1,12 +1,14 @@
 import { json } from '@sveltejs/kit';
 import { getBotAccess } from '$lib/server/bot-access';
-import { runChat, type ChatMessage } from '$lib/server/bot/chat';
+import { runChat, resolveSelectedSources, type ChatMessage } from '$lib/server/bot/chat';
 import type { RequestHandler } from './$types';
 
 interface ChatRequestBody {
 	dealId?: string;
 	threadId?: string;
 	messages?: ChatMessage[];
+	/** Optional UI source-group keys to scope retrieval (e.g. ["shifts","mail"]). */
+	sources?: string[];
 }
 
 function isMessage(x: unknown): x is ChatMessage {
@@ -35,6 +37,12 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const dealId = (body.dealId ?? '').trim();
 	const threadId = (body.threadId ?? '').trim();
 	const messages = Array.isArray(body.messages) ? body.messages.filter(isMessage) : [];
+	const requestedSources = Array.isArray(body.sources)
+		? body.sources.filter((s): s is string => typeof s === 'string')
+		: null;
+	// Scope retrieval to the picked source groups, intersected with what this
+	// role may see. null = use the role's default (all permitted sources).
+	const effectiveSources = resolveSelectedSources(requestedSources, access.allowedSources);
 
 	if (!dealId) return json({ message: 'dealId required' }, { status: 400 });
 	if (!threadId) return json({ message: 'threadId required' }, { status: 400 });
@@ -49,7 +57,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			threadId,
 			adminEmail: access.email,
 			messages,
-			allowedSources: access.allowedSources,
+			allowedSources: effectiveSources,
 			allowedTopFolders: access.allowedTopFolders,
 			hideFinancials: access.hideFinancials,
 			hideInternalFinancials: access.hideInternalFinancials

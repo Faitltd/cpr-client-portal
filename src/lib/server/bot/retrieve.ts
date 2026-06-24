@@ -650,6 +650,7 @@ const SOURCE_LABEL: Record<string, string> = {
 	zoho_projects_activity: 'Projects · activity',
 	zoho_sign_request: 'Sign · document',
 	zoho_calendar: 'Calendar · booking',
+	cpr_shift: 'Shift · schedule',
 	transcript: 'Transcript',
 	sms: 'SMS'
 };
@@ -669,6 +670,7 @@ function formatDate(iso: string): string {
 const SOURCE_PRIORITY: Record<string, number> = {
 	zoho_books_invoice: 100,
 	zoho_books_estimate: 95,
+	cpr_shift: 93,
 	zoho_calendar: 92,
 	zoho_books_payment: 90,
 	zoho_sign_request: 88,

@@ -114,7 +114,10 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 					'zoho_crm_field',
 					'zoho_cliq_external',
 					'zoho_projects_task',
-					'zoho_projects_activity'
+					'zoho_projects_activity',
+					// Crew schedule — internal staff + trades may see who's on
+					// site and when. Clients are NOT granted this source.
+					'cpr_shift'
 				],
 				// WorkDrive-side gate: ONLY the Designs subfolder family. This
 				// hides Contracts and Agreements (where Estimates / Bids / PDA

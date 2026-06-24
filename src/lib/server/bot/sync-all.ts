@@ -11,6 +11,7 @@ import { syncWorkDriveForDeal } from './ingest-workdrive';
 import { syncProjectsForDeal } from './ingest-projects';
 import { syncSignForDeal } from './ingest-sign';
 import { syncCalendarForDeal } from './ingest-calendar';
+import { syncShiftsForDeal } from './ingest-shifts';
 
 export type SyncSource =
 	| 'cliq'
@@ -21,7 +22,8 @@ export type SyncSource =
 	| 'workdrive'
 	| 'projects'
 	| 'sign'
-	| 'calendar';
+	| 'calendar'
+	| 'shifts';
 export type SyncTrigger = 'cron' | 'manual' | 'admin';
 
 // Stages to EXCLUDE from sync. Default is just "Lost". Override via env if you
@@ -164,7 +166,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 	const sources =
 		opts.sources && opts.sources.length > 0
 			? opts.sources
-			: (['cliq', 'cliq_channels', 'mail', 'books', 'crm_email', 'workdrive', 'calendar'] as SyncSource[]);
+			: (['cliq', 'cliq_channels', 'mail', 'books', 'crm_email', 'workdrive', 'calendar', 'shifts'] as SyncSource[]);
 	const startedAt = Date.now();
 
 	// Cliq channels are org-wide, not per-Deal, so sync them once per run (not
@@ -220,7 +222,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 	for (const d of deals) {
 		const summary: DealSyncSummary = { deal_id: d.id, deal_name: d.name, stage: d.stage };
 		try {
-			const [cliq, books, mail, crmEmail, workdrive, projects, sign, calendar] = await Promise.all([
+			const [cliq, books, mail, crmEmail, workdrive, projects, sign, calendar, shifts] = await Promise.all([
 				sources.includes('cliq')
 					? syncCliqForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
 					: null,
@@ -244,6 +246,9 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 					: null,
 				sources.includes('calendar')
 					? syncCalendarForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
+					: null,
+				sources.includes('shifts')
+					? syncShiftsForDeal(d.id).catch((e) => ({ error: e instanceof Error ? e.message : 'failed' }))
 					: null
 			]);
 			if (cliq) summary.cliq = tallyCliq(cliq);
@@ -254,6 +259,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 			if (projects) (summary as any).projects = projects;
 			if (sign) (summary as any).sign = sign;
 			if (calendar) (summary as any).calendar = calendar;
+			if (shifts) (summary as any).shifts = shifts;
 
 			const allErrs = [
 				summary.cliq?.error,
@@ -263,7 +269,8 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 				summary.workdrive?.error,
 				(projects as any)?.error,
 				(sign as any)?.error,
-				(calendar as any)?.error
+				(calendar as any)?.error,
+				(shifts as any)?.error
 			].filter(Boolean) as string[];
 
 			// "Expected" errors = data hasn't been set up on the Deal yet (not a
