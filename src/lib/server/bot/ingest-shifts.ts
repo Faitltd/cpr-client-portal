@@ -96,11 +96,15 @@ function shiftMatchesDeal(jobSite: string | null, dealName: string | null): bool
 	const j = norm(jobSite);
 	const d = norm(dealName);
 	if (!j || !d) return false;
+	// Whole job-site name contained in the deal name (or vice versa). Handles
+	// "Mark Guikema" inside "Mark Guikema - Project Created" and surname-only
+	// sites like "Schwarz" inside "Lori Schwarz".
 	if (d.includes(j) || j.includes(d)) return true;
-	const dTokens = new Set(d.split(' ').filter((t) => t.length >= 4));
-	for (const t of j.split(' ')) {
-		if (t.length >= 4 && dTokens.has(t)) return true;
-	}
+	// Fallback keyed on the SURNAME (last word) only, so shared FIRST names
+	// (e.g. "Mark Guikema" vs "Mark Fonte") don't cross-match.
+	const jWords = j.split(' ');
+	const surname = jWords[jWords.length - 1];
+	if (surname.length >= 3 && new Set(d.split(' ')).has(surname)) return true;
 	return false;
 }
 
