@@ -735,6 +735,95 @@ const COMMS_SOURCES = [
 	'zoho_cliq_channel'
 ];
 
+// Detect a request to BUILD/DRAFT a schedule (vs. just ask about one). Needs a
+// schedule noun + an authoring verb so "what's the schedule" doesn't trigger it.
+const SCHEDULE_NOUN = /\b(schedule|staffing|roster|shifts?|assignments?|crew)\b/i;
+const SCHEDULE_VERB = /\b(write|build|make|draft|create|plan|propose|generate|put together|fill out|lay out)\b/i;
+function isScheduleBuildRequest(text: string): boolean {
+	return SCHEDULE_NOUN.test(text) && SCHEDULE_VERB.test(text);
+}
+
+/**
+ * Assemble the COMPLETE scheduling inputs (not a RAG sample) for the draft
+ * planner: the crew roster with roles, every shift already booked in the next 3
+ * weeks (so the planner won't double-book), and every open project task. Pure
+ * deterministic SELECTs against already-synced data.
+ */
+async function buildSchedulingBlock(): Promise<string> {
+	const nowIso = new Date().toISOString();
+	const horizonIso = new Date(Date.now() + 21 * 86400000).toISOString();
+
+	const [shiftsRes, rosterRes, tasksRes] = await Promise.all([
+		supabase
+			.from('cpr_shifts')
+			.select('shift_date,job_site,employee,role,task,is_open')
+			.gte('start_ts', nowIso)
+			.lte('start_ts', horizonIso)
+			.order('start_ts'),
+		supabase.from('cpr_shifts').select('employee,role').not('employee', 'is', null),
+		supabase
+			.from('bot_documents')
+			.select('deal_id,subject,body')
+			.eq('source', 'zoho_projects_task')
+			.limit(300)
+	]);
+
+	const roster = new Map<string, Set<string>>();
+	for (const r of (rosterRes.data ?? []) as any[]) {
+		if (!r.employee) continue;
+		const set = roster.get(r.employee) ?? new Set<string>();
+		if (r.role) set.add(r.role);
+		roster.set(r.employee, set);
+	}
+
+	const closedRe = /status:\s*(closed|completed|done|100%)/i;
+	const openTasks = ((tasksRes.data ?? []) as any[]).filter((t) => !closedRe.test(t.body ?? ''));
+
+	const dealIds = Array.from(
+		new Set(openTasks.map((t) => t.deal_id).filter((id): id is string => Boolean(id)))
+	).slice(0, 15);
+	const namePairs = await Promise.all(
+		dealIds.map(async (id) => {
+			try {
+				const ctx = await getDealContext(id);
+				return [id, ctx.name?.trim() || `Deal ${id}`] as const;
+			} catch {
+				return [id, `Deal ${id}`] as const;
+			}
+		})
+	);
+	const dealName = new Map<string, string>(namePairs);
+
+	const lines: string[] = [];
+	lines.push('## Crew roster (name — role)');
+	if (roster.size === 0) lines.push('(no crew on record)');
+	for (const [name, roles] of roster) lines.push(`- ${name}${roles.size ? ` — ${[...roles].join(', ')}` : ''}`);
+
+	lines.push('\n## Shifts already booked in the next 3 weeks (do NOT double-book these people)');
+	const shifts = (shiftsRes.data ?? []) as any[];
+	if (!shifts.length) lines.push('(none booked)');
+	for (const s of shifts) {
+		const who = s.is_open ? 'OPEN' : s.employee ?? 'unknown';
+		lines.push(`- ${s.shift_date} · ${s.job_site ?? '—'}: ${who}${s.role ? ` (${s.role})` : ''} — ${s.task ?? ''}`);
+	}
+
+	lines.push('\n## Open project tasks (work still needing scheduling)');
+	if (!openTasks.length) lines.push('(no open tasks found)');
+	const byProject = new Map<string, string[]>();
+	for (const t of openTasks) {
+		const proj = dealName.get(t.deal_id) ?? 'Unassigned project';
+		const list = byProject.get(proj) ?? [];
+		list.push(String(t.subject ?? '').replace(/^Task · /, ''));
+		byProject.set(proj, list);
+	}
+	for (const [proj, items] of byProject) {
+		lines.push(`### ${proj}`);
+		for (const it of items.slice(0, 40)) lines.push(`- ${it}`);
+	}
+
+	return lines.join('\n');
+}
+
 export async function runMasterChatNonStreaming(opts: {
 	adminEmail: string;
 	messages: ChatMessage[];
@@ -810,6 +899,32 @@ export async function runMasterChatNonStreaming(opts: {
 	} else {
 		promptParts.push('\n# Retrieved context\n(no entries matched the question)');
 	}
+
+	// Schedule-drafting requests need the COMPLETE roster/shifts/tasks, not the
+	// top-k retrieval sample. Inject it and switch on the planner instructions.
+	if (mode === 'deal' && isScheduleBuildRequest(lastUser.content)) {
+		try {
+			const schedulingBlock = await buildSchedulingBlock();
+			promptParts.push(
+				'\n# Scheduling data (COMPLETE — the full roster, booked shifts, and open tasks; use THIS, not the retrieved sample, to draft)\n' +
+					schedulingBlock
+			);
+			promptParts.push(
+				'\n# Scheduling task\n' +
+					'The user is asking you to DRAFT a crew schedule. Output it as TEXT ONLY — you are not writing it into any system. Use the Scheduling data block above as the complete source of truth.\n' +
+					'- Only schedule people listed in the Crew roster, matching their role to the work.\n' +
+					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
+					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
+					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>".\n' +
+					'- We do NOT yet have formal availability or time-off data, so assume everyone on the roster is available unless they already have a booked shift. State that assumption plainly and ask the user to flag anyone who is off.\n' +
+					'- Tasks have no hour estimates, so schedule at the DAY level (who is where each day), not hour-by-hour.\n' +
+					'- Finish with a short "Check before publishing" list of conflicts, gaps, or assumptions the user should confirm.'
+			);
+		} catch (err) {
+			console.warn('[bot/master] scheduling block failed:', err);
+		}
+	}
+
 	const systemPrompt = promptParts.join('\n');
 
 	const openai = getOpenAI();
