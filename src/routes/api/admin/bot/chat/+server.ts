@@ -1,6 +1,12 @@
 import { json } from '@sveltejs/kit';
 import { getBotAccess } from '$lib/server/bot-access';
-import { runChat, resolveSelectedSources, type ChatMessage } from '$lib/server/bot/chat';
+import {
+	runChat,
+	resolveSelectedSources,
+	routeQuerySources,
+	SOURCE_GROUPS,
+	type ChatMessage
+} from '$lib/server/bot/chat';
 import type { RequestHandler } from './$types';
 
 interface ChatRequestBody {
@@ -40,9 +46,30 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const requestedSources = Array.isArray(body.sources)
 		? body.sources.filter((s): s is string => typeof s === 'string')
 		: null;
-	// Scope retrieval to the picked source groups, intersected with what this
-	// role may see. null = use the role's default (all permitted sources).
-	const effectiveSources = resolveSelectedSources(requestedSources, access.allowedSources);
+	const lastUserContent = messages.at(-1)?.content ?? '';
+	const totalGroups = Object.keys(SOURCE_GROUPS).length;
+	// If the user manually narrowed the source picker (a strict subset), honor it.
+	// Otherwise auto-route by the query's intent so we search the relevant pool
+	// instead of everything — falling back to the role default when intent is
+	// unclear (so routing never narrows on a guess).
+	const userNarrowed =
+		Array.isArray(requestedSources) &&
+		requestedSources.length > 0 &&
+		requestedSources.length < totalGroups;
+	let effectiveSources: string[] | null;
+	if (userNarrowed) {
+		effectiveSources = resolveSelectedSources(requestedSources, access.allowedSources);
+	} else {
+		const routed = routeQuerySources(lastUserContent);
+		if (!routed) {
+			effectiveSources = access.allowedSources;
+		} else {
+			const intersected = access.allowedSources
+				? routed.filter((s) => access.allowedSources!.includes(s))
+				: routed;
+			effectiveSources = intersected.length > 0 ? intersected : access.allowedSources;
+		}
+	}
 
 	if (!dealId) return json({ message: 'dealId required' }, { status: 400 });
 	if (!threadId) return json({ message: 'threadId required' }, { status: 400 });

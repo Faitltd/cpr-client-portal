@@ -49,6 +49,32 @@ export const SOURCE_GROUPS: Record<string, { label: string; sources: string[] }>
 	transcripts: { label: 'Transcripts', sources: ['transcript'] }
 };
 
+// Query router: map the question's intent to the source groups worth searching,
+// so retrieval skips irrelevant pools instead of scanning everything. Conservative
+// by design — returns null (search the full default set) when intent is unclear,
+// so routing never narrows on a guess. Manual source-picker selections override it.
+const INTENT_RULES: { test: RegExp; groups: string[] }[] = [
+	{ test: /\b(shift|shifts|crew|staffing|roster|who('?s| is)?\s+(on\s*site|working|scheduled)|on\s*site|schedule[ds]?)\b/i, groups: ['shifts'] },
+	{ test: /\b(appointment|appointments|booking|bookings|meeting|consult|consultation|site\s*visit|discovery\s*call|calendar)\b/i, groups: ['calendar'] },
+	{ test: /\b(invoice|invoiced|balance|owe[ds]?|owing|paid|payment|estimate|deposit|cost|billed|billing|refund|retainer)\b/i, groups: ['books'] },
+	{ test: /\b(contract|signed|signature|agreement|pda|docusign|esign|sign(ed|ing)?)\b/i, groups: ['contracts'] },
+	{ test: /\b(scope|sow|plan|drawing|spec|selection|document|doc|file|pdf|photo|material|cabinet|tile|finish)\b/i, groups: ['documents'] },
+	{ test: /\b(task|tasks|milestone|punch\s*list|what('?s| is)\s+(left|done|next|remaining)|progress|phase)\b/i, groups: ['projects'] },
+	{ test: /\b(email|emailed|said|told|replied|reply|mentioned|conversation|cliq|message|messaged|texted?|spoke|call(ed)?)\b/i, groups: ['mail', 'cliq'] },
+	{ test: /\b(note|notes|stage|status|address|contact|phone|owner|wifi|access\s*code|gate\s*code|lockbox)\b/i, groups: ['crm'] }
+];
+
+/**
+ * Pick the concrete sources to search for a query, or null to search broadly.
+ * Union of every intent rule that matches; null when nothing matches.
+ */
+export function routeQuerySources(query: string): string[] | null {
+	const groups = new Set<string>();
+	for (const r of INTENT_RULES) if (r.test.test(query)) r.groups.forEach((g) => groups.add(g));
+	if (groups.size === 0) return null;
+	return [...new Set([...groups].flatMap((g) => SOURCE_GROUPS[g]?.sources ?? []))];
+}
+
 /**
  * Expand selected UI group keys into concrete sources, intersected with the
  * caller's role permission (`roleAllowed = null` means unrestricted). Returns
@@ -837,10 +863,19 @@ export async function runMasterChatNonStreaming(opts: {
 	const mode = opts.mode ?? 'deal';
 
 	const retrievalQuery = buildRetrievalQuery(opts.messages);
+	// Route to the relevant sources by query intent so we don't scan every pool
+	// across every project. null = broad (unchanged behaviour) when intent is
+	// unclear or the user asked to build a schedule (needs the full picture).
+	const routedSources =
+		mode === 'comms'
+			? COMMS_SOURCES
+			: isScheduleBuildRequest(lastUser.content)
+				? null
+				: routeQuerySources(lastUser.content);
 	const retrieved = await retrieveAllDeals({
 		query: retrievalQuery || lastUser.content,
 		k: 18,
-		includeSources: mode === 'comms' ? COMMS_SOURCES : null,
+		includeSources: routedSources,
 		// The deal master stays strictly deal-scoped — company-wide Cliq channels
 		// belong to the Comms assistant, not here.
 		excludeSources: mode === 'deal' ? ['zoho_cliq_channel'] : null
