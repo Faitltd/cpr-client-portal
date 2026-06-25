@@ -25,12 +25,15 @@
 	let syncStatus = $state('');
 	let workdriveFolderOverride = $state('');
 
+	// Internal-team starter questions, phrased to route to the right source and
+	// map to data we sync: scheduling, project status, money, scope/documents.
 	const QUICK_PROMPTS = [
-		'What is the project address?',
-		'Who is the primary contact and how do I reach them?',
-		'What stage is this deal in and what is the closing date?',
-		'Draft a short check-in email to the client.',
-		'Suggest 3 meeting times next week for a site visit.'
+		'Who is on site this week?',
+		"What's left to do on this project and what's next?",
+		'What is the remaining balance and what has been paid?',
+		'What is the scope of work for this project?',
+		'What documents are in the project folder?',
+		"What's changed on this project recently?"
 	];
 
 	// Source-group picker. Keys map to SOURCE_GROUPS on the server; the chat

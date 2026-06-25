@@ -58,7 +58,7 @@ const INTENT_RULES: { test: RegExp; groups: string[] }[] = [
 	{ test: /\b(appointment|appointments|booking|bookings|meeting|consult|consultation|site\s*visit|discovery\s*call|calendar)\b/i, groups: ['calendar'] },
 	{ test: /\b(invoice|invoiced|balance|owe[ds]?|owing|paid|payment|estimate|deposit|cost|billed|billing|refund|retainer)\b/i, groups: ['books'] },
 	{ test: /\b(contract|signed|signature|agreement|pda|docusign|esign|sign(ed|ing)?)\b/i, groups: ['contracts'] },
-	{ test: /\b(scope|sow|plan|drawing|spec|selection|document|doc|file|pdf|photo|material|cabinet|tile|finish)\b/i, groups: ['documents'] },
+	{ test: /\b(scope|sow|plan|drawing|spec|selection|documents?|docs?|files?|folder|pdf|photos?|materials?|cabinet|tile|finish)\b/i, groups: ['documents'] },
 	{ test: /\b(task|tasks|milestone|punch\s*list|what('?s| is)\s+(left|done|next|remaining)|progress|phase)\b/i, groups: ['projects'] },
 	{ test: /\b(email|emailed|said|told|replied|reply|mentioned|conversation|cliq|message|messaged|texted?|spoke|call(ed)?)\b/i, groups: ['mail', 'cliq'] },
 	{ test: /\b(note|notes|stage|status|address|contact|phone|owner|wifi|access\s*code|gate\s*code|lockbox)\b/i, groups: ['crm'] }

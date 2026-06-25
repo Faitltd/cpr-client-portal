@@ -6,13 +6,23 @@
 	let busy = $state(false);
 	let error = $state('');
 
-	async function send() {
-		const text = input.trim();
+	// Cross-project starter questions, phrased to route to the right source and
+	// map to data we sync (scheduling, money, project status, scope/contracts).
+	const MASTER_PROMPTS = [
+		'Who is working across all jobs this week?',
+		"Draft next week's crew schedule from open tasks and our crew.",
+		'What is outstanding to invoice or collect across all projects?',
+		'Which active projects are behind or waiting on us?',
+		'Which projects have contracts still unsigned?'
+	];
+
+	async function send(preset?: string) {
+		const text = (preset ?? input).trim();
 		if (!text || busy) return;
 		error = '';
 		const next: Msg[] = [...messages, { role: 'user', content: text }];
 		messages = next;
-		input = '';
+		if (!preset) input = '';
 		busy = true;
 		try {
 			const res = await fetch('/api/admin/bot/master-chat', {
@@ -45,8 +55,14 @@
 	<div class="messages">
 		{#if messages.length === 0}
 			<div class="empty">
-				Ask anything across <strong>all deals</strong> — stages, balances, what changed recently,
-				which projects are stalled, who's the contact on a job…
+				Ask anything across <strong>all deals</strong> — or start with one of these:
+				<div class="quick-prompts">
+					{#each MASTER_PROMPTS as q (q)}
+						<button type="button" class="quick" onclick={() => send(q)} disabled={busy}>
+							{q}
+						</button>
+					{/each}
+				</div>
 			</div>
 		{/if}
 		{#each messages as m}
@@ -69,7 +85,7 @@
 			placeholder="Ask across all deals… (Enter to send, Shift+Enter for newline)"
 			disabled={busy}
 		></textarea>
-		<button onclick={send} disabled={busy || !input.trim()}>Send</button>
+		<button onclick={() => send()} disabled={busy || !input.trim()}>Send</button>
 	</div>
 </div>
 
@@ -96,6 +112,30 @@
 		color: #6b7280;
 		text-align: center;
 		padding: 2rem 1rem;
+	}
+
+	.quick-prompts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		justify-content: center;
+		margin-top: 0.9rem;
+	}
+
+	.quick {
+		background: #f3f4f6;
+		border: 1px solid #e5e7eb;
+		border-radius: 9999px;
+		padding: 0.4rem 0.8rem;
+		font-size: 0.85rem;
+		color: #111827;
+		cursor: pointer;
+		align-self: auto;
+		font-weight: 400;
+	}
+
+	.quick:hover:not(:disabled) {
+		background: #e5e7eb;
 	}
 
 	.msg {
