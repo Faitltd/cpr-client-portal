@@ -1,0 +1,29 @@
+name: Bot active-deal sync
+
+# Keeps the assistant current without anyone clicking "Sync All": hits the
+# fire-and-forget /api/cron/sync-active-deals endpoint on a schedule, which runs
+# a full sync (cliq, books, mail, crm, workdrive, projects, sign, calendar,
+# shifts) across active deals and re-stamps document status.
+#
+# Required GitHub repo secrets (Settings → Secrets and variables → Actions):
+#   BOT_CRON_SECRET  – same value set as BOT_CRON_SECRET env on the Render web service
+#   CPR_PORTAL_URL   – production base URL, no trailing slash (e.g. https://portal.example.com)
+
+on:
+  schedule:
+    - cron: '0 * * * *' # hourly, on the hour (UTC)
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger active-deal sync
+        run: |
+          code=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X POST \
+            -H "x-cron-secret: ${{ secrets.BOT_CRON_SECRET }}" \
+            "${{ secrets.CPR_PORTAL_URL }}/api/cron/sync-active-deals")
+          echo "HTTP $code"
+          cat /tmp/resp.txt || true
+          echo
+          test "$code" = "200"
