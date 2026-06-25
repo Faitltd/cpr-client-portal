@@ -146,6 +146,21 @@ function tallyMail(r: any) {
 	};
 }
 
+/** Map a CRM deal stage to a lifecycle status for retrieval defaulting. */
+function deriveStatus(stage: string): 'active' | 'completed' | 'archived' {
+	const s = (stage ?? '').toLowerCase();
+	if (/(complete|closed won|\bwon\b|finished|handover|hand-off|warranty)/.test(s)) return 'completed';
+	if (/(lost|dead|cancel|archiv|abandon|declin)/.test(s)) return 'archived';
+	return 'active';
+}
+
+/** Stamp every synced document for a deal with its current lifecycle status. */
+async function stampDealStatus(dealId: string, stage: string): Promise<void> {
+	const status = deriveStatus(stage);
+	const { error } = await supabase.from('bot_documents').update({ status }).eq('deal_id', dealId);
+	if (error) console.warn(`[bot/sync-all] status stamp failed for ${dealId}:`, error.message);
+}
+
 export interface SyncAllOptions {
 	trigger: SyncTrigger;
 	sources?: SyncSource[];
@@ -291,6 +306,10 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 			);
 			if (realErrs.length > 0) errs += 1;
 			else ok += 1;
+
+			// Tag this deal's documents with its lifecycle status so retrieval
+			// can default to active projects (stage known on the cron path).
+			await stampDealStatus(d.id, d.stage);
 		} catch (err) {
 			summary.error = err instanceof Error ? err.message : 'failed';
 			errs += 1;

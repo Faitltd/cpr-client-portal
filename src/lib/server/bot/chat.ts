@@ -872,13 +872,20 @@ export async function runMasterChatNonStreaming(opts: {
 			: isScheduleBuildRequest(lastUser.content)
 				? null
 				: routeQuerySources(lastUser.content);
+	// Default to active projects; only reach into completed/archived work when the
+	// question explicitly asks for past/finished/old projects.
+	const wantsCompleted =
+		/\b(completed|complete|finished|past|previous|old|former|archiv|closed|wrapped|done\s+(jobs|projects))\b/i.test(
+			lastUser.content
+		);
 	const retrieved = await retrieveAllDeals({
 		query: retrievalQuery || lastUser.content,
 		k: 18,
 		includeSources: routedSources,
 		// The deal master stays strictly deal-scoped — company-wide Cliq channels
 		// belong to the Comms assistant, not here.
-		excludeSources: mode === 'deal' ? ['zoho_cliq_channel'] : null
+		excludeSources: mode === 'deal' ? ['zoho_cliq_channel'] : null,
+		includeCompleted: wantsCompleted
 	}).catch((err) => {
 		console.warn('[bot/master] retrieval failed:', err);
 		return [] as CrossDealChunk[];

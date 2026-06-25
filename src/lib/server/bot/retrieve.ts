@@ -774,6 +774,8 @@ export async function retrieveAllDeals(opts: {
 	includeSources?: string[] | null;
 	/** If set, drop any chunk whose source is in this list. */
 	excludeSources?: string[] | null;
+	/** When false (default), drop chunks from completed/archived projects. */
+	includeCompleted?: boolean;
 }): Promise<CrossDealChunk[]> {
 	const query = opts.query.trim();
 	if (!query) return [];
@@ -785,6 +787,23 @@ export async function retrieveAllDeals(opts: {
 		opts.excludeSources && opts.excludeSources.length > 0 ? new Set(opts.excludeSources) : null;
 	const sourceOk = (s: string) =>
 		(include ? include.has(s) : true) && (exclude ? !exclude.has(s) : true);
+
+	// Default to active projects: collect the deal ids that are completed/
+	// archived and drop their chunks. Cheap at this scale (one small query).
+	let inactiveDeals: Set<string> | null = null;
+	if (!opts.includeCompleted) {
+		const { data: inactiveRows } = await supabase
+			.from('bot_documents')
+			.select('deal_id')
+			.neq('status', 'active');
+		inactiveDeals = new Set(
+			(inactiveRows ?? [])
+				.map((r: any) => r.deal_id as string | null)
+				.filter((id): id is string => Boolean(id))
+		);
+	}
+	const statusOk = (dealId: string | null) =>
+		!inactiveDeals || !dealId || !inactiveDeals.has(dealId);
 
 	// When restricting to an include-list we over-fetch so enough in-scope
 	// chunks survive the post-filter; bot_match_chunks_all can't filter by
@@ -821,9 +840,9 @@ export async function retrieveAllDeals(opts: {
 			source_url: r.source_url,
 			similarity: r.similarity
 		}))
-		.filter((c) => sourceOk(c.source));
+		.filter((c) => sourceOk(c.source) && statusOk(c.deal_id));
 
-	const recentFiltered = recent.filter((c) => sourceOk(c.source));
+	const recentFiltered = recent.filter((c) => sourceOk(c.source) && statusOk(c.deal_id));
 
 	// Merge semantic + recency, de-duped by chunk. Semantic leads (most relevant
 	// to the question); recency fills in the latest activity for the window.
