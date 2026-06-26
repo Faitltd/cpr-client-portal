@@ -169,6 +169,46 @@ async function getValidAccessToken(): Promise<{ accessToken: string; apiDomain?:
 	return { accessToken: valid.accessToken, apiDomain: valid.apiDomain };
 }
 
+export interface ActiveDealBrief {
+	id: string;
+	name: string;
+	stage: string;
+	ball_in_court: string | null;
+	ball_in_court_note: string | null;
+	modified_time: string | null;
+}
+
+/**
+ * One CRM call: every active deal (not Lost/Dead/Completed) with the few fields
+ * a cross-project status overview needs — name, stage, and ball-in-court (who
+ * the next step is on). Used by the master assistant to answer "which projects
+ * are behind / waiting on us" from the complete list rather than a RAG sample.
+ */
+export async function listActiveDealsBrief(limit = 80): Promise<ActiveDealBrief[]> {
+	const { accessToken, apiDomain } = await getValidAccessToken();
+	const exclude = ['Lost', 'Dead', 'Completed', 'Closed Lost', 'Closed Won'];
+	const criteria = exclude.map((s) => `(Stage:not_equal:${s})`).join('and');
+	const fields = 'Deal_Name,Stage,Ball_In_Court,Ball_In_Court_Note,Modified_Time';
+	const res = await zohoApiCall(
+		accessToken,
+		`/Deals/search?criteria=${encodeURIComponent(`(${criteria})`)}&fields=${fields}` +
+			`&sort_by=Modified_Time&sort_order=desc&per_page=${Math.min(limit, 200)}`,
+		{},
+		apiDomain
+	);
+	const records = Array.isArray(res?.data) ? res.data : [];
+	const str = (v: unknown): string | null =>
+		typeof v === 'string' ? v : v && typeof v === 'object' && 'name' in (v as any) ? String((v as any).name) : null;
+	return records.map((r: Record<string, unknown>) => ({
+		id: String(r.id),
+		name: str(r.Deal_Name) ?? `Deal ${r.id}`,
+		stage: str(r.Stage) ?? '',
+		ball_in_court: str(r.Ball_In_Court),
+		ball_in_court_note: str(r.Ball_In_Court_Note),
+		modified_time: str(r.Modified_Time)
+	}));
+}
+
 async function fetchContact(
 	accessToken: string,
 	apiDomain: string | undefined,

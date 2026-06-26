@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { env } from '$env/dynamic/private';
 import { supabase } from '$lib/server/db';
 import { SYSTEM_PROMPT } from './prompts';
-import { getDealContext, renderDealContextBlock } from './deal-context';
+import { getDealContext, renderDealContextBlock, listActiveDealsBrief } from './deal-context';
 import {
 	retrieveRelevant,
 	retrieveAllDeals,
@@ -939,6 +939,58 @@ async function buildShiftsBlock(): Promise<string> {
 	return lines.join('\n');
 }
 
+// Cross-project status / "which projects are behind / waiting on us" questions
+// need the COMPLETE active-project list (with ball-in-court), not a RAG sample.
+const PROJECTS_OVERVIEW_QUERY =
+	/\b(which|what)\s+(active\s+)?(projects?|jobs|deals)\b|projects?\s+(behind|stalled|waiting|status|overview|update|stage)|\bbehind\b|\bstalled\b|waiting\s+on\s+(us|me|you)|ball[\s-]*in[\s-]*court|status\s+(of|across)\b/i;
+function isProjectsOverviewQuery(text: string): boolean {
+	return PROJECTS_OVERVIEW_QUERY.test(text);
+}
+
+async function buildProjectsOverviewBlock(): Promise<string> {
+	let deals;
+	try {
+		deals = await listActiveDealsBrief();
+	} catch (err) {
+		console.warn('[bot/master] listActiveDealsBrief failed:', err);
+		return '';
+	}
+	if (!deals.length) return '';
+
+	const ids = deals.map((d) => d.id);
+	const { data: taskRows } = await supabase
+		.from('bot_documents')
+		.select('deal_id, body')
+		.eq('source', 'zoho_projects_task')
+		.in('deal_id', ids);
+	const closedRe = /status:\s*(closed|completed|done|100%)/i;
+	const openByDeal = new Map<string, number>();
+	for (const t of (taskRows ?? []) as any[]) {
+		if (!t.deal_id || closedRe.test(t.body ?? '')) continue;
+		openByDeal.set(t.deal_id, (openByDeal.get(t.deal_id) ?? 0) + 1);
+	}
+
+	const onUs = (b: string | null) =>
+		!!b && /\b(cpr|us|internal|office|pm|project\s*manager|home\s*cpr|team)\b/i.test(b);
+	const sorted = [...deals].sort(
+		(a, b) => (onUs(b.ball_in_court) ? 1 : 0) - (onUs(a.ball_in_court) ? 1 : 0)
+	);
+
+	const lines = [
+		'## Active projects (COMPLETE list — use THIS for project-status / "which projects" questions, not the retrieved sample)'
+	];
+	for (const d of sorted) {
+		const open = openByDeal.get(d.id) ?? 0;
+		const ball = d.ball_in_court
+			? `ball-in-court: ${d.ball_in_court}${d.ball_in_court_note ? ` — ${d.ball_in_court_note}` : ''}`
+			: 'ball-in-court: (not set)';
+		lines.push(
+			`- **${d.name}** — stage: ${d.stage || 'unknown'}; ${ball}; ${open} open task${open === 1 ? '' : 's'}`
+		);
+	}
+	return lines.join('\n');
+}
+
 export async function runMasterChatNonStreaming(opts: {
 	adminEmail: string;
 	messages: ChatMessage[];
@@ -1073,6 +1125,23 @@ export async function runMasterChatNonStreaming(opts: {
 			}
 		} catch (err) {
 			console.warn('[bot/master] shifts block failed:', err);
+		}
+	} else if (mode === 'deal' && isProjectsOverviewQuery(lastUser.content)) {
+		try {
+			const block = await buildProjectsOverviewBlock();
+			if (block) {
+				promptParts.push('\n' + block);
+				promptParts.push(
+					'\n# Answering project-status / "which projects" questions\n' +
+						'- The list above is EVERY active project. Answer from it, not the retrieved sample.\n' +
+						'- "Behind / waiting on us" = ball-in-court is CPR/us (we owe the next step); "waiting on the client or a trade" = ball-in-court is them.\n' +
+						'- For "which projects are behind or waiting on us", list the projects whose ball-in-court is us, with stage and the ball-in-court note; then briefly note which are waiting on others.\n' +
+						'- If ball-in-court is "(not set)" for most, say that field isn\'t filled in so you can\'t tell who\'s holding them up, and fall back to stage + open-task count.\n' +
+						'- Use exact project names.'
+				);
+			}
+		} catch (err) {
+			console.warn('[bot/master] projects overview block failed:', err);
 		}
 	}
 
