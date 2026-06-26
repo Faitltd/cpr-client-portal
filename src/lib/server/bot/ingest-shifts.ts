@@ -108,6 +108,18 @@ function shiftMatchesDeal(jobSite: string | null, dealName: string | null): bool
 	return false;
 }
 
+/**
+ * Drop mirror/placeholder shifts: open slots whose only "task" is the schedule
+ * name (e.g. "Custom Professional Renovations"). These are artifacts of the
+ * bidirectional Zoho↔Connecteam sync — they carry no crew or real work, and
+ * being future-dated they otherwise crowd out the actual assigned shifts.
+ */
+function isPlaceholderShift(s: ShiftRow): boolean {
+	const task = norm(s.task);
+	const sched = norm(s.schedule);
+	return !!s.is_open && (task === '' || task === sched);
+}
+
 function fmtRange(startIso: string | null, endIso: string | null): string {
 	if (!startIso) return 'time unknown';
 	try {
@@ -270,7 +282,9 @@ export async function syncShiftsForDeal(dealId: string): Promise<ShiftsSyncResul
 		return result;
 	}
 
-	const matched = allShifts.filter((s) => shiftMatchesDeal(s.job_site, dealName));
+	const matched = allShifts.filter(
+		(s) => shiftMatchesDeal(s.job_site, dealName) && !isPlaceholderShift(s)
+	);
 	const keepIds = new Set<string>();
 
 	for (const s of matched) {
