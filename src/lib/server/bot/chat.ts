@@ -850,6 +850,79 @@ async function buildSchedulingBlock(): Promise<string> {
 	return lines.join('\n');
 }
 
+// "Who is working" / "this week's schedule" questions need the COMPLETE shift
+// list, not the top-k sample — and must include shifts whose job site isn't a
+// synced deal (Office, Warespace, a partner shop), which retrieval never sees.
+// Pulled straight from cpr_shifts.
+const SHIFT_INFO_QUERY =
+	/\b(who('?s| is)?\s+(working|on\s*site|scheduled|out|in|available)|on\s*site|crew|shifts?|staffing|roster|schedule)\b/i;
+function isShiftInfoQuery(text: string): boolean {
+	return SHIFT_INFO_QUERY.test(text);
+}
+
+async function buildShiftsBlock(): Promise<string> {
+	const startIso = new Date(Date.now() - 7 * 86400000).toISOString();
+	const endIso = new Date(Date.now() + 9 * 86400000).toISOString();
+	const { data } = await supabase
+		.from('cpr_shifts')
+		.select('start_ts,job_site,employee,role,task,is_open,schedule')
+		.gte('start_ts', startIso)
+		.lte('start_ts', endIso)
+		.order('start_ts');
+	const rows = (data ?? []) as any[];
+	const n = (x: string | null | undefined) => (x ?? '').toLowerCase().trim();
+	// Drop open mirror placeholders whose only "task" is the schedule name.
+	const real = rows.filter((r) => !(r.is_open && (n(r.task) === '' || n(r.task) === n(r.schedule))));
+	if (!real.length) return '';
+	const fmtDay = (iso: string) => {
+		try {
+			return new Intl.DateTimeFormat('en-US', {
+				timeZone: 'America/Denver',
+				weekday: 'short',
+				month: 'short',
+				day: 'numeric'
+			}).format(new Date(iso));
+		} catch {
+			return (iso ?? '').slice(0, 10);
+		}
+	};
+	const byJob = new Map<string, string[]>();
+	for (const r of real) {
+		const job =
+			r.job_site && String(r.job_site).trim()
+				? String(r.job_site)
+				: 'Office / Admin (no job site)';
+		const who = r.is_open
+			? 'OPEN (unassigned)'
+			: `${r.employee ?? 'Unknown'}${r.role ? ` (${r.role})` : ''}`;
+		const line = `- ${fmtDay(r.start_ts)}: ${who} — ${r.task ?? ''}`;
+		let arr = byJob.get(job);
+		if (!arr) {
+			arr = [];
+			byJob.set(job, arr);
+		}
+		arr.push(line);
+	}
+	let today: string;
+	try {
+		today = new Intl.DateTimeFormat('en-US', {
+			timeZone: 'America/Denver',
+			weekday: 'long',
+			year: 'numeric',
+			month: 'long',
+			day: 'numeric'
+		}).format(new Date());
+	} catch {
+		today = new Date().toISOString().slice(0, 10);
+	}
+	const lines: string[] = [`(Today is ${today}. All times Mountain Time.)`];
+	for (const [job, jobLines] of byJob) {
+		lines.push(`### ${job}`);
+		lines.push(...jobLines);
+	}
+	return lines.join('\n');
+}
+
 export async function runMasterChatNonStreaming(opts: {
 	adminEmail: string;
 	messages: ChatMessage[];
@@ -964,6 +1037,26 @@ export async function runMasterChatNonStreaming(opts: {
 			);
 		} catch (err) {
 			console.warn('[bot/master] scheduling block failed:', err);
+		}
+	} else if (mode === 'deal' && isShiftInfoQuery(lastUser.content)) {
+		try {
+			const shiftsBlock = await buildShiftsBlock();
+			if (shiftsBlock) {
+				promptParts.push(
+					'\n# Complete shift schedule (EVERY shift across all jobs — use THIS, not the retrieved sample)\n' +
+						shiftsBlock
+				);
+				promptParts.push(
+					'\n# Answering who-is-working / schedule questions\n' +
+						'- The block above is the COMPLETE shift list for the surrounding two weeks. List EVERY shift for the period the user asked about — do not summarize, sample, or omit any. Group by job site and keep the dates.\n' +
+						'- Format each as "<person> (role) — <task>, <day date>". An OPEN shift is unassigned; label it OPEN.\n' +
+						'- Include the "Office / Admin" group when the user asks who is working overall.\n' +
+						'- For "this week" use Monday–Sunday containing today; for "today" / "tomorrow" / "next week" filter by the dates shown (today’s date is in the block).\n' +
+						'- This block is the authoritative source for schedule questions — prefer it over any shift chunk in the retrieved context.'
+				);
+			}
+		} catch (err) {
+			console.warn('[bot/master] shifts block failed:', err);
 		}
 	}
 
