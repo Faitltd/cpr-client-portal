@@ -779,7 +779,7 @@ async function buildSchedulingBlock(): Promise<string> {
 	const nowIso = new Date().toISOString();
 	const horizonIso = new Date(Date.now() + 21 * 86400000).toISOString();
 
-	const [shiftsRes, rosterRes, tasksRes] = await Promise.all([
+	const [shiftsRes, rosterRes, tasksRes, crewRes] = await Promise.all([
 		supabase
 			.from('cpr_shifts')
 			.select('shift_date,job_site,employee,role,task,is_open')
@@ -791,15 +791,27 @@ async function buildSchedulingBlock(): Promise<string> {
 			.from('bot_documents')
 			.select('deal_id,subject,body')
 			.eq('source', 'zoho_projects_task')
-			.limit(300)
+			.limit(300),
+		supabase.from('cpr_crew').select('name,role,skills')
 	]);
 
-	const roster = new Map<string, Set<string>>();
-	for (const r of (rosterRes.data ?? []) as any[]) {
-		if (!r.employee) continue;
-		const set = roster.get(r.employee) ?? new Set<string>();
-		if (r.role) set.add(r.role);
-		roster.set(r.employee, set);
+	// Roster with skills. Prefer cpr_crew (carries skills, the handful actually on
+	// shifts); fall back to names/roles derived from booked shifts when crew data
+	// hasn't synced yet (no skills then).
+	type RosterEntry = { roles: Set<string>; skills: Set<string> };
+	const roster = new Map<string, RosterEntry>();
+	const addRoster = (name: string | null, role?: string | null, skills?: string[] | null) => {
+		if (!name) return;
+		const e = roster.get(name) ?? { roles: new Set<string>(), skills: new Set<string>() };
+		if (role) e.roles.add(role);
+		for (const s of skills ?? []) if (s) e.skills.add(s);
+		roster.set(name, e);
+	};
+	const crew = (crewRes.data ?? []) as any[];
+	if (crew.length) {
+		for (const c of crew) addRoster(c.name, c.role, c.skills);
+	} else {
+		for (const r of (rosterRes.data ?? []) as any[]) addRoster(r.employee, r.role, null);
 	}
 
 	const closedRe = /status:\s*(closed|completed|done|100%)/i;
@@ -821,9 +833,13 @@ async function buildSchedulingBlock(): Promise<string> {
 	const dealName = new Map<string, string>(namePairs);
 
 	const lines: string[] = [];
-	lines.push('## Crew roster (name — role)');
+	lines.push('## Crew roster (name — role — skills)');
 	if (roster.size === 0) lines.push('(no crew on record)');
-	for (const [name, roles] of roster) lines.push(`- ${name}${roles.size ? ` — ${[...roles].join(', ')}` : ''}`);
+	for (const [name, e] of roster) {
+		const role = e.roles.size ? ` — ${[...e.roles].join(', ')}` : '';
+		const skills = e.skills.size ? ` — skills: ${[...e.skills].join(', ')}` : ' — skills: (none recorded)';
+		lines.push(`- ${name}${role}${skills}`);
+	}
 
 	lines.push('\n## Shifts already booked in the next 3 weeks (do NOT double-book these people)');
 	const shifts = (shiftsRes.data ?? []) as any[];
@@ -1027,7 +1043,7 @@ export async function runMasterChatNonStreaming(opts: {
 			promptParts.push(
 				'\n# Scheduling task\n' +
 					'The user is asking you to DRAFT a crew schedule. Output it as TEXT ONLY — you are not writing it into any system. Use the Scheduling data block above as the complete source of truth.\n' +
-					'- Only schedule people listed in the Crew roster, matching their role to the work.\n' +
+					'- Only schedule people listed in the Crew roster. Match the SKILLS a task needs to a person who has that skill (use role as a secondary signal). If no one on the roster has the skill a task needs, flag it instead of forcing the assignment.\n' +
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
 					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>".\n' +
