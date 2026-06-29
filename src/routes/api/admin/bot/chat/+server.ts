@@ -32,6 +32,14 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	if (!access) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
+	// The admin Deal Assistant is for CPR internal users only. If the admin
+	// session has expired, getBotAccess silently falls through to any lingering
+	// trade_session/portal_session cookie — which would serve this admin endpoint
+	// with trade-partner filtering (no Books, hideFinancials). Fail loudly so the
+	// UI prompts a re-login instead of quietly returning empty financials.
+	if (access.role !== 'admin' && access.role !== 'designer') {
+		return json({ message: 'Admin session expired — please sign in again.' }, { status: 401 });
+	}
 
 	let body: ChatRequestBody;
 	try {
