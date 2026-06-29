@@ -1044,13 +1044,15 @@
 								<div class="email-body">
 									{#if body?.loading}
 										<p class="muted-text">Loading email…</p>
-									{:else if body?.error}
-										<p class="muted-text error-text">{body.error}</p>
 									{:else if body?.content}
 										<!-- email body sanitized on receive; trusted enough to render -->
 										<div class="email-body-content">{@html body.content}</div>
+									{:else if email.summary}
+										<p class="email-summary">{email.summary}</p>
+									{:else if body?.error}
+										<p class="muted-text error-text">{body.error}</p>
 									{:else}
-										<p class="muted-text">Email body unavailable.</p>
+										<p class="muted-text">No additional content for this email.</p>
 									{/if}
 								</div>
 							{/if}
@@ -1517,7 +1519,9 @@
 	}
 
 	.co-request-btn {
-		display: inline-flex;
+		display: flex;
+		width: fit-content;
+		margin: 0 auto;
 		align-items: center;
 		justify-content: center;
 		background: #0066cc;
@@ -1905,7 +1909,7 @@
 		display: grid;
 		gap: 0.6rem;
 		margin-top: 0.75rem;
-		justify-items: center;
+		justify-items: stretch;
 	}
 
 	.invoice-card {
@@ -1913,8 +1917,7 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		background: #fff;
-		width: fit-content;
-		min-width: 16rem;
+		width: 100%;
 		max-width: 100%;
 		box-sizing: border-box;
 	}
@@ -2319,13 +2322,13 @@
 	.doc-item {
 		display: flex;
 		align-items: center;
-		justify-content: flex-start;
+		justify-content: space-between;
 		gap: 1.5rem;
 		padding: 0.65rem 0.85rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 8px;
 		background: #fff;
-		width: fit-content;
+		width: 100%;
 		max-width: 100%;
 		box-sizing: border-box;
 	}
@@ -2349,8 +2352,10 @@
 		padding: 1rem 0.25rem 0.5rem;
 		display: flex;
 		flex-direction: column;
+		align-items: center;
 		gap: 0.35rem;
 		max-width: 520px;
+		margin: 0 auto;
 	}
 
 	.access-label {
@@ -2358,15 +2363,18 @@
 		font-weight: 600;
 		color: #374151;
 		margin-top: 0.5rem;
+		text-align: center;
 	}
 
 	.access-input {
+		width: 100%;
 		padding: 0.65rem 0.75rem;
 		border: 1px solid #d1d5db;
 		border-radius: 8px;
 		font-size: 0.9rem;
 		min-height: 44px;
 		background: #fff;
+		box-sizing: border-box;
 	}
 
 	.access-btn {
@@ -2380,7 +2388,7 @@
 		font-weight: 600;
 		cursor: pointer;
 		min-height: 44px;
-		align-self: flex-start;
+		align-self: center;
 	}
 
 	.access-btn:disabled {
@@ -2410,13 +2418,15 @@
 		padding: 1rem 0.25rem 0.5rem;
 		display: flex;
 		flex-direction: column;
-		align-items: flex-start;
+		align-items: center;
 		gap: 0.35rem;
 		max-width: 22rem;
+		margin: 0 auto;
 	}
 
 	.account-body input {
 		width: 100%;
+		box-sizing: border-box;
 	}
 
 	.account-subhead {
@@ -2424,6 +2434,7 @@
 		font-weight: 700;
 		color: #111827;
 		margin: 0 0 0.5rem;
+		text-align: center;
 	}
 
 	.account-label {
@@ -2431,6 +2442,7 @@
 		font-weight: 600;
 		color: #374151;
 		margin-top: 0.5rem;
+		text-align: center;
 	}
 
 	.account-input {
