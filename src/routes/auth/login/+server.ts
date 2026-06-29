@@ -11,6 +11,10 @@ const ZOHO_SCOPE = env.ZOHO_SCOPE || '';
 // the full OAuth request with "Scope does not exist".
 const REQUIRED_ZOHO_SCOPES = [
 	'ZohoCRM.modules.ALL',
+	// modules.ALL does NOT include email *content* — the View Email API that
+	// returns an email body requires this dedicated scope. Without it, the
+	// client portal email rows expand to no content.
+	'ZohoCRM.modules.emails.READ',
 	'ZohoCRM.settings.ALL',
 	'ZohoCRM.org.ALL',
 	'ZohoCRM.users.READ',
