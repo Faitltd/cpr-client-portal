@@ -1821,10 +1821,10 @@
 
 	/* ── Financial summary ────────────────────────────── */
 	.summary-grid {
-		display: grid;
-		grid-template-columns: 1fr;
+		display: flex;
 		gap: 0.75rem;
-		justify-items: center;
+		justify-content: center;
+		align-items: stretch;
 	}
 
 	/* Change-order items from the quote */
@@ -1873,15 +1873,16 @@
 	}
 
 	.summary-card {
-		padding: 0.85rem 1.25rem;
+		padding: 0.85rem 1rem;
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		background: #f8fafc;
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
-		width: fit-content;
-		min-width: 11rem;
+		flex: 1 1 0;
+		min-width: 0;
+		text-align: center;
 	}
 
 	.summary-label {

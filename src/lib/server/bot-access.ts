@@ -11,6 +11,16 @@ const ALLOWED_EMAILS = new Set(
 		.filter(Boolean)
 );
 
+// Internal users who log in via the designer portal (keeping the designer
+// dashboard) but should have ADMIN-level bot permissions — full data plus the
+// Master and Comms assistants. Comma-separated emails in BOT_ADMIN_EMAILS.
+const ADMIN_EMAILS = new Set(
+	(env.BOT_ADMIN_EMAILS ?? '')
+		.split(',')
+		.map((s) => s.trim().toLowerCase())
+		.filter(Boolean)
+);
+
 export type BotRole = 'admin' | 'designer' | 'trade_partner' | 'client';
 
 export interface BotAccess {
@@ -97,8 +107,11 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 			if (principal?.role === 'designer') {
 				const normalized = (principal.session.designer.email ?? '').toLowerCase();
 				if (normalized && ALLOWED_EMAILS.has(normalized)) {
+					// Internal staff in BOT_ADMIN_EMAILS get full admin bot
+					// permissions (Master + Comms assistants) while keeping their
+					// designer dashboard, which is driven by the portal_session.
 					return {
-						role: 'designer',
+						role: ADMIN_EMAILS.has(normalized) ? 'admin' : 'designer',
 						email: normalized,
 						allowedSources: null,
 						allowedTopFolders: null,
