@@ -83,6 +83,35 @@ export async function getBotAccess(cookies: Cookies): Promise<BotAccess | null> 
 		};
 	}
 
+	// Internal designer (CPR staff) takes precedence over a trade_session.
+	// CPR staff are sometimes ALSO registered as trade partners (e.g. a lead
+	// carpenter), so they can hold both a portal_session and a trade_session.
+	// Their internal identity must win — otherwise the trade cookie downgrades
+	// them to trade-partner filtering (no financials) on internal endpoints.
+	// Only whitelisted designer emails are elevated here; genuine external
+	// trade partners (not in ALLOWED_EMAILS) fall through to the trade branch.
+	{
+		const portalToken = cookies.get('portal_session');
+		if (portalToken) {
+			const principal = await getPortalPrincipal(portalToken);
+			if (principal?.role === 'designer') {
+				const normalized = (principal.session.designer.email ?? '').toLowerCase();
+				if (normalized && ALLOWED_EMAILS.has(normalized)) {
+					return {
+						role: 'designer',
+						email: normalized,
+						allowedSources: null,
+						allowedTopFolders: null,
+						hideFinancials: false,
+						hideInternalFinancials: false,
+						tradePartnerId: null,
+						clientId: null
+					};
+				}
+			}
+		}
+	}
+
 	// Trade session takes precedence over portal session. A user can hold both
 	// cookies (e.g. CPR staff who are also added as a trade partner on a
 	// project, or a trade partner who was once a homeowner client). When they
