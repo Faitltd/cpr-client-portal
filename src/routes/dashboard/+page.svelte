@@ -1825,6 +1825,7 @@
 		gap: 0.75rem;
 		justify-content: center;
 		align-items: stretch;
+		margin-top: 0.85rem;
 	}
 
 	/* Change-order items from the quote */
