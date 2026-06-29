@@ -1984,7 +1984,7 @@
 		display: grid;
 		gap: 0.6rem;
 		margin-top: 0.75rem;
-		justify-items: start;
+		justify-items: stretch;
 	}
 
 	.email-item {
@@ -1992,12 +1992,19 @@
 		flex-direction: column;
 		gap: 0.3rem;
 		padding: 0.65rem 0.85rem;
+		border: 1px solid #e5e7eb;
 		border-left: 3px solid transparent;
 		border-radius: 0 8px 8px 0;
 		background: #fafafa;
-		width: fit-content;
+		width: 100%;
 		max-width: 100%;
 		box-sizing: border-box;
+		transition: background 0.12s ease, box-shadow 0.12s ease;
+	}
+
+	.email-item:hover {
+		background: #f3f4f6;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 	}
 
 	.email-outbound {
