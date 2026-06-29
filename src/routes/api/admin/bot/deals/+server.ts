@@ -31,6 +31,11 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	if (!access) {
 		return json({ message: 'Unauthorized' }, { status: 401 });
 	}
+	// Admin deal list — CPR internal only. Don't let an expired admin session
+	// fall through to a lingering trade/portal cookie (see chat endpoint note).
+	if (access.role !== 'admin' && access.role !== 'designer') {
+		return json({ message: 'Admin session expired — please sign in again.' }, { status: 401 });
+	}
 
 	try {
 		const valid = await ensureValidZohoToken();
