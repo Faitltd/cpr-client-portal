@@ -363,7 +363,7 @@
 		emailBodies = new Map(emailBodies);
 		try {
 			const res = await fetch(
-				`/api/client/emails/${encodeURIComponent(id)}?dealId=${encodeURIComponent(email.deal_id || '')}`
+				`/api/client/emails/${encodeURIComponent(id)}?dealId=${encodeURIComponent(email.deal_id || '')}&subject=${encodeURIComponent(email.subject || '')}`
 			);
 			if (!res.ok) {
 				const payload = await res.json().catch(() => ({}));

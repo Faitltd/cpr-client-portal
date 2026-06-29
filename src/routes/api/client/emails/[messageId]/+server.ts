@@ -1,7 +1,37 @@
 import { json, error } from '@sveltejs/kit';
 import { getClientDashboardContext } from '$lib/server/client-dashboard';
 import { crmApiCall } from '$lib/server/projects';
+import { supabase } from '$lib/server/db';
 import type { RequestHandler } from './$types';
+
+function escapeHtml(s: string): string {
+	return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c);
+}
+
+/**
+ * Fall back to the email body already synced by the assistant's mail ingestion
+ * (Zoho Mail API → bot_documents, source 'zoho_mail'). CRM's View Email API
+ * only returns bodies for the authorizing user's own/shared emails, so most
+ * team correspondence comes back empty; the Mail-ingested copy doesn't have
+ * that per-user restriction. Matched by deal + exact subject, newest first.
+ */
+async function mailBodyFallback(dealId: string, subject: string): Promise<string | null> {
+	if (!subject) return null;
+	const { data, error: dbErr } = await supabase
+		.from('bot_documents')
+		.select('body, occurred_at')
+		.eq('source', 'zoho_mail')
+		.eq('deal_id', dealId)
+		.eq('subject', subject)
+		.order('occurred_at', { ascending: false })
+		.limit(1);
+	if (dbErr || !data || data.length === 0) return null;
+	const raw = typeof data[0].body === 'string' ? data[0].body : '';
+	// Ingestion prepends "Subject:/From:/To:" header lines before a blank line.
+	const stripped = raw.replace(/^Subject:[\s\S]*?\n\n/, '').trim();
+	if (!stripped) return null;
+	return `<div>${escapeHtml(stripped).replace(/\n/g, '<br>')}</div>`;
+}
 
 /**
  * GET /api/client/emails/:messageId?dealId=...
@@ -18,6 +48,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	const sessionToken = cookies.get('portal_session');
 	const messageId = params.messageId;
 	const dealId = url.searchParams.get('dealId') || '';
+	const subjectParam = url.searchParams.get('subject') || '';
 
 	if (!messageId) throw error(400, 'messageId required');
 	if (!dealId) throw error(400, 'dealId required');
@@ -57,25 +88,31 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		resp ||
 		null;
 
-	if (!email || typeof email !== 'object') {
-		return json({ body: null, content: null, error: 'Email not found' }, { status: 404 });
-	}
+	// Zoho returns the body in `content` (HTML or plain) when accessible.
+	let content: string | null =
+		email && typeof email === 'object'
+			? (typeof email.content === 'string' && email.content) ||
+				(typeof email.body === 'string' && email.body) ||
+				(typeof email.message === 'string' && email.message) ||
+				null
+			: null;
 
-	// Zoho returns the body in `content` (HTML or plain) on most accounts.
-	// Other accounts surface it as `body` or `message`. Return whichever
-	// is non-empty; the UI sanitizes HTML before rendering.
-	const content: string | null =
-		(typeof email.content === 'string' && email.content) ||
-		(typeof email.body === 'string' && email.body) ||
-		(typeof email.message === 'string' && email.message) ||
-		null;
+	// CRM View Email is restricted to the token user's own/shared emails, so it
+	// usually returns no body for team correspondence. Fall back to the copy the
+	// assistant already synced from the Zoho Mail API.
+	if (!content) {
+		const subject =
+			(email && typeof email === 'object' && typeof email.subject === 'string' && email.subject) ||
+			subjectParam;
+		content = await mailBodyFallback(dealId, subject).catch(() => null);
+	}
 
 	return json({
 		messageId,
-		subject: email.subject ?? null,
-		from: email.from ?? null,
-		to: Array.isArray(email.to) ? email.to : [],
-		time: email.time ?? null,
+		subject: (email && typeof email === 'object' ? email.subject : null) ?? subjectParam ?? null,
+		from: (email && typeof email === 'object' ? email.from : null) ?? null,
+		to: email && typeof email === 'object' && Array.isArray(email.to) ? email.to : [],
+		time: (email && typeof email === 'object' ? email.time : null) ?? null,
 		content
 	});
 };
