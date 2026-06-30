@@ -140,6 +140,33 @@
 		}
 	}
 
+	async function toggleSubtask(sub: any, checked: boolean) {
+		const prev = sub.is_done;
+		sub.is_done = checked; // deep-reactive ($state proxy)
+		try {
+			const res = await fetch(
+				`/api/trade/projects/${$page.params.projectId}/subtasks/${encodeURIComponent(sub.id)}`,
+				{
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ isDone: checked })
+				}
+			);
+			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
+			if (!res.ok) throw new Error('Failed');
+			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
+		} catch {
+			sub.is_done = prev; // revert on failure
+		}
+	}
+
+	const subtaskProgress = (task: any): string => {
+		const subs = Array.isArray(task?.subtasks) ? task.subtasks : [];
+		if (subs.length === 0) return '';
+		const done = subs.filter((s: any) => s.is_done).length;
+		return `${done}/${subs.length}`;
+	};
+
 	const getActivityText = (a: any) =>
 		a?.description ?? a?.activity ?? a?.activity_name ?? a?.title ?? a?.content ?? 'Activity';
 	const getActivityWhen = (a: any) =>
@@ -274,17 +301,38 @@
 										{#if project?.source === 'crm_deal'}
 											<span class="badge">{getTaskStatus(task)}</span>
 										{:else}
-											<select
-												class="status-select status-{initVal}"
-												name={tid}
-												disabled={submitting}
-											>
-												{#each TASK_STATUSES as opt}
-													<option value={opt.value} selected={opt.value === initVal}>{opt.label}</option>
-												{/each}
-											</select>
+											<div class="status-wrap">
+												{#if subtaskProgress(task)}
+													<span class="subtask-count">{subtaskProgress(task)}</span>
+												{/if}
+												<select
+													class="status-select status-{initVal}"
+													name={tid}
+													disabled={submitting}
+												>
+													{#each TASK_STATUSES as opt}
+														<option value={opt.value} selected={opt.value === initVal}>{opt.label}</option>
+													{/each}
+												</select>
+											</div>
 										{/if}
 									</div>
+									{#if task?.subtasks && task.subtasks.length > 0}
+										<ul class="subtask-list">
+											{#each task.subtasks as sub (sub.id)}
+												<li class="subtask-item">
+													<label class="subtask-label">
+														<input
+															type="checkbox"
+															checked={sub.is_done}
+															onchange={(e) => toggleSubtask(sub, (e.currentTarget as HTMLInputElement).checked)}
+														/>
+														<span class="subtask-text" class:subtask-done={sub.is_done}>{sub.label}</span>
+													</label>
+												</li>
+											{/each}
+										</ul>
+									{/if}
 								{/each}
 							</div>
 						{/each}
@@ -604,6 +652,56 @@
 		margin: 0.15rem 0 0;
 		font-size: 0.82rem;
 		color: #6b7280;
+	}
+
+	.status-wrap {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.subtask-count {
+		font-size: 0.78rem;
+		font-weight: 600;
+		color: #b3322c;
+		white-space: nowrap;
+	}
+
+	.subtask-list {
+		list-style: none;
+		margin: -0.3rem 0 0.3rem 0.5rem;
+		padding: 0.1rem 0 0 0.75rem;
+		border-left: 2px solid #f1c9c6;
+		display: grid;
+		gap: 0.3rem;
+	}
+
+	.subtask-item {
+		margin: 0;
+	}
+
+	.subtask-label {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-size: 0.85rem;
+		line-height: 1.35;
+		color: #374151;
+	}
+
+	.subtask-label input {
+		margin-top: 0.15rem;
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
+		accent-color: #16a34a;
+		cursor: pointer;
+	}
+
+	.subtask-text.subtask-done {
+		color: #9ca3af;
+		text-decoration: line-through;
 	}
 
 	.status-select {
