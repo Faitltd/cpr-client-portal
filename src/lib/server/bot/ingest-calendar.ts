@@ -3,6 +3,7 @@ import { supabase } from '$lib/server/db';
 import { zohoApiCall } from '$lib/server/zoho';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { chunkText, embed } from './embeddings';
+import { resolveEventDate } from './date-util';
 
 // Zoho Calendar API lives on its own host (NOT the CRM zohoApiCall base).
 // US data center. If the org is migrated to another DC, derive this from the
@@ -101,21 +102,21 @@ function toCalStamp(d: Date): string {
  * Parse a Zoho calendar stamp into an ISO string. Handles:
  *   20240608, 20240608T205000, 20240608T205000Z, 20240608T205000+0530
  */
-function calStampToIso(s: string): string {
-	if (!s) return new Date().toISOString();
+function calStampToIso(s: string): string | null {
+	if (!s) return null;
 	const m = String(s).match(
 		/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2}))?(Z|[+-]\d{4})?$/
 	);
 	if (!m) {
 		const d = new Date(String(s));
-		return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+		return Number.isNaN(d.getTime()) ? null : d.toISOString();
 	}
 	const [, Y, Mo, D, h = '00', mi = '00', se = '00', tz] = m;
 	let iso = `${Y}-${Mo}-${D}T${h}:${mi}:${se}`;
 	if (!tz || tz === 'Z') iso += 'Z';
 	else iso += `${tz.slice(0, 3)}:${tz.slice(3)}`; // +0530 -> +05:30
 	const d = new Date(iso);
-	return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+	return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 interface CalendarRef {
@@ -175,6 +176,7 @@ function renderEvent(ev: any): {
 	body: string;
 	sourceId: string;
 	occurredAt: string;
+	dateEstimated: boolean;
 	metadata: any;
 } {
 	const title = String(ev?.title ?? 'Untitled event');
@@ -183,8 +185,12 @@ function renderEvent(ev: any): {
 	const endRaw = String(dt.end ?? ev?.end ?? '');
 	const tz = String(dt.timezone ?? '');
 	const isAllDay = ev?.isallday === true;
-	const startIso = calStampToIso(startRaw);
+	const startParsed = calStampToIso(startRaw);
 	const endIso = calStampToIso(endRaw);
+	// Use the parsed start; if the stamp was unparseable, fall back (flagged).
+	const { iso: startIso, estimated: dateEstimated } = startParsed
+		? { iso: startParsed, estimated: false }
+		: resolveEventDate(startRaw);
 
 	const attendees = (Array.isArray(ev?.attendees) ? ev.attendees : [])
 		.map((a: any) => {
@@ -213,6 +219,7 @@ function renderEvent(ev: any): {
 		body,
 		sourceId: `calendar:${uid}:${startRaw}`,
 		occurredAt: startIso,
+		dateEstimated,
 		metadata: {
 			uid,
 			caluid: ev?.caluid ?? null,
@@ -229,7 +236,7 @@ async function ingestRendered(
 	dealId: string,
 	source: 'zoho_calendar',
 	author: string | null,
-	rec: { subject: string; body: string; sourceId: string; occurredAt: string; metadata?: any }
+	rec: { subject: string; body: string; sourceId: string; occurredAt: string; dateEstimated?: boolean; metadata?: any }
 ): Promise<'inserted' | 'skipped'> {
 	const docRow = {
 		deal_id: dealId,
@@ -238,6 +245,7 @@ async function ingestRendered(
 		source_url: null,
 		author,
 		occurred_at: rec.occurredAt,
+		date_estimated: rec.dateEstimated ?? false,
 		subject: rec.subject,
 		body: rec.body,
 		metadata: rec.metadata ?? {},

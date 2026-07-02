@@ -9,6 +9,7 @@ import {
 import { zohoApiCall } from '$lib/server/zoho';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { chunkText, embed } from './embeddings';
+import { resolveEventDate } from './date-util';
 
 type ProjectsSource = 'zoho_projects_task' | 'zoho_projects_activity';
 
@@ -47,24 +48,12 @@ async function fetchDealProjectIds(dealId: string): Promise<string[]> {
 	return Array.from(out);
 }
 
-function safeIso(value: any): string {
-	if (!value) return new Date().toISOString();
-	// Zoho Projects returns dates like "06-03-2026" or millis. Try millis first.
-	const n = Number(value);
-	if (Number.isFinite(n) && n > 0) {
-		const d = new Date(n > 1e12 ? n : n * 1000);
-		if (!Number.isNaN(d.getTime())) return d.toISOString();
-	}
-	const d = new Date(String(value));
-	if (!Number.isNaN(d.getTime())) return d.toISOString();
-	return new Date().toISOString();
-}
-
 function renderTask(task: any, projectName: string | null): {
 	subject: string;
 	body: string;
 	sourceId: string;
 	occurredAt: string;
+	dateEstimated: boolean;
 } {
 	const id = String(task.id ?? task.id_string ?? '');
 	const name = String(task.name ?? '(untitled task)').trim();
@@ -96,10 +85,32 @@ function renderTask(task: any, projectName: string | null): {
 	if (description) lines.push(`Description: ${String(description).replace(/<[^>]+>/g, '').slice(0, 1000)}`);
 
 	const body = lines.join('\n');
-	const occurredAt = safeIso(
-		task.last_updated_time ?? task.modified_time ?? task.created_time ?? endDate ?? startDate
+	// CPR names projects "<Client> - MM/DD/YYYY", so the project date is a coarse
+	// but real fallback when the task itself carries no usable timestamp.
+	const projectDate = projectName?.match(/(\d{1,2}[/-]\d{1,2}[/-]\d{4})/)?.[1] ?? null;
+	// Prefer epoch (_long) fields, then Zoho's formatted strings; created time is
+	// the stable "this task/ask appeared" anchor (won't drift each sync). The
+	// project date is the last real candidate before we flag the date estimated.
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(
+		task.created_time_long,
+		task.created_time,
+		task.completed_time_long,
+		task.completed_time,
+		task.closed_time,
+		task.last_updated_time_long,
+		task.last_updated_time,
+		task.modified_time,
+		endDate,
+		startDate,
+		projectDate
 	);
-	return { subject: `Task · ${name} · ${status}`, body, sourceId: `task:${id}`, occurredAt };
+	return {
+		subject: `Task · ${name} · ${status}`,
+		body,
+		sourceId: `task:${id}`,
+		occurredAt,
+		dateEstimated
+	};
 }
 
 function renderActivity(activity: any, projectName: string | null): {
@@ -107,6 +118,7 @@ function renderActivity(activity: any, projectName: string | null): {
 	body: string;
 	sourceId: string;
 	occurredAt: string;
+	dateEstimated: boolean;
 } {
 	const id = String(activity.id ?? activity.activity_id ?? '');
 	const actor = activity.activity_by ?? activity.user?.name ?? activity.name ?? '';
@@ -123,12 +135,18 @@ function renderActivity(activity: any, projectName: string | null): {
 	if (time) lines.push(`Time: ${time}`);
 
 	const body = lines.join('\n');
-	const occurredAt = safeIso(time);
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(
+		activity.time_long,
+		activity.activity_time,
+		activity.time,
+		time
+	);
 	return {
 		subject: `Activity · ${activityType || 'update'} · ${itemName || '(item)'}`,
 		body,
 		sourceId: `activity:${id}`,
-		occurredAt
+		occurredAt,
+		dateEstimated
 	};
 }
 
@@ -136,7 +154,14 @@ async function ingestRendered(
 	dealId: string,
 	source: ProjectsSource,
 	author: string | null,
-	rec: { subject: string; body: string; sourceId: string; occurredAt: string; metadata?: any }
+	rec: {
+		subject: string;
+		body: string;
+		sourceId: string;
+		occurredAt: string;
+		dateEstimated?: boolean;
+		metadata?: any;
+	}
 ): Promise<'inserted' | 'skipped'> {
 	const docRow = {
 		deal_id: dealId,
@@ -145,6 +170,7 @@ async function ingestRendered(
 		source_url: null,
 		author,
 		occurred_at: rec.occurredAt,
+		date_estimated: rec.dateEstimated ?? false,
 		subject: rec.subject,
 		body: rec.body,
 		metadata: rec.metadata ?? {},

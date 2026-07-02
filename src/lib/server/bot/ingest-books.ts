@@ -9,6 +9,7 @@ import {
 	listInvoicesForCustomer
 } from '$lib/server/books';
 import { chunkText, embed } from './embeddings';
+import { resolveEventDate } from './date-util';
 
 const PAGE_LIMIT = 200;
 const DEFAULT_BACKFILL_DAYS = Number(env.BOT_BOOKS_BACKFILL_DAYS ?? '365');
@@ -98,7 +99,7 @@ function fmtAmount(n: any, currency = 'USD'): string {
 	return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(v);
 }
 
-function renderInvoice(inv: any): { subject: string; body: string; sourceId: string; occurredAt: string } {
+function renderInvoice(inv: any): { subject: string; body: string; sourceId: string; occurredAt: string; dateEstimated: boolean } {
 	const lines: string[] = [];
 	const num = inv.invoice_number ?? inv.number ?? inv.invoice_id ?? '';
 	const status = inv.status ?? 'unknown';
@@ -130,11 +131,11 @@ function renderInvoice(inv: any): { subject: string; body: string; sourceId: str
 	if (inv.notes) lines.push(`Notes: ${String(inv.notes).slice(0, 1000)}`);
 	const body = lines.join('\n');
 	const sourceId = String(inv.invoice_id ?? num);
-	const occurredAt = new Date(date || inv.created_time || Date.now()).toISOString();
-	return { subject: `Invoice ${num} (${status})`, body, sourceId, occurredAt };
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(date, inv.created_time);
+	return { subject: `Invoice ${num} (${status})`, body, sourceId, occurredAt, dateEstimated };
 }
 
-function renderEstimate(est: any): { subject: string; body: string; sourceId: string; occurredAt: string } {
+function renderEstimate(est: any): { subject: string; body: string; sourceId: string; occurredAt: string; dateEstimated: boolean } {
 	const lines: string[] = [];
 	const num = est.estimate_number ?? est.number ?? est.estimate_id ?? '';
 	const status = est.status ?? 'unknown';
@@ -157,11 +158,11 @@ function renderEstimate(est: any): { subject: string; body: string; sourceId: st
 	if (est.notes) lines.push(`Notes: ${String(est.notes).slice(0, 1000)}`);
 	const body = lines.join('\n');
 	const sourceId = String(est.estimate_id ?? num);
-	const occurredAt = new Date(date || est.created_time || Date.now()).toISOString();
-	return { subject: `Estimate ${num} (${status})`, body, sourceId, occurredAt };
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(date, est.created_time);
+	return { subject: `Estimate ${num} (${status})`, body, sourceId, occurredAt, dateEstimated };
 }
 
-function renderPayment(pay: any): { subject: string; body: string; sourceId: string; occurredAt: string } {
+function renderPayment(pay: any): { subject: string; body: string; sourceId: string; occurredAt: string; dateEstimated: boolean } {
 	const lines: string[] = [];
 	const num = pay.payment_number ?? pay.payment_id ?? '';
 	const date = pay.date ?? pay.payment_date ?? '';
@@ -179,15 +180,15 @@ function renderPayment(pay: any): { subject: string; body: string; sourceId: str
 	if (pay.description) lines.push(`Notes: ${String(pay.description).slice(0, 1000)}`);
 	const body = lines.join('\n');
 	const sourceId = String(pay.payment_id ?? num);
-	const occurredAt = new Date(date || pay.created_time || Date.now()).toISOString();
-	return { subject: `Payment ${num}`, body, sourceId, occurredAt };
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(date, pay.created_time);
+	return { subject: `Payment ${num}`, body, sourceId, occurredAt, dateEstimated };
 }
 
 async function ingestRendered(
 	dealId: string,
 	source: BooksSource,
 	author: string | null,
-	rec: { subject: string; body: string; sourceId: string; occurredAt: string; metadata?: any }
+	rec: { subject: string; body: string; sourceId: string; occurredAt: string; dateEstimated?: boolean; metadata?: any }
 ): Promise<'inserted' | 'skipped'> {
 	const docRow = {
 		deal_id: dealId,
@@ -196,6 +197,7 @@ async function ingestRendered(
 		source_url: null,
 		author,
 		occurred_at: rec.occurredAt,
+		date_estimated: rec.dateEstimated ?? false,
 		subject: rec.subject,
 		body: rec.body,
 		metadata: rec.metadata ?? {},

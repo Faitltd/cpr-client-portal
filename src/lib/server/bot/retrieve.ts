@@ -57,6 +57,9 @@ async function fetchRecentChunks(opts: {
 		.from('bot_documents')
 		.select('id, source, subject, author, occurred_at, source_url, bot_chunks!inner(id, content)')
 		.eq('deal_id', opts.dealId)
+		// Exclude rows whose date is a sync-time guess — they must not surface in a
+		// time window ("this week"/"today") as if they happened then.
+		.eq('date_estimated', false)
 		.gte('occurred_at', cutoff)
 		.order('occurred_at', { ascending: false })
 		.limit(opts.limit);
@@ -739,6 +742,8 @@ async function fetchRecentChunksAllDeals(days: number, limit: number): Promise<C
 		.select(
 			'id, deal_id, source, subject, author, occurred_at, source_url, bot_chunks!inner(id, content)'
 		)
+		// Sync-time guesses must not appear in a date window as if they're recent.
+		.eq('date_estimated', false)
 		.gte('occurred_at', cutoff)
 		.order('occurred_at', { ascending: false })
 		.limit(limit);

@@ -4,6 +4,7 @@ import { zohoApiCall } from '$lib/server/zoho';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import { listSignRequestsByRecipient, getRequestDetails } from '$lib/server/sign';
 import { chunkText, embed } from './embeddings';
+import { resolveEventDate } from './date-util';
 
 export interface SignSyncResult {
 	dealId: string;
@@ -57,23 +58,12 @@ async function fetchDealContactEmail(dealId: string): Promise<string | null> {
 	}
 }
 
-function safeIso(value: any): string {
-	if (!value) return new Date().toISOString();
-	const n = Number(value);
-	if (Number.isFinite(n) && n > 0) {
-		const d = new Date(n > 1e12 ? n : n * 1000);
-		if (!Number.isNaN(d.getTime())) return d.toISOString();
-	}
-	const d = new Date(String(value));
-	if (!Number.isNaN(d.getTime())) return d.toISOString();
-	return new Date().toISOString();
-}
-
 function renderSignRequest(req: any, details: any | null): {
 	subject: string;
 	body: string;
 	sourceId: string;
 	occurredAt: string;
+	dateEstimated: boolean;
 } {
 	const id = String(req.request_id ?? req.requestId ?? details?.request_id ?? '');
 	const name =
@@ -128,12 +118,17 @@ function renderSignRequest(req: any, details: any | null): {
 	}
 
 	const body = lines.join('\n');
-	const occurredAt = safeIso(signedTime || modifiedTime || createdTime);
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(
+		signedTime,
+		modifiedTime,
+		createdTime
+	);
 	return {
 		subject: `Sign · ${name} · ${status}`,
 		body,
 		sourceId: `sign:${id}`,
-		occurredAt
+		occurredAt,
+		dateEstimated
 	};
 }
 
@@ -141,7 +136,7 @@ async function ingestRendered(
 	dealId: string,
 	source: 'zoho_sign_request',
 	author: string | null,
-	rec: { subject: string; body: string; sourceId: string; occurredAt: string; metadata?: any }
+	rec: { subject: string; body: string; sourceId: string; occurredAt: string; dateEstimated?: boolean; metadata?: any }
 ): Promise<'inserted' | 'skipped'> {
 	const docRow = {
 		deal_id: dealId,
@@ -150,6 +145,7 @@ async function ingestRendered(
 		source_url: rec.metadata?.view_url ?? null,
 		author,
 		occurred_at: rec.occurredAt,
+		date_estimated: rec.dateEstimated ?? false,
 		subject: rec.subject,
 		body: rec.body,
 		metadata: rec.metadata ?? {},

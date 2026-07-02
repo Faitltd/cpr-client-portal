@@ -14,6 +14,7 @@ import {
 	type WorkDriveItem
 } from '$lib/server/workdrive';
 import { chunkText, embed } from './embeddings';
+import { resolveEventDate } from './date-util';
 
 const MAX_FILES_PER_DEAL = Number(env.BOT_WORKDRIVE_MAX_FILES ?? '150');
 const MAX_FILE_BYTES = Number(env.BOT_WORKDRIVE_MAX_BYTES ?? String(25 * 1024 * 1024));
@@ -337,13 +338,6 @@ function hashBody(s: string): string {
 	return createHash('sha256').update(s).digest('hex');
 }
 
-function safeIso(value: string | null | undefined): string {
-	if (!value) return new Date().toISOString();
-	const d = new Date(value);
-	if (!Number.isNaN(d.getTime())) return d.toISOString();
-	return new Date().toISOString();
-}
-
 function sanitizeForPostgres(s: string): string {
 	// Postgres TEXT can't store U+0000. Strip nulls and other control chars
 	// that PDFs sometimes contain (form feeds, etc.) which break JSON encoding.
@@ -589,13 +583,18 @@ async function ingestFile(
 
 	const body = `File: ${subject}\n\n${text}`;
 
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(
+		item.modifiedTime,
+		item.createdTime
+	);
 	const docRow = {
 		deal_id: dealId,
 		source,
 		source_id: sourceId,
 		source_url: (item as any).permalink ?? null,
 		author: null,
-		occurred_at: safeIso(item.modifiedTime ?? item.createdTime),
+		occurred_at: occurredAt,
+		date_estimated: dateEstimated,
 		subject,
 		body,
 		metadata: {

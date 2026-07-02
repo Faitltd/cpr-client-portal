@@ -87,7 +87,6 @@
 
 	// --- Change Order Request fields ---
 	let coScope = '';
-	let coCost: number | '' = '';
 
 	// --- Shared state ---
 	let photoUploadRef: PhotoUpload;
@@ -102,7 +101,6 @@
 		fuNote: string;
 		rpNote: string;
 		coScope: string;
-		coCost: number | '';
 	};
 
 	let draft: DraftHandle<UnifiedDraft> | null = null;
@@ -111,13 +109,13 @@
 	let draftSavedAt = 0;
 
 	const getDraftData = (): UnifiedDraft => ({
-		submissionType, fuNote, rpNote, coScope, coCost
+		submissionType, fuNote, rpNote, coScope
 	});
 
 	const isDraftEmpty = (d: UnifiedDraft) => {
 		const fuEmpty = !d.fuNote.trim();
 		const rpEmpty = !d.rpNote.trim();
-		const coEmpty = !d.coScope.trim() && d.coCost === '';
+		const coEmpty = !d.coScope.trim();
 		return fuEmpty && rpEmpty && coEmpty && d.submissionType === 'field_update';
 	};
 
@@ -126,7 +124,6 @@
 		fuNote = d.fuNote;
 		rpNote = d.rpNote;
 		coScope = d.coScope;
-		coCost = d.coCost;
 		draftRestorable = false;
 	};
 
@@ -166,7 +163,6 @@
 		fuNote = '';
 		rpNote = '';
 		coScope = '';
-		coCost = '';
 		photoUploadRef?.reset();
 		clientPhotoUploadRef?.reset();
 	};
@@ -242,16 +238,7 @@
 					submitting = false;
 					return;
 				}
-				if (coCost === '' || !Number.isFinite(coCost) || (coCost as number) <= 0) {
-					errorMessage = 'Please enter an estimated cost greater than 0.';
-					submitting = false;
-					return;
-				}
-				const costFmt = (coCost as number).toLocaleString(undefined, {
-					minimumFractionDigits: 2,
-					maximumFractionDigits: 2
-				});
-				const note = `Scope: ${coScope.trim()}\n\nEstimated Cost: $${costFmt}`;
+				const note = `Scope: ${coScope.trim()}`;
 				const res = await fetch('/api/trade/field-updates', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -311,12 +298,7 @@
 	// every referenced var is visible to the dependency tracker.
 	$: hasDeal = !!selectedDealId;
 	$: rpNoteFilled = submissionType !== 'report_problem' || rpNote.trim().length > 0;
-	$: coValid =
-		submissionType !== 'change_order' ||
-		(coScope.trim().length > 0 &&
-			coCost !== '' &&
-			Number.isFinite(coCost) &&
-			(coCost as number) > 0);
+	$: coValid = submissionType !== 'change_order' || coScope.trim().length > 0;
 
 	$: canSubmit = hasDeal && rpNoteFilled && coValid;
 
@@ -326,9 +308,7 @@
 			? 'Describe the problem to enable submission.'
 			: submissionType === 'change_order' && !coScope.trim()
 				? 'Describe the scope of the change to enable submission.'
-				: submissionType === 'change_order' && !coValid
-					? 'Enter an estimated cost greater than 0.'
-					: '';
+				: '';
 
 	onDestroy(() => {
 		draft?.cancelPending();
@@ -432,18 +412,6 @@
 						></textarea>
 					</div>
 
-					<div class="form-field">
-						<label for="co-cost">Estimated Cost ($)</label>
-						<input
-							id="co-cost"
-							type="number"
-							step="0.01"
-							min="0"
-							bind:value={coCost}
-							placeholder="e.g. 450.00"
-							required
-						/>
-					</div>
 				{:else if submissionType === 'report_problem'}
 					<div class="form-field">
 						<label for="problem-note">Note</label>

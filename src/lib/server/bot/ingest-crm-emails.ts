@@ -3,6 +3,7 @@ import { supabase } from '$lib/server/db';
 import { zohoApiCall } from '$lib/server/zoho';
 import { ensureValidZohoToken, ensureValidZohoTokenByUserId } from '$lib/server/zoho-token';
 import { chunkText, embed } from './embeddings';
+import { resolveEventDate } from './date-util';
 
 export interface CrmEmailSyncResult {
 	dealId: string;
@@ -131,12 +132,7 @@ async function ingestOneEmail(
 	const toAddr = joinAddrs(raw.to ?? raw.recipients);
 	const ccAddr = joinAddrs(raw.cc);
 	const sentTime = raw.time ?? raw.sent_time ?? raw.date_time ?? raw.created_time ?? raw.email_time;
-	const occurredAt = (() => {
-		if (!sentTime) return new Date().toISOString();
-		const d = new Date(sentTime);
-		if (Number.isNaN(d.getTime())) return new Date().toISOString();
-		return d.toISOString();
-	})();
+	const { iso: occurredAt, estimated: dateEstimated } = resolveEventDate(sentTime);
 
 	const ownerId = raw.owner?.id ? String(raw.owner.id) : null;
 	const ownerName = raw.owner?.name ?? null;
@@ -188,6 +184,7 @@ async function ingestOneEmail(
 		source_url: null,
 		author: fromAddr,
 		occurred_at: occurredAt,
+		date_estimated: dateEstimated,
 		subject,
 		body,
 		metadata: {
