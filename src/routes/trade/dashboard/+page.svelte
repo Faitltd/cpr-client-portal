@@ -730,15 +730,24 @@
 		<div class="dash-header-text">
 			<p class="dash-welcome">{tradePartner.name || tradePartner.email}</p>
 		</div>
-		<a
-			class="fu-submit-btn"
-			href={'/trade/field-update' + (selectedDealId ? '?deal=' + encodeURIComponent(selectedDealId) : '')}
-		>
-			<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<path d="M10 4v12M4 10h12"/>
-			</svg>
-			Submit Field Update
-		</a>
+		<div class="dash-actions">
+			<a class="ba-link" href="/trade/beforeafter">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<rect x="2.5" y="4" width="15" height="12" rx="2"/>
+					<path d="M10 4v12"/>
+				</svg>
+				Before / After
+			</a>
+			<a
+				class="fu-submit-btn"
+				href={'/trade/field-update' + (selectedDealId ? '?deal=' + encodeURIComponent(selectedDealId) : '')}
+			>
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<path d="M10 4v12M4 10h12"/>
+				</svg>
+				Submit Field Update
+			</a>
+		</div>
 	</header>
 
 	{#if dealsLoading}
@@ -1338,6 +1347,32 @@
 		border: none;
 		padding: 0;
 		margin: 0;
+	}
+
+	.dash-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+
+	.ba-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: #fff;
+		color: #111827;
+		text-decoration: none;
+		font-weight: 700;
+		font-size: 0.95rem;
+		padding: 0.65rem 1.1rem;
+		border: 1px solid #d1d5db;
+		border-radius: 10px;
+		min-height: 44px;
+	}
+
+	.ba-link:hover {
+		background: #f3f4f6;
 	}
 
 	.fu-submit-btn {

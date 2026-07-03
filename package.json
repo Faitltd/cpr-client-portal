@@ -27,7 +27,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
+    "gif.js": "^0.2.0",
     "heic-convert": "^2.1.0",
+    "idb": "^8.0.3",
     "mammoth": "^1.8.0",
     "openai": "^4.0.0",
     "pdf-parse": "^1.1.4",

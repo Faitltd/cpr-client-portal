@@ -10,6 +10,7 @@ import {
 import {
 	VALID_UPDATE_TYPES,
 	createCrmFieldUpdate,
+	createChangeOrderReviewTask,
 	getAccessTokenAndDomain,
 	pickSubmitterDisplayName
 } from '$lib/server/zoho-field-updates';
@@ -289,6 +290,21 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 					cliqResult.status,
 					cliqResult.error
 				);
+			}
+
+			// Change orders get a Zoho CRM review task for Mary Sue (mentions Jeff).
+			if (updateType === 'change_order') {
+				const taskRes = await createChangeOrderReviewTask({
+					accessToken,
+					apiDomain,
+					dealId,
+					dealName,
+					note,
+					submitterName: pickSubmitterDisplayName(session.trade_partner)
+				});
+				if (!taskRes.ok) {
+					console.error('[trade/field-updates] CO review task failed:', taskRes.error);
+				}
 			}
 		} catch (cliqErr) {
 			cliqDiag = {
