@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import DealCard from '$lib/components/designer/DealCard.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
+	import TradeQcChecklist from '$lib/components/TradeQcChecklist.svelte';
 	import { formatCrmRichText, decodeHtmlEntities } from '$lib/html';
 	import type { DealFieldDescriptor, DesignerDealSummary } from '$lib/types/designer';
 
@@ -585,6 +586,140 @@
 		}
 	}
 
+	// ── QC Checklists (Supabase-backed, one per trade) ─────────
+	// Rendered under the matching trade's task group in the Tasks tab.
+	const checklistsCache = new Map<string, any[]>();
+	let checklists: any[] = [];
+	let checklistsLoading = false;
+	let lastChecklistsProjectId = '';
+	let checklistSaving = new Set<number>();
+
+	const normName = (s: string) => (s || '').toLowerCase().trim();
+
+	// Zoho tasklist name → QC trade checklist name(s).
+	const TASKLIST_TRADE_MAP: Record<string, string[]> = {
+		framing: ['Framing'],
+		remove: ['Demolition'],
+		demolition: ['Demolition'],
+		demo: ['Demolition'],
+		concrete: ['Concrete'],
+		insulation: ['Insulation'],
+		drywall: ['Drywall'],
+		paint: ['Interior Paint', 'Exterior Paint'],
+		'interior paint': ['Interior Paint'],
+		'exterior paint': ['Exterior Paint'],
+		cabinetry: ['Cabinetry'],
+		cabinets: ['Cabinetry'],
+		doors: ['Doors & Millwork'],
+		trim: ['Doors & Millwork'],
+		millwork: ['Doors & Millwork'],
+		windows: ['Windows'],
+		electrical: ['Electrical'],
+		hvac: ['HVAC'],
+		plumbing: ['Plumbing Underground', 'Plumbing Above Ground'],
+		tile: ['Tile'],
+		flooring: ['Flooring']
+	};
+
+	// Assign each checklist to the FIRST task group that maps to it so a
+	// checklist never renders twice (e.g. Doors and Trim both map to
+	// Doors & Millwork — only the first group gets it). Unmatched
+	// checklists render at the bottom under "Other QC Checklists".
+	$: checklistAssignment = (() => {
+		const byGroup = new Map<string, any[]>();
+		const used = new Set<string>();
+		for (const group of taskGroups) {
+			const mapped = TASKLIST_TRADE_MAP[normName(group.name)];
+			const wanted =
+				mapped ??
+				checklists.filter((c) => normName(c.name) === normName(group.name)).map((c) => c.name);
+			const assigned: any[] = [];
+			for (const name of wanted) {
+				if (used.has(name)) continue;
+				const cl = checklists.find((c) => c.name === name);
+				if (cl && cl.items?.length) {
+					assigned.push(cl);
+					used.add(name);
+				}
+			}
+			if (assigned.length) byGroup.set(group.name, assigned);
+		}
+		const leftovers = checklists.filter((c) => !used.has(c.name) && c.items?.length);
+		return { byGroup, leftovers };
+	})();
+
+	const loadChecklists = async (projectId: string, bustCache = false) => {
+		if (!projectId) {
+			checklists = [];
+			return;
+		}
+		if (!bustCache && checklistsCache.has(projectId)) {
+			checklists = checklistsCache.get(projectId) ?? [];
+			return;
+		}
+		checklistsLoading = true;
+		try {
+			const res = await fetch(`/api/trade/checklists/${encodeURIComponent(projectId)}`);
+			if (res.status === 401) {
+				window.location.href = '/auth/trade';
+				return;
+			}
+			if (!res.ok) throw new Error(`Failed to load checklists (${res.status})`);
+			const payload = await res.json().catch(() => ({}));
+			const fresh: any[] = payload?.checklists ?? [];
+			checklistsCache.set(projectId, fresh);
+			if (projectId === selectedProjectId) checklists = fresh;
+		} catch (err) {
+			// Checklists are supplementary — tasks still render if this fails.
+			console.error('[trade/dashboard] checklists load failed:', err);
+			if (!checklistsCache.has(projectId)) checklists = [];
+		} finally {
+			checklistsLoading = false;
+		}
+	};
+
+	const toggleChecklistItem = async (trade: any, item: any) => {
+		if (!selectedProjectId || checklistSaving.has(item.id)) return;
+		checklistSaving = new Set(checklistSaving).add(item.id);
+
+		const next = !item.completed;
+		// Optimistic update
+		item.completed = next;
+		item.completedBy = next ? data.tradePartner?.name || data.tradePartner?.email || null : null;
+		item.completedAt = next ? new Date().toISOString() : null;
+		trade.done = trade.items.filter((i: any) => i.completed).length;
+		checklists = [...checklists];
+
+		try {
+			const res = await fetch(`/api/trade/checklists/${encodeURIComponent(selectedProjectId)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ itemId: item.id, completed: next })
+			});
+			if (res.status === 401) {
+				window.location.href = '/auth/trade';
+				return;
+			}
+			if (!res.ok) throw new Error('Save failed');
+		} catch {
+			// Roll back on failure
+			item.completed = !next;
+			item.completedBy = null;
+			item.completedAt = null;
+			trade.done = trade.items.filter((i: any) => i.completed).length;
+			checklists = [...checklists];
+		} finally {
+			const s = new Set(checklistSaving);
+			s.delete(item.id);
+			checklistSaving = s;
+		}
+	};
+
+	$: if (browser && isZohoProject && selectedProjectId && selectedProjectId !== lastChecklistsProjectId) {
+		lastChecklistsProjectId = selectedProjectId;
+		loadChecklists(selectedProjectId);
+	}
+
 	// ── Per-deal cache so switching back to a project shows data immediately
 	const fieldUpdatesCache = new Map<string, FieldUpdate[]>();
 
@@ -997,6 +1132,12 @@
 							</div>
 						{:else if tasks.length === 0}
 							<p class="muted">No tasks found for this project.</p>
+							{#if checklistAssignment.leftovers.length > 0}
+								<p class="task-group-name">QC Checklists</p>
+								{#each checklistAssignment.leftovers as trade (trade.id)}
+									<TradeQcChecklist {trade} saving={checklistSaving} onToggle={toggleChecklistItem} />
+								{/each}
+							{/if}
 						{:else}
 						{#each taskGroups as group}
 								{#if taskGroups.length > 1}
@@ -1031,7 +1172,16 @@
 										</div>
 									{/each}
 								</div>
+								{#each checklistAssignment.byGroup.get(group.name) ?? [] as trade (trade.id)}
+									<TradeQcChecklist {trade} saving={checklistSaving} onToggle={toggleChecklistItem} />
+								{/each}
 							{/each}
+							{#if checklistAssignment.leftovers.length > 0}
+								<p class="task-group-name">Other QC Checklists</p>
+								{#each checklistAssignment.leftovers as trade (trade.id)}
+									<TradeQcChecklist {trade} saving={checklistSaving} onToggle={toggleChecklistItem} />
+								{/each}
+							{/if}
 						{/if}
 					</div>
 				{#if isZohoProject}
