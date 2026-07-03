@@ -318,6 +318,66 @@ export async function createCrmFieldUpdate(
 	return { zohoRecordId, dealField };
 }
 
+// Change-order review task: owner + who to mention. Overridable via env; the
+// defaults are the current Zoho user id for Mary Sue and Jeff's contact.
+const CO_TASK_OWNER_ID = env.CO_REVIEW_TASK_OWNER_ID || '6162061000000865001'; // Mary Sue Mugge
+const CO_TASK_MENTION = env.CO_REVIEW_TASK_MENTION || 'Jeff Smither (jeff@homecpr.pro)';
+
+/**
+ * Create a Zoho CRM Task to review a change order, assigned to Mary Sue and
+ * mentioning Jeff, linked to the Deal. Best-effort — returns a diag object.
+ */
+export async function createChangeOrderReviewTask(opts: {
+	accessToken: string;
+	apiDomain?: string;
+	dealId: string;
+	dealName: string | null;
+	note: string | null;
+	submitterName: string | null;
+}): Promise<{ ok: boolean; taskId?: string; error?: string }> {
+	try {
+		const due = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+		const project = opts.dealName?.trim() || `Deal ${opts.dealId.slice(-6)}`;
+		const description = [
+			opts.note?.trim() || 'Change order submitted via the portal.',
+			'',
+			`Please review with ${CO_TASK_MENTION}.`,
+			opts.submitterName ? `Submitted by ${opts.submitterName}.` : ''
+		]
+			.filter(Boolean)
+			.join('\n');
+
+		const record: Record<string, unknown> = {
+			Subject: `Review Change Order — ${project}`,
+			Status: 'Not Started',
+			Priority: 'High',
+			Due_Date: due,
+			Description: description,
+			$se_module: 'Deals',
+			What_Id: opts.dealId
+		};
+		if (CO_TASK_OWNER_ID) record.Owner = { id: CO_TASK_OWNER_ID };
+
+		const res = await zohoApiCall(
+			opts.accessToken,
+			'/Tasks',
+			{
+				method: 'POST',
+				body: JSON.stringify({ data: [record] }),
+				signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS)
+			},
+			opts.apiDomain
+		);
+		const first = res?.data?.[0];
+		if (first?.code === 'SUCCESS' || first?.status === 'success') {
+			return { ok: true, taskId: first?.details?.id };
+		}
+		return { ok: false, error: first?.message || first?.code || 'Task create failed' };
+	} catch (err) {
+		return { ok: false, error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
 export interface FieldUpdateListItem {
 	id: string;
 	name: string | null;
