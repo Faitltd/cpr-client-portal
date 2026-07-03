@@ -9,6 +9,7 @@ import {
 import { getDealsForClient } from '$lib/server/projects';
 import { zohoApiCall } from '$lib/server/zoho';
 import {
+	createChangeOrderReviewTask,
 	createCrmFieldUpdate,
 	getAccessTokenAndDomain,
 	isVideoPath,
@@ -303,6 +304,28 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			);
 		}
 
+		// ── Step F: Zoho CRM review task for Mary Sue (mentions Jeff) ──────────
+		let taskDiag: { ok: boolean; taskId?: string; error?: string } = {
+			ok: false,
+			error: 'not attempted'
+		};
+		try {
+			taskDiag = await createChangeOrderReviewTask({
+				accessToken,
+				apiDomain,
+				dealId,
+				dealName,
+				note,
+				submitterName: submitterDisplay
+			});
+			if (!taskDiag.ok) {
+				console.error('[client/change-orders] CO review task failed:', taskDiag.error);
+			}
+		} catch (err) {
+			taskDiag = { ok: false, error: err instanceof Error ? err.message : String(err) };
+			console.error('[client/change-orders] CO review task threw:', err);
+		}
+
 		return json(
 			{
 				data: {
@@ -317,7 +340,8 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 								via: cliqResult.via,
 								status: cliqResult.status ?? null,
 								error: cliqResult.error
-							}
+							},
+					task: taskDiag
 				}
 			},
 			{ status: 201 }
