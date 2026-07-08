@@ -2,12 +2,12 @@ import { json, error } from '@sveltejs/kit';
 import { getSession } from '$lib/server/db';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import {
-	getBooksCustomerByEmail,
 	getEstimateById,
 	isCountedQuoteStatus,
 	listEstimatesForCustomer,
 	listInvoicesForCustomer
 } from '$lib/server/books';
+import { resolveBooksCustomerId } from '$lib/server/books-resolve';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ cookies }) => {
@@ -30,16 +30,13 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 		const accessToken = valid.accessToken;
 
-		// Prefer an explicit Books customer id stored on the client (used when the
-		// login email doesn't match the Books customer email). Fall back to the
-		// email lookup otherwise.
-		let customerId: string | null = session.client.books_customer_id
-			? String(session.client.books_customer_id).trim() || null
-			: null;
-		if (!customerId) {
-			const customer = await getBooksCustomerByEmail(accessToken, session.client.email);
-			customerId = customer?.contact_id ? String(customer.contact_id) : null;
-		}
+		// Resolve the Books customer: stored id → email → safe verified auto-match
+		// (self-heals when the login email doesn't match the Books customer email).
+		const customerId = await resolveBooksCustomerId({
+			accessToken,
+			apiDomain: valid.apiDomain,
+			client: session.client
+		});
 		if (!customerId) {
 			return json({ data: [], quotedTotal: 0 });
 		}

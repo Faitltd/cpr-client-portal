@@ -40,6 +40,28 @@ export async function getBooksCustomerByEmail(accessToken: string, email: string
 	return response.contacts?.[0] || null;
 }
 
+/** Search Books customers by name (contact_name contains). Returns candidates. */
+export async function searchBooksCustomersByName(accessToken: string, name: string) {
+	if (!ZOHO_BOOKS_ORG_ID) throw new Error('Missing ZOHO_BOOKS_ORG_ID');
+	const q = name.trim();
+	if (!q) return [] as any[];
+	const response = await zohoBooksApiCall(
+		accessToken,
+		`/contacts?organization_id=${encodeURIComponent(ZOHO_BOOKS_ORG_ID)}&contact_type=customer&contact_name_contains=${encodeURIComponent(q)}&per_page=25`
+	);
+	return Array.isArray(response.contacts) ? response.contacts : [];
+}
+
+/** Full detail for a single Books customer (includes billing_address). */
+export async function getBooksContactById(accessToken: string, contactId: string) {
+	if (!ZOHO_BOOKS_ORG_ID) throw new Error('Missing ZOHO_BOOKS_ORG_ID');
+	const response = await zohoBooksApiCall(
+		accessToken,
+		`/contacts/${encodeURIComponent(contactId)}?organization_id=${encodeURIComponent(ZOHO_BOOKS_ORG_ID)}`
+	);
+	return response.contact || null;
+}
+
 /**
  * Quote statuses that count toward the project's quoted total: accepted, or
  * any invoiced state (Books uses 'invoiced' and 'partially_invoiced').

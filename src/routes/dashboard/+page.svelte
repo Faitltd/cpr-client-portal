@@ -458,6 +458,10 @@
 		return number.toUpperCase().startsWith('CO');
 	});
 	$: regularInvoices = invoices.filter((invoice) => !changeOrders.includes(invoice));
+	// True when the client has billing on file even if no active project card exists
+	// (e.g. an On Hold deal that never had a Zoho Project created). Lets us still
+	// show the Financial Summary and Invoices instead of a bare "No projects found".
+	$: hasFinancials = invoices.length > 0 || quotedTotal > 0;
 
 	const formatRelativeTime = (value: string | null) => {
 		if (!value) return 'Recently';
@@ -633,8 +637,86 @@
 			<p>Error: {error}</p>
 			<a href="/auth/client" class="btn-primary">Please login again</a>
 		</div>
-	{:else if projects.length === 0}
+	{:else if projects.length === 0 && !hasFinancials}
 		<div class="state-card">No projects found</div>
+	{:else if projects.length === 0}
+		<!-- Pre-project / On Hold: no active project card yet, but billing exists. -->
+		<div class="state-card">
+			Your project isn't active in the portal yet. Your billing details are below.
+		</div>
+
+		<!-- Financial Summary -->
+		<section class="section">
+			<div class="section-header static-header">
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v2M10 16v2M2 10h2M16 10h2"/><circle cx="10" cy="10" r="5"/></svg>
+					Financial Summary
+				</span>
+			</div>
+			<div class="summary-grid">
+				{#if quotedTotal > 0}
+					<div class="summary-card">
+						<span class="summary-label">Price</span>
+						<span class="summary-value">${quotedTotal.toLocaleString()}</span>
+					</div>
+				{/if}
+				<div class="summary-card">
+					<span class="summary-label">Invoiced</span>
+					<span class="summary-value">${invoiceTotals.total.toLocaleString()}</span>
+				</div>
+				<div class="summary-card">
+					<span class="summary-label">Balance</span>
+					<span class="summary-value">${remainingBalance.toLocaleString()}</span>
+				</div>
+			</div>
+		</section>
+
+		<!-- Invoices -->
+		<section class="section">
+			<div class="section-header static-header">
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="14" height="16" rx="2"/><path d="M7 6h6M7 10h6M7 14h4"/></svg>
+					Invoices
+				</span>
+			</div>
+			{#if invoiceError}
+				<p class="muted-text error-text">{invoiceError}</p>
+			{:else if regularInvoices.length === 0}
+				<p class="muted-text">No invoices found.</p>
+			{:else}
+				<div class="card-list">
+					{#each regularInvoices as invoice}
+						<div class="invoice-card">
+							<div class="invoice-info">
+								<h3 class="invoice-number">{invoice.invoice_number || invoice.invoice_id}</h3>
+								<div class="invoice-meta">
+									<span class="badge badge-muted">{invoice.status || 'Unknown'}</span>
+									<span class="meta-text">{formatInvoiceDate(invoice)}</span>
+								</div>
+							</div>
+							<div class="invoice-amounts">
+								<div class="amount-row">
+									<span class="amount-label">Total</span>
+									<span class="amount-value">${Number(invoice.total || 0).toLocaleString()}</span>
+								</div>
+								<div class="amount-row">
+									<span class="amount-label">Balance</span>
+									<span class="amount-value">${Number(invoice.balance || 0).toLocaleString()}</span>
+								</div>
+							</div>
+							<div class="invoice-actions">
+								{#if invoice.payment_url}
+									<a class="btn-primary" href={invoice.payment_url} target="_blank" rel="noreferrer">Pay Now</a>
+								{/if}
+								{#if invoice.invoice_url}
+									<a class="btn-secondary" href={invoice.invoice_url} target="_blank" rel="noreferrer">View Invoice</a>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</section>
 	{:else}
 		<!-- Schedule a Project Review — always visible at the top -->
 		<section class="review-banner">
@@ -1387,6 +1469,14 @@
 
 	.section-header:hover {
 		background: #fbe7e5;
+	}
+
+	.section-header.static-header {
+		cursor: default;
+	}
+
+	.section-header.static-header:hover {
+		background: #fdf3f2;
 	}
 
 	/* Non-interactive header variant for external-link sections */

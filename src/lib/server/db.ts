@@ -336,6 +336,18 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
 	};
 }
 
+/** Persist the resolved Zoho Books customer id on a client (auto-heal). */
+export async function setClientBooksCustomerId(
+	clientId: string,
+	booksCustomerId: string
+): Promise<void> {
+	const { error } = await getSupabase()
+		.from('clients')
+		.update({ books_customer_id: booksCustomerId })
+		.eq('id', clientId);
+	if (error) console.warn('[db] setClientBooksCustomerId failed:', error.message);
+}
+
 /**
  * Delete session (logout)
  */
