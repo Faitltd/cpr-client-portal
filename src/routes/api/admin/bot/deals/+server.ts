@@ -47,20 +47,30 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		const accessToken = valid.accessToken;
 		const apiDomain = valid.apiDomain;
 
-		// All Deals EXCEPT the excluded stages.
-		const stageClauses = EXCLUDE_STAGES.map((s) => `(Stage:not_equal:${s})`).join('and');
-		const criteria = encodeURIComponent(`(${stageClauses})`);
-		const fields = 'Deal_Name,Stage,Contact_Name';
+		// Use COQL, not /Deals/search. The search API's chained `not_equal`
+		// criteria is unreliable for picklist stages with spaces (e.g. "On Hold")
+		// and can silently drop matching deals. COQL's `!=` filter is exact, so
+		// On Hold deals (e.g. Lisbeth Ojemann) reliably appear.
+		const excludeLower = new Set(EXCLUDE_STAGES.map((s) => s.toLowerCase()));
+		const whereClause =
+			EXCLUDE_STAGES.length > 0
+				? EXCLUDE_STAGES.map((s) => `Stage != '${s.replace(/'/g, "\\'")}'`).join(' and ')
+				: 'Stage is not null';
 
 		const out: DealItem[] = [];
 		const seen = new Set<string>();
-		const excludeLower = new Set(EXCLUDE_STAGES.map((s) => s.toLowerCase()));
-		let page = 1;
-		while (page < 10) {
+		const perPage = 200;
+		for (let page = 0; page < 25; page += 1) {
+			const offset = page * perPage;
 			const result = await zohoApiCall(
 				accessToken,
-				`/Deals/search?criteria=${criteria}&fields=${fields}&sort_by=Modified_Time&sort_order=desc&per_page=200&page=${page}`,
-				{},
+				'/coql',
+				{
+					method: 'POST',
+					body: JSON.stringify({
+						select_query: `SELECT Deal_Name, Stage, Contact_Name FROM Deals WHERE ${whereClause} ORDER BY Modified_Time DESC LIMIT ${perPage} OFFSET ${offset}`
+					})
+				},
 				apiDomain
 			);
 			const batch: any[] = Array.isArray(result?.data) ? result.data : [];
@@ -69,9 +79,6 @@ export const GET: RequestHandler = async ({ cookies }) => {
 				const id = String(d.id);
 				if (seen.has(id)) continue;
 				const stage = String(d.Stage || '').trim();
-				// Belt-and-suspenders: Zoho's chained not_equal criteria does not
-				// reliably filter stages with spaces (e.g. "On Hold"), so also
-				// filter locally on the response.
 				if (excludeLower.has(stage.toLowerCase())) continue;
 				seen.add(id);
 				out.push({
@@ -81,8 +88,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 					contact_name: extractContactName(d.Contact_Name)
 				});
 			}
-			if (!result?.info?.more_records) break;
-			page += 1;
+			if (!result?.info?.more_records || batch.length < perPage) break;
 		}
 
 		out.sort((a, b) => a.deal_name.localeCompare(b.deal_name));
