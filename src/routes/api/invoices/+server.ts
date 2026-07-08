@@ -30,14 +30,23 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 		const accessToken = valid.accessToken;
 
-		const customer = await getBooksCustomerByEmail(accessToken, session.client.email);
-		if (!customer) {
+		// Prefer an explicit Books customer id stored on the client (used when the
+		// login email doesn't match the Books customer email). Fall back to the
+		// email lookup otherwise.
+		let customerId: string | null = session.client.books_customer_id
+			? String(session.client.books_customer_id).trim() || null
+			: null;
+		if (!customerId) {
+			const customer = await getBooksCustomerByEmail(accessToken, session.client.email);
+			customerId = customer?.contact_id ? String(customer.contact_id) : null;
+		}
+		if (!customerId) {
 			return json({ data: [], quotedTotal: 0 });
 		}
 
 		const [invoices, estimates] = await Promise.all([
-			listInvoicesForCustomer(accessToken, customer.contact_id),
-			listEstimatesForCustomer(accessToken, customer.contact_id).catch(() => [])
+			listInvoicesForCustomer(accessToken, customerId),
+			listEstimatesForCustomer(accessToken, customerId).catch(() => [])
 		]);
 
 		// Total quoted: accepted or (partially) invoiced Books estimates.

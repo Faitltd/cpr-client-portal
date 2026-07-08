@@ -123,6 +123,10 @@ export interface Client {
 	company?: string | null;
 	phone?: string | null;
 	portal_active?: boolean | null;
+	/** Explicit Zoho Books customer id — used when the client's login email
+	 * doesn't match their Books customer email. Takes precedence over the
+	 * email-based Books lookup. */
+	books_customer_id?: string | null;
 }
 
 export interface ClientAuth {
@@ -311,7 +315,8 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
 				last_name,
 				full_name,
 				company,
-				phone
+				phone,
+				books_customer_id
 			 )`
 		)
 		.eq('session_token', sessionToken)

@@ -4,6 +4,7 @@
 	import ClientChatPanel from '$lib/components/ClientChatPanel.svelte';
 	import DailyUpdate from '$lib/components/DailyUpdate.svelte';
 	import ProjectProgress from '$lib/components/ProjectProgress.svelte';
+	import ChecklistSection from '$lib/components/ChecklistSection.svelte';
 
 	interface EmailPref {
 		id: string;
@@ -37,6 +38,7 @@
 	let emailUpdatesOpen = false;
 	let documentsOpen = false;
 	let accountOpen = false;
+	let checklistOpen = false;
 	let botOpen = true;
 
 	// --- Project Tasks (Zoho Projects) ---
@@ -680,6 +682,24 @@
 					dealId={String(projects[0].id)}
 					dealLabel={projects[0].Deal_Name || 'My project'}
 				/>
+			{/if}
+		</section>
+
+		<!-- Home Building Checklist (interactive) -->
+		<section class="section">
+			<button class="section-header" type="button" on:click={() => (checklistOpen = !checklistOpen)}>
+				<span class="section-header-left">
+					<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h6l4 4v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M12 3v4h4"/><path d="M7.5 12l1.5 1.5 3-3"/></svg>
+					Home Building Checklist
+				</span>
+				<span class="toggle-icon">{checklistOpen ? '−' : '+'}</span>
+			</button>
+			{#if checklistOpen}
+				{#if projects[0]?.id}
+					<ChecklistSection dealId={String(projects[0].id)} />
+				{:else}
+					<p class="muted-text">Your checklist will appear once your project is set up.</p>
+				{/if}
 			{/if}
 		</section>
 
