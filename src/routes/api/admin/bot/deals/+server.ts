@@ -12,7 +12,10 @@ interface DealItem {
 	contact_name: string;
 }
 
-const EXCLUDE_STAGES = (env.BOT_SYNC_EXCLUDE_STAGES ?? 'Lost,On Hold,Completed')
+// Hide only closed deals (Lost, Completed) from the assistant. Keep On Hold
+// selectable so active-but-paused clients (e.g. Lisbeth Ojemann) still show.
+// Override with BOT_SYNC_EXCLUDE_STAGES.
+const EXCLUDE_STAGES = (env.BOT_SYNC_EXCLUDE_STAGES ?? 'Lost,Completed')
 	.split(',')
 	.map((s) => s.trim())
 	.filter(Boolean);
