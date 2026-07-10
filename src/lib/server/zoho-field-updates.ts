@@ -169,14 +169,19 @@ const FILE_MIME_MAP: Record<string, string> = {
 	wmv: 'video/x-ms-wmv'
 };
 
+export interface ZohoAttachmentTarget {
+	moduleApiName: string;
+	recordId: string;
+}
+
 export async function uploadAttachmentsToZoho(
 	accessToken: string,
-	moduleApiName: string,
-	recordId: string,
+	targets: ZohoAttachmentTarget | ZohoAttachmentTarget[],
 	photoIds: string[],
 	apiDomain?: string
 ): Promise<void> {
 	const base = getZohoApiBase(apiDomain);
+	const targetList = Array.isArray(targets) ? targets : [targets];
 	for (const storagePath of photoIds) {
 		try {
 			const { data, error } = await supabase.storage.from('trade-photos').download(storagePath);
@@ -200,24 +205,28 @@ export async function uploadAttachmentsToZoho(
 			const ext = fileName.split('.').pop()?.toLowerCase() || '';
 			const mimeType = FILE_MIME_MAP[ext] || 'application/octet-stream';
 
-			const form = new FormData();
-			form.append('file', new Blob([arrayBuffer], { type: mimeType }), fileName);
+			for (const target of targetList) {
+				const form = new FormData();
+				form.append('file', new Blob([arrayBuffer], { type: mimeType }), fileName);
 
-			const url = `${base}/${encodeURIComponent(moduleApiName)}/${encodeURIComponent(recordId)}/Attachments`;
-			const res = await fetch(url, {
-				method: 'POST',
-				headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-				body: form,
-				signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS)
-			});
+				const url = `${base}/${encodeURIComponent(target.moduleApiName)}/${encodeURIComponent(target.recordId)}/Attachments`;
+				const res = await fetch(url, {
+					method: 'POST',
+					headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
+					body: form,
+					signal: AbortSignal.timeout(ZOHO_TIMEOUT_MS)
+				});
 
-			if (!res.ok) {
-				const text = await res.text().catch(() => '');
-				console.warn(
-					`[field-updates] Zoho attachment upload failed for ${storagePath}: ${res.status} ${text}`
-				);
-			} else {
-				console.info(`[field-updates] Uploaded attachment to Zoho: ${storagePath}`);
+				if (!res.ok) {
+					const text = await res.text().catch(() => '');
+					console.warn(
+						`[field-updates] Zoho attachment upload failed for ${storagePath} → ${target.moduleApiName}/${target.recordId}: ${res.status} ${text}`
+					);
+				} else {
+					console.info(
+						`[field-updates] Uploaded attachment to Zoho ${target.moduleApiName}/${target.recordId}: ${storagePath}`
+					);
+				}
 			}
 		} catch (err) {
 			console.warn(`[field-updates] Attachment upload error for ${storagePath}:`, err);
@@ -292,10 +301,14 @@ export async function createCrmFieldUpdate(
 		const videos = photoIds.filter((p: string) => isVideoPath(p));
 
 		if (photos.length > 0) {
+			// Attach each photo to BOTH the Field Update record and the parent Deal
+			// so all field photos live on the Deal's attachments too.
 			uploadAttachmentsToZoho(
 				accessToken,
-				ZOHO_FIELD_UPDATES_MODULE,
-				zohoRecordId,
+				[
+					{ moduleApiName: ZOHO_FIELD_UPDATES_MODULE, recordId: zohoRecordId },
+					{ moduleApiName: 'Deals', recordId: dealId }
+				],
 				photos,
 				apiDomain
 			).catch((err) => console.error('[field-updates] Attachment upload error:', err));
