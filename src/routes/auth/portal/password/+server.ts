@@ -7,6 +7,7 @@ import {
 	createDesignerSession,
 	createSession,
 	createTradeSession,
+	getAdminUserAuthByEmail,
 	getClientAuthByEmail,
 	getDesignerAuthByEmail,
 	getTradePartnerAuthByEmail
@@ -20,6 +21,8 @@ import {
 	isAdminConfigured
 } from '$lib/server/admin';
 import { seedPortalSessionsForAdmin } from '$lib/server/admin-portal-session';
+import { staffLandingFor } from '$lib/server/designer';
+import { normalizeStaffRole } from '$lib/server/db';
 import { verifyPassword } from '$lib/server/password';
 import { checkLoginRateLimit } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
@@ -79,35 +82,51 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 	}
 
 	// ── Admin check (highest priority) ──────────────────────────────────
-	// If email matches the admin email OR no email was provided,
-	// check the admin password first so admin is never shadowed by other roles.
+	// Checked before other roles so admin is never shadowed by them.
+	// Path 1 — env admin: an allowed email (or no email) + the shared
+	// PORTAL_ADMIN_PASSWORD.
+	// Path 2 — per-user admin: an active admin_users row with its own hashed
+	// password (same as /admin/login).
 	const adminConfigured = isAdminConfigured();
+	let isAdminLogin = false;
 	if (adminConfigured && PORTAL_ADMIN_PASSWORD) {
 		const isAdminEmail = email === PORTAL_ADMIN_EMAIL || PORTAL_ADMIN_EMAILS_SET.has(email);
 		const isNoEmail = !email;
-		if ((isAdminEmail || isNoEmail) && password === PORTAL_ADMIN_PASSWORD) {
-			const session = createAdminSession();
-			cookies.set('admin_session', session, {
-				path: '/',
-				httpOnly: true,
-				secure: !dev,
-				sameSite: 'strict',
-				maxAge: getAdminSessionMaxAge()
-			});
-			// Seed designer + trade sessions so the admin gets the full designer
-			// dashboard (same tabs as designers) with the admin tabs added.
-			const seeded = await seedPortalSessionsForAdmin(
-				cookies,
-				email || PORTAL_ADMIN_EMAIL,
-				getClientAddress ? getClientAddress() : null,
-				request.headers.get('user-agent')
-			);
-			const adminLanding = seeded ? '/designer' : '/admin';
-			if (expectsJson) {
-				return json({ message: 'Login successful.', redirect: adminLanding, role: 'admin' });
-			}
-			throw redirect(303, adminLanding);
+		isAdminLogin = (isAdminEmail || isNoEmail) && password === PORTAL_ADMIN_PASSWORD;
+	}
+	if (!isAdminLogin && adminConfigured && email) {
+		try {
+			const adminUser = await getAdminUserAuthByEmail(email);
+			isAdminLogin =
+				!!adminUser &&
+				adminUser.active !== false &&
+				(await verifyPassword(password, adminUser.password_hash));
+		} catch (err) {
+			console.error('[portal-login] admin_users lookup failed', err);
 		}
+	}
+	if (isAdminLogin) {
+		const session = createAdminSession();
+		cookies.set('admin_session', session, {
+			path: '/',
+			httpOnly: true,
+			secure: !dev,
+			sameSite: 'strict',
+			maxAge: getAdminSessionMaxAge()
+		});
+		// Seed designer + trade sessions so the admin gets the full designer
+		// dashboard (same tabs as designers) with the admin tabs added.
+		const seeded = await seedPortalSessionsForAdmin(
+			cookies,
+			email || PORTAL_ADMIN_EMAIL,
+			getClientAddress ? getClientAddress() : null,
+			request.headers.get('user-agent')
+		);
+		const adminLanding = seeded ? '/designer' : '/admin';
+		if (expectsJson) {
+			return json({ message: 'Login successful.', redirect: adminLanding, role: 'admin' });
+		}
+		throw redirect(303, adminLanding);
 	}
 
 	if (!email) {
@@ -152,8 +171,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
 		// Dual-role: a designer who is also a trade partner gets a trade_session
 		// too, so the embedded Field Dashboard / Field Update tabs authenticate.
-		// Everyone lands on the CRM tab (/designer).
-		const designerLanding = '/designer';
+		// Landing depends on staff role: finance goes to the Finance dashboard,
+		// designer and ops land on the CRM tab (/designer).
+		const designerLanding = staffLandingFor(normalizeStaffRole(designer.role));
 		const tradePartnerForDesigner = await getTradePartnerAuthByEmail(email);
 		if (tradePartnerForDesigner) {
 			const tradeSessionId = generateSessionToken();

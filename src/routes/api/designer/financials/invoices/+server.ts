@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import {
 	isNoAdminTokensError,
 	listBooksInvoicesForEmail,
-	requireDesigner
+	requireStaffApi
 } from '$lib/server/designer';
 import { createLogger } from '$lib/server/logger';
 import type { RequestHandler } from './$types';
@@ -10,7 +10,7 @@ import type { RequestHandler } from './$types';
 const log = createLogger('api.designer.financials.invoices');
 
 export const GET: RequestHandler = async ({ cookies, url }) => {
-	const auth = await requireDesigner(cookies);
+	const auth = await requireStaffApi(cookies, ['ops', 'finance']);
 	if (!auth.ok) return auth.response;
 
 	const email = String(url.searchParams.get('email') || '')

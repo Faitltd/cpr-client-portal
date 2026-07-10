@@ -110,6 +110,48 @@ export async function listInvoicesForCustomer(accessToken: string, customerId: s
 	return response.invoices || [];
 }
 
+// ---------------------------------------------------------------------------
+// Org-wide listings — feed the staff Finance dashboard (AR, invoices, payments).
+// ---------------------------------------------------------------------------
+
+const ORG_LIST_PER_PAGE = 200;
+const ORG_LIST_MAX_PAGES = 5;
+
+async function listAllPages(accessToken: string, endpoint: string, key: string): Promise<any[]> {
+	if (!ZOHO_BOOKS_ORG_ID) throw new Error('Missing ZOHO_BOOKS_ORG_ID');
+	const rows: any[] = [];
+	for (let page = 1; page <= ORG_LIST_MAX_PAGES; page++) {
+		const sep = endpoint.includes('?') ? '&' : '?';
+		const response = await zohoBooksApiCall(
+			accessToken,
+			`${endpoint}${sep}organization_id=${encodeURIComponent(ZOHO_BOOKS_ORG_ID)}&per_page=${ORG_LIST_PER_PAGE}&page=${page}`
+		);
+		const batch = Array.isArray(response[key]) ? response[key] : [];
+		rows.push(...batch);
+		if (!response.page_context?.has_more_page) break;
+	}
+	return rows;
+}
+
+/** All invoices, newest first. Optional Books status filter (e.g. 'unpaid', 'overdue'). */
+export async function listAllInvoices(accessToken: string, status?: string): Promise<any[]> {
+	const statusParam = status ? `&filter_by=Status.${encodeURIComponent(status)}` : '';
+	return listAllPages(
+		accessToken,
+		`/invoices?sort_column=date&sort_order=D${statusParam}`,
+		'invoices'
+	);
+}
+
+/** All customer payments, newest first. */
+export async function listAllCustomerPayments(accessToken: string): Promise<any[]> {
+	return listAllPages(
+		accessToken,
+		'/customerpayments?sort_column=date&sort_order=D',
+		'customerpayments'
+	);
+}
+
 export interface EstimateDraftPayload {
 	customer_id: string;
 	reference_number?: string;

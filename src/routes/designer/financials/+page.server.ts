@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { getDesignerDashboardContext } from '$lib/server/designer';
+import { getDesignerDashboardContext, requireStaffPage } from '$lib/server/designer';
 import type { PageServerLoad } from './$types';
 
 type FinancialRow = {
@@ -22,6 +22,9 @@ function toDateString(value: unknown): string | null {
 }
 
 export const load: PageServerLoad = async ({ cookies }) => {
+	// Deal financials are for ops and finance roles (and admins).
+	await requireStaffPage(cookies, '/designer/financials', ['ops', 'finance']);
+
 	const context = await getDesignerDashboardContext(cookies.get('portal_session'), 'financials');
 	if (!context) {
 		throw redirect(302, '/auth/portal?next=/designer/financials');

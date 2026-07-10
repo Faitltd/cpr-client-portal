@@ -516,11 +516,19 @@ export async function listTradePartnersForAdmin(): Promise<TradePartnerListItem[
 // Sessions live in a dedicated table so the existing client flow is untouched.
 // ---------------------------------------------------------------------------
 
+/** Staff dashboard roles. Admin remains env-based (PORTAL_ADMIN_EMAILS). */
+export type StaffRole = 'designer' | 'ops' | 'finance';
+
+export function normalizeStaffRole(value: unknown): StaffRole {
+	return value === 'ops' || value === 'finance' ? value : 'designer';
+}
+
 export interface Designer {
 	id: string;
 	email: string;
 	name?: string | null;
 	active?: boolean | null;
+	role?: StaffRole | null;
 }
 
 export interface DesignerAuth {
@@ -528,6 +536,7 @@ export interface DesignerAuth {
 	email: string;
 	password_hash: string | null;
 	active?: boolean | null;
+	role?: StaffRole | null;
 }
 
 export interface DesignerSessionRecord {
@@ -549,7 +558,7 @@ export async function getDesignerAuthByEmail(email: string): Promise<DesignerAut
 	const start = Date.now();
 	const { data, error } = await getSupabase()
 		.from('designers')
-		.select('id, email, password_hash, active')
+		.select('id, email, password_hash, active, role')
 		.eq('email', normalized)
 		.maybeSingle();
 
@@ -562,7 +571,7 @@ export async function getDesignerAuthByEmail(email: string): Promise<DesignerAut
 export async function getDesignerById(id: string): Promise<Designer | null> {
 	const { data, error } = await getSupabase()
 		.from('designers')
-		.select('id, email, name, active')
+		.select('id, email, name, active, role')
 		.eq('id', id)
 		.single();
 
@@ -616,7 +625,8 @@ export async function getDesignerSession(sessionToken: string): Promise<Designer
 				id,
 				email,
 				name,
-				active
+				active,
+				role
 			 )`
 		)
 		.eq('session_token', sessionToken)
@@ -641,12 +651,18 @@ export async function deleteDesignerSession(sessionToken: string): Promise<void>
 	await getSupabase().from('designer_sessions').delete().eq('session_token', sessionToken);
 }
 
-export type DesignerListItem = { id: string; email: string; name: string | null; active: boolean | null };
+export type DesignerListItem = {
+	id: string;
+	email: string;
+	name: string | null;
+	active: boolean | null;
+	role?: StaffRole | null;
+};
 
 export async function listDesigners(): Promise<DesignerListItem[]> {
 	const { data, error } = await getSupabase()
 		.from('designers')
-		.select('id, email, name, active')
+		.select('id, email, name, active, role')
 		.order('name', { ascending: true, nullsFirst: false })
 		.order('email', { ascending: true });
 

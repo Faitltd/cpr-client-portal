@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { getDesignerDashboardContext } from '$lib/server/designer';
+import { getDesignerDashboardContext, requireStaffPage } from '$lib/server/designer';
 import { getDealTaskSummaries, type DealTaskSummary } from '$lib/server/projects';
 import type { PageServerLoad } from './$types';
 
@@ -15,6 +15,8 @@ type DealTasks = {
 };
 
 export const load: PageServerLoad = async ({ cookies }) => {
+	await requireStaffPage(cookies, '/designer/tasks', ['designer', 'ops']);
+
 	const context = await getDesignerDashboardContext(cookies.get('portal_session'));
 	if (!context) {
 		throw redirect(302, '/auth/portal?next=/designer/tasks');

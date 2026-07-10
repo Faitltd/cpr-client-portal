@@ -3,7 +3,7 @@ import {
 	getDealsForFinancials,
 	getDealsFinancials,
 	isNoAdminTokensError,
-	requireDesigner
+	requireStaffApi
 } from '$lib/server/designer';
 import { createLogger } from '$lib/server/logger';
 import type { RequestHandler } from './$types';
@@ -11,7 +11,7 @@ import type { RequestHandler } from './$types';
 const log = createLogger('api.designer.financials');
 
 export const GET: RequestHandler = async ({ cookies }) => {
-	const auth = await requireDesigner(cookies);
+	const auth = await requireStaffApi(cookies, ['ops', 'finance']);
 	if (!auth.ok) return auth.response;
 
 	try {

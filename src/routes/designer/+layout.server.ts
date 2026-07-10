@@ -1,20 +1,11 @@
 import { redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { getPortalPrincipal } from '$lib/server/designer';
+import { getPortalPrincipal, isStaffAdmin, staffRoleOf } from '$lib/server/designer';
 import { getTradePartnerAuthByEmail } from '$lib/server/db';
 import type { LayoutServerLoad } from './$types';
 
 const ALLOWED_CHAT_EMAILS = new Set(
 	(env.BOT_CHAT_ALLOWED_EMAILS ?? '')
-		.split(',')
-		.map((s) => s.trim().toLowerCase())
-		.filter(Boolean)
-);
-
-// Admins see an extra Admin tab linking to the portal-passwords / sync page.
-// Configurable via PORTAL_ADMIN_EMAILS (comma-separated); defaults to Ray.
-const ADMIN_EMAILS = new Set(
-	(env.PORTAL_ADMIN_EMAILS ?? 'ray@homecpr.pro')
 		.split(',')
 		.map((s) => s.trim().toLowerCase())
 		.filter(Boolean)
@@ -33,21 +24,37 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	}
 
 	const email = (principal.session.designer.email ?? '').toLowerCase();
+	const role = staffRoleOf(principal.session);
+	const isAdmin = isStaffAdmin(cookies, email);
 	const canChat = ALLOWED_CHAT_EMAILS.has(email);
 
-	// Dual-role: designers who are also trade partners get the Trade Dashboard +
-	// Field Update tabs. Detected by a matching trade-partner record.
-	let hasTrade = false;
-	try {
-		hasTrade = Boolean(await getTradePartnerAuthByEmail(email));
-	} catch {
-		hasTrade = false;
+	// The embedded Field Update form authenticates through a trade session, so
+	// it needs a matching trade-partner record. Only relevant for designer/ops.
+	let hasTradeRecord = false;
+	if (role !== 'finance' || isAdmin) {
+		try {
+			hasTradeRecord = Boolean(await getTradePartnerAuthByEmail(email));
+		} catch {
+			hasTradeRecord = false;
+		}
 	}
+
+	// Tab visibility per staff role. Admins see everything.
+	const tabs = {
+		fieldDashboard: isAdmin || role === 'ops',
+		fieldUpdate: (isAdmin || role === 'designer' || role === 'ops') && hasTradeRecord,
+		crm: true,
+		tasks: isAdmin || role === 'designer' || role === 'ops',
+		financials: isAdmin || role === 'ops' || role === 'finance',
+		finance: isAdmin || role === 'finance',
+		schedule: !isAdmin && (role === 'designer' || role === 'ops')
+	};
 
 	return {
 		designer: principal.session.designer,
+		role,
+		tabs,
 		canChat,
-		hasTrade,
-		isAdmin: ADMIN_EMAILS.has(email)
+		isAdmin
 	};
 };

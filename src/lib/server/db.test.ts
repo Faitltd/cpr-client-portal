@@ -145,7 +145,7 @@ describe('auth email lookups', () => {
 		{
 			label: 'designer',
 			table: 'designers',
-			select: 'id, email, password_hash, active'
+			select: 'id, email, password_hash, active, role'
 		},
 		{
 			label: 'trade partner',

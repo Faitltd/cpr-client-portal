@@ -1,26 +1,13 @@
 import { redirect } from '@sveltejs/kit';
-import { getPortalPrincipal, getFieldDeals } from '$lib/server/designer';
+import { getFieldDeals, requireStaffPage } from '$lib/server/designer';
 import { getTradePartnerAuthByEmail } from '$lib/server/db';
 import { DESIGNER_DEAL_FIELD_DESCRIPTORS, type DealFieldDescriptor } from '$lib/types/designer';
-import { env } from '$env/dynamic/private';
 import type { PageServerLoad } from './$types';
 
-const ADMIN_EMAILS = new Set(
-	(env.PORTAL_ADMIN_EMAILS ?? 'ray@homecpr.pro')
-		.split(',')
-		.map((s) => s.trim().toLowerCase())
-		.filter(Boolean)
-);
-
-// Admins get an all-field-projects oversight view; non-admin field/trade users
-// (e.g. Jeff) get their own embedded trade dashboard.
+// Admins get an all-field-projects oversight view; ops users (Jeff) get their
+// own embedded trade dashboard.
 export const load: PageServerLoad = async ({ cookies }) => {
-	const principal = await getPortalPrincipal(cookies.get('portal_session'));
-	if (!principal || principal.role !== 'designer') {
-		throw redirect(302, '/auth/portal?next=/designer/trade-dashboard');
-	}
-	const email = (principal.session.designer.email ?? '').toLowerCase();
-	const isAdmin = ADMIN_EMAILS.has(email);
+	const { email, isAdmin } = await requireStaffPage(cookies, '/designer/trade-dashboard', ['ops']);
 
 	if (isAdmin) {
 		let deals: Awaited<ReturnType<typeof getFieldDeals>> = [];

@@ -9,17 +9,24 @@
 
 <header class="designer-bar">
 	<div class="bar-inner">
-		<nav class="tabs" aria-label="Designer views">
-			{#if data.hasTrade}
+		<nav class="tabs" aria-label="Staff views">
+			{#if data.tabs.fieldDashboard}
 				<a
 					class="tab"
 					class:active={pathname === '/designer/trade-dashboard'}
 					href="/designer/trade-dashboard">Field Dashboard</a
 				>
+			{/if}
+			{#if data.tabs.fieldUpdate}
 				<a
 					class="tab"
 					class:active={pathname === '/designer/field-update'}
 					href="/designer/field-update">Field Update</a
+				>
+			{/if}
+			{#if data.tabs.finance}
+				<a class="tab" class:active={pathname === '/designer/finance'} href="/designer/finance"
+					>Finance</a
 				>
 			{/if}
 			<a
@@ -29,11 +36,15 @@
 					pathname === '/designer/on-hold'}
 				href="/designer">CRM</a
 			>
-			<a class="tab" class:active={pathname === '/designer/tasks'} href="/designer/tasks">Tasks</a>
-			<a class="tab" class:active={pathname === '/designer/financials'} href="/designer/financials"
-				>Financials</a
-			>
-			{#if !data.isAdmin}
+			{#if data.tabs.tasks}
+				<a class="tab" class:active={pathname === '/designer/tasks'} href="/designer/tasks">Tasks</a>
+			{/if}
+			{#if data.tabs.financials}
+				<a class="tab" class:active={pathname === '/designer/financials'} href="/designer/financials"
+					>Financials</a
+				>
+			{/if}
+			{#if data.tabs.schedule}
 				<a class="tab" class:active={pathname === '/designer/schedule'} href="/designer/schedule"
 					>Schedule</a
 				>

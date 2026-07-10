@@ -1,10 +1,13 @@
-import { json, type Cookies } from '@sveltejs/kit';
+import { json, redirect, type Cookies } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { isValidAdminSession } from '$lib/server/admin';
 import {
 	getDesignerSession,
 	getSession,
+	normalizeStaffRole,
 	type ClientSession,
-	type DesignerSession
+	type DesignerSession,
+	type StaffRole
 } from '$lib/server/db';
 import { normalizeDealRecord } from '$lib/server/auth';
 import { getLatestDesignerNotesBulk } from '$lib/server/designer-notes';
@@ -85,6 +88,95 @@ export async function requireDesigner(
 		};
 	}
 	return { ok: true, session: principal.session };
+}
+
+// ---------------------------------------------------------------------------
+// Staff roles (designer / ops / finance)
+// ---------------------------------------------------------------------------
+
+const STAFF_ADMIN_EMAILS = new Set(
+	(env.PORTAL_ADMIN_EMAILS ?? 'ray@homecpr.pro')
+		.split(',')
+		.map((s) => s.trim().toLowerCase())
+		.filter(Boolean)
+);
+
+/** Role of a staff session, defaulting legacy rows to 'designer'. */
+export function staffRoleOf(session: DesignerSession): StaffRole {
+	return normalizeStaffRole(session.designer.role);
+}
+
+export function isStaffAdminEmail(email: string | null | undefined): boolean {
+	return STAFF_ADMIN_EMAILS.has((email ?? '').trim().toLowerCase());
+}
+
+/**
+ * Admin recognition for staff routes: either an env-listed admin email or a
+ * valid admin_session cookie (issued to env admins and admin_users logins).
+ */
+export function isStaffAdmin(cookies: Cookies, email: string | null | undefined): boolean {
+	return isStaffAdminEmail(email) || isValidAdminSession(cookies.get('admin_session'));
+}
+
+/** Default landing page per staff role. */
+export function staffLandingFor(role: StaffRole): string {
+	return role === 'finance' ? '/designer/finance' : '/designer';
+}
+
+export type StaffContext = {
+	session: DesignerSession;
+	role: StaffRole;
+	isAdmin: boolean;
+	email: string;
+};
+
+/**
+ * API guard: like `requireDesigner`, but also enforces a staff-role whitelist.
+ * Admin emails pass every check.
+ */
+export async function requireStaffApi(
+	cookies: Cookies,
+	allowed: StaffRole[]
+): Promise<
+	| { ok: true; session: DesignerSession; role: StaffRole; isAdmin: boolean; response?: undefined }
+	| { ok: false; response: Response }
+> {
+	const auth = await requireDesigner(cookies);
+	if (!auth.ok) return auth;
+	const role = staffRoleOf(auth.session);
+	const isAdmin = isStaffAdmin(cookies, auth.session.designer.email);
+	if (!isAdmin && !allowed.includes(role)) {
+		return {
+			ok: false,
+			response: json({ message: 'Not available for your role.' }, { status: 403 })
+		};
+	}
+	return { ok: true, session: auth.session, role, isAdmin };
+}
+
+/**
+ * Page guard for staff routes. Redirects anonymous users to login and
+ * wrong-role staff to their own landing page. Admins pass every check.
+ */
+export async function requireStaffPage(
+	cookies: Cookies,
+	next: string,
+	allowed: StaffRole[]
+): Promise<StaffContext> {
+	const principal = await getPortalPrincipal(cookies.get('portal_session'));
+	if (!principal) {
+		throw redirect(302, `/auth/portal?next=${encodeURIComponent(next)}`);
+	}
+	if (principal.role !== 'designer') {
+		throw redirect(302, '/dashboard');
+	}
+	const email = (principal.session.designer.email ?? '').toLowerCase();
+	const role = staffRoleOf(principal.session);
+	const isAdmin = isStaffAdmin(cookies, email);
+	if (!isAdmin && !allowed.includes(role)) {
+		throw redirect(302, staffLandingFor(role));
+	}
+	return { session: principal.session, role, isAdmin, email };
 }
 
 // ---------------------------------------------------------------------------
