@@ -133,6 +133,7 @@ export interface ClientAuth {
 	id: string;
 	email: string;
 	password_hash: string | null;
+	phone?: string | null;
 	portal_active?: boolean | null;
 }
 
@@ -220,7 +221,7 @@ export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Clie
 export async function getClientAuthById(clientId: string): Promise<ClientAuth | null> {
 	const { data, error } = await getSupabase()
 		.from('clients')
-		.select('id, email, password_hash, portal_active')
+		.select('id, email, password_hash, phone, portal_active')
 		.eq('id', clientId)
 		.single();
 
@@ -263,7 +264,7 @@ export async function getClientAuthByEmail(email: string): Promise<ClientAuth | 
 	const start = Date.now();
 	const { data, error } = await getSupabase()
 		.from('clients')
-		.select('id, email, password_hash, portal_active')
+		.select('id, email, password_hash, phone, portal_active')
 		.eq('email', normalized)
 		.maybeSingle();
 
