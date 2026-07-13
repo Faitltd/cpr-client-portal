@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getTradeSession, getSubtasksForProject } from '$lib/server/db';
+import { getTradeSession } from '$lib/server/db';
 import { getTradePartnerDeals } from '$lib/server/auth';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import {
@@ -173,25 +173,6 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
 
   const designs = normalizeDealDesigns(rawFileUpload);
 
-  // Attach QC checklist subtasks to each task (trade portal only — never the client).
-  let tasksWithSubtasks = tasks;
-  try {
-    const subs = await getSubtasksForProject(projectId);
-    if (subs.length > 0) {
-      const byParent = new Map<string, any[]>();
-      for (const s of subs) {
-        const list = byParent.get(s.parent_task_id) ?? [];
-        list.push(s);
-        byParent.set(s.parent_task_id, list);
-      }
-      tasksWithSubtasks = tasks.map((t) => ({
-        ...t,
-        subtasks: byParent.get(String(t?.id ?? t?.id_string ?? '')) ?? []
-      }));
-    }
-  } catch (err) {
-    console.warn(`[trade/projects/${projectId}] subtasks fetch failed:`, err instanceof Error ? err.message : err);
-  }
 
   return json({
     project: project
@@ -202,7 +183,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
           name: fallbackLink?.dealName || `Project ${projectId}`,
           status: fallbackLink?.stage || 'Unknown'
         },
-    tasks: tasksWithSubtasks,
+    tasks,
     activities,
     designs,
     ...(tasksLoadError ? { tasksError: tasksLoadError } : {})
