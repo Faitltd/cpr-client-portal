@@ -1,12 +1,13 @@
 import { findContactsByEmail } from './auth';
 import { normalizeClientPhonePassword } from './client-password';
 import {
+	getClientAuthByEmail,
 	getClientByEmail,
 	setClientPassword,
 	upsertClient,
 	type Client
 } from './db';
-import { hashPassword } from './password';
+import { hashPassword, verifyPassword } from './password';
 import { ensureValidZohoToken } from './zoho-token';
 
 async function getValidZohoAccessToken() {
@@ -22,6 +23,14 @@ export async function reconcileClientPhoneLogin(email: string, password: string)
 		const existing = await getClientByEmail(email);
 		const normalizedExistingPhone = normalizeClientPhonePassword(existing?.phone);
 		if (existing && normalizedExistingPhone && normalizedExistingPhone === normalizedAttempt) {
+			// Never let the phone number re-seed (and thus reset) a client who has
+			// already set a custom password. Only reconcile when the stored
+			// credential is still the phone seed or unset.
+			const auth = await getClientAuthByEmail(email);
+			const storedIsSeedOrEmpty = auth?.password_hash
+				? await verifyPassword(normalizedAttempt, auth.password_hash)
+				: true;
+			if (!storedIsSeedOrEmpty) return null;
 			await setClientPassword(existing.id, await hashPassword(normalizedAttempt));
 			return existing;
 		}
