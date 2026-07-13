@@ -317,7 +317,8 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
 				full_name,
 				company,
 				phone,
-				books_customer_id
+				books_customer_id,
+				portal_active
 			 )`
 		)
 		.eq('session_token', sessionToken)
@@ -328,6 +329,8 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
 
 	const client = Array.isArray(data.clients) ? data.clients[0] : data.clients;
 	if (!client) return null;
+	// Deactivating a client (portal_active = false) must cut off active sessions.
+	if ((client as { portal_active?: boolean | null }).portal_active === false) return null;
 
 	return {
 		session_token: data.session_token,
