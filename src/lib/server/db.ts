@@ -133,6 +133,7 @@ export interface ClientAuth {
 	id: string;
 	email: string;
 	password_hash: string | null;
+	phone?: string | null;
 	portal_active?: boolean | null;
 }
 
@@ -220,7 +221,7 @@ export async function upsertClient(clientData: Omit<Client, 'id'>): Promise<Clie
 export async function getClientAuthById(clientId: string): Promise<ClientAuth | null> {
 	const { data, error } = await getSupabase()
 		.from('clients')
-		.select('id, email, password_hash, portal_active')
+		.select('id, email, password_hash, phone, portal_active')
 		.eq('id', clientId)
 		.single();
 
@@ -263,7 +264,7 @@ export async function getClientAuthByEmail(email: string): Promise<ClientAuth | 
 	const start = Date.now();
 	const { data, error } = await getSupabase()
 		.from('clients')
-		.select('id, email, password_hash, portal_active')
+		.select('id, email, password_hash, phone, portal_active')
 		.eq('email', normalized)
 		.maybeSingle();
 
@@ -316,7 +317,8 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
 				full_name,
 				company,
 				phone,
-				books_customer_id
+				books_customer_id,
+				portal_active
 			 )`
 		)
 		.eq('session_token', sessionToken)
@@ -327,6 +329,8 @@ export async function getSession(sessionToken: string): Promise<ClientSession | 
 
 	const client = Array.isArray(data.clients) ? data.clients[0] : data.clients;
 	if (!client) return null;
+	// Deactivating a client (portal_active = false) must cut off active sessions.
+	if ((client as { portal_active?: boolean | null }).portal_active === false) return null;
 
 	return {
 		session_token: data.session_token,
@@ -459,7 +463,8 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
 				email,
 				name,
 				company,
-				phone
+				phone,
+				portal_active
 			 )`
 		)
 		.eq('session_token', sessionToken)
@@ -470,6 +475,8 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
 
 	const trade_partner = Array.isArray(data.trade_partners) ? data.trade_partners[0] : data.trade_partners;
 	if (!trade_partner) return null;
+	// Deactivating a trade partner (portal_active = false) must cut off active sessions.
+	if ((trade_partner as { portal_active?: boolean | null }).portal_active === false) return null;
 
 	return {
 		session_token: data.session_token,

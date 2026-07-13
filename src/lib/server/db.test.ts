@@ -140,7 +140,7 @@ describe('auth email lookups', () => {
 		{
 			label: 'client',
 			table: 'clients',
-			select: 'id, email, password_hash, portal_active'
+			select: 'id, email, password_hash, phone, portal_active'
 		},
 		{
 			label: 'designer',

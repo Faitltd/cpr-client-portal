@@ -23,11 +23,21 @@ describe('normalizeClientPhonePassword', () => {
 describe('verifyClientPasswordInput', () => {
 	it('accepts a stored normalized phone password when the input is formatted', async () => {
 		const stored = await hashPassword('5551234567');
-		expect(await verifyClientPasswordInput('(555) 123-4567', stored)).toBe(true);
+		expect(await verifyClientPasswordInput('(555) 123-4567', stored, '5551234567')).toBe(true);
 	});
 
 	it('still accepts exact non-phone passwords', async () => {
 		const stored = await hashPassword('custom-password');
-		expect(await verifyClientPasswordInput('custom-password', stored)).toBe(true);
+		expect(await verifyClientPasswordInput('custom-password', stored, '5551234567')).toBe(true);
+	});
+
+	it('rejects the phone number once a custom password is set (no backdoor)', async () => {
+		const stored = await hashPassword('custom-password');
+		expect(await verifyClientPasswordInput('(555) 123-4567', stored, '5551234567')).toBe(false);
+	});
+
+	it('rejects the phone number when no phone is on file', async () => {
+		const stored = await hashPassword('5551234567');
+		expect(await verifyClientPasswordInput('(555) 123-4567', stored, null)).toBe(false);
 	});
 });

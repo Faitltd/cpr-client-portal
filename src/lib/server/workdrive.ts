@@ -558,7 +558,7 @@ export async function uploadFileToWorkDriveFolder(
 	const form = new FormData();
 	form.append('parent_id', parentId);
 	form.append('filename', fileName);
-	const blob = new Blob([bytes], { type: contentType || 'application/octet-stream' });
+	const blob = new Blob([new Uint8Array(bytes)], { type: contentType || 'application/octet-stream' });
 	form.append('content', blob, fileName);
 	// NOTE: do not set Content-Type — fetch adds the multipart boundary.
 	const res = await fetch(`${base}/upload`, {
