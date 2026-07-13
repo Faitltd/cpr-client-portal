@@ -54,6 +54,25 @@ async function getDealDisplayName(dealId: string): Promise<string> {
 	}
 }
 
+/**
+ * Return the existing Zoho Projects id already linked to this Deal, if any.
+ * Used as an idempotency guard so the portal never creates a second project
+ * for a Deal that already has one (the Zoho "Create and Sync Project to Deal"
+ * rule may have already created it).
+ */
+async function getExistingProjectId(dealId: string): Promise<string | null> {
+	try {
+		const valid = await ensureValidZohoToken();
+		if (!valid) return null;
+		const deal = await zohoApiCall(valid.accessToken, '/Deals/' + dealId, { method: 'GET' }, valid.apiDomain);
+		const r = deal?.data?.[0] ?? {};
+		const id = r.Project_ID || r.Zoho_Projects_ID || '';
+		return String(id).trim() || null;
+	} catch {
+		return null;
+	}
+}
+
 export interface GenerationResult {
 	success: boolean;
 	zohoProjectId: string | null;
@@ -71,6 +90,21 @@ export async function generateProject(
 	dealId: string,
 	startDate?: string
 ): Promise<GenerationResult> {
+	// Idempotency guard: if the Deal already has a project, do not create a
+	// second one. Return the existing id instead.
+	const existingProjectId = await getExistingProjectId(dealId);
+	if (existingProjectId) {
+		await updateScopeStatus(dealId, 'generated').catch(() => {});
+		return {
+			success: true,
+			zohoProjectId: existingProjectId,
+			phasesCreated: 0,
+			tasklistsCreated: 0,
+			tasksCreated: 0,
+			tasksTotal: 0
+		};
+	}
+
 	const scope = await getScopeDefinition(dealId);
 	if (!scope) {
 		throw new Error('No scope definition found for deal ' + dealId);
