@@ -14,7 +14,6 @@ import {
 	sleep
 } from '$lib/server/projects';
 import { addBusinessDays } from '$lib/server/scope-mapper';
-import { generateSubtasksForProject } from '$lib/server/checklists/generate-subtasks';
 import { zohoApiCall } from '$lib/server/zoho';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import type { RequestHandler } from './$types';
@@ -303,18 +302,6 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 				console.error('Failed to create approvals, continuing:', err);
 			}
 
-			// Auto-attach QC checklist subtasks (best-effort — never fail the build).
-			let subtasksAttached = 0;
-			try {
-				const r = await generateSubtasksForProject({ dealId, projectId: project.id });
-				subtasksAttached = r.inserted;
-				if (logId) await updateGenerationLog(logId, {
-					last_completed_step: `subtasks:${r.matched}_tasks_${r.inserted}_items`
-				});
-			} catch (err) {
-				console.error('Failed to auto-attach checklist subtasks, continuing:', err);
-			}
-
 			if (logId) await updateGenerationLog(logId, {
 				status: 'completed',
 				completed_at: new Date().toISOString(),
@@ -328,8 +315,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 					phasesCreated,
 					tasklistsCreated,
 					tasksCreated,
-					tasksTotal: scopeTasks.length,
-					subtasksAttached
+					tasksTotal: scopeTasks.length
 				}
 			});
 		} catch (err) {
