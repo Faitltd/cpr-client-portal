@@ -66,8 +66,12 @@ async function getExistingProjectId(dealId: string): Promise<string | null> {
 		if (!valid) return null;
 		const deal = await zohoApiCall(valid.accessToken, '/Deals/' + dealId, { method: 'GET' }, valid.apiDomain);
 		const r = deal?.data?.[0] ?? {};
-		const id = r.Project_ID || r.Zoho_Projects_ID || '';
-		return String(id).trim() || null;
+		const raw = r.Project_ID ?? r.Zoho_Projects_ID ?? '';
+		// Zoho can return these as plain ids or as lookup objects; extract a
+		// scalar id so we never produce '[object Object]'.
+		const id = raw && typeof raw === 'object' ? (raw.id ?? raw.name ?? '') : raw;
+		const normalized = String(id).trim();
+		return normalized && normalized !== '[object Object]' ? normalized : null;
 	} catch {
 		return null;
 	}
