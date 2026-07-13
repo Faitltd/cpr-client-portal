@@ -463,7 +463,8 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
 				email,
 				name,
 				company,
-				phone
+				phone,
+				portal_active
 			 )`
 		)
 		.eq('session_token', sessionToken)
@@ -474,6 +475,8 @@ export async function getTradeSession(sessionToken: string): Promise<TradeSessio
 
 	const trade_partner = Array.isArray(data.trade_partners) ? data.trade_partners[0] : data.trade_partners;
 	if (!trade_partner) return null;
+	// Deactivating a trade partner (portal_active = false) must cut off active sessions.
+	if ((trade_partner as { portal_active?: boolean | null }).portal_active === false) return null;
 
 	return {
 		session_token: data.session_token,
