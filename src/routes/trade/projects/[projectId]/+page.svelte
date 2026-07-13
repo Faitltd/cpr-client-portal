@@ -272,7 +272,7 @@
 			<div class="header-actions">
 				<a class="btn-secondary" href={getProgressPhotosHref(project)}>Progress Photos</a>
 				{#if project?.source !== 'crm_deal'}
-					<a class="btn-secondary" href="/trade/field-update{project?.deal_id ? `?deal=${encodeURIComponent(project.deal_id ?? '')}` : ''}">Field Update</a>
+					<a class="btn-secondary" href="/trade/field-update{project?.deal_id ? `?deal=${encodeURIComponent(String(project?.deal_id ?? ''))}` : ''}">Field Update</a>
 					<a class="btn-secondary" href={`/trade/checklists/${encodeURIComponent($page.params.projectId)}`}>QC Checklists</a>
 				{/if}
 			</div>
