@@ -140,33 +140,6 @@
 		}
 	}
 
-	async function toggleSubtask(sub: any, checked: boolean) {
-		const prev = sub.is_done;
-		sub.is_done = checked; // deep-reactive ($state proxy)
-		try {
-			const res = await fetch(
-				`/api/trade/projects/${$page.params.projectId}/subtasks/${encodeURIComponent(sub.id)}`,
-				{
-					method: 'PUT',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ isDone: checked })
-				}
-			);
-			if (res.status === 401) { window.location.href = '/auth/trade'; return; }
-			if (!res.ok) throw new Error('Failed');
-			try { sessionStorage.removeItem(getCacheKey()); } catch { /* ignore */ }
-		} catch {
-			sub.is_done = prev; // revert on failure
-		}
-	}
-
-	const subtaskProgress = (task: any): string => {
-		const subs = Array.isArray(task?.subtasks) ? task.subtasks : [];
-		if (subs.length === 0) return '';
-		const done = subs.filter((s: any) => s.is_done).length;
-		return `${done}/${subs.length}`;
-	};
-
 	const getActivityText = (a: any) =>
 		a?.description ?? a?.activity ?? a?.activity_name ?? a?.title ?? a?.content ?? 'Activity';
 	const getActivityWhen = (a: any) =>
@@ -303,9 +276,6 @@
 											<span class="badge">{getTaskStatus(task)}</span>
 										{:else}
 											<div class="status-wrap">
-												{#if subtaskProgress(task)}
-													<span class="subtask-count">{subtaskProgress(task)}</span>
-												{/if}
 												<select
 													class="status-select status-{initVal}"
 													name={tid}
@@ -318,22 +288,6 @@
 											</div>
 										{/if}
 									</div>
-									{#if task?.subtasks && task.subtasks.length > 0}
-										<ul class="subtask-list">
-											{#each task.subtasks as sub (sub.id)}
-												<li class="subtask-item">
-													<label class="subtask-label">
-														<input
-															type="checkbox"
-															checked={sub.is_done}
-															onchange={(e) => toggleSubtask(sub, (e.currentTarget as HTMLInputElement).checked)}
-														/>
-														<span class="subtask-text" class:subtask-done={sub.is_done}>{sub.label}</span>
-													</label>
-												</li>
-											{/each}
-										</ul>
-									{/if}
 								{/each}
 							</div>
 						{/each}
