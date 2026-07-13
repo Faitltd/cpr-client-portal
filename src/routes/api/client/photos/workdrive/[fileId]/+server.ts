@@ -59,7 +59,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	const ext = name.split('.').pop()?.toLowerCase() ?? '';
 	const contentType = EXT_CONTENT_TYPE[ext] || 'image/jpeg';
 
-	return new Response(bytes, {
+	return new Response(new Uint8Array(bytes), {
 		status: 200,
 		headers: {
 			'Content-Type': contentType,
