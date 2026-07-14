@@ -458,6 +458,39 @@
 		return number.toUpperCase().startsWith('CO');
 	});
 	$: regularInvoices = invoices.filter((invoice) => !changeOrders.includes(invoice));
+
+	// Match a quote's change-order line item to its Books invoice.
+	// Try the CO number first ("Change Order #2" ↔ "CO-2"), then fall back
+	// to a unique amount match.
+	const extractCoNumber = (text: string): string | null => {
+		const match = String(text || '').match(/(?:change\s*order|(?:^|[^a-z])co)[-\s#]*0*(\d+)/i);
+		return match ? match[1] : null;
+	};
+	const findInvoiceForChangeOrder = (item: ChangeOrderItem, coInvoices: any[]) => {
+		const target = extractCoNumber(item.name);
+		if (target) {
+			const byNumber = coInvoices.find(
+				(inv) => extractCoNumber(String(inv?.invoice_number || '')) === target
+			);
+			if (byNumber) return byNumber;
+		}
+		const byAmount = coInvoices.filter((inv) => Number(inv?.total || 0) === item.total);
+		return byAmount.length === 1 ? byAmount[0] : null;
+	};
+	$: changeOrderInvoiceMatches = changeOrderItems.map((item) =>
+		findInvoiceForChangeOrder(item, changeOrders)
+	);
+
+	let expandedChangeOrders = new Set<number>();
+	const toggleChangeOrderItem = (index: number) => {
+		const next = new Set(expandedChangeOrders);
+		if (next.has(index)) {
+			next.delete(index);
+		} else {
+			next.add(index);
+		}
+		expandedChangeOrders = next;
+	};
 	// True when the client has billing on file even if no active project card exists
 	// (e.g. an On Hold deal that never had a Zoho Project created). Lets us still
 	// show the Financial Summary and Invoices instead of a bare "No projects found".
@@ -1041,15 +1074,58 @@
 
 			{#if changeOrderItems.length > 0}
 				<div class="co-item-list">
-					{#each changeOrderItems as item}
-						<div class="co-item">
-							<div class="co-item-info">
-								<span class="co-item-name">{item.name}</span>
-								{#if item.description}
-									<span class="co-item-desc">{item.description}</span>
+					{#each changeOrderItems as item, i}
+						{@const matchedInvoice = changeOrderInvoiceMatches[i]}
+						{@const expanded = expandedChangeOrders.has(i)}
+						<div class="co-item-wrap">
+							<button
+								class="co-item co-item-btn"
+								type="button"
+								on:click={() => toggleChangeOrderItem(i)}
+								aria-expanded={expanded}
+							>
+								<div class="co-item-info">
+									<span class="co-item-name">{item.name}</span>
+									{#if item.description}
+										<span class="co-item-desc">{item.description}</span>
+									{/if}
+								</div>
+								<span class="co-item-price">${item.total.toLocaleString()}</span>
+								<span class="co-item-chevron" class:rotated={expanded} aria-hidden="true">▾</span>
+							</button>
+							{#if expanded}
+								{#if matchedInvoice}
+									<div class="invoice-card co-item-invoice">
+										<div class="invoice-info">
+											<h3 class="invoice-number">{matchedInvoice.invoice_number || matchedInvoice.invoice_id}</h3>
+											<div class="invoice-meta">
+												<span class="badge badge-muted">{matchedInvoice.status || 'Unknown'}</span>
+												<span class="meta-text">{formatInvoiceDate(matchedInvoice)}</span>
+											</div>
+										</div>
+										<div class="invoice-amounts">
+											<div class="amount-row">
+												<span class="amount-label">Total</span>
+												<span class="amount-value">${Number(matchedInvoice.total || 0).toLocaleString()}</span>
+											</div>
+											<div class="amount-row">
+												<span class="amount-label">Balance</span>
+												<span class="amount-value">${Number(matchedInvoice.balance || 0).toLocaleString()}</span>
+											</div>
+										</div>
+										<div class="invoice-actions">
+											{#if matchedInvoice.payment_url}
+												<a class="btn-primary" href={matchedInvoice.payment_url} target="_blank" rel="noreferrer">Pay Now</a>
+											{/if}
+											{#if matchedInvoice.invoice_url}
+												<a class="btn-secondary" href={matchedInvoice.invoice_url} target="_blank" rel="noreferrer">View Invoice</a>
+											{/if}
+										</div>
+									</div>
+								{:else}
+									<p class="muted-text co-item-no-invoice">No invoice has been issued for this change order yet.</p>
 								{/if}
-							</div>
-							<span class="co-item-price">${item.total.toLocaleString()}</span>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -1985,6 +2061,42 @@
 		font-weight: 700;
 		color: #111827;
 		white-space: nowrap;
+	}
+
+	.co-item-wrap {
+		display: grid;
+		gap: 0.5rem;
+		justify-items: center;
+		width: 100%;
+	}
+
+	.co-item-btn {
+		cursor: pointer;
+		font: inherit;
+		text-align: left;
+		color: inherit;
+	}
+
+	.co-item-btn:hover {
+		border-color: #9ca3af;
+	}
+
+	.co-item-chevron {
+		color: #6b7280;
+		transition: transform 0.15s ease;
+	}
+
+	.co-item-chevron.rotated {
+		transform: rotate(180deg);
+	}
+
+	.co-item-invoice {
+		width: 100%;
+		max-width: 640px;
+	}
+
+	.co-item-no-invoice {
+		margin: 0;
 	}
 
 	.summary-card {
