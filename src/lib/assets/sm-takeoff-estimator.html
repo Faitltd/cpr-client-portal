@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SM Takeoff &amp; Estimate</title>
+<style>
+  :root {
+    --navy: #1f3864; --navy-lt: #2d4a7a; --sec: #d9e2f2; --edit: #0044cc;
+    --yel: #fff9d6; --gray: #f5f6f8; --border: #d4d9e2; --green: #1a7f4b; --red: #c0392b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222; background: #eef1f5; }
+  header { background: var(--navy); color: #fff; padding: 18px 28px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+  header h1 { font-size: 20px; font-weight: bold; }
+  header .total-chip { background: var(--navy-lt); border-radius: 8px; padding: 8px 16px; font-size: 16px; }
+  header .total-chip b { font-size: 20px; }
+  main { max-width: 1280px; margin: 20px auto; padding: 0 16px 60px; }
+  section { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 20px; overflow: hidden; }
+  section > h2 { background: var(--sec); padding: 10px 16px; font-size: 15px; color: var(--navy); display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+  section > h2 .hint { font-weight: normal; font-size: 12px; color: #667; }
+  .body { padding: 14px 16px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: var(--navy); color: #fff; font-size: 12px; padding: 6px 8px; text-align: center; white-space: nowrap; }
+  td { border: 1px solid var(--border); padding: 4px 6px; text-align: center; white-space: nowrap; }
+  td.l { text-align: left; }
+  td.calc { background: var(--gray); color: #333; }
+  input[type=text], input[type=number], select {
+    font-family: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; width: 100%;
+  }
+  td.fill { background: var(--yel); }
+  td.fill input, td.fill select { background: transparent; border-color: #e3d98a; }
+  input[type=number] { text-align: right; }
+  .price input { color: var(--edit); font-weight: bold; width: 90px; }
+  .num { text-align: right; }
+  tfoot td { font-weight: bold; background: var(--sec); }
+  button { font-family: inherit; font-size: 13px; padding: 7px 14px; border: none; border-radius: 5px; cursor: pointer; background: var(--navy); color: #fff; }
+  button:hover { background: var(--navy-lt); }
+  button.ghost { background: #fff; color: var(--navy); border: 1px solid var(--navy); }
+  button.danger-x { background: transparent; color: var(--red); font-size: 15px; padding: 2px 8px; }
+  .toolbar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .cat { background: var(--sec); font-weight: bold; text-align: left; color: var(--navy); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .asm-block h3 { font-size: 13px; color: var(--navy); border-bottom: 2px solid var(--sec); margin-bottom: 6px; padding-bottom: 3px; }
+  .asm-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; gap: 8px; }
+  .asm-row label { font-size: 13px; }
+  .asm-row input { width: 80px; color: var(--edit); font-weight: bold; }
+  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .card { background: var(--gray); border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; }
+  .card .v { font-size: 20px; font-weight: bold; color: var(--navy); }
+  .card .k { font-size: 11px; color: #667; margin-top: 2px; }
+  .totals-row td { font-size: 15px; }
+  .note { font-size: 12px; color: #667; margin-top: 8px; }
+  .collapsed .body { display: none; }
+  .chev::after { content: '▾'; margin-left: 8px; }
+  .collapsed .chev::after { content: '▸'; }
+  @media print {
+    header .toolbar, .toolbar, button, section > h2 .hint { display: none !important; }
+    body { background: #fff; }
+    section { border: none; page-break-inside: avoid; }
+    .collapsed .body { display: block; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>SM Takeoff &amp; Estimate</h1>
+    <div style="font-size:12px;opacity:.85;margin-top:3px">Enter rooms from the Matterport scan &middot; scope each room &middot; quantities &amp; costs update live</div>
+  </div>
+  <div class="total-chip">Estimate Total: <b id="hdrTotal">$0</b></div>
+</header>
+
+<main>
+
+<!-- ROOMS -->
+<section id="secRooms">
+  <h2><span class="chev">Room Inputs</span><span class="hint">Yellow = enter &middot; gray = calculated</span></h2>
+  <div class="body">
+    <table id="roomsTable">
+      <thead><tr>
+        <th>Room Name</th><th>Type</th><th>Length (ft)</th><th>Width (ft)</th><th>Ceiling (ft)</th>
+        <th>Perimeter LF</th><th>Floor ft²</th><th>Wall ft²</th><th>Ceiling ft²</th>
+        <th>Framing</th><th>Drywall</th><th>Paint</th><th>Flooring</th><th>Elec</th><th>Plumb</th><th></th>
+      </tr></thead>
+      <tbody id="roomsBody"></tbody>
+      <tfoot><tr id="roomsTotals"></tr></tfoot>
+    </table>
+    <div class="toolbar">
+      <button onclick="addRoom()">+ Add Room</button>
+      <button class="ghost" onclick="if(confirm('Clear all rooms?')){state.rooms=[];addRoom();render();}">Clear All</button>
+    </div>
+  </div>
+</section>
+
+<!-- TAKEOFF -->
+<section id="secTakeoff">
+  <h2><span class="chev">Takeoff &amp; Estimate</span><span class="hint">Blue prices are editable — set to your supplier pricing</span></h2>
+  <div class="body">
+    <div class="summary-cards" id="scopeCards"></div>
+    <table>
+      <thead><tr><th style="text-align:left">Item</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th></tr></thead>
+      <tbody id="takeoffBody"></tbody>
+      <tfoot id="takeoffFoot"></tfoot>
+    </table>
+    <div class="toolbar">
+      <button onclick="exportCSV()">Download CSV</button>
+      <button class="ghost" onclick="window.print()">Print / PDF</button>
+      <button class="ghost" onclick="exportJSON()">Export Project (.json)</button>
+      <button class="ghost" onclick="document.getElementById('importFile').click()">Import Project</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(this)">
+    </div>
+    <div class="note">Default prices are placeholders. Quantities round up to whole purchase units. Work is saved automatically in this browser.</div>
+  </div>
+</section>
+
+<!-- ASSUMPTIONS -->
+<section id="secAsm" class="collapsed">
+  <h2><span class="chev">Assumptions</span><span class="hint">Coverage rates, waste factors, fixture counts</span></h2>
+  <div class="body">
+    <div class="grid" id="asmGrid"></div>
+    <h3 style="font-size:13px;color:var(--navy);margin:16px 0 6px">Room Type Table (lights &amp; plumbing fixtures per room)</h3>
+    <table style="max-width:520px">
+      <thead><tr><th>Room Type</th><th>Lights / room</th><th>Plumbing fixtures / room</th></tr></thead>
+      <tbody id="rtBody"></tbody>
+    </table>
+    <div class="toolbar"><button class="ghost" onclick="if(confirm('Reset all assumptions and prices to defaults?')){state.asm=structuredClone(DEF_ASM);state.roomTypes=structuredClone(DEF_ROOM_TYPES);state.prices=structuredClone(DEF_PRICES);render();}">Reset to Defaults</button></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+'use strict';
+
+/* ---------------- defaults ---------------- */
+const DEF_ASM = {
+  wasteFrame:   { label: 'Waste — framing/drywall (%)', v: 10, grp: 'General' },
+  wasteFloor:   { label: 'Waste — flooring (%)',        v: 10, grp: 'General' },
+  contingency:  { label: 'Contingency (%)',             v: 10, grp: 'General' },
+  studSpacing:  { label: 'Stud spacing (in OC)',        v: 16, grp: 'Framing' },
+  plateRows:    { label: 'Plate rows per wall',         v: 3,  grp: 'Framing' },
+  plateLen:     { label: 'Plate board length (ft)',     v: 16, grp: 'Framing' },
+  nailsPerStud: { label: 'Nails (lbs) per stud',        v: 0.3,grp: 'Framing' },
+  sheetSqft:    { label: 'Sheet coverage (ft²)',        v: 32, grp: 'Drywall' },
+  screwsSheet:  { label: 'Screws per sheet',            v: 32, grp: 'Drywall' },
+  mudArea:      { label: 'Area per mud bucket (ft²)',   v: 450,grp: 'Drywall' },
+  tapePerSqft:  { label: 'Tape (ft) per ft²',           v: 0.375, grp: 'Drywall' },
+  tapeRoll:     { label: 'Tape roll length (ft)',       v: 500,grp: 'Drywall' },
+  paintCov:     { label: 'Coverage (ft²/gal)',          v: 350,grp: 'Paint' },
+  paintCoats:   { label: 'Paint coats',                 v: 2,  grp: 'Paint' },
+  primerCoats:  { label: 'Primer coats',                v: 1,  grp: 'Paint' },
+  boxSqft:      { label: 'Flooring box coverage (ft²)', v: 20, grp: 'Flooring' },
+  underRoll:    { label: 'Underlayment roll (ft²)',     v: 100,grp: 'Flooring' },
+  lfPerOutlet:  { label: 'Wall LF per outlet',          v: 12, grp: 'Electrical' },
+  switchesRoom: { label: 'Switches per room',           v: 1,  grp: 'Electrical' },
+  wirePerDev:   { label: 'Wire (ft) per device',        v: 20, grp: 'Electrical' },
+  wireRoll:     { label: 'Wire roll length (ft)',       v: 250,grp: 'Electrical' },
+};
+const DEF_ROOM_TYPES = [
+  ['Bathroom',2,3],['Kitchen',4,1],['Bedroom',1,0],['Living Room',2,0],['Dining',1,0],
+  ['Laundry',1,1],['Hallway',1,0],['Closet',1,0],['Office',1,0],['Basement',2,0],['Other',1,0]
+];
+const DEF_PRICES = {
+  studs: 3.98, plates: 8.48, nails: 4.00, sheets: 12.98, screws: 9.98, mud: 17.98, tape: 6.48,
+  primer: 24.98, paint: 37.98, floorBox: 44.98, underlay: 24.98,
+  outlets: 3.48, switches: 4.28, boxes: 2.18, lights: 59.98, wire: 89.98,
+  fixtures: 249.00, supplyKits: 24.98
+};
+const SCOPES = ['framing','drywall','paint','flooring','elec','plumb'];
+const blankRoom = () => ({ name:'', type:'Bathroom', L:'', W:'', H:'', framing:true, drywall:true, paint:true, flooring:true, elec:true, plumb:false });
+
+/* ---------------- state ---------------- */
+const LS_KEY = 'sm-takeoff-v1';
+let state;
+try { state = JSON.parse(localStorage.getItem(LS_KEY)) || null; } catch(e) { state = null; }
+if (!state || !state.rooms) {
+  state = { rooms: [ { ...blankRoom(), name:'Primary Bath', L:10, W:8, H:9, plumb:true } ],
+            asm: structuredClone(DEF_ASM), roomTypes: structuredClone(DEF_ROOM_TYPES), prices: structuredClone(DEF_PRICES) };
+}
+// merge any new default keys into saved state
+for (const k in DEF_ASM) if (!state.asm[k]) state.asm[k] = structuredClone(DEF_ASM[k]);
+for (const k in DEF_PRICES) if (state.prices[k] == null) state.prices[k] = DEF_PRICES[k];
+const save = () => localStorage.setItem(LS_KEY, JSON.stringify(state));
+
+/* ---------------- calc ---------------- */
+const n = v => { const x = parseFloat(v); return isFinite(x) ? x : 0; };
+const up = v => Math.ceil(v - 1e-9);
+const money = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+function roomCalc(r) {
+  const L = n(r.L), W = n(r.W), H = n(r.H);
+  const per = (L && W) ? 2*(L+W) : 0;
+  return { per, floor: L*W, wall: per*H, ceil: L*W };
+}
+function roomType(t) { return state.roomTypes.find(x => x[0] === t) || ['Other',1,0]; }
+
+function computeScopes() {
+  const s = { frameLF:0, drywall:0, paint:0, floor:0, outlets:0, switches:0, lights:0, plumb:0 };
+  const a = k => n(state.asm[k].v);
+  for (const r of state.rooms) {
+    const c = roomCalc(r);
+    if (!c.floor) continue;
+    if (r.framing)  s.frameLF += c.per;
+    if (r.drywall)  s.drywall += c.wall + c.ceil;
+    if (r.paint)    s.paint   += c.wall + c.ceil;
+    if (r.flooring) s.floor   += c.floor;
+    if (r.elec) {
+      s.outlets  += up(c.per / a('lfPerOutlet'));
+      s.switches += a('switchesRoom');
+      s.lights   += roomType(r.type)[1];
+    }
+    if (r.plumb) s.plumb += roomType(r.type)[2];
+  }
+  return s;
+}
+
+function computeItems(s) {
+  const a = k => n(state.asm[k].v);
+  const wf = 1 + a('wasteFrame')/100, wl = 1 + a('wasteFloor')/100;
+  const studs = s.frameLF ? up(s.frameLF / (a('studSpacing')/12) * wf) : 0;
+  const sheets = s.drywall ? up(s.drywall * wf / a('sheetSqft')) : 0;
+  const items = [
+    ['Framing','Studs 2x4x8','studs','ea', studs],
+    ['Framing','Plates 2x4x16','plates','ea', s.frameLF ? up(s.frameLF * a('plateRows') / a('plateLen') * wf) : 0],
+    ['Framing','Framing nails','nails','lb', studs ? up(studs * a('nailsPerStud')) : 0],
+    ['Drywall','4x8 Sheet','sheets','sheet', sheets],
+    ['Drywall','Drywall Screws (1,000 ct)','screws','box', sheets ? up(sheets * a('screwsSheet') / 1000) : 0],
+    ['Drywall','Drywall Mud (4.5 gal)','mud','bucket', s.drywall ? up(s.drywall / a('mudArea')) : 0],
+    ['Drywall','Drywall Tape (500 ft)','tape','roll', s.drywall ? up(s.drywall * a('tapePerSqft') / a('tapeRoll')) : 0],
+    ['Paint','Primer','primer','gal', s.paint ? up(s.paint * a('primerCoats') / a('paintCov')) : 0],
+    ['Paint','Paint','paint','gal', s.paint ? up(s.paint * a('paintCoats') / a('paintCov')) : 0],
+    ['Flooring','Flooring (20 ft² box)','floorBox','box', s.floor ? up(s.floor * wl / a('boxSqft')) : 0],
+    ['Flooring','Underlayment (100 ft² roll)','underlay','roll', s.floor ? up(s.floor * wl / a('underRoll')) : 0],
+    ['Electrical','Outlets','outlets','ea', s.outlets],
+    ['Electrical','Switches','switches','ea', s.switches],
+    ['Electrical','Device boxes','boxes','ea', s.outlets + s.switches],
+    ['Electrical','Light fixtures','lights','ea', s.lights],
+    ['Electrical','Romex 14/2 (250 ft roll)','wire','roll', (s.outlets+s.switches+s.lights) ? up((s.outlets+s.switches+s.lights) * a('wirePerDev') / a('wireRoll')) : 0],
+    ['Plumbing','Fixtures (per room-type table)','fixtures','ea', s.plumb],
+    ['Plumbing','Supply/rough-in kits','supplyKits','ea', s.plumb],
+  ];
+  return items.map(([cat,name,pk,unit,qty]) => ({ cat, name, pk, unit, qty, price: n(state.prices[pk]), total: qty * n(state.prices[pk]) }));
+}
+
+/* ---------------- render ---------------- */
+function render() {
+  save();
+  renderRooms();
+  renderTakeoff();
+  renderAssumptions();
+}
+
+function renderRooms() {
+  const tb = document.getElementById('roomsBody');
+  tb.innerHTML = '';
+  const tot = { per:0, floor:0, wall:0, ceil:0 };
+  state.rooms.forEach((r, i) => {
+    const c = roomCalc(r);
+    tot.per += c.per; tot.floor += c.floor; tot.wall += c.wall; tot.ceil += c.ceil;
+    const tr = document.createElement('tr');
+    const opts = state.roomTypes.map(t => `<option ${t[0]===r.type?'selected':''}>${t[0]}</option>`).join('');
+    tr.innerHTML =
+      `<td class="fill l"><input type="text" value="${esc(r.name)}" onchange="setRoom(${i},'name',this.value)" placeholder="Room name"></td>` +
+      `<td class="fill"><select onchange="setRoom(${i},'type',this.value)">${opts}</select></td>` +
+      ['L','W','H'].map(k => `<td class="fill"><input type="number" min="0" step="0.1" style="width:70px" value="${r[k]}" onchange="setRoom(${i},'${k}',this.value)"></td>`).join('') +
+      `<td class="calc">${c.per ? c.per.toFixed(1) : ''}</td><td class="calc">${c.floor ? c.floor.toFixed(1) : ''}</td>` +
+      `<td class="calc">${c.wall ? c.wall.toFixed(1) : ''}</td><td class="calc">${c.ceil ? c.ceil.toFixed(1) : ''}</td>` +
+      SCOPES.map(sc => `<td class="fill"><input type="checkbox" ${r[sc]?'checked':''} onchange="setRoom(${i},'${sc}',this.checked)"></td>`).join('') +
+      `<td><button class="danger-x" title="Remove room" onclick="delRoom(${i})">✕</button></td>`;
+    tb.appendChild(tr);
+  });
+  document.getElementById('roomsTotals').innerHTML =
+    `<td class="l">TOTALS</td><td></td><td></td><td></td><td></td>` +
+    `<td>${tot.per.toFixed(1)}</td><td>${tot.floor.toFixed(1)}</td><td>${tot.wall.toFixed(1)}</td><td>${tot.ceil.toFixed(1)}</td>` +
+    `<td colspan="7"></td>`;
+}
+
+function renderTakeoff() {
+  const s = computeScopes();
+  const cards = [
+    ['Framed wall LF', s.frameLF.toFixed(0)], ['Drywall ft²', s.drywall.toFixed(0)],
+    ['Paint ft²', s.paint.toFixed(0)], ['Flooring ft²', s.floor.toFixed(0)],
+    ['Outlets', s.outlets], ['Switches', s.switches], ['Lights', s.lights], ['Plumb fixtures', s.plumb],
+  ];
+  document.getElementById('scopeCards').innerHTML =
+    cards.map(([k,v]) => `<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+
+  const items = computeItems(s);
+  const tb = document.getElementById('takeoffBody');
+  tb.innerHTML = '';
+  let lastCat = '', subtotal = 0;
+  for (const it of items) {
+    if (it.cat !== lastCat) {
+      lastCat = it.cat;
+      tb.insertAdjacentHTML('beforeend', `<tr><td class="cat" colspan="5">${it.cat}</td></tr>`);
+    }
+    subtotal += it.total;
+    tb.insertAdjacentHTML('beforeend',
+      `<tr><td class="l">${it.name}</td><td class="num">${it.qty.toLocaleString()}</td><td>${it.unit}</td>` +
+      `<td class="price"><input type="number" min="0" step="0.01" value="${it.price.toFixed(2)}" onchange="setPrice('${it.pk}',this.value)"></td>` +
+      `<td class="num">${money(it.total)}</td></tr>`);
+  }
+  const cont = subtotal * n(state.asm.contingency.v) / 100;
+  document.getElementById('takeoffFoot').innerHTML =
+    `<tr><td class="l" colspan="4">Materials subtotal</td><td class="num">${money(subtotal)}</td></tr>` +
+    `<tr><td class="l" colspan="4">Contingency (${n(state.asm.contingency.v)}%)</td><td class="num">${money(cont)}</td></tr>` +
+    `<tr class="totals-row"><td class="l" colspan="4">ESTIMATE TOTAL (materials)</td><td class="num">${money(subtotal + cont)}</td></tr>`;
+  document.getElementById('hdrTotal').textContent = money(subtotal + cont);
+}
+
+function renderAssumptions() {
+  const grid = document.getElementById('asmGrid');
+  const groups = {};
+  for (const k in state.asm) (groups[state.asm[k].grp] ||= []).push(k);
+  grid.innerHTML = Object.entries(groups).map(([g, keys]) =>
+    `<div class="asm-block"><h3>${g}</h3>` +
+    keys.map(k => `<div class="asm-row"><label>${state.asm[k].label}</label>` +
+      `<input type="number" step="any" value="${state.asm[k].v}" onchange="setAsm('${k}',this.value)"></div>`).join('') +
+    `</div>`).join('');
+  document.getElementById('rtBody').innerHTML = state.roomTypes.map((t, i) =>
+    `<tr><td class="l">${t[0]}</td>` +
+    `<td class="price"><input type="number" min="0" step="1" value="${t[1]}" onchange="setRT(${i},1,this.value)"></td>` +
+    `<td class="price"><input type="number" min="0" step="1" value="${t[2]}" onchange="setRT(${i},2,this.value)"></td></tr>`).join('');
+}
+
+/* ---------------- mutations ---------------- */
+function setRoom(i, k, v) { state.rooms[i][k] = v; render(); }
+function delRoom(i) { state.rooms.splice(i, 1); if (!state.rooms.length) state.rooms.push(blankRoom()); render(); }
+function addRoom() { state.rooms.push(blankRoom()); render(); }
+function setPrice(k, v) { state.prices[k] = n(v); render(); }
+function setAsm(k, v) { state.asm[k].v = n(v); render(); }
+function setRT(i, c, v) { state.roomTypes[i][c] = n(v); render(); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+/* ---------------- export / import ---------------- */
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+function exportCSV() {
+  const s = computeScopes();
+  const items = computeItems(s).filter(i => i.qty > 0);
+  let subtotal = 0;
+  const rows = [['Category','Item','Quantity','Unit','Item Price ($)','Order Total ($)']];
+  for (const it of items) { subtotal += it.total; rows.push([it.cat, it.name, it.qty, it.unit, it.price.toFixed(2), it.total.toFixed(2)]); }
+  const cont = subtotal * n(state.asm.contingency.v) / 100;
+  rows.push([], ['','Materials subtotal','','','', subtotal.toFixed(2)],
+            ['','Contingency','','','', cont.toFixed(2)],
+            ['','ESTIMATE TOTAL','','','', (subtotal + cont).toFixed(2)]);
+  const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  download('takeoff-estimate.csv', csv, 'text/csv');
+}
+function exportJSON() { download('sm-takeoff-project.json', JSON.stringify(state, null, 2), 'application/json'); }
+function importJSON(input) {
+  const f = input.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const st = JSON.parse(rd.result);
+      if (!st.rooms || !st.asm || !st.prices) throw new Error('bad file');
+      state = st; render();
+    } catch(e) { alert('Not a valid project file.'); }
+    input.value = '';
+  };
+  rd.readAsText(f);
+}
+
+/* ---------------- collapsible sections ---------------- */
+document.querySelectorAll('section > h2').forEach(h =>
+  h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed')));
+
+render();
+</script>
+</body>
+</html>

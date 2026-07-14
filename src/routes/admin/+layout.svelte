@@ -38,6 +38,7 @@
 						<a class="tab tab-admin" class:active={isActive('/admin/bot')} href="/admin/bot">CPR Assistant</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/schedule')} href="/admin/schedule">Schedule</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/process-map')} href="/admin/process-map">Process Map</a>
+						<a class="tab tab-admin" class:active={isActive('/admin/takeoffs')} href="/admin/takeoffs">Takeoffs</a>
 					</span>
 				</nav>
 			</div>
