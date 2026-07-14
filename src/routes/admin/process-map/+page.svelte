@@ -447,12 +447,6 @@
 </script>
 
 <div class="process-map">
-	<div class="pm-header">
-		<h1>CPR Client Process Map</h1>
-		<p class="subtitle">Interactive team reference — expand steps to see automations, flag bottlenecks</p>
-		<p class="step-count">{totalSteps} steps across {PHASES.length} phases</p>
-	</div>
-
 	<div class="controls-bar">
 		<select bind:value={phaseFilterValue} aria-label="Filter by phase">
 			<option value="all">All Phases</option>
@@ -577,29 +571,6 @@
 		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 		-webkit-font-smoothing: antialiased;
 		line-height: 1.5;
-	}
-
-	/* === HEADER === */
-	.pm-header {
-		text-align: center;
-		padding: 40px 24px 24px;
-	}
-	.pm-header h1 {
-		font-size: 28px;
-		font-weight: 700;
-		letter-spacing: -0.5px;
-		color: #1A1A1A;
-		margin-bottom: 6px;
-	}
-	.subtitle {
-		font-size: 15px;
-		color: #555;
-		margin-bottom: 4px;
-	}
-	.step-count {
-		font-size: 13px;
-		color: #888;
-		font-weight: 500;
 	}
 
 	/* === CONTROLS BAR === */
@@ -1001,8 +972,6 @@
 	}
 
 	@media (max-width: 768px) {
-		.pm-header { padding: 24px 16px 16px; }
-		.pm-header h1 { font-size: 22px; }
 		.controls-bar { padding: 10px 16px; }
 		.controls-bar select { min-width: 140px; }
 		.main-content { padding: 16px; }
