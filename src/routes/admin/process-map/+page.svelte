@@ -41,7 +41,7 @@
 			color: "#0A6B74",
 			steps: [
 				{ code: "NL", name: "New Lead", pct: "", type: "Standard", outcomes: [],
-					automations: ["Blueprint: Lead Nurturing entry (status = New Lead)", "Ray reviews and qualifies incoming leads"] },
+					automations: ["Blueprint: Lead Nurturing entry (status = New Lead)", "Ray reviews and qualifies incoming leads", "Lead Welcome SMS (Twilio)", "SMS: Free Consult 2-day follow-up", "New Lead Notification"] },
 				{ code: "DC", name: "Discovery Call Booked", pct: "", type: "Standard", outcomes: [],
 					automations: ["Bookings > Flow > CRM: status auto-updated", "HWWWY Email auto-sent (WF #15)", "Resend Discovery Call Link (Blueprint, triggered manually)", "Notify Jeff via Cliq on discovery call (WF #26)", "Blueprint reminder sequence initiated"] },
 				{ code: "CC", name: "Discovery Call Conducted", pct: "", type: "Standard", outcomes: [],
@@ -49,7 +49,7 @@
 				{ code: "SV", name: "Site Visit Needed", pct: "", type: "Standard", outcomes: [],
 					automations: ["Blueprint auto-transition from Discovery Call", "Scheduling task/reminder auto-created"] },
 				{ code: "SB", name: "Site Visit Booked", pct: "", type: "Standard", outcomes: [],
-					automations: ["Bookings > Flow > CRM: status auto-updated", "Site Visit Booked Email auto-sent (WF #19)", "Resend Site Visit Link (Blueprint, triggered manually)", "Site Visit Update: field update on meeting (WF #17)"] },
+					automations: ["Bookings > Flow > CRM: status auto-updated", "Site Visit Booked Email auto-sent (WF #19)", "Resend Site Visit Link (Blueprint, triggered manually)", "Site Visit Update: field update on meeting (WF #17)", "SMS \u2013 Site Visit Reminder"] },
 				{ code: "SC", name: "Site Visit Conducted", pct: "", type: "Standard", outcomes: [],
 					automations: ["Ray manually logs site visit notes on lead record", "Update Data Of Lead/Deal On Meeting (WF #29)"] },
 				{ code: "QD", name: "Qualification Decision", pct: "", type: "Decision",
@@ -59,7 +59,9 @@
 						{ text: "Referred Out > Record closed", color: "#B52A23" },
 						{ text: "Unqualified / Lost > Record closed", color: "#B52A23" }
 					],
-					automations: ["Lead > Deal conversion on Qualified (CRM)", "Blueprint transitions for all outcomes", "Ray owns entire Leads module through qualification"] }
+					automations: ["Lead > Deal conversion on Qualified (CRM)", "Blueprint transitions for all outcomes", "Ray owns entire Leads module through qualification"] },
+				{ code: "DM", name: "Dormant", pct: "", type: "Exit", outcomes: [],
+					automations: ["Lead status for stale leads \u2014 exit/holding path alongside Pending / Undecided", "Inactive Lead Re-engagement workflow runs against dormant records"] }
 			]
 		},
 		{
@@ -68,31 +70,48 @@
 			color: "#C56D14",
 			steps: [
 				{ code: "BN", name: "Ballpark Needed", pct: "10%", type: "Standard", outcomes: [],
-					automations: ["Mary Sue receives deal from Ray after qualification", "Create MSM Task: 'needs their Ballpark' (WF #3)", "Blueprint: Deal Sales Journey entry criteria", "Task auto-synced to Jeff's calendar (WF #13)", "Task owner notified via Cliq (WF #24)", "Task due date auto-set (WF #21)"] },
+					automations: ["Mary Sue receives deal from Ray after qualification", "Create MSM Task: 'needs their Ballpark' (WF #3)", "Blueprint: Deal Sales Journey entry criteria", "Task auto-synced to Jeff's calendar (WF #13)", "Task owner notified via Cliq (WF #24)", "Task due date auto-set (WF #21)", "WorkDrive folder tree created at deal creation (Ballpark Estimates team folder, idempotent)", "Internal + External Cliq channels created at Ballpark Needed", "BP Follow-Up emails 1/2/3 (1, 2, 3 days)", "MSM follow-up task cadence \u2014 canceled automatically on stage exit", "Ballpark Not Booked > Cliq notify Mary Sue"] },
 				{ code: "BV", name: "Ballpark Revision", pct: "20%", type: "Revision Loop", outcomes: [],
 					automations: ["Triggered when client requests changes", "Updates original ballpark document", "Loops back to Ballpark Review Needed"] },
 				{ code: "BR", name: "Ballpark Review Needed", pct: "20%", type: "Standard", outcomes: [],
-					automations: ["BP Task Completed > stage auto-update (WF #2)", "BPRN>BPRB: meeting auto-moves stage (WF #20)", "Resend Ballpark Review Link (Blueprint)"] },
+					automations: ["BP Task Completed > stage auto-update (WF #2)", "BPRN>BPRB: meeting auto-moves stage (WF #20)", "Resend Ballpark Review Link (Blueprint)", "Ballpark Sent date auto-stamped on entry"] },
 				{ code: "BB", name: "Ballpark Review Booked", pct: "40%", type: "Decision",
 					outcomes: [
 						{ text: "Accept > PDA Needed", color: "#247040" },
 						{ text: "Revise > Ballpark Revision (20%)", color: "#C56D14" },
 						{ text: "Lost > Deal closed (0%)", color: "#B52A23" }
 					],
-					automations: ["Notify Jeff via Cliq on stage change (WF #8)", "Meeting data synced to deal record (WF #29)"] },
+					automations: ["Notify Jeff via Cliq on stage change (WF #8)", "Meeting data synced to deal record (WF #29)", "Booking date/time auto-moves stage (Ballpark Review Booked \u2013 Auto Move)"] },
 				{ code: "PN", name: "PDA Needed", pct: "40%", type: "Standard", outcomes: [],
 					automations: ["June Task: 'PDA is needed' task created (WF #27)", "Task auto-synced to Jeff's calendar (WF #13)"] },
 				{ code: "PS", name: "PDA Sent", pct: "40%", type: "Standard", outcomes: [],
-					automations: ["PDA via Zoho Sign for e-signature", "Day 3: PDA Follow Up Email #1 (WF #14)", "Day 7: PDA Follow Up Email #2 (WF #16)", "PDA Signed > stage to Design Needed (WF #7)", "PDA Signed creates tasks: Client Info, Quotes (WF #7)"] }
+					automations: ["PDA via Zoho Sign for e-signature", "Day 3: PDA Follow Up Email #1 (WF #14)", "Day 7: PDA Follow Up Email #2 (WF #16)", "SMS notification to contact on PDA Sent", "WorkDrive folder moves to Current Projects", "PDA follow-up count incremented"] },
+				{ code: "PSG", name: "PDA Signed", pct: "40%", type: "Standard", outcomes: [],
+					automations: ["Zoho Sign 'Project Design Agreement' signed", "Tasks created: 'Client Info Into CT' and 'Gather Quotes'", "Deal auto-moves to Selections (function updated July 14; formerly Design Needed)"] }
 			]
 		},
 		{
-			name: "Phase 3: Design",
+			name: "Phase 3: Selections",
+			key: "phase_selections",
+			color: "#8A5A9E",
+			steps: [
+				{ code: "SL", name: "Selections", pct: "40%", type: "Standard", outcomes: [],
+					automations: ["Owner: Monika \u2014 auto-assigned via 'Selections Owner Monika' function", "Cliq channel safety net covers this stage (fires on Design Needed or Selections)"] },
+				{ code: "VS", name: "Virtual Initial Selections", pct: "", type: "Standard", outcomes: [],
+					automations: ["Virtual meeting to kick off material selections"] },
+				{ code: "IS", name: "In-Person Selections Meeting", pct: "", type: "Standard", outcomes: [],
+					automations: ["In-person selections walkthrough with client"] },
+				{ code: "FM", name: "Final Material Selection", pct: "", type: "Standard", outcomes: [],
+					automations: ["Final material selections locked in Houzz"] }
+			]
+		},
+		{
+			name: "Phase 4: Design",
 			key: "phase_3",
 			color: "#C56D14",
 			steps: [
 				{ code: "DN", name: "Design Needed", pct: "40%", type: "Standard", outcomes: [],
-					automations: ["Matterport 3D scan linked if used", "Design files saved to WorkDrive", "Attachment Manager Widget active on deal"] },
+					automations: ["Matterport 3D scan linked if used", "Design files saved to WorkDrive", "Attachment Manager Widget active on deal", "Email assigned subs at Design Needed", "Cliq Channels Safety Net (fallback creation if earlier steps skipped)"] },
 				{ code: "RD", name: "Redesign Needed", pct: "30%", type: "Revision Loop", outcomes: [],
 					automations: ["Triggered when design review requires changes", "Loops back through design revision cycle"] },
 				{ code: "DR", name: "Design Review Needed", pct: "40%", type: "Standard", outcomes: [],
@@ -103,16 +122,18 @@
 						{ text: "Revise > Redesign Needed (30%)", color: "#C56D14" },
 						{ text: "Lost > Deal closed (0%)", color: "#B52A23" }
 					],
-					automations: ["Meeting data synced to deal record (WF #29)", "Appointment Canceled handler (Blueprint)"] }
+					automations: ["Meeting data synced to deal record (WF #29)", "Appointment Canceled handler (Blueprint)"] },
+				{ code: "DS", name: "Design Sign-off", pct: "40%", type: "Standard", outcomes: [],
+					automations: ["Final Design document signed via Zoho Sign", "Deal auto-moves to Estimate Needed on signature"] }
 			]
 		},
 		{
-			name: "Phase 4: Estimate & Contract",
+			name: "Phase 5: Estimate & Contract",
 			key: "phase_4",
 			color: "#C56D14",
 			steps: [
 				{ code: "EN", name: "Estimate Needed", pct: "40%", type: "Standard", outcomes: [],
-					automations: ["Estimate created in Zoho Books > linked to deal", "Task auto-synced to Jeff's calendar (WF #13)", "Task owner notified via Cliq (WF #24)"] },
+					automations: ["Estimate created in Zoho Books > linked to deal", "Task auto-synced to Jeff's calendar (WF #13)", "Task owner notified via Cliq (WF #24)", "Trade Partner Quotes task auto-created", "Gather Trade Partner Bids", "RFPs sent to trade partners", "Trade partner bidding happens here (not Pre-Construction)"] },
 				{ code: "EV", name: "Estimate Revision Needed", pct: "50%", type: "Revision Loop", outcomes: [],
 					automations: ["Triggered when quoted estimate needs changes", "Revised estimate prepared in Zoho Books", "Loops back to Estimate Review Needed"] },
 				{ code: "ER", name: "Estimate Review Needed", pct: "50%", type: "Standard", outcomes: [],
@@ -125,32 +146,34 @@
 						{ text: "Revise > Estimate Revision Needed (50%)", color: "#C56D14" },
 						{ text: "Lost > Deal closed (0%)", color: "#B52A23" }
 					],
-					automations: ["Quote Follow-Up email: +1 day at 8am (WF #22)"] },
+					automations: ["Quote Follow-Up email: +1 day at 8am (WF #22)", "Quote follow-up #2 at 3 days", "Quoted date auto-stamped", "MSM task if not moved after 5 business days", "Quoted Tasks: cabinet ETA, SOW + Selections locked, Sean task to create customer quote in Books"] },
 				{ code: "CN", name: "Contract Needed", pct: "80%", type: "Standard", outcomes: [],
-					automations: ["Blueprint transition to Contract Sent", "Contract drafted in Zoho Sign"] },
+					automations: ["Blueprint transition to Contract Sent", "Remodeling contract auto-drafted and sent (sendRemodelingContract)", "Payment schedule auto-calculated", "PM Review & Set Start Date task", "Total Project Cost entered > Books quote created"] },
 				{ code: "CS", name: "Contract Sent", pct: "80%", type: "Decision",
 					outcomes: [
 						{ text: "Signed > Project Created (100%)", color: "#247040" },
 						{ text: "Lost > Deal closed (0%)", color: "#B52A23" }
 					],
-					automations: ["Contract via Zoho Sign for e-signature", "Day 1: Follow-up email + task (WF #23)", "Day 3: Follow-up email #2 (WF #23 scheduled)", "Day 5: Follow-up email #3 (WF #23 scheduled)", "Contract Signed > Project Created (WF #12)"] }
+					automations: ["Contract via Zoho Sign for e-signature", "Day 1: Follow-up email + task (WF #23)", "Day 3: Follow-up email #2 (WF #23 scheduled)", "Day 5: Follow-up email #3 (WF #23 scheduled)", "SMS notification on Contract Sent", "Contract Sent date auto-stamped", "Signed contract auto-copied to Client Portal folder", "Contract Signed flag > deal moves to Project Created (WF #12)"] }
 			]
 		},
 		{
-			name: "Phase 5: Pre-Construction Setup",
+			name: "Phase 6: Pre-Construction Setup",
 			key: "phase_5",
 			color: "#243A54",
 			steps: [
 				{ code: "PC", name: "Project Created", pct: "100%", type: "Standard", outcomes: [],
-					automations: ["Create WD Folders: folder structure + links (Function)", "Create Project from Scope: phases & tasks (Function)", "Create Cliq Channel: internal comms (Function)", "Client Portal: access provisioned (Hetzner > WD API)", "Field Update > Cliq Notification (WF #5)", "Attachment Manager Widget activated on deal"] },
+					automations: ["Create Project from Scope: phases & tasks (Function)", "Client Portal: access provisioned (Hetzner > WD API)", "Field Update > Cliq Notification (WF #5)", "Attachment Manager Widget activated on deal", "Deposit invoice task", "Auto-add default trade partners (Jarod, Santiago, Brian, Jeff) to portal", "Backfill signed contracts to Client Portal folder", "Scope-to-Tasks pipeline (2 rules + checklist builder functions)", "SMS: Project Created notification"] },
 				{ code: "TP", name: "Trade Partner Assignment", pct: "", type: "Standard", outcomes: [],
 					automations: ["Trade partners linked to deal & project tasks", "Insurance Expiry reminders active (WF #4)", "Work Comp Expiry reminders active (WF #9)", "License Expiry reminders active (WF #11)"] },
 				{ code: "PM", name: "Permits & Pre-Con Checklist", pct: "", type: "Standard", outcomes: [],
-					automations: ["Documents stored in WorkDrive Permits folder", "Pre-con checklist tracked in Zoho Projects"] }
+					automations: ["Documents stored in WorkDrive Permits folder", "Pre-con checklist tracked in Zoho Projects"] },
+				{ code: "PSC", name: "PreStart Scheduling", pct: "", type: "Standard", outcomes: [],
+					automations: ["Start Date set > PreStart Date auto-set to 7 days prior", "Start Date set > Order Materials trigger", "PreStart Date set > pre-con meeting invites sent to all assigned trade partners", "14 days before PreStart: if no trade partners linked, alert Ray (Cliq + SMS)"] }
 			]
 		},
 		{
-			name: "Phase 6: Project Execution",
+			name: "Phase 7: Project Execution",
 			key: "phase_6",
 			color: "#247040",
 			steps: [
@@ -163,11 +186,13 @@
 				{ code: "FL", name: "Flooring", pct: "3 days", type: "Standard", outcomes: [],
 					automations: ["Field Update > Cliq Notification (WF #5 / Flow)", "Client Portal: progress visible to client"] },
 				{ code: "CM", name: "Completion", pct: "3 days", type: "Standard", outcomes: [],
-					automations: ["Field Update > Cliq Notification (WF #5 / Flow)", "Client Portal: progress visible to client", "Final inspection docs in WD Permits folder", "Deal Stagnation monitoring active (Blueprint / WF)"] }
+					automations: ["Field Update > Cliq Notification (WF #5 / Flow)", "Client Portal: progress visible to client", "Final inspection docs in WD Permits folder", "Deal Stagnation monitoring active (Blueprint / WF)"] },
+				{ code: "CU", name: "Client Updates & Reconciliation", pct: "Ongoing", type: "Standard", outcomes: [],
+					automations: ["Client update approved (Client_Update_Approved) > sent to client", "Reconciliation submitted > notify Jeff & Mary Sue", "Credit note issued via Reconciliation Approval process"] }
 			]
 		},
 		{
-			name: "Phase 7: Completion & Handoff",
+			name: "Phase 8: Completion & Handoff",
 			key: "phase_7",
 			color: "#7A2845",
 			steps: [
@@ -179,8 +204,8 @@
 					automations: ["Invoice generated via Zoho Books"] },
 				{ code: "DC2", name: "Document Close-Out", pct: "", type: "Standard", outcomes: [],
 					automations: ["All files confirmed in WorkDrive folders", "Client Portal updated to completion status"] },
-				{ code: "CO", name: "Deal Completed", pct: "100%", type: "Standard", outcomes: [],
-					automations: ["Post-project automations fire (Zoho Flow > CRM)", "Cliq project channel archived (Zoho Cliq)", "Project archived in Zoho Projects"] },
+				{ code: "CO", name: "Completed", pct: "100%", type: "Standard", outcomes: [],
+					automations: ["Post-project automations fire (Zoho Flow > CRM)", "Cliq project channels deleted (Internal + External)", "Project archived in Zoho Projects", "WorkDrive folder moves Current Projects > Previous Projects", "Trade partners delinked from portal (lose access)", "Close-out email sent", "Closing date +30 stamped"] },
 				{ code: "PF", name: "Post-Project Follow-Up", pct: "", type: "Standard", outcomes: [],
 					automations: ["Review request / satisfaction follow-up sent", "Referral tracking noted on lead record"] }
 			]
@@ -193,7 +218,7 @@
 				{ code: "OH", name: "On Hold", pct: "10%", type: "Exit", outcomes: [],
 					automations: ["Deal paused — no active automations", "Stagnation monitoring may trigger follow-up", "Can be reactivated to any prior stage"] },
 				{ code: "LT", name: "Lost", pct: "0%", type: "Exit", outcomes: [],
-					automations: ["Deal closed as lost — all tasks deactivated", "Loss reason recorded on deal record", "Blueprint marks deal as terminal"] }
+					automations: ["Deal closed as lost — all tasks deactivated", "Loss reason recorded on deal record", "Blueprint marks deal as terminal", "Cliq channels deleted (Internal + External \u2014 same rule as Completed)"] }
 			]
 		},
 		{
@@ -206,7 +231,7 @@
 				{ code: "SA", name: "Scope Assessment", pct: "", type: "Standard", outcomes: [],
 					automations: ["PM evaluates schedule & budget impact"] },
 				{ code: "CSI", name: "Cost & Schedule Impact", pct: "", type: "Standard", outcomes: [],
-					automations: ["Revised estimate prepared in Zoho Books"] },
+					automations: ["CO Number + CO Price entered on deal > CO line auto-added to Books quote", "Due-on-Receipt invoice created and emailed to client"] },
 				{ code: "CD", name: "Change Order Document", pct: "", type: "Standard", outcomes: [],
 					automations: ["Formal CO created and sent to client"] },
 				{ code: "CA", name: "Client Approval", pct: "", type: "Decision",
@@ -235,7 +260,7 @@
 	const INTEGRATIONS: string[] = [
 		"Zoho CRM", "Zoho Projects", "Zoho Books", "Zoho Sign",
 		"Zoho WorkDrive", "Zoho Bookings", "Zoho Cliq", "Zoho Flow",
-		"n8n", "Matterport", "Client Portal (Hetzner)"
+		"n8n", "Matterport", "Client Portal (Hetzner)", "Twilio (SMS)"
 	];
 
 	const totalSteps = PHASES.reduce((sum, p) => sum + p.steps.length, 0);
