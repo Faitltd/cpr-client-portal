@@ -15,9 +15,17 @@ interface DealItem {
 // Hide only closed deals (Lost, Completed) from the assistant. Keep On Hold
 // selectable so active-but-paused clients (e.g. Lisbeth Ojemann) still show.
 // Override with BOT_SYNC_EXCLUDE_STAGES.
+//
+// Stage names are spliced into a COQL WHERE clause below. Env values pasted
+// into the host dashboard sometimes arrive wrapped in quotes (e.g.
+// `'Lost','Completed'`), and any quote character breaks Zoho's COQL parser
+// with SYNTAX_ERROR near "where" — so strip quotes and backslashes entirely.
+const sanitizeStage = (value: string) =>
+	value.trim().replace(/['"\\]/g, '').trim();
+
 const EXCLUDE_STAGES = (env.BOT_SYNC_EXCLUDE_STAGES ?? 'Lost,Completed')
 	.split(',')
-	.map((s) => s.trim())
+	.map(sanitizeStage)
 	.filter(Boolean);
 
 function extractContactName(contact: unknown): string {
@@ -52,9 +60,14 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		// and can silently drop matching deals. COQL's `!=` filter is exact, so
 		// On Hold deals (e.g. Lisbeth Ojemann) reliably appear.
 		const excludeLower = new Set(EXCLUDE_STAGES.map((s) => s.toLowerCase()));
+		// COQL requires explicit parentheses when chaining more than two
+		// conditions — `a and b and c` fails with SYNTAX_ERROR near "where",
+		// so fold into nested groups: ((a and b) and c).
 		const whereClause =
 			EXCLUDE_STAGES.length > 0
-				? EXCLUDE_STAGES.map((s) => `Stage != '${s.replace(/'/g, "\\'")}'`).join(' and ')
+				? EXCLUDE_STAGES.map((s) => `Stage != '${s}'`).reduce((acc, cond) =>
+						acc ? `(${acc} and ${cond})` : cond
+					)
 				: 'Stage is not null';
 
 		const out: DealItem[] = [];

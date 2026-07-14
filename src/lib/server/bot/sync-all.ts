@@ -28,9 +28,13 @@ export type SyncTrigger = 'cron' | 'manual' | 'admin';
 
 // Stages to EXCLUDE from sync. Default is just "Lost". Override via env if you
 // want to skip e.g. Completed too: BOT_SYNC_EXCLUDE_STAGES=Lost,Completed
+// Quotes in the env value (e.g. `'Lost','Completed'`) corrupt the search
+// criteria — strip them, matching the sanitizing in /api/admin/bot/deals.
+const sanitizeStage = (value: string) => value.trim().replace(/['"\\]/g, '').trim();
+
 const EXCLUDE_STAGES = (env.BOT_SYNC_EXCLUDE_STAGES ?? 'Lost')
 	.split(',')
-	.map((s) => s.trim())
+	.map(sanitizeStage)
 	.filter(Boolean);
 
 const DEFAULT_BATCH_LIMIT = Number(env.BOT_SYNC_BATCH_LIMIT ?? '25');
