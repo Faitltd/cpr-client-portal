@@ -577,9 +577,11 @@ export async function uploadFileToWorkDriveFolder(
 }
 
 /**
- * Resolve the deal's "Client Portal/Photos" folder, creating "Photos" if it's
- * missing. Falls back to a "Photos" folder at the deal root when there's no
- * "Client Portal" subfolder. Returns the destination folder id, or null.
+ * Resolve the deal's "Client Portal/Photos" folder, creating any missing
+ * pieces. Client gallery photos must always land in
+ * <deal folder>/Client Portal/Photos — if "Client Portal" doesn't exist yet
+ * it is created (never falls back to the deal root). Returns the destination
+ * folder id, or null.
  */
 export async function resolveOrCreateClientPhotosFolder(
 	accessToken: string,
@@ -588,10 +590,14 @@ export async function resolveOrCreateClientPhotosFolder(
 ): Promise<string | null> {
 	const rootItems = await listWorkDriveFolder(accessToken, rootFolderId, apiDomain).catch(() => []);
 	const clientPortal = findBestFolderByName(rootItems, ['Client Portal', 'Client Portal Folder']);
-	const containerId = clientPortal?.id ?? rootFolderId;
-	const containerItems = clientPortal
-		? await listWorkDriveFolder(accessToken, containerId, apiDomain).catch(() => [])
-		: rootItems;
+	let containerId = clientPortal?.id ?? null;
+	let containerItems: WorkDriveItem[] = [];
+	if (containerId) {
+		containerItems = await listWorkDriveFolder(accessToken, containerId, apiDomain).catch(() => []);
+	} else {
+		containerId = await createWorkDriveFolder(accessToken, rootFolderId, 'Client Portal', apiDomain);
+		if (!containerId) return null;
+	}
 	const photos = findBestFolderByName(containerItems, ['Photos', 'Photo', 'Progress Photos']);
 	if (photos?.id) return photos.id;
 	return createWorkDriveFolder(accessToken, containerId, 'Photos', apiDomain);

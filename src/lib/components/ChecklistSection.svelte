@@ -7,6 +7,7 @@
 	} from '$lib/data/residential-checklist';
 
 	export let dealId: string;
+	export let endpoint = '/api/client/checklist';
 
 	const phases: ChecklistPhase[] = RESIDENTIAL_CHECKLIST;
 	const total = totalChecklistItems(phases);
@@ -32,7 +33,7 @@
 			return;
 		}
 		try {
-			const res = await fetch(`/api/client/checklist?deal_id=${encodeURIComponent(dealId)}`);
+			const res = await fetch(`${endpoint}?deal_id=${encodeURIComponent(dealId)}`);
 			if (res.ok) {
 				const data = await res.json();
 				checked = new Set<string>(Array.isArray(data?.checked_item_ids) ? data.checked_item_ids : []);
@@ -58,7 +59,7 @@
 		saving = true;
 		saveError = '';
 		try {
-			const res = await fetch('/api/client/checklist', {
+			const res = await fetch(endpoint, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ deal_id: dealId, checked_item_ids: [...checked] })

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { decodeHtmlEntities } from '$lib/html';
+	import ChecklistSection from '$lib/components/ChecklistSection.svelte';
 
 	type ZProject = any;
 	type ZTask = any;
@@ -85,6 +86,7 @@
 	];
 
 	let tasksOpen = $state(true);
+	let buildChecklistOpen = $state(false);
 	let designsOpen = $state(true);
 	let activityOpen = $state(false);
 
@@ -302,6 +304,20 @@
 					{/if}
 				</div>
 			</form>
+		</section>
+
+		<section class="section">
+			<button type="button" class="section-toggle" onclick={() => (buildChecklistOpen = !buildChecklistOpen)}>
+				<span>Home Building Checklist</span>
+				<span class="chevron" class:open={buildChecklistOpen}>▾</span>
+			</button>
+			{#if buildChecklistOpen}
+				{#if project?.deal_id}
+					<ChecklistSection dealId={String(project.deal_id)} endpoint="/api/trade/checklist" />
+				{:else}
+					<p class="section-empty">No deal linked to this project yet.</p>
+				{/if}
+			{/if}
 		</section>
 
 		<section class="section">
