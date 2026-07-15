@@ -260,7 +260,7 @@
 	const INTEGRATIONS: string[] = [
 		"Zoho CRM", "Zoho Projects", "Zoho Books", "Zoho Sign",
 		"Zoho WorkDrive", "Zoho Bookings", "Zoho Cliq", "Zoho Flow",
-		"n8n", "Matterport", "Client Portal (Hetzner)", "Twilio (SMS)"
+		"Matterport", "Client Portal (Hetzner)", "Twilio (SMS)"
 	];
 
 	const totalSteps = PHASES.reduce((sum, p) => sum + p.steps.length, 0);
