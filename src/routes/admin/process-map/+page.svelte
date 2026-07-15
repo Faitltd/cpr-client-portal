@@ -265,6 +265,67 @@
 
 	const totalSteps = PHASES.reduce((sum, p) => sum + p.steps.length, 0);
 
+
+	// ── CRM Change Punch-List (July 15, 2026 SOP/flowchart updates) ──────
+	type PunchTag = 'NEW' | 'MODIFY' | 'CONFIG' | 'WIRE' | 'BLUEPRINT' | 'FUTURE' | 'DONE';
+	type PunchItem = { n: number; tag: PunchTag; text: string };
+	type PunchGroup = { name: string; items: PunchItem[] };
+
+	const PUNCH_LIST: PunchGroup[] = [
+		{ name: 'Ballpark', items: [
+			{ n: 1, tag: 'NEW', text: 'On Deal create / Qualified: notify Monika + Mary Sue and create two reminder tasks — Allowance Package (Monika) and Ballpark Estimate (Mary Sue).' },
+			{ n: 2, tag: 'NEW', text: 'Both-complete gate: block the move to Ballpark Review until both lane tasks are complete.' },
+			{ n: 3, tag: 'MODIFY', text: 'Ballpark is sent after the client review, not at Ballpark Needed. Move the Ballpark_Sent_Date stamp + follow-up arming to Ballpark Review Booked; ensure it is NOT stamped at Ballpark Needed / Ballpark Review Needed.' },
+			{ n: 4, tag: 'CONFIG', text: 'Allow the review booking to be entered manually (set Booking_Date_Time) as well as via the Bookings link. (Ballpark Review Booked – Auto Move rule is already live.)' }
+		]},
+		{ name: 'PDA', items: [
+			{ n: 5, tag: 'WIRE', text: 'Auto-generate the PDA when Retainer_Amount is filled — the PDA_Creation function exists but is unassociated; wire it.' },
+			{ n: 6, tag: 'NEW', text: 'On PDA generation: send Sean an email notification + an approval task.' },
+			{ n: 7, tag: 'NEW', text: 'On PDA signed: create a task for June to add the project to Connecteam.' },
+			{ n: 8, tag: 'NEW', text: 'Start a 72-hour "Preliminary Design" task for Monika on PDA sign > Design Needed. (Drop the term "SLA".)' },
+			{ n: 9, tag: 'NEW', text: 'After the 5th PDA follow-up (PDA Follow Up Count = 5): create a manual follow-up task for Jeff.' }
+		]},
+		{ name: 'Design', items: [
+			{ n: 10, tag: 'MODIFY', text: 'PDA-signed should NOT assign trade partners or email subs at Design Needed — remove from Design Needed entry (moves to Selections, item 15).' },
+			{ n: 11, tag: 'MODIFY', text: 'Create the Internal + External Cliq channels after signing (confirm/adjust the trigger timing).' },
+			{ n: 12, tag: 'CONFIG', text: "The design review Bookings service should book Monika's calendar, not Mary Sue's." },
+			{ n: 13, tag: 'NEW', text: 'Add two Deal checkbox gate fields — Permit Documents and Final Drawings — plus the signed client design-approval document; gate the advance on all three (Monika ticks the boxes).' }
+		]},
+		{ name: 'Selections (new stage 10b)', items: [
+			{ n: 14, tag: 'NEW', text: 'Add the Internal Selections Review task (Jeff & Monika) and a Client Selections approval field/gate before the estimate.' },
+			{ n: 15, tag: 'NEW', text: 'On selections approval: assign the trade partners on the Deal and create a task for Ray to gather RFPs (moved here from Design Needed).' }
+		]},
+		{ name: 'Estimate / Quote', items: [
+			{ n: 16, tag: 'NEW', text: 'Refined Scope stopper: block the move to Quoted until Refined_Scope_Filled = true (validation / layout rule).' },
+			{ n: 17, tag: 'MODIFY', text: 'Remove the "Needs TP Quotes task" automation at Estimate Needed (replaced by the RFP task at Selections). (Update Budget rule stays.)' },
+			{ n: 18, tag: 'BLUEPRINT', text: 'Remove the Estimate Approved stage — on approval at Client Estimate Review, advance directly to Quoted.' },
+			{ n: 19, tag: 'NEW', text: 'Entering Total_Project_Cost = a task for Sean (at Quoted).' }
+		]},
+		{ name: 'Contract', items: [
+			{ n: 20, tag: 'NEW', text: 'Entering Start Date (based on the longest lead-time selection) = a task for Ray (at Contract Needed).' },
+			{ n: 21, tag: 'NEW', text: 'Required-fields stopper: Total_Project_Cost and Start_Date required before advancing past Contract Needed.' },
+			{ n: 22, tag: 'MODIFY', text: 'Alongside the existing Sean approver gate, add a Sean email notification + approval task ("Needs Sean\'s approval").' },
+			{ n: 23, tag: 'FUTURE', text: "Job Cost creation at contract — planned per Jeff's blueprint; not yet wired." }
+		]},
+		{ name: 'Project Created / cleanup', items: [
+			{ n: 24, tag: 'MODIFY', text: 'Remove Jarod from the default trade-partner auto-add (keep Santiago, Brian, Jeff) — agent prompt already written.' },
+			{ n: 25, tag: 'MODIFY', text: 'Make project creation idempotent on Project_ID — guard CPR_Create_Project_And_WorkDrive (portal-app side is separate).' },
+			{ n: 26, tag: 'DONE', text: 'Removed the duplicate WD_Client_Portal field from the Deals Standard layout. (Optional: fully delete the now-empty field.)' }
+		]}
+	];
+
+	const PUNCH_VERIFIED: string[] = [
+		'Deposit = 35% of the contract (confirmed via Books).',
+		'PDA = Project Development Agreement (glossary/naming only).',
+		'Total_Project_Cost > draft Books quote; contract + invoices generate on stage > Quoted.',
+		'"Update Budget" and "Ballpark Review Booked – Auto Move" rules are live and correct.'
+	];
+
+	const punchOpenCount = PUNCH_LIST.flatMap((g) => g.items).filter(
+		(i) => i.tag !== 'DONE' && i.tag !== 'FUTURE'
+	).length;
+	let punchListOpen = false;
+
 	let allExpanded = false;
 	let searchQuery = '';
 	let phaseFilterValue = 'all';
@@ -447,6 +508,36 @@
 </script>
 
 <div class="process-map">
+	<div class="punch-panel">
+		<button class="punch-header" type="button" on:click={() => (punchListOpen = !punchListOpen)} aria-expanded={punchListOpen}>
+			<span class="punch-title">CRM Change Punch-List <span class="punch-count">{punchOpenCount} open</span></span>
+			<span class="punch-chev">{punchListOpen ? '−' : '+'}</span>
+		</button>
+		{#if punchListOpen}
+			<div class="punch-body">
+				<p class="punch-note">Every Zoho CRM change implied by the July 15 SOP and flowchart updates. Constraint: the org is at <b>75/75 active workflow rules</b> — retire/disable some before adding new ones.</p>
+				{#each PUNCH_LIST as group}
+					<h4 class="punch-group">{group.name}</h4>
+					<ul class="punch-items">
+						{#each group.items as item (item.n)}
+							<li class="punch-item" class:done={item.tag === 'DONE'}>
+								<span class="punch-tag tag-{item.tag.toLowerCase()}">{item.tag}</span>
+								<span class="punch-n">{item.n}.</span>
+								<span class="punch-text">{item.text}</span>
+							</li>
+						{/each}
+					</ul>
+				{/each}
+				<h4 class="punch-group">Verified — no CRM change needed</h4>
+				<ul class="punch-items">
+					{#each PUNCH_VERIFIED as v}
+						<li class="punch-item verified"><span class="punch-tag tag-verified">OK</span><span class="punch-text">{v}</span></li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+	</div>
+
 	<div class="controls-bar">
 		<select bind:value={phaseFilterValue} aria-label="Filter by phase">
 			<option value="all">All Phases</option>
@@ -572,6 +663,63 @@
 		-webkit-font-smoothing: antialiased;
 		line-height: 1.5;
 	}
+
+	/* === PUNCH LIST === */
+	.punch-panel {
+		max-width: 1080px;
+		margin: 20px auto 0;
+		border: 1px solid #e2cf8a;
+		border-radius: 10px;
+		background: #fffbea;
+		overflow: hidden;
+	}
+	.punch-header {
+		width: 100%;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 12px 18px;
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		font: inherit;
+	}
+	.punch-title { font-weight: 700; color: #6b5710; font-size: 15px; }
+	.punch-count {
+		font-weight: 600;
+		font-size: 12px;
+		background: #6b5710;
+		color: #fff;
+		border-radius: 999px;
+		padding: 2px 10px;
+		margin-left: 8px;
+	}
+	.punch-chev { color: #6b5710; font-size: 18px; }
+	.punch-body { padding: 0 18px 16px; }
+	.punch-note { font-size: 13px; color: #6b5710; margin-bottom: 10px; }
+	.punch-group { font-size: 13px; color: #1A1A1A; margin: 12px 0 6px; }
+	.punch-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+	.punch-item { display: flex; gap: 8px; align-items: baseline; font-size: 13px; color: #333; }
+	.punch-item.done .punch-text { text-decoration: line-through; color: #888; }
+	.punch-n { color: #888; flex-shrink: 0; }
+	.punch-text { min-width: 0; }
+	.punch-tag {
+		flex-shrink: 0;
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.4px;
+		border-radius: 4px;
+		padding: 1px 6px;
+		color: #fff;
+	}
+	.tag-new { background: #1d4ed8; }
+	.tag-modify { background: #C56D14; }
+	.tag-config { background: #0A6B74; }
+	.tag-wire { background: #5C4090; }
+	.tag-blueprint { background: #243A54; }
+	.tag-future { background: #9ca3af; }
+	.tag-done { background: #247040; }
+	.tag-verified { background: #247040; }
 
 	/* === CONTROLS BAR === */
 	.controls-bar {
