@@ -46,6 +46,19 @@
   .asm-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; gap: 8px; }
   .asm-row label { font-size: 13px; }
   .asm-row input { width: 80px; color: var(--edit); font-weight: bold; }
+  .tier-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tier-btn { border: 2px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fff; text-align: left; cursor: pointer; color: #222; }
+  .tier-btn:hover { background: var(--gray); }
+  .tier-btn .tn { font-weight: bold; font-size: 14px; }
+  .tier-btn .tt { font-size: 11px; color: #667; margin-top: 2px; }
+  .tier-btn .tv { font-size: 18px; font-weight: bold; margin-top: 4px; color: var(--navy); }
+  .tier-btn.gold.active { border-color: #b8860b; background: #fdf6e3; }
+  .tier-btn.platinum.active { border-color: #708090; background: #f0f3f6; }
+  .tier-btn.diamond.active { border-color: #3a7ca5; background: #eaf4fb; }
+  .tier-btn .tn .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .tier-btn.gold .dot { background: #b8860b; }
+  .tier-btn.platinum .dot { background: #708090; }
+  .tier-btn.diamond .dot { background: #3a7ca5; }
   .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .card { background: var(--gray); border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; }
   .card .v { font-size: 19px; font-weight: bold; color: var(--navy); }
@@ -137,6 +150,7 @@
 <section id="secTakeoff">
   <h2><span class="chev">Takeoff &amp; Estimate</span><span class="hint">Blue prices are editable — set to your supplier pricing</span></h2>
   <div class="body">
+    <div class="tier-bar" id="tierBar"></div>
     <div class="summary-cards" id="scopeCards"></div>
     <table>
       <thead><tr><th style="text-align:left">Item</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th></tr></thead>
@@ -164,7 +178,7 @@
       <thead><tr><th>Room Type</th><th>Lights / room</th><th>Plumbing fixtures / room</th></tr></thead>
       <tbody id="rtBody"></tbody>
     </table>
-    <div class="toolbar"><button class="ghost" onclick="if(confirm('Reset all assumptions and prices to defaults?')){state.asm=structuredClone(DEF_ASM);state.roomTypes=structuredClone(DEF_ROOM_TYPES);state.prices=structuredClone(DEF_PRICES);render();}">Reset to Defaults</button></div>
+    <div class="toolbar"><button class="ghost" onclick="if(confirm('Reset all assumptions and tier prices to defaults?')){state.asm=structuredClone(DEF_ASM);state.roomTypes=structuredClone(DEF_ROOM_TYPES);state.tiers=structuredClone(DEF_TIERS);render();}">Reset to Defaults</button></div>
   </div>
 </section>
 
@@ -173,11 +187,21 @@
 <script>
 'use strict';
 
-/* Pricing: Denver-area big-box retail (Home Depot / Lowe's), researched Jul 2026.
-   Mid-range picks documented per line. Sales tax = Denver combined 9.15%
-   (2.90% CO + 5.15% city + 1.10% district). Delivery: HD/Lowe's flat $79,
-   waived on orders over $400 — default 0, set per your delivery plan. */
+/* Tier pricing: all Home Depot, Denver metro, researched Jul 2026.
+   GOLD = good (builder-grade / entry lines), PLATINUM = better (mid-tier
+   brand lines: Mold Tough drywall, Behr Ultra, solid-core doors, porcelain
+   tile, Lifeproof 22-mil), DIAMOND = best (premium lines: PURPLE XP, Behr
+   Marquee, designer tile, Fusion Pro grout, Rockwool). Rough commodities
+   (screws, mud, tape, wire, boxes, backer) are constant across tiers.
+   Sales tax = Denver combined 9.15% (2.90% CO + 5.15% city + 1.10% district).
+   Delivery: HD flat ~$79, waived over $400 — default 0. */
 const PRICE_DATE = '2026-07-15';
+const TIER_META = {
+  gold:     { label: 'Gold',     tag: 'Good — builder-grade' },
+  platinum: { label: 'Platinum', tag: 'Better — mid-tier lines' },
+  diamond:  { label: 'Diamond',  tag: 'Best — premium lines' },
+};
+const TIER_KEYS = ['gold','platinum','diamond'];
 
 /* ---------------- defaults ---------------- */
 const DEF_ASM = {
@@ -219,15 +243,45 @@ const DEF_ROOM_TYPES = [
   ['Bathroom',2,3],['Kitchen',4,1],['Bedroom',1,0],['Living Room',2,0],['Dining',1,0],
   ['Laundry',1,1],['Hallway',1,0],['Closet',1,0],['Office',1,0],['Basement',2,0],['Other',1,0]
 ];
-const DEF_PRICES = {
-  studs: 4.25, plates: 10.48, nails: 4.40, insul: 55.00,
-  sheets: 14.48, screws: 15.00, mud: 21.50, tape: 7.50,
-  doors: 165.00, doorCasing: 45.00, winCasing: 35.00, baseboard: 2.00,
-  primer: 26.00, paint: 39.00, floorBox: 62.00, underlay: 35.00,
-  tile: 3.50, backer: 15.25, thinset: 13.97, wproof: 70.00, grout: 22.00,
-  outlets: 2.50, switches: 3.00, boxes: 1.25, lights: 75.00, wire: 105.00,
-  fixtures: 475.00, supplyKits: 32.00
+const DEF_TIERS = {
+  /* GOLD — good. HD builder-grade: whitewood studs, USG UltraLight, Behr
+     Premium Plus, hollow-core prehung, entry Lifeproof (~$2.75/ft²),
+     ceramic subway, Glacier Bay fixture allowance. */
+  gold: {
+    studs: 4.25, plates: 10.48, nails: 4.40, insul: 55.00,
+    sheets: 14.48, screws: 15.00, mud: 21.50, tape: 7.50,
+    doors: 165.00, doorCasing: 45.00, winCasing: 35.00, baseboard: 2.00,
+    primer: 26.00, paint: 32.00, floorBox: 55.00, underlay: 35.00,
+    tile: 3.50, backer: 15.25, thinset: 13.97, wproof: 70.00, grout: 22.00,
+    outlets: 2.50, switches: 3.00, boxes: 1.25, lights: 75.00, wire: 105.00,
+    fixtures: 475.00, supplyKits: 32.00
+  },
+  /* PLATINUM — better. Prime KD studs, UltraLight Mold Tough, Behr Ultra,
+     solid-core shaker prehung, Lifeproof 22-mil (~$3.30/ft²), porcelain
+     tile, VersaBond LFT, Decora devices, American Standard-class fixtures. */
+  platinum: {
+    studs: 5.15, plates: 12.48, nails: 4.40, insul: 55.00,
+    sheets: 23.98, screws: 15.00, mud: 21.50, tape: 7.50,
+    doors: 255.00, doorCasing: 60.00, winCasing: 45.00, baseboard: 3.25,
+    primer: 30.00, paint: 48.00, floorBox: 66.00, underlay: 35.00,
+    tile: 6.00, backer: 15.25, thinset: 17.97, wproof: 70.00, grout: 28.00,
+    outlets: 4.50, switches: 5.00, boxes: 1.25, lights: 150.00, wire: 105.00,
+    fixtures: 700.00, supplyKits: 48.00
+  },
+  /* DIAMOND — best. Select studs, Gold Bond PURPLE XP, Behr Marquee,
+     premium solid-core doors, top LVP/engineered (~$4.75/ft²), designer
+     tile, Fusion Pro grout, Rockwool, Kohler-class fixture allowance. */
+  diamond: {
+    studs: 5.98, plates: 14.98, nails: 4.40, insul: 80.00,
+    sheets: 25.00, screws: 15.00, mud: 21.50, tape: 7.50,
+    doors: 340.00, doorCasing: 85.00, winCasing: 65.00, baseboard: 5.00,
+    primer: 34.00, paint: 58.00, floorBox: 95.00, underlay: 45.00,
+    tile: 10.00, backer: 15.25, thinset: 24.97, wproof: 70.00, grout: 45.00,
+    outlets: 7.00, switches: 8.00, boxes: 1.25, lights: 250.00, wire: 105.00,
+    fixtures: 1100.00, supplyKits: 65.00
+  }
 };
+const DEF_PRICES = DEF_TIERS.gold; // legacy alias
 const SCOPES = ['framing','drywall','paint','flooring','elec','plumb','insul'];
 const blankRoom = () => ({ name:'', type:'Bathroom', L:'', W:'', H:'', doors:'', wins:'', tile:'', shared:'',
   framing:true, drywall:true, paint:true, flooring:true, elec:true, plumb:false, insul:false });
@@ -241,12 +295,26 @@ try { state = JSON.parse(localStorage.getItem(LS_KEY)) || null; } catch(e) { sta
 if (!state || !state.rooms) {
   state = { proj: blankProj(),
             rooms: [ { ...blankRoom(), name:'Primary Bath', L:10, W:8, H:9, doors:1, wins:1, tile:55, plumb:true } ],
-            asm: structuredClone(DEF_ASM), roomTypes: structuredClone(DEF_ROOM_TYPES), prices: structuredClone(DEF_PRICES) };
+            asm: structuredClone(DEF_ASM), roomTypes: structuredClone(DEF_ROOM_TYPES),
+            tier: 'gold', tiers: structuredClone(DEF_TIERS) };
 }
 // merge new default keys into older saved state
 if (!state.proj) state.proj = blankProj();
 for (const k in DEF_ASM) if (!state.asm[k]) state.asm[k] = structuredClone(DEF_ASM[k]);
-for (const k in DEF_PRICES) if (state.prices[k] == null) state.prices[k] = DEF_PRICES[k];
+migrateTiers(state);
+function migrateTiers(st) {
+  if (!st.tiers) {
+    st.tiers = structuredClone(DEF_TIERS);
+    if (st.prices) st.tiers.gold = { ...st.tiers.gold, ...st.prices }; // old single-price files → Gold
+    delete st.prices;
+  }
+  if (!TIER_KEYS.includes(st.tier)) st.tier = 'gold';
+  for (const t of TIER_KEYS) {
+    if (!st.tiers[t]) st.tiers[t] = structuredClone(DEF_TIERS[t]);
+    for (const k in DEF_TIERS[t]) if (st.tiers[t][k] == null) st.tiers[t][k] = DEF_TIERS[t][k];
+  }
+}
+const prices = () => state.tiers[state.tier];
 for (const r of state.rooms) for (const k of ['doors','wins','tile','shared','insul']) if (r[k] == null) r[k] = (k === 'insul' ? false : '');
 const save = () => localStorage.setItem(LS_KEY, JSON.stringify(state));
 const projects = () => { try { return JSON.parse(localStorage.getItem(LS_PROJECTS)) || {}; } catch(e) { return {}; } };
@@ -291,7 +359,8 @@ function computeScopes() {
   return s;
 }
 
-function computeItems(s) {
+function computeItems(s, priceSet) {
+  const p = priceSet || prices();
   const wf = 1 + a('wasteFrame')/100, wl = 1 + a('wasteFloor')/100, wt = 1 + a('wasteTile')/100;
   const studs = s.frameLF ? up(s.frameLF / (a('studSpacing')/12) * wf) : 0;
   const sheets = s.drywall ? up(s.drywall * wf / a('sheetSqft')) : 0;
@@ -325,7 +394,7 @@ function computeItems(s) {
     ['Plumbing','Fixtures (per room-type table)','fixtures','ea', s.plumb],
     ['Plumbing','Supply/rough-in kits','supplyKits','ea', s.plumb],
   ];
-  return items.map(([cat,name,pk,unit,qty]) => ({ cat, name, pk, unit, qty, price: n(state.prices[pk]), total: qty * n(state.prices[pk]) }));
+  return items.map(([cat,name,pk,unit,qty]) => ({ cat, name, pk, unit, qty, price: n(p[pk]), total: qty * n(p[pk]) }));
 }
 
 function computeTotals(items) {
@@ -359,7 +428,8 @@ function renderProject() {
   sel.innerHTML = '<option value="">— saved projects —</option>' +
     names.map(nm => `<option ${nm===state.proj.name?'selected':''}>${esc(nm)}</option>`).join('');
   document.getElementById('printMeta').innerHTML =
-    [state.proj.name, state.proj.client, state.proj.addr, 'Estimate ' + state.proj.num, state.proj.date]
+    [state.proj.name, state.proj.client, state.proj.addr, 'Estimate ' + state.proj.num, state.proj.date,
+     TIER_META[state.tier].label + ' tier — ' + TIER_META[state.tier].tag]
       .filter(Boolean).map(esc).join(' &middot; ');
 }
 
@@ -391,6 +461,13 @@ function renderRooms() {
 
 function renderTakeoff() {
   const s = computeScopes();
+  document.getElementById('tierBar').innerHTML = TIER_KEYS.map(t => {
+    const tt = computeTotals(computeItems(s, state.tiers[t]));
+    return `<button type="button" class="tier-btn ${t}${t===state.tier?' active':''}" onclick="setTier('${t}')">` +
+      `<div class="tn"><span class="dot"></span>${TIER_META[t].label}</div>` +
+      `<div class="tt">${TIER_META[t].tag}</div>` +
+      `<div class="tv">${money(tt.total)}</div></button>`;
+  }).join('');
   const cards = [
     ['Framed wall LF', s.frameLF.toFixed(0)], ['Drywall ft²', s.drywall.toFixed(0)],
     ['Paint ft²', s.paint.toFixed(0)], ['Flooring ft²', s.floor.toFixed(0)],
@@ -426,7 +503,7 @@ function renderTakeoff() {
   document.getElementById('takeoffFoot').innerHTML =
     rows.map(([k,v]) => `<tr><td class="l" colspan="4">${k}</td><td class="num">${money(v)}</td></tr>`).join('') +
     `<tr class="totals-row"><td class="l" colspan="4">ESTIMATE TOTAL (materials)</td><td class="num">${money(t.total)}</td></tr>`;
-  document.getElementById('hdrTotal').textContent = money(t.total);
+  document.getElementById('hdrTotal').textContent = `${money(t.total)} (${TIER_META[state.tier].label})`;
 }
 
 function renderAssumptions() {
@@ -448,7 +525,8 @@ function renderAssumptions() {
 function setRoom(i, k, v) { state.rooms[i][k] = v; render(); }
 function delRoom(i) { state.rooms.splice(i, 1); if (!state.rooms.length) state.rooms.push(blankRoom()); render(); }
 function addRoom() { state.rooms.push(blankRoom()); render(); }
-function setPrice(k, v) { state.prices[k] = n(v); render(); }
+function setPrice(k, v) { prices()[k] = n(v); render(); }
+function setTier(t) { state.tier = t; render(); }
 function setAsm(k, v) { state.asm[k].v = n(v); render(); }
 function setRT(i, c, v) { state.roomTypes[i][c] = n(v); render(); }
 function setProj(k, v) { state.proj[k] = v; render(); }
@@ -470,7 +548,8 @@ function loadProject(nm) {
 }
 function newProject() {
   state = { proj: blankProj(), rooms: [blankRoom()],
-            asm: structuredClone(state.asm), roomTypes: structuredClone(state.roomTypes), prices: structuredClone(state.prices) };
+            asm: structuredClone(state.asm), roomTypes: structuredClone(state.roomTypes),
+            tier: state.tier, tiers: structuredClone(state.tiers) };
   render();
 }
 function deleteProject() {
@@ -493,7 +572,8 @@ function exportCSV() {
   const t = computeTotals(computeItems(s));
   const rows = [
     ['Project', state.proj.name], ['Client', state.proj.client], ['Address', state.proj.addr],
-    ['Estimate #', state.proj.num], ['Date', state.proj.date], [],
+    ['Estimate #', state.proj.num], ['Date', state.proj.date],
+    ['Tier', TIER_META[state.tier].label + ' — ' + TIER_META[state.tier].tag], [],
     ['Category','Item','Quantity','Unit','Item Price ($)','Order Total ($)']
   ];
   for (const it of items) rows.push([it.cat, it.name, it.qty, it.unit, it.price.toFixed(2), it.total.toFixed(2)]);
@@ -513,8 +593,9 @@ function importJSON(input) {
   rd.onload = () => {
     try {
       const st = JSON.parse(rd.result);
-      if (!st.rooms || !st.asm || !st.prices) throw new Error('bad file');
+      if (!st.rooms || !st.asm || !(st.prices || st.tiers)) throw new Error('bad file');
       if (!st.proj) st.proj = blankProj();
+      migrateTiers(st);
       state = st; render();
     } catch(e) { alert('Not a valid project file.'); }
     input.value = '';
@@ -525,9 +606,12 @@ function importJSON(input) {
 /* ---------------- price staleness ---------------- */
 (function () {
   const ageDays = (Date.now() - new Date(PRICE_DATE).getTime()) / 86400000;
-  const note = `Default prices: Denver-area big-box retail (Home Depot / Lowe's), mid-range products, researched ${PRICE_DATE}. ` +
-    `Sales tax defaults to Denver combined 9.15%. Delivery: HD/Lowe's charge a flat ~$79, waived on orders over $400 — set the fee to match your plan. ` +
-    `Plumbing fixture price is a blended allowance (toilet ~$250 / vanity ~$600 / tub-shower kit ~$600). Verify against your supplier before ordering.`;
+  const note = `Tier prices: Denver-area Home Depot, researched ${PRICE_DATE}. ` +
+    `Gold = builder-grade entry lines; Platinum = mid-tier lines (Mold Tough drywall, Behr Ultra, solid-core doors, porcelain tile); ` +
+    `Diamond = premium lines (PURPLE XP, Behr Marquee, designer tile, Kohler-class fixtures). ` +
+    `Edits to blue prices save to the selected tier only. Sales tax defaults to Denver combined 9.15%. ` +
+    `Delivery: HD flat ~$79, waived over $400 — set to match your plan. ` +
+    `Plumbing fixture price is a blended allowance per tier (Gold: toilet ~$250 / vanity ~$600 / tub-shower kit ~$600; Platinum ~$700 blended; Diamond ~$1,100 blended). Verify before ordering.`;
   document.getElementById('priceNote').textContent = note;
   if (ageDays > 180) {
     const b = document.getElementById('priceBanner');
