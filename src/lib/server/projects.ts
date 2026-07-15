@@ -1957,17 +1957,23 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 }
 
 export async function getAllProjectActivities(projectId: string, perPage = DEFAULT_PAGE_SIZE) {
-	// Zoho Projects v3 requires a `module` query param on /activities — the
-	// API errors out otherwise ("Input Parameter Missing: module"). For the
-	// bot's "what changed recently?" answers we only care about task-level
-	// activity (creation, completion, comments, reassignment). Add more
-	// modules later if you want forum / milestone / document streams too.
-	return fetchAllPages(
-		(page, size) =>
-			`/projects/${projectId}/activities?module=tasks&page=${page}&per_page=${size}`,
-		'activities',
-		perPage
+	// Zoho Projects v3 requires BOTH `module` and `action` query params on
+	// /activities (verified July 15, 2026 — omitting `action` now 400s with
+	// "Input Parameter Missing: action"). Accepted action values: updated,
+	// deleted, moved, restored. Fetch each and merge; tolerate per-action
+	// failures so one rejected value can't sink the whole activity stream.
+	const actions = ['updated', 'moved', 'deleted', 'restored'];
+	const batches = await Promise.all(
+		actions.map((action) =>
+			fetchAllPages(
+				(page, size) =>
+					`/projects/${projectId}/activities?module=tasks&action=${action}&page=${page}&per_page=${size}`,
+				'activities',
+				perPage
+			).catch(() => [])
+		)
 	);
+	return batches.flat();
 }
 
 export async function getProjectUsers(projectId: string) {
