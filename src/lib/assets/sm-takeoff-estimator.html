@@ -7,25 +7,26 @@
 <style>
   :root {
     --navy: #1f3864; --navy-lt: #2d4a7a; --sec: #d9e2f2; --edit: #0044cc;
-    --yel: #fff9d6; --gray: #f5f6f8; --border: #d4d9e2; --green: #1a7f4b; --red: #c0392b;
+    --yel: #fff9d6; --gray: #f5f6f8; --border: #d4d9e2; --green: #1a7f4b; --red: #c0392b; --warn: #fdf3d7;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222; background: #eef1f5; }
-  header { background: var(--navy); color: #fff; padding: 18px 28px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+  header { background: var(--navy); color: #fff; padding: 16px 28px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
   header h1 { font-size: 20px; font-weight: bold; }
   header .total-chip { background: var(--navy-lt); border-radius: 8px; padding: 8px 16px; font-size: 16px; }
   header .total-chip b { font-size: 20px; }
-  main { max-width: 1280px; margin: 20px auto; padding: 0 16px 60px; }
+  .banner { background: var(--warn); border-bottom: 1px solid #e2cf8a; padding: 8px 28px; font-size: 13px; color: #6b5710; }
+  main { max-width: 1380px; margin: 20px auto; padding: 0 16px 60px; }
   section { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 20px; overflow: hidden; }
   section > h2 { background: var(--sec); padding: 10px 16px; font-size: 15px; color: var(--navy); display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
   section > h2 .hint { font-weight: normal; font-size: 12px; color: #667; }
   .body { padding: 14px 16px; overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; }
-  th { background: var(--navy); color: #fff; font-size: 12px; padding: 6px 8px; text-align: center; white-space: nowrap; }
-  td { border: 1px solid var(--border); padding: 4px 6px; text-align: center; white-space: nowrap; }
+  th { background: var(--navy); color: #fff; font-size: 11px; padding: 6px 6px; text-align: center; white-space: nowrap; }
+  td { border: 1px solid var(--border); padding: 4px 5px; text-align: center; white-space: nowrap; font-size: 13px; }
   td.l { text-align: left; }
   td.calc { background: var(--gray); color: #333; }
-  input[type=text], input[type=number], select {
+  input[type=text], input[type=number], input[type=date], select {
     font-family: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; width: 100%;
   }
   td.fill { background: var(--yel); }
@@ -38,27 +39,35 @@
   button:hover { background: var(--navy-lt); }
   button.ghost { background: #fff; color: var(--navy); border: 1px solid var(--navy); }
   button.danger-x { background: transparent; color: var(--red); font-size: 15px; padding: 2px 8px; }
-  .toolbar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .toolbar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
   .cat { background: var(--sec); font-weight: bold; text-align: left; color: var(--navy); }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
   .asm-block h3 { font-size: 13px; color: var(--navy); border-bottom: 2px solid var(--sec); margin-bottom: 6px; padding-bottom: 3px; }
   .asm-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; gap: 8px; }
   .asm-row label { font-size: 13px; }
   .asm-row input { width: 80px; color: var(--edit); font-weight: bold; }
-  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .card { background: var(--gray); border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; }
-  .card .v { font-size: 20px; font-weight: bold; color: var(--navy); }
+  .card .v { font-size: 19px; font-weight: bold; color: var(--navy); }
   .card .k { font-size: 11px; color: #667; margin-top: 2px; }
   .totals-row td { font-size: 15px; }
   .note { font-size: 12px; color: #667; margin-top: 8px; }
   .collapsed .body { display: none; }
   .chev::after { content: '▾'; margin-left: 8px; }
   .collapsed .chev::after { content: '▸'; }
+  .proj-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .proj-grid label { display: block; font-size: 11px; color: #667; margin-bottom: 3px; }
+  .proj-grid input { background: var(--yel); border-color: #e3d98a; }
+  #printHeader { display: none; }
   @media print {
-    header .toolbar, .toolbar, button, section > h2 .hint { display: none !important; }
+    header, .banner, .toolbar, button, section > h2 .hint, #secProjects .body .toolbar { display: none !important; }
     body { background: #fff; }
     section { border: none; page-break-inside: avoid; }
     .collapsed .body { display: block; }
+    #secAsm { display: none; }
+    #printHeader { display: block; margin-bottom: 18px; border-bottom: 3px solid var(--navy); padding-bottom: 10px; }
+    #printHeader h1 { font-size: 22px; color: var(--navy); }
+    #printHeader .meta { font-size: 13px; color: #333; margin-top: 6px; }
   }
 </style>
 </head>
@@ -71,26 +80,56 @@
   </div>
   <div class="total-chip">Estimate Total: <b id="hdrTotal">$0</b></div>
 </header>
+<div class="banner" id="priceBanner" style="display:none"></div>
 
 <main>
 
+<div id="printHeader">
+  <h1>Material Estimate</h1>
+  <div class="meta" id="printMeta"></div>
+</div>
+
+<!-- PROJECT -->
+<section id="secProjects">
+  <h2><span class="chev">Project</span><span class="hint">Saved locally in this browser — use Export for a shareable file</span></h2>
+  <div class="body">
+    <div class="proj-grid">
+      <div><label>Project Name</label><input type="text" id="pName" onchange="setProj('name',this.value)"></div>
+      <div><label>Client</label><input type="text" id="pClient" onchange="setProj('client',this.value)"></div>
+      <div><label>Address</label><input type="text" id="pAddr" onchange="setProj('addr',this.value)"></div>
+      <div><label>Estimate #</label><input type="text" id="pNum" onchange="setProj('num',this.value)"></div>
+      <div><label>Date</label><input type="date" id="pDate" onchange="setProj('date',this.value)"></div>
+    </div>
+    <div class="toolbar">
+      <select id="projSelect" style="width:auto;min-width:200px" onchange="loadProject(this.value)">
+        <option value="">— saved projects —</option>
+      </select>
+      <button onclick="saveProject()">Save Project</button>
+      <button class="ghost" onclick="newProject()">New Project</button>
+      <button class="ghost" onclick="deleteProject()">Delete Saved</button>
+    </div>
+  </div>
+</section>
+
 <!-- ROOMS -->
 <section id="secRooms">
-  <h2><span class="chev">Room Inputs</span><span class="hint">Yellow = enter &middot; gray = calculated</span></h2>
+  <h2><span class="chev">Room Inputs</span><span class="hint">Yellow = enter &middot; gray = calculated &middot; Shared LF = wall length shared with an adjacent framed room (deducted from framing)</span></h2>
   <div class="body">
     <table id="roomsTable">
       <thead><tr>
-        <th>Room Name</th><th>Type</th><th>Length (ft)</th><th>Width (ft)</th><th>Ceiling (ft)</th>
-        <th>Perimeter LF</th><th>Floor ft²</th><th>Wall ft²</th><th>Ceiling ft²</th>
-        <th>Framing</th><th>Drywall</th><th>Paint</th><th>Flooring</th><th>Elec</th><th>Plumb</th><th></th>
+        <th>Room Name</th><th>Type</th><th>L (ft)</th><th>W (ft)</th><th>Ht (ft)</th>
+        <th>Doors</th><th>Wins</th><th>Tile ft²</th><th>Shared LF</th>
+        <th>Perim LF</th><th>Floor ft²</th><th>Wall ft²</th><th>Ceil ft²</th>
+        <th>Frame</th><th>Drywl</th><th>Paint</th><th>Floor</th><th>Elec</th><th>Plumb</th><th>Insul</th><th></th>
       </tr></thead>
       <tbody id="roomsBody"></tbody>
       <tfoot><tr id="roomsTotals"></tr></tfoot>
     </table>
     <div class="toolbar">
       <button onclick="addRoom()">+ Add Room</button>
-      <button class="ghost" onclick="if(confirm('Clear all rooms?')){state.rooms=[];addRoom();render();}">Clear All</button>
+      <button class="ghost" onclick="if(confirm('Clear all rooms?')){state.rooms=[blankRoom()];render();}">Clear All</button>
     </div>
+    <div class="note">Wall ft² shows gross area; door/window/tile deductions are applied automatically in the takeoff. Tile ft² = wet-wall area getting tile (e.g., tub surround ≈ 55 ft²) — it swaps drywall &amp; paint for backer board, waterproofing, and tile.</div>
   </div>
 </section>
 
@@ -111,13 +150,13 @@
       <button class="ghost" onclick="document.getElementById('importFile').click()">Import Project</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(this)">
     </div>
-    <div class="note">Default prices are placeholders. Quantities round up to whole purchase units. Work is saved automatically in this browser.</div>
+    <div class="note" id="priceNote"></div>
   </div>
 </section>
 
 <!-- ASSUMPTIONS -->
 <section id="secAsm" class="collapsed">
-  <h2><span class="chev">Assumptions</span><span class="hint">Coverage rates, waste factors, fixture counts</span></h2>
+  <h2><span class="chev">Assumptions</span><span class="hint">Coverage rates, waste factors, deductions, tax &amp; fees</span></h2>
   <div class="body">
     <div class="grid" id="asmGrid"></div>
     <h3 style="font-size:13px;color:var(--navy);margin:16px 0 6px">Room Type Table (lights &amp; plumbing fixtures per room)</h3>
@@ -134,25 +173,43 @@
 <script>
 'use strict';
 
+/* Pricing: Denver-area big-box retail (Home Depot / Lowe's), researched Jul 2026.
+   Mid-range picks documented per line. Sales tax = Denver combined 9.15%
+   (2.90% CO + 5.15% city + 1.10% district). Delivery: HD/Lowe's flat $79,
+   waived on orders over $400 — default 0, set per your delivery plan. */
+const PRICE_DATE = '2026-07-15';
+
 /* ---------------- defaults ---------------- */
 const DEF_ASM = {
   wasteFrame:   { label: 'Waste — framing/drywall (%)', v: 10, grp: 'General' },
-  wasteFloor:   { label: 'Waste — flooring (%)',        v: 10, grp: 'General' },
+  wasteFloor:   { label: 'Waste — flooring/trim (%)',   v: 10, grp: 'General' },
+  wasteTile:    { label: 'Waste — tile (%)',            v: 10, grp: 'General' },
   contingency:  { label: 'Contingency (%)',             v: 10, grp: 'General' },
+  markup:       { label: 'Markup / margin (%)',         v: 0,  grp: 'Estimate' },
+  taxRate:      { label: 'Sales tax (%)',               v: 9.15, grp: 'Estimate' },
+  delivery:     { label: 'Delivery fee ($)',            v: 0,  grp: 'Estimate' },
   studSpacing:  { label: 'Stud spacing (in OC)',        v: 16, grp: 'Framing' },
   plateRows:    { label: 'Plate rows per wall',         v: 3,  grp: 'Framing' },
   plateLen:     { label: 'Plate board length (ft)',     v: 16, grp: 'Framing' },
   nailsPerStud: { label: 'Nails (lbs) per stud',        v: 0.3,grp: 'Framing' },
+  insulBag:     { label: 'Insulation bag coverage (ft²)', v: 106, grp: 'Framing' },
   sheetSqft:    { label: 'Sheet coverage (ft²)',        v: 32, grp: 'Drywall' },
   screwsSheet:  { label: 'Screws per sheet',            v: 32, grp: 'Drywall' },
   mudArea:      { label: 'Area per mud bucket (ft²)',   v: 450,grp: 'Drywall' },
   tapePerSqft:  { label: 'Tape (ft) per ft²',           v: 0.375, grp: 'Drywall' },
   tapeRoll:     { label: 'Tape roll length (ft)',       v: 500,grp: 'Drywall' },
+  doorDed:      { label: 'Door wall deduction (ft²)',   v: 20, grp: 'Openings & Trim' },
+  winDed:       { label: 'Window wall deduction (ft²)', v: 15, grp: 'Openings & Trim' },
+  doorWidth:    { label: 'Door width for baseboard (ft)', v: 3, grp: 'Openings & Trim' },
   paintCov:     { label: 'Coverage (ft²/gal)',          v: 350,grp: 'Paint' },
   paintCoats:   { label: 'Paint coats',                 v: 2,  grp: 'Paint' },
   primerCoats:  { label: 'Primer coats',                v: 1,  grp: 'Paint' },
   boxSqft:      { label: 'Flooring box coverage (ft²)', v: 20, grp: 'Flooring' },
   underRoll:    { label: 'Underlayment roll (ft²)',     v: 100,grp: 'Flooring' },
+  backerSqft:   { label: 'Backer board sheet (ft²)',    v: 15, grp: 'Tile' },
+  thinsetCov:   { label: 'Thinset coverage (ft²/bag)',  v: 60, grp: 'Tile' },
+  wproofCov:    { label: 'Waterproofing (ft²/gal, 2 coats)', v: 55, grp: 'Tile' },
+  groutCov:     { label: 'Grout coverage (ft²/box)',    v: 60, grp: 'Tile' },
   lfPerOutlet:  { label: 'Wall LF per outlet',          v: 12, grp: 'Electrical' },
   switchesRoom: { label: 'Switches per room',           v: 1,  grp: 'Electrical' },
   wirePerDev:   { label: 'Wire (ft) per device',        v: 20, grp: 'Electrical' },
@@ -163,49 +220,67 @@ const DEF_ROOM_TYPES = [
   ['Laundry',1,1],['Hallway',1,0],['Closet',1,0],['Office',1,0],['Basement',2,0],['Other',1,0]
 ];
 const DEF_PRICES = {
-  studs: 3.98, plates: 8.48, nails: 4.00, sheets: 12.98, screws: 9.98, mud: 17.98, tape: 6.48,
-  primer: 24.98, paint: 37.98, floorBox: 44.98, underlay: 24.98,
-  outlets: 3.48, switches: 4.28, boxes: 2.18, lights: 59.98, wire: 89.98,
-  fixtures: 249.00, supplyKits: 24.98
+  studs: 4.25, plates: 10.48, nails: 4.40, insul: 55.00,
+  sheets: 14.48, screws: 15.00, mud: 21.50, tape: 7.50,
+  doors: 165.00, doorCasing: 45.00, winCasing: 35.00, baseboard: 2.00,
+  primer: 26.00, paint: 39.00, floorBox: 62.00, underlay: 35.00,
+  tile: 3.50, backer: 15.25, thinset: 13.97, wproof: 70.00, grout: 22.00,
+  outlets: 2.50, switches: 3.00, boxes: 1.25, lights: 75.00, wire: 105.00,
+  fixtures: 475.00, supplyKits: 32.00
 };
-const SCOPES = ['framing','drywall','paint','flooring','elec','plumb'];
-const blankRoom = () => ({ name:'', type:'Bathroom', L:'', W:'', H:'', framing:true, drywall:true, paint:true, flooring:true, elec:true, plumb:false });
+const SCOPES = ['framing','drywall','paint','flooring','elec','plumb','insul'];
+const blankRoom = () => ({ name:'', type:'Bathroom', L:'', W:'', H:'', doors:'', wins:'', tile:'', shared:'',
+  framing:true, drywall:true, paint:true, flooring:true, elec:true, plumb:false, insul:false });
+const blankProj = () => ({ name:'', client:'', addr:'', num:'E-' + new Date().toISOString().slice(2,10).replace(/-/g,''), date: new Date().toISOString().slice(0,10) });
 
 /* ---------------- state ---------------- */
-const LS_KEY = 'sm-takeoff-v1';
+const LS_KEY = 'sm-takeoff-v3';        // working copy
+const LS_PROJECTS = 'sm-takeoff-projects-v3';
 let state;
 try { state = JSON.parse(localStorage.getItem(LS_KEY)) || null; } catch(e) { state = null; }
 if (!state || !state.rooms) {
-  state = { rooms: [ { ...blankRoom(), name:'Primary Bath', L:10, W:8, H:9, plumb:true } ],
+  state = { proj: blankProj(),
+            rooms: [ { ...blankRoom(), name:'Primary Bath', L:10, W:8, H:9, doors:1, wins:1, tile:55, plumb:true } ],
             asm: structuredClone(DEF_ASM), roomTypes: structuredClone(DEF_ROOM_TYPES), prices: structuredClone(DEF_PRICES) };
 }
-// merge any new default keys into saved state
+// merge new default keys into older saved state
+if (!state.proj) state.proj = blankProj();
 for (const k in DEF_ASM) if (!state.asm[k]) state.asm[k] = structuredClone(DEF_ASM[k]);
 for (const k in DEF_PRICES) if (state.prices[k] == null) state.prices[k] = DEF_PRICES[k];
+for (const r of state.rooms) for (const k of ['doors','wins','tile','shared','insul']) if (r[k] == null) r[k] = (k === 'insul' ? false : '');
 const save = () => localStorage.setItem(LS_KEY, JSON.stringify(state));
+const projects = () => { try { return JSON.parse(localStorage.getItem(LS_PROJECTS)) || {}; } catch(e) { return {}; } };
 
 /* ---------------- calc ---------------- */
 const n = v => { const x = parseFloat(v); return isFinite(x) ? x : 0; };
 const up = v => Math.ceil(v - 1e-9);
 const money = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const a = k => n(state.asm[k].v);
 
 function roomCalc(r) {
   const L = n(r.L), W = n(r.W), H = n(r.H);
   const per = (L && W) ? 2*(L+W) : 0;
-  return { per, floor: L*W, wall: per*H, ceil: L*W };
+  const wall = per*H;
+  const openDed = n(r.doors)*a('doorDed') + n(r.wins)*a('winDed');
+  const tile = Math.min(n(r.tile), wall);
+  const netWall = Math.max(0, wall - openDed - tile);   // drywall + paint surface
+  const frameLF = Math.max(0, per - n(r.shared));       // shared walls framed once
+  return { per, floor: L*W, wall, ceil: L*W, netWall, tile, frameLF };
 }
 function roomType(t) { return state.roomTypes.find(x => x[0] === t) || ['Other',1,0]; }
 
 function computeScopes() {
-  const s = { frameLF:0, drywall:0, paint:0, floor:0, outlets:0, switches:0, lights:0, plumb:0 };
-  const a = k => n(state.asm[k].v);
+  const s = { frameLF:0, drywall:0, paint:0, floor:0, tile:0, baseLF:0, doors:0, wins:0, insul:0,
+              outlets:0, switches:0, lights:0, plumb:0 };
   for (const r of state.rooms) {
     const c = roomCalc(r);
     if (!c.floor) continue;
-    if (r.framing)  s.frameLF += c.per;
-    if (r.drywall)  s.drywall += c.wall + c.ceil;
-    if (r.paint)    s.paint   += c.wall + c.ceil;
-    if (r.flooring) s.floor   += c.floor;
+    s.doors += n(r.doors); s.wins += n(r.wins); s.tile += c.tile;
+    if (r.framing)  s.frameLF += c.frameLF;
+    if (r.drywall)  s.drywall += c.netWall + c.ceil;
+    if (r.paint)    s.paint   += c.netWall + c.ceil;
+    if (r.flooring) { s.floor += c.floor; s.baseLF += Math.max(0, c.per - n(r.doors)*a('doorWidth')); }
+    if (r.insul)    s.insul   += c.frameLF * n(r.H);
     if (r.elec) {
       s.outlets  += up(c.per / a('lfPerOutlet'));
       s.switches += a('switchesRoom');
@@ -217,22 +292,31 @@ function computeScopes() {
 }
 
 function computeItems(s) {
-  const a = k => n(state.asm[k].v);
-  const wf = 1 + a('wasteFrame')/100, wl = 1 + a('wasteFloor')/100;
+  const wf = 1 + a('wasteFrame')/100, wl = 1 + a('wasteFloor')/100, wt = 1 + a('wasteTile')/100;
   const studs = s.frameLF ? up(s.frameLF / (a('studSpacing')/12) * wf) : 0;
   const sheets = s.drywall ? up(s.drywall * wf / a('sheetSqft')) : 0;
   const items = [
     ['Framing','Studs 2x4x8','studs','ea', studs],
     ['Framing','Plates 2x4x16','plates','ea', s.frameLF ? up(s.frameLF * a('plateRows') / a('plateLen') * wf) : 0],
     ['Framing','Framing nails','nails','lb', studs ? up(studs * a('nailsPerStud')) : 0],
+    ['Framing','R-13 insulation (~106 ft² bag)','insul','bag', s.insul ? up(s.insul / a('insulBag')) : 0],
     ['Drywall','4x8 Sheet','sheets','sheet', sheets],
     ['Drywall','Drywall Screws (1,000 ct)','screws','box', sheets ? up(sheets * a('screwsSheet') / 1000) : 0],
     ['Drywall','Drywall Mud (4.5 gal)','mud','bucket', s.drywall ? up(s.drywall / a('mudArea')) : 0],
     ['Drywall','Drywall Tape (500 ft)','tape','roll', s.drywall ? up(s.drywall * a('tapePerSqft') / a('tapeRoll')) : 0],
+    ['Doors & Trim','Prehung interior door','doors','ea', s.doors],
+    ['Doors & Trim','Door casing set (both sides)','doorCasing','ea', s.doors],
+    ['Doors & Trim','Window casing & stool','winCasing','ea', s.wins],
+    ['Doors & Trim','Baseboard MDF primed','baseboard','LF', s.baseLF ? up(s.baseLF * wl) : 0],
     ['Paint','Primer','primer','gal', s.paint ? up(s.paint * a('primerCoats') / a('paintCov')) : 0],
     ['Paint','Paint','paint','gal', s.paint ? up(s.paint * a('paintCoats') / a('paintCov')) : 0],
     ['Flooring','Flooring (20 ft² box)','floorBox','box', s.floor ? up(s.floor * wl / a('boxSqft')) : 0],
     ['Flooring','Underlayment (100 ft² roll)','underlay','roll', s.floor ? up(s.floor * wl / a('underRoll')) : 0],
+    ['Tile','Wall tile (ceramic)','tile','ft²', s.tile ? up(s.tile * wt) : 0],
+    ['Tile','Backer board 3x5','backer','sheet', s.tile ? up(s.tile / a('backerSqft')) : 0],
+    ['Tile','Thinset (50 lb)','thinset','bag', s.tile ? up(s.tile / a('thinsetCov')) : 0],
+    ['Tile','Waterproofing membrane (gal)','wproof','gal', s.tile ? up(s.tile / a('wproofCov')) : 0],
+    ['Tile','Grout (10 lb)','grout','box', s.tile ? up(s.tile / a('groutCov')) : 0],
     ['Electrical','Outlets','outlets','ea', s.outlets],
     ['Electrical','Switches','switches','ea', s.switches],
     ['Electrical','Device boxes','boxes','ea', s.outlets + s.switches],
@@ -244,12 +328,39 @@ function computeItems(s) {
   return items.map(([cat,name,pk,unit,qty]) => ({ cat, name, pk, unit, qty, price: n(state.prices[pk]), total: qty * n(state.prices[pk]) }));
 }
 
+function computeTotals(items) {
+  let subtotal = 0;
+  for (const it of items) subtotal += it.total;
+  const delivery = a('delivery');
+  const tax = (subtotal + delivery) * a('taxRate') / 100;
+  const cont = subtotal * a('contingency') / 100;
+  const base = subtotal + delivery + tax + cont;
+  const markup = base * a('markup') / 100;
+  return { subtotal, delivery, tax, cont, markup, total: base + markup };
+}
+
 /* ---------------- render ---------------- */
 function render() {
   save();
+  renderProject();
   renderRooms();
   renderTakeoff();
   renderAssumptions();
+}
+
+function renderProject() {
+  document.getElementById('pName').value = state.proj.name;
+  document.getElementById('pClient').value = state.proj.client;
+  document.getElementById('pAddr').value = state.proj.addr;
+  document.getElementById('pNum').value = state.proj.num;
+  document.getElementById('pDate').value = state.proj.date;
+  const sel = document.getElementById('projSelect');
+  const names = Object.keys(projects()).sort();
+  sel.innerHTML = '<option value="">— saved projects —</option>' +
+    names.map(nm => `<option ${nm===state.proj.name?'selected':''}>${esc(nm)}</option>`).join('');
+  document.getElementById('printMeta').innerHTML =
+    [state.proj.name, state.proj.client, state.proj.addr, 'Estimate ' + state.proj.num, state.proj.date]
+      .filter(Boolean).map(esc).join(' &middot; ');
 }
 
 function renderRooms() {
@@ -262,9 +373,10 @@ function renderRooms() {
     const tr = document.createElement('tr');
     const opts = state.roomTypes.map(t => `<option ${t[0]===r.type?'selected':''}>${t[0]}</option>`).join('');
     tr.innerHTML =
-      `<td class="fill l"><input type="text" value="${esc(r.name)}" onchange="setRoom(${i},'name',this.value)" placeholder="Room name"></td>` +
+      `<td class="fill l"><input type="text" style="min-width:110px" value="${esc(r.name)}" onchange="setRoom(${i},'name',this.value)" placeholder="Room name"></td>` +
       `<td class="fill"><select onchange="setRoom(${i},'type',this.value)">${opts}</select></td>` +
-      ['L','W','H'].map(k => `<td class="fill"><input type="number" min="0" step="0.1" style="width:70px" value="${r[k]}" onchange="setRoom(${i},'${k}',this.value)"></td>`).join('') +
+      ['L','W','H','doors','wins','tile','shared'].map(k =>
+        `<td class="fill"><input type="number" min="0" step="0.1" style="width:60px" value="${r[k]}" onchange="setRoom(${i},'${k}',this.value)"></td>`).join('') +
       `<td class="calc">${c.per ? c.per.toFixed(1) : ''}</td><td class="calc">${c.floor ? c.floor.toFixed(1) : ''}</td>` +
       `<td class="calc">${c.wall ? c.wall.toFixed(1) : ''}</td><td class="calc">${c.ceil ? c.ceil.toFixed(1) : ''}</td>` +
       SCOPES.map(sc => `<td class="fill"><input type="checkbox" ${r[sc]?'checked':''} onchange="setRoom(${i},'${sc}',this.checked)"></td>`).join('') +
@@ -272,9 +384,9 @@ function renderRooms() {
     tb.appendChild(tr);
   });
   document.getElementById('roomsTotals').innerHTML =
-    `<td class="l">TOTALS</td><td></td><td></td><td></td><td></td>` +
+    `<td class="l">TOTALS</td>` + '<td></td>'.repeat(8) +
     `<td>${tot.per.toFixed(1)}</td><td>${tot.floor.toFixed(1)}</td><td>${tot.wall.toFixed(1)}</td><td>${tot.ceil.toFixed(1)}</td>` +
-    `<td colspan="7"></td>`;
+    `<td colspan="8"></td>`;
 }
 
 function renderTakeoff() {
@@ -282,6 +394,8 @@ function renderTakeoff() {
   const cards = [
     ['Framed wall LF', s.frameLF.toFixed(0)], ['Drywall ft²', s.drywall.toFixed(0)],
     ['Paint ft²', s.paint.toFixed(0)], ['Flooring ft²', s.floor.toFixed(0)],
+    ['Tile ft²', s.tile.toFixed(0)], ['Baseboard LF', s.baseLF.toFixed(0)],
+    ['Doors', s.doors], ['Windows', s.wins], ['Insulation ft²', s.insul.toFixed(0)],
     ['Outlets', s.outlets], ['Switches', s.switches], ['Lights', s.lights], ['Plumb fixtures', s.plumb],
   ];
   document.getElementById('scopeCards').innerHTML =
@@ -290,24 +404,29 @@ function renderTakeoff() {
   const items = computeItems(s);
   const tb = document.getElementById('takeoffBody');
   tb.innerHTML = '';
-  let lastCat = '', subtotal = 0;
+  let lastCat = '';
   for (const it of items) {
     if (it.cat !== lastCat) {
       lastCat = it.cat;
       tb.insertAdjacentHTML('beforeend', `<tr><td class="cat" colspan="5">${it.cat}</td></tr>`);
     }
-    subtotal += it.total;
     tb.insertAdjacentHTML('beforeend',
       `<tr><td class="l">${it.name}</td><td class="num">${it.qty.toLocaleString()}</td><td>${it.unit}</td>` +
       `<td class="price"><input type="number" min="0" step="0.01" value="${it.price.toFixed(2)}" onchange="setPrice('${it.pk}',this.value)"></td>` +
       `<td class="num">${money(it.total)}</td></tr>`);
   }
-  const cont = subtotal * n(state.asm.contingency.v) / 100;
+  const t = computeTotals(items);
+  const rows = [
+    ['Materials subtotal', t.subtotal],
+    [`Delivery`, t.delivery],
+    [`Sales tax (${a('taxRate')}%)`, t.tax],
+    [`Contingency (${a('contingency')}%)`, t.cont],
+  ];
+  if (a('markup') > 0) rows.push([`Markup (${a('markup')}%)`, t.markup]);
   document.getElementById('takeoffFoot').innerHTML =
-    `<tr><td class="l" colspan="4">Materials subtotal</td><td class="num">${money(subtotal)}</td></tr>` +
-    `<tr><td class="l" colspan="4">Contingency (${n(state.asm.contingency.v)}%)</td><td class="num">${money(cont)}</td></tr>` +
-    `<tr class="totals-row"><td class="l" colspan="4">ESTIMATE TOTAL (materials)</td><td class="num">${money(subtotal + cont)}</td></tr>`;
-  document.getElementById('hdrTotal').textContent = money(subtotal + cont);
+    rows.map(([k,v]) => `<tr><td class="l" colspan="4">${k}</td><td class="num">${money(v)}</td></tr>`).join('') +
+    `<tr class="totals-row"><td class="l" colspan="4">ESTIMATE TOTAL (materials)</td><td class="num">${money(t.total)}</td></tr>`;
+  document.getElementById('hdrTotal').textContent = money(t.total);
 }
 
 function renderAssumptions() {
@@ -332,28 +451,62 @@ function addRoom() { state.rooms.push(blankRoom()); render(); }
 function setPrice(k, v) { state.prices[k] = n(v); render(); }
 function setAsm(k, v) { state.asm[k].v = n(v); render(); }
 function setRT(i, c, v) { state.roomTypes[i][c] = n(v); render(); }
+function setProj(k, v) { state.proj[k] = v; render(); }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+/* ---------------- project manager (browser-local) ---------------- */
+function saveProject() {
+  const nm = state.proj.name || prompt('Project name?');
+  if (!nm) return;
+  state.proj.name = nm;
+  const all = projects(); all[nm] = structuredClone(state);
+  localStorage.setItem(LS_PROJECTS, JSON.stringify(all));
+  render();
+}
+function loadProject(nm) {
+  if (!nm) return;
+  const all = projects();
+  if (all[nm]) { state = all[nm]; render(); }
+}
+function newProject() {
+  state = { proj: blankProj(), rooms: [blankRoom()],
+            asm: structuredClone(state.asm), roomTypes: structuredClone(state.roomTypes), prices: structuredClone(state.prices) };
+  render();
+}
+function deleteProject() {
+  const sel = document.getElementById('projSelect').value;
+  if (!sel || !confirm(`Delete saved project "${sel}"?`)) return;
+  const all = projects(); delete all[sel];
+  localStorage.setItem(LS_PROJECTS, JSON.stringify(all));
+  render();
+}
 
 /* ---------------- export / import ---------------- */
 function download(name, text, type) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type }));
-  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+  const el = document.createElement('a');
+  el.href = URL.createObjectURL(new Blob([text], { type }));
+  el.download = name; el.click(); URL.revokeObjectURL(el.href);
 }
 function exportCSV() {
   const s = computeScopes();
   const items = computeItems(s).filter(i => i.qty > 0);
-  let subtotal = 0;
-  const rows = [['Category','Item','Quantity','Unit','Item Price ($)','Order Total ($)']];
-  for (const it of items) { subtotal += it.total; rows.push([it.cat, it.name, it.qty, it.unit, it.price.toFixed(2), it.total.toFixed(2)]); }
-  const cont = subtotal * n(state.asm.contingency.v) / 100;
-  rows.push([], ['','Materials subtotal','','','', subtotal.toFixed(2)],
-            ['','Contingency','','','', cont.toFixed(2)],
-            ['','ESTIMATE TOTAL','','','', (subtotal + cont).toFixed(2)]);
+  const t = computeTotals(computeItems(s));
+  const rows = [
+    ['Project', state.proj.name], ['Client', state.proj.client], ['Address', state.proj.addr],
+    ['Estimate #', state.proj.num], ['Date', state.proj.date], [],
+    ['Category','Item','Quantity','Unit','Item Price ($)','Order Total ($)']
+  ];
+  for (const it of items) rows.push([it.cat, it.name, it.qty, it.unit, it.price.toFixed(2), it.total.toFixed(2)]);
+  rows.push([], ['','Materials subtotal','','','', t.subtotal.toFixed(2)],
+            ['','Delivery','','','', t.delivery.toFixed(2)],
+            ['','Sales tax','','','', t.tax.toFixed(2)],
+            ['','Contingency','','','', t.cont.toFixed(2)]);
+  if (t.markup) rows.push(['','Markup','','','', t.markup.toFixed(2)]);
+  rows.push(['','ESTIMATE TOTAL','','','', t.total.toFixed(2)]);
   const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\r\n');
-  download('takeoff-estimate.csv', csv, 'text/csv');
+  download((state.proj.num || 'takeoff') + '-estimate.csv', csv, 'text/csv');
 }
-function exportJSON() { download('sm-takeoff-project.json', JSON.stringify(state, null, 2), 'application/json'); }
+function exportJSON() { download((state.proj.num || 'sm-takeoff') + '-project.json', JSON.stringify(state, null, 2), 'application/json'); }
 function importJSON(input) {
   const f = input.files[0]; if (!f) return;
   const rd = new FileReader();
@@ -361,12 +514,27 @@ function importJSON(input) {
     try {
       const st = JSON.parse(rd.result);
       if (!st.rooms || !st.asm || !st.prices) throw new Error('bad file');
+      if (!st.proj) st.proj = blankProj();
       state = st; render();
     } catch(e) { alert('Not a valid project file.'); }
     input.value = '';
   };
   rd.readAsText(f);
 }
+
+/* ---------------- price staleness ---------------- */
+(function () {
+  const ageDays = (Date.now() - new Date(PRICE_DATE).getTime()) / 86400000;
+  const note = `Default prices: Denver-area big-box retail (Home Depot / Lowe's), mid-range products, researched ${PRICE_DATE}. ` +
+    `Sales tax defaults to Denver combined 9.15%. Delivery: HD/Lowe's charge a flat ~$79, waived on orders over $400 — set the fee to match your plan. ` +
+    `Plumbing fixture price is a blended allowance (toilet ~$250 / vanity ~$600 / tub-shower kit ~$600). Verify against your supplier before ordering.`;
+  document.getElementById('priceNote').textContent = note;
+  if (ageDays > 180) {
+    const b = document.getElementById('priceBanner');
+    b.style.display = 'block';
+    b.textContent = `⚠ Default prices were researched ${PRICE_DATE} — over ${Math.floor(ageDays/30)} months ago. Verify current pricing before relying on totals.`;
+  }
+})();
 
 /* ---------------- collapsible sections ---------------- */
 document.querySelectorAll('section > h2').forEach(h =>
