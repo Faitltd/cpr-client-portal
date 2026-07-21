@@ -25,6 +25,19 @@ export interface CliqMessage {
 	>;
 	card?: { title?: string; thumbnail?: string; theme?: string };
 	bot?: { name?: string; image?: string };
+	/**
+	 * Action buttons rendered at the bottom of the message (max 5, label max
+	 * 30 chars). Buttons sit at the message ROOT, not inside `card` (verified
+	 * against the Cliq platform docs' webhook example). An `open.url` button
+	 * opens the link in the system browser / a new tab instead of navigating
+	 * away inside Cliq — use it for external links like CRM records.
+	 */
+	buttons?: Array<{
+		label: string;
+		/** '+' = primary (filled), '-' = secondary (outline) */
+		type?: '+' | '-';
+		action: { type: 'open.url'; data: { web: string } };
+	}>;
 }
 
 function getCliqBase() {

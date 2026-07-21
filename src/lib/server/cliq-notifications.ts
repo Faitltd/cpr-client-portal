@@ -181,8 +181,9 @@ export async function postFieldUpdateNotification(
 		? `*Submitted by:* ${submitterName} (${submitterEmail}) — ${submitterTag}`
 		: `*Submitted by:* ${submitterName} — ${submitterTag}`;
 
+	// The update-type title lives in the card header (modern-inline theme);
+	// the text body starts with the project line.
 	const lines: string[] = [
-		`${emoji} *${label}*`,
 		`*Project:* ${dealName || dealId}`,
 		submitterLine
 	];
@@ -238,28 +239,39 @@ export async function postFieldUpdateNotification(
 	const notPreviewedCount = totalAttachments - signedImageUrls.length;
 	if (totalAttachments > 0) {
 		const attachLabel = `${totalAttachments} attachment${totalAttachments === 1 ? '' : 's'}`;
-		if (booksUrl) {
-			lines.push('', `📎 ${attachLabel} — [view on the draft quote](${booksUrl})`);
-		} else {
-			lines.push('', `📎 ${attachLabel} uploaded.`);
-		}
+		lines.push('', `📎 ${attachLabel} uploaded.`);
 		if (notPreviewedCount > 0) {
 			lines.push(
 				`_(${notPreviewedCount} attachment${notPreviewedCount === 1 ? '' : 's'} not previewed inline — see attachments in CRM.)_`
 			);
 		}
-	} else if (booksUrl) {
-		// No attachments but a Books quote exists — surface that link.
-		lines.push('', `[Open the draft quote in Books](${booksUrl})`);
 	}
 
-	// Always include the CRM record link if we have one — replaces the
-	// separate "View in CRM" card that the legacy Zoho workflow used to post.
+	const message: CliqMessage = {
+		text: lines.join('\n'),
+		card: { title: `${emoji} ${label}`, theme: 'modern-inline' }
+	};
+
+	// External links go on open.url buttons, not in-text markdown — buttons
+	// open in the system browser / a new tab instead of navigating away
+	// inside Cliq. The CRM button replaces the separate "View in CRM" card
+	// that the legacy Zoho workflow used to post.
+	const buttons: NonNullable<CliqMessage['buttons']> = [];
 	if (crmRecordUrl) {
-		lines.push('', `[View in CRM](${crmRecordUrl})`);
+		buttons.push({
+			label: 'View in CRM',
+			type: '+',
+			action: { type: 'open.url', data: { web: crmRecordUrl } }
+		});
 	}
-
-	const message: CliqMessage = { text: lines.join('\n') };
+	if (booksUrl) {
+		buttons.push({
+			label: 'Open Draft Quote',
+			type: buttons.length === 0 ? '+' : '-',
+			action: { type: 'open.url', data: { web: booksUrl } }
+		});
+	}
+	if (buttons.length > 0) message.buttons = buttons;
 	if (signedImageUrls.length > 0) {
 		message.slides = [
 			{
