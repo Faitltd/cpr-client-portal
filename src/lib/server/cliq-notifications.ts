@@ -6,9 +6,16 @@ import {
 	type CliqMessage,
 	type CliqPostResult
 } from '$lib/server/cliq';
-import { isVideoPath, UPDATE_TYPE_LABELS } from '$lib/server/zoho-field-updates';
+import {
+	isVideoPath,
+	UPDATE_TYPE_LABELS,
+	ZOHO_FIELD_UPDATES_MODULE
+} from '$lib/server/zoho-field-updates';
 
-const SIGNED_URL_TTL_SEC = 60 * 60 * 24 * 7; // 7 days — Cliq fetches the image at post time
+// Cliq loads slide images from the URL when the message is VIEWED, not just at
+// post time — a short TTL breaks photos on older cards. Use 1 year (Supabase max
+// is arbitrary; signed URLs stay valid until the object is deleted).
+const SIGNED_URL_TTL_SEC = 60 * 60 * 24 * 365;
 const CLIQ_CO_CHAT_ID = env.ZOHO_CLIQ_CO_CHAT_ID || 'O5797744000003118001';
 
 /**
@@ -112,15 +119,27 @@ function rewriteWebhookForChannel(webhookUrl: string, channelName: string): stri
 }
 
 /**
- * Build a Zoho CRM deep link to a record in the given module.
- * Format: https://crm.zoho.com/crm/{org_id}/tab/{module_api_name}/{record_id}
- * Returns null if the CRM org ID isn't configured.
+ * Zoho CRM deep links use the module's INTERNAL name (module_name) in the
+ * /tab/ segment, not its api_name. For custom modules the two differ:
+ * Field_Updates' internal name is CustomModule4. Verified live —
+ * /tab/Field_Updates/{id} renders a blank page; /tab/CustomModule4/{id}
+ * opens the record. Standard modules pass through unchanged.
  */
+function crmTabNameFor(moduleApiName: string): string {
+	if (moduleApiName === ZOHO_FIELD_UPDATES_MODULE) {
+		return env.ZOHO_FIELD_UPDATES_TAB || 'CustomModule4';
+	}
+	return moduleApiName;
+}
+
 export function buildCrmRecordUrl(moduleApiName: string, recordId: string | null): string | null {
 	if (!recordId) return null;
-	const orgId = env.ZOHO_CRM_ORG_ID || env.ZOHO_BOOKS_ORG_ID;
-	if (!orgId) return null;
-	return `https://crm.zoho.com/crm/${encodeURIComponent(orgId)}/tab/${encodeURIComponent(moduleApiName)}/${encodeURIComponent(recordId)}`;
+	// Zoho CRM deep links need the org segment as "org{zgid}" (e.g. org846437691),
+	// NOT the bare zgid, and never the Books org ID — that's a different number.
+	const raw = String(env.ZOHO_CRM_ORG_ID || 'org846437691').trim();
+	const orgSegment = raw.startsWith('org') ? raw : `org${raw}`;
+	const tabName = crmTabNameFor(moduleApiName);
+	return `https://crm.zoho.com/crm/${encodeURIComponent(orgSegment)}/tab/${encodeURIComponent(tabName)}/${encodeURIComponent(recordId)}`;
 }
 
 /**
@@ -171,36 +190,52 @@ export async function postFieldUpdateNotification(
 		lines.push('', note.trim());
 	}
 
-	// Image gallery — only non-video photos. Cliq fetches each URL server-side
-	// at post time and stores its own copy, so signed URL expiry doesn't break
-	// the message later.
-	const imagePaths = Array.isArray(photoIds)
-		? photoIds.filter((p) => !isVideoPath(p))
-		: [];
-	const videoCount = Array.isArray(photoIds)
-		? photoIds.filter((p) => isVideoPath(p)).length
-		: 0;
+	// Image gallery — only formats Cliq can actually render. Videos and HEIC/HEIF
+	// (older uploads that skipped normalization) are excluded from the slides and
+	// counted in the "not previewed" line instead.
+	const HEIC_EXTS = new Set(['heic', 'heif']);
+	const isHeicPath = (p: string) =>
+		HEIC_EXTS.has(p.split('.').pop()?.toLowerCase() ?? '');
+	const allPaths = Array.isArray(photoIds) ? photoIds : [];
+	const imagePaths = allPaths.filter((p) => !isVideoPath(p) && !isHeicPath(p));
+
+	// Keep the slide payload sane — the trade + client galleries can total 40
+	// photos, and each signed URL is ~500 chars. Cliq renders a carousel
+	// anyway; overflow is counted in the "not previewed" line and every photo
+	// is still attached to the CRM record.
+	const MAX_SLIDE_IMAGES = 10;
+	const slidePaths = imagePaths.slice(0, MAX_SLIDE_IMAGES);
 
 	const signedImageUrls: string[] = [];
-	for (const path of imagePaths) {
-		try {
-			const { data, error } = await supabase.storage
-				.from('trade-photos')
-				.createSignedUrl(path, SIGNED_URL_TTL_SEC);
-			if (error || !data?.signedUrl) {
+	for (const path of slidePaths) {
+		// Two attempts — a transient Supabase error here used to silently drop
+		// the photo from the card.
+		let signed: string | null = null;
+		for (let attempt = 0; attempt < 2 && !signed; attempt++) {
+			try {
+				const { data, error } = await supabase.storage
+					.from('trade-photos')
+					.createSignedUrl(path, SIGNED_URL_TTL_SEC);
+				if (error || !data?.signedUrl) {
+					console.warn(
+						`[cliq-notifications] signed URL failed for ${path} (attempt ${attempt + 1}):`,
+						error?.message
+					);
+					continue;
+				}
+				signed = data.signedUrl;
+			} catch (err) {
 				console.warn(
-					`[cliq-notifications] signed URL failed for ${path}:`,
-					error?.message
+					`[cliq-notifications] signed URL exception for ${path} (attempt ${attempt + 1}):`,
+					err
 				);
-				continue;
 			}
-			signedImageUrls.push(data.signedUrl);
-		} catch (err) {
-			console.warn(`[cliq-notifications] signed URL exception for ${path}:`, err);
 		}
+		if (signed) signedImageUrls.push(signed);
 	}
 
-	const totalAttachments = Array.isArray(photoIds) ? photoIds.length : 0;
+	const totalAttachments = allPaths.length;
+	const notPreviewedCount = totalAttachments - signedImageUrls.length;
 	if (totalAttachments > 0) {
 		const attachLabel = `${totalAttachments} attachment${totalAttachments === 1 ? '' : 's'}`;
 		if (booksUrl) {
@@ -208,9 +243,9 @@ export async function postFieldUpdateNotification(
 		} else {
 			lines.push('', `📎 ${attachLabel} uploaded.`);
 		}
-		if (videoCount > 0) {
+		if (notPreviewedCount > 0) {
 			lines.push(
-				`_(${videoCount} video${videoCount === 1 ? '' : 's'} not previewed inline — see attachments.)_`
+				`_(${notPreviewedCount} attachment${notPreviewedCount === 1 ? '' : 's'} not previewed inline — see attachments in CRM.)_`
 			);
 		}
 	} else if (booksUrl) {

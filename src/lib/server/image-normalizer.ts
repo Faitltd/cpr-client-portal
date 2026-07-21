@@ -81,7 +81,21 @@ export function shouldNormalize(file: { type?: string; name?: string; size?: num
 	if (!type.startsWith('image/') && !NORMALIZABLE_EXTS.has(ext)) return false;
 	// GIFs are usually animated — pass through.
 	if (type === 'image/gif' || ext === 'gif') return false;
-	if (file.size != null && file.size <= SKIP_BYTES) return false;
+	// The small-file skip only applies to web-safe formats. HEIC/HEIF/TIFF/BMP/
+	// AVIF must ALWAYS convert — browsers and Zoho Cliq can't render them at any
+	// size, so a 200KB HEIC that skipped here showed up broken in Cliq cards.
+	const alwaysConvertExts = new Set(['heic', 'heif', 'tif', 'tiff', 'bmp', 'avif']);
+	const alwaysConvertTypes = new Set([
+		'image/heic',
+		'image/heif',
+		'image/heic-sequence',
+		'image/heif-sequence',
+		'image/tiff',
+		'image/bmp',
+		'image/avif'
+	]);
+	const mustConvert = alwaysConvertExts.has(ext) || alwaysConvertTypes.has(type);
+	if (!mustConvert && file.size != null && file.size <= SKIP_BYTES) return false;
 	return NORMALIZABLE_TYPES.has(type) || NORMALIZABLE_EXTS.has(ext);
 }
 
