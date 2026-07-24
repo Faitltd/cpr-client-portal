@@ -378,6 +378,12 @@
 	let selectedProjectId = '';
 	let isZohoProject = false; // false = CRM deal only, status updates disabled
 
+	// Tasklist names in the project's phase order (from the server, ascending
+	// milestone_sequence). Used to order the task groups — and the QC checklists
+	// rendered under them — so they line up with the Zoho Project's phases.
+	const phaseOrderCache = new Map<string, string[]>();
+	let phaseOrder: string[] = [];
+
 	let updatingTaskIds = new Set<string>();
 	let taskStatusErrors = new Map<string, string>();
 	let taskSubmitting = false;
@@ -415,7 +421,18 @@
 			list.push(task);
 			groups.set(name, list);
 		}
-		return Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
+		const arr = Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
+		// Order groups by the project's Zoho phase sequence when we have it, so the
+		// task list — and the QC checklists under each group — read in build order.
+		// Groups with no matching phase keep their original order, after the ranked ones.
+		if (phaseOrder.length) {
+			const norm = (s: string) => (s || '').toLowerCase().trim();
+			const rank = new Map(phaseOrder.map((n, i) => [norm(n), i]));
+			const rankOf = (name: string) =>
+				rank.has(norm(name)) ? (rank.get(norm(name)) as number) : Number.MAX_SAFE_INTEGER;
+			arr.sort((a, b) => rankOf(a.name) - rankOf(b.name));
+		}
+		return arr;
 	})();
 
 	const loadTasks = async (dealId: string, bustCache = false) => {
@@ -431,12 +448,14 @@
 		// data set; trade partners only want the Zoho Projects task list.)
 		if (isCrm) {
 			tasks = [];
+			phaseOrder = [];
 			selectedProjectId = '';
 			isZohoProject = false;
 			return;
 		}
 
 		tasks = tasksCache.get(dealId) ?? [];
+		phaseOrder = phaseOrderCache.get(dealId) ?? [];
 		tasksLoading = true;
 		tasksError = '';
 
@@ -463,9 +482,12 @@
 						if (retryRes.ok) {
 							const retryPayload = await retryRes.json().catch(() => ({}));
 							const fresh: any[] = retryPayload?.tasks ?? [];
+							const freshPhaseOrder: string[] = retryPayload?.phaseOrder ?? [];
 							tasksCache.set(dealId, fresh);
+							phaseOrderCache.set(dealId, freshPhaseOrder);
 							if (dealId === selectedDealId) {
 								tasks = fresh;
+								phaseOrder = freshPhaseOrder;
 								selectedProjectId = freshProjectId;
 								isZohoProject = true;
 								if (fresh.length === 0 && retryPayload?.tasksError) {
@@ -481,9 +503,12 @@
 			if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
 			const payload = await res.json().catch(() => ({}));
 			const fresh: any[] = payload?.tasks ?? [];
+			const freshPhaseOrder: string[] = payload?.phaseOrder ?? [];
 			tasksCache.set(dealId, fresh);
+			phaseOrderCache.set(dealId, freshPhaseOrder);
 			if (dealId === selectedDealId) {
 				tasks = fresh;
+				phaseOrder = freshPhaseOrder;
 				selectedProjectId = projectId;
 				isZohoProject = true;
 				if (fresh.length === 0 && payload?.tasksError) {
@@ -596,29 +621,38 @@
 
 	const normName = (s: string) => (s || '').toLowerCase().trim();
 
-	// Zoho tasklist name → QC trade checklist name(s).
-	const TASKLIST_TRADE_MAP: Record<string, string[]> = {
-		framing: ['Framing'],
-		remove: ['Demolition'],
-		demolition: ['Demolition'],
-		demo: ['Demolition'],
-		concrete: ['Concrete'],
-		insulation: ['Insulation'],
-		drywall: ['Drywall'],
-		paint: ['Interior Paint', 'Exterior Paint'],
-		'interior paint': ['Interior Paint'],
-		'exterior paint': ['Exterior Paint'],
-		cabinetry: ['Cabinetry'],
-		cabinets: ['Cabinetry'],
-		doors: ['Doors & Millwork'],
-		trim: ['Doors & Millwork'],
-		millwork: ['Doors & Millwork'],
-		windows: ['Windows'],
-		electrical: ['Electrical'],
-		hvac: ['HVAC'],
-		plumbing: ['Plumbing Underground', 'Plumbing Above Ground'],
-		tile: ['Tile'],
-		flooring: ['Flooring']
+	// Zoho tasklist / phase name → QC trade checklist name(s). Matched by keyword
+	// (substring) so phase-named tasklists like "Cabinetry & Countertop",
+	// "Tile-Walls" or "Patio Door" still map to the right trade. Order matters:
+	// more specific keywords come before the generic ones (e.g. "interior paint"
+	// before "paint", "patio door" before the generic door/trim rule).
+	const TRADE_KEYWORDS: Array<{ match: string[]; trades: string[] }> = [
+		{ match: ['demo', 'remove', 'tear out', 'tear-out'], trades: ['Demolition'] },
+		{ match: ['concrete', 'foundation', 'footing', 'slab'], trades: ['Concrete'] },
+		{ match: ['framing', 'frame'], trades: ['Framing'] },
+		{ match: ['patio door', 'window'], trades: ['Windows'] },
+		{ match: ['hvac', 'mechanical', 'furnace', 'ductwork'], trades: ['HVAC'] },
+		{ match: ['plumbing', 'plumb'], trades: ['Plumbing Underground', 'Plumbing Above Ground'] },
+		{ match: ['electrical', 'electric'], trades: ['Electrical'] },
+		{ match: ['insulation'], trades: ['Insulation'] },
+		{ match: ['drywall', 'sheetrock'], trades: ['Drywall'] },
+		{ match: ['flooring', 'floor'], trades: ['Flooring'] },
+		{ match: ['cabinet', 'countertop', 'counter top'], trades: ['Cabinetry'] },
+		{ match: ['tile'], trades: ['Tile'] },
+		{ match: ['door', 'trim', 'millwork', 'wainscot', 'baseboard', 'casing'], trades: ['Doors & Millwork'] },
+		{ match: ['interior paint'], trades: ['Interior Paint'] },
+		{ match: ['exterior paint'], trades: ['Exterior Paint'] },
+		{ match: ['paint'], trades: ['Interior Paint', 'Exterior Paint'] }
+	];
+
+	// Trade checklist name(s) that belong under a given Zoho task group.
+	const tradesForGroup = (groupName: string): string[] => {
+		const n = normName(groupName);
+		if (!n) return [];
+		for (const entry of TRADE_KEYWORDS) {
+			if (entry.match.some((m) => n.includes(m))) return entry.trades;
+		}
+		return [];
 	};
 
 	// Assign each checklist to the FIRST task group that maps to it so a
@@ -629,10 +663,11 @@
 		const byGroup = new Map<string, any[]>();
 		const used = new Set<string>();
 		for (const group of taskGroups) {
-			const mapped = TASKLIST_TRADE_MAP[normName(group.name)];
+			const mapped = tradesForGroup(group.name);
 			const wanted =
-				mapped ??
-				checklists.filter((c) => normName(c.name) === normName(group.name)).map((c) => c.name);
+				mapped.length > 0
+					? mapped
+					: checklists.filter((c) => normName(c.name) === normName(group.name)).map((c) => c.name);
 			const assigned: any[] = [];
 			for (const name of wanted) {
 				if (used.has(name)) continue;

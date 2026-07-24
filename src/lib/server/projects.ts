@@ -1838,6 +1838,58 @@ export async function getProjectTasklists(projectId: string) {
 	return projectsApiCall(`/projects/${projectId}/tasklists`);
 }
 
+// Ordered tasklist names for a project, sorted by the project's own phase
+// sequence (ascending milestone_sequence). The trade task list uses this so
+// task groups — and the internal QC checklists rendered under them — line up
+// with the Zoho Project's phases. Cached briefly to avoid extra Zoho calls.
+// Returns [] on any failure so callers fall back to their default order.
+const projectPhaseOrderCache = new Map<string, { fetchedAt: number; order: string[] }>();
+const PROJECT_PHASE_ORDER_CACHE_TTL_MS = 2 * 60 * 1000;
+
+export async function getProjectPhaseOrder(projectId: string): Promise<string[]> {
+	const cached = projectPhaseOrderCache.get(projectId);
+	if (cached && Date.now() - cached.fetchedAt < PROJECT_PHASE_ORDER_CACHE_TTL_MS) {
+		return cached.order;
+	}
+
+	try {
+		const payload = await getProjectTasklists(projectId);
+		const tasklists = parseProjectTasklists(payload);
+
+		const ranked = tasklists
+			.map((tl: any) => {
+				const name = typeof tl?.name === 'string' ? tl.name.trim() : '';
+				const seqRaw =
+					tl?.sequence?.milestone_sequence ??
+					tl?.milestone_sequence ??
+					tl?.sequence?.project_sequence ??
+					(typeof tl?.sequence === 'number' ? tl.sequence : null);
+				const seq = Number(seqRaw);
+				return { name, seq: Number.isFinite(seq) ? seq : Number.MAX_SAFE_INTEGER };
+			})
+			.filter((t: { name: string }) => t.name);
+
+		ranked.sort((a: { seq: number }, b: { seq: number }) => a.seq - b.seq);
+
+		const seen = new Set<string>();
+		const order: string[] = [];
+		for (const t of ranked) {
+			if (seen.has(t.name)) continue;
+			seen.add(t.name);
+			order.push(t.name);
+		}
+
+		projectPhaseOrderCache.set(projectId, { fetchedAt: Date.now(), order });
+		return order;
+	} catch (err) {
+		log.warn('getProjectPhaseOrder failed', {
+			projectId,
+			error: err instanceof Error ? err.message : String(err)
+		});
+		return [];
+	}
+}
+
 export async function getProjectMilestones(projectId: string) {
 	return projectsApiCall(`/projects/${projectId}/milestones`);
 }
@@ -1954,6 +2006,88 @@ export async function getAllProjectTasks(projectId: string, perPage = DEFAULT_PA
 		throw lastError;
 	}
 	return [];
+}
+
+// ── Client-visible task filtering ──────────────────────────────────────────
+// Trade checklist tasklists (e.g. "Trade Checklists", built by the old
+// "Create Trade Checklists" CRM workflow) must never reach the client portal.
+// Checklists live in the trade partner portal (Supabase qc_* tables); any
+// checklist tasklist still present in Zoho Projects is filtered out here.
+const CHECKLIST_TASKLIST_PATTERN = /check\s*list/i;
+const CHECKLIST_TASKLIST_CACHE_TTL_MS = 10 * 60 * 1000;
+const checklistTasklistIdsCache = new Map<string, { fetchedAt: number; ids: Set<string> }>();
+
+function getTaskTasklistName(task: any): string {
+	const candidates = [
+		task?.tasklist?.name,
+		task?.task_list?.name,
+		task?.tasklist_name,
+		task?.tasklistName
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+	}
+	return '';
+}
+
+function getTaskTasklistIdFromTask(task: any): string {
+	const candidates = [
+		task?.tasklist?.id,
+		task?.tasklist?.id_string,
+		task?.task_list?.id,
+		task?.tasklist_id
+	];
+	for (const candidate of candidates) {
+		if (candidate === null || candidate === undefined) continue;
+		const trimmed = String(candidate).trim();
+		if (trimmed) return trimmed;
+	}
+	return '';
+}
+
+async function getChecklistTasklistIds(projectId: string): Promise<Set<string>> {
+	const cached = checklistTasklistIdsCache.get(projectId);
+	if (cached && Date.now() - cached.fetchedAt < CHECKLIST_TASKLIST_CACHE_TTL_MS) {
+		return cached.ids;
+	}
+
+	const payload = await getProjectTasklists(projectId);
+	const tasklists = parseProjectTasklists(payload);
+	const ids = new Set<string>();
+	for (const tasklist of tasklists) {
+		const name = typeof tasklist?.name === 'string' ? tasklist.name : '';
+		if (!CHECKLIST_TASKLIST_PATTERN.test(name)) continue;
+		const id = getProjectTasklistId(tasklist);
+		if (id) ids.add(id);
+	}
+	checklistTasklistIdsCache.set(projectId, { fetchedAt: Date.now(), ids });
+	return ids;
+}
+
+// Client portal task fetch: same as getAllProjectTasks, minus any task that
+// belongs to a checklist tasklist. Trade/admin endpoints keep the raw fetch.
+export async function getClientVisibleProjectTasks(projectId: string, perPage = DEFAULT_PAGE_SIZE) {
+	const tasks = await getAllProjectTasks(projectId, perPage);
+	if (!Array.isArray(tasks) || tasks.length === 0) return tasks;
+
+	let checklistIds = new Set<string>();
+	try {
+		checklistIds = await getChecklistTasklistIds(projectId);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		log.warn('Checklist tasklist lookup failed; falling back to name-only filtering', {
+			projectId,
+			error: message
+		});
+	}
+
+	return tasks.filter((task) => {
+		const tasklistName = getTaskTasklistName(task);
+		if (tasklistName && CHECKLIST_TASKLIST_PATTERN.test(tasklistName)) return false;
+		const tasklistId = getTaskTasklistIdFromTask(task);
+		if (tasklistId && checklistIds.has(tasklistId)) return false;
+		return true;
+	});
 }
 
 export async function getAllProjectActivities(projectId: string, perPage = DEFAULT_PAGE_SIZE) {

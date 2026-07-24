@@ -7,7 +7,8 @@ import {
   getDealProjectIdsForLinking,
   getProject,
   getAllProjectTasks,
-  getAllProjectActivities
+  getAllProjectActivities,
+  getProjectPhaseOrder
 } from '$lib/server/projects';
 
 const projectTasksCache = new Map<string, { fetchedAt: number; tasks: any[] }>();
@@ -123,7 +124,8 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
       },
       tasks: [],
       activities: [],
-      designs
+      designs,
+      phaseOrder: []
     });
   }
 
@@ -146,12 +148,21 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
   const dealRecord = dealId ? authorizedDealMap.get(String(dealId)) : null;
   const rawFileUpload = dealRecord?.File_Upload ?? null;
 
-  const [tasksResult, activitiesResult] = await Promise.allSettled([
+  const [tasksResult, activitiesResult, phaseOrderResult] = await Promise.allSettled([
     useTaskCache
       ? Promise.resolve(cachedTasks!.tasks)
       : getAllProjectTasks(projectId, 100),
-    getAllProjectActivities(projectId, 50)
+    getAllProjectActivities(projectId, 50),
+    getProjectPhaseOrder(projectId)
   ]);
+
+  // Tasklist names in the project's phase order (ascending milestone_sequence).
+  // The trade Tasks list uses this to order task groups — and the internal QC
+  // checklists shown under them — so they line up with the Zoho phases.
+  const phaseOrder =
+    phaseOrderResult.status === 'fulfilled' && Array.isArray(phaseOrderResult.value)
+      ? phaseOrderResult.value
+      : [];
 
   let tasks: any[] = [];
   let tasksLoadError: string | null = null;
@@ -186,6 +197,7 @@ export const GET: RequestHandler = async ({ cookies, params, url }) => {
     tasks,
     activities,
     designs,
+    phaseOrder,
     ...(tasksLoadError ? { tasksError: tasksLoadError } : {})
   });
 };

@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { getSession } from '$lib/server/db';
 import {
 	getAllProjectActivities,
-	getAllProjectTasks,
+	getClientVisibleProjectTasks,
 	getProject,
 	getProjectLinksForClient
 } from '$lib/server/projects';
@@ -109,7 +109,7 @@ export const GET: RequestHandler = async ({ cookies, params }) => {
 			? Promise.resolve(cachedTasks!.tasks)
 			: taskCountHint === 0
 				? Promise.resolve([])
-				: getAllProjectTasks(projectId, 100),
+				: getClientVisibleProjectTasks(projectId, 100),
 		getAllProjectActivities(projectId, 50)
 	]);
 

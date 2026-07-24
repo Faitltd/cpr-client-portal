@@ -4,7 +4,7 @@ import { zohoApiCall } from '$lib/server/zoho';
 import { ensureValidZohoToken } from '$lib/server/zoho-token';
 import {
 	getDealProjectIdsForLinking,
-	getAllProjectTasks,
+	getClientVisibleProjectTasks,
 	matchDealsToProjectsByName
 } from '$lib/server/projects';
 import { getDealsForClient } from '$lib/server/projects';
@@ -92,7 +92,7 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 	}
 
 	try {
-		const tasks = await getAllProjectTasks(projectId, 100);
+		const tasks = await getClientVisibleProjectTasks(projectId, 100);
 		return json({ tasks: Array.isArray(tasks) ? tasks : [], projectId, source: 'zprojects' });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
