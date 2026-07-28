@@ -34,6 +34,7 @@
 		Selections_Availability: string | null;
 		Access_Notes: string | null;
 		Timeline: string | null;
+		Permitting: string | null;
 		Project_Details_Cont_d: string | null;
 	}
 
@@ -57,6 +58,7 @@
 		{ key: 'Selections_Availability', label: 'Selections Availability', type: 'text' },
 		{ key: 'Access_Notes', label: 'Access Notes', type: 'text' },
 		{ key: 'Timeline', label: 'Timeline', type: 'text' },
+		{ key: 'Permitting', label: 'Permitting', type: 'picklist', options: ['-None-', 'Yes', 'No'] },
 		{ key: 'Project_Details_Cont_d', label: 'Form Entry', type: 'textarea' },
 		{ key: 'Photos', label: 'Photos', type: 'file', accept: 'image/*' },
 		{ key: 'Image_Upload_4', label: 'Photos 2', type: 'file', accept: 'image/*' },

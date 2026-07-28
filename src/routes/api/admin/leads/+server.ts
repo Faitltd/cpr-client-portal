@@ -21,7 +21,7 @@ const DETAIL_FIELDS = [
 	'Budget_Range', 'Decision_Makers', 'Reside_During_Construction',
 	'Finishes', 'Owner_Provided_Materials', 'Owner_Performed_Tasks',
 	'Photos', 'Image_Upload_4', 'Prior_Renovations',
-	'File_Upload_1', 'Selections_Availability', 'Access_Notes', 'Timeline',
+	'File_Upload_1', 'Selections_Availability', 'Access_Notes', 'Timeline', 'Permitting',
 	'Project_Details_Cont_d'
 ].join(',');
 
