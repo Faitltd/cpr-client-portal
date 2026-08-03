@@ -854,16 +854,30 @@ async function buildSchedulingBlock(): Promise<string> {
 	const nowIso = new Date().toISOString();
 	const horizonIso = new Date(Date.now() + 21 * 86400000).toISOString();
 
-	const [liveShifts, tasksRes, crewRes] = await Promise.all([
+	const [liveShifts, crewRes, activeDeals] = await Promise.all([
 		fetchConnecteamShifts(nowIso, horizonIso),
-		supabase
-			.from('bot_documents')
-			.select('deal_id,subject,body')
-			.eq('source', 'zoho_projects_task')
-			.eq('status', 'active')
-			.limit(300),
-		supabase.from('cpr_crew').select('name,role,skills')
+		supabase.from('cpr_crew').select('name,role,skills'),
+		listActiveDealsBrief().catch((err) => {
+			console.warn('[bot/schedule] listActiveDealsBrief failed:', err);
+			return [] as Awaited<ReturnType<typeof listActiveDealsBrief>>;
+		})
 	]);
+
+	// Fetch tasks PER DEAL: a flat cross-deal limit lets one big project (500+
+	// task docs) flood the budget and crowd every other job out of the draft.
+	const taskFetches = await Promise.all(
+		activeDeals.map(async (d) => {
+			const { data } = await supabase
+				.from('bot_documents')
+				.select('deal_id,subject,body')
+				.eq('source', 'zoho_projects_task')
+				.eq('status', 'active')
+				.eq('deal_id', d.id)
+				.limit(600);
+			return (data ?? []) as any[];
+		})
+	);
+	const tasksRes = { data: taskFetches.flat() };
 
 	// Roster with skills. Prefer cpr_crew (carries skills, the handful actually on
 	// shifts); fall back to names/roles derived from booked shifts when crew data
@@ -887,26 +901,9 @@ async function buildSchedulingBlock(): Promise<string> {
 	const closedRe = /status:\s*(closed|completed|done|100%)/i;
 	const openTasks = ((tasksRes.data ?? []) as any[]).filter((t) => !closedRe.test(t.body ?? ''));
 
-	const dealIds = Array.from(
-		new Set(openTasks.map((t) => t.deal_id).filter((id): id is string => Boolean(id)))
-	).slice(0, 15);
-	// Deals that no longer resolve in CRM (deleted/merged) must NOT feed the
-	// schedule — their tasks are stale. Drop them instead of falling back to an
-	// opaque "Deal <id>" label. (Sync's prune archives their docs; this guards
-	// the window before the next sync run.)
-	const namePairs = await Promise.all(
-		dealIds.map(async (id) => {
-			try {
-				const ctx = await getDealContext(id);
-				return [id, ctx.name?.trim() || `Deal ${id}`] as const;
-			} catch {
-				return [id, null] as const;
-			}
-		})
-	);
-	const dealName = new Map<string, string>(
-		namePairs.filter((p): p is readonly [string, string] => p[1] !== null)
-	);
+	// Tasks were fetched from the active-deal list, so names come straight from
+	// it — deleted/merged deals can never appear here.
+	const dealName = new Map<string, string>(activeDeals.map((d) => [d.id, d.name]));
 
 	const lines: string[] = [];
 	lines.push('## Crew roster (name — role — skills)');
@@ -1191,7 +1188,8 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 					'- Only schedule people listed in the Crew roster. Match the SKILLS a task needs to a person who has that skill (use role as a secondary signal). If no one on the roster has the skill a task needs, flag it instead of forcing the assignment.\n' +
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
-					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Cover EVERY job site that has open tasks, and always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
+					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
+					'- Spread the week across ALL projects listed under "Open project tasks" — every project with open tasks must appear somewhere in the plan. Do NOT build the whole week around a single project unless it is the only one with open tasks; if there are more projects than crew-days, cover the most time-sensitive tasks from each and note what was left out.\n' +
 					'- We do NOT yet have formal availability or time-off data, so assume everyone on the roster is available unless they already have a booked shift. State that assumption plainly and ask the user to flag anyone who is off.\n' +
 					'- Tasks have no hour estimates, so schedule at the DAY level (who is where each day), not hour-by-hour.\n' +
 					'- Finish with a short "Check before publishing" list of conflicts, gaps, or assumptions the user should confirm.'
