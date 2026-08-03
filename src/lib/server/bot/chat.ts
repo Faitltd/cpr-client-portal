@@ -777,6 +777,59 @@ function isScheduleBuildRequest(text: string): boolean {
  * deterministic SELECTs against already-synced data.
  */
 /**
+ * Live shifts straight from the Connecteam ICS feeds (connecteam_shifts).
+ * The legacy cpr_shifts table (external cpr-shift-sync service) went stale in
+ * July; the feeds table is refreshed by syncConnecteamFeeds and is current.
+ * Each shift appears once per crew member's feed — de-dupe by start+title and
+ * union the people (feed label = whose calendar it is, crew = everyone on it).
+ */
+interface LiveShift {
+	start_ts: string;
+	end_ts: string | null;
+	job: string;
+	location: string | null;
+	people: string[];
+}
+
+async function fetchConnecteamShifts(startIso: string, endIso: string): Promise<LiveShift[]> {
+	const { data, error } = await supabase
+		.from('connecteam_shifts')
+		.select('title,location,crew,starts_at,ends_at,connecteam_feeds(label)')
+		.gte('starts_at', startIso)
+		.lte('starts_at', endIso)
+		.order('starts_at');
+	if (error) {
+		console.warn('[bot/shifts] connecteam_shifts read failed:', error.message);
+		return [];
+	}
+	const byKey = new Map<string, LiveShift>();
+	for (const r of (data ?? []) as any[]) {
+		const title = String(r.title ?? '').trim() || '(untitled)';
+		const key = `${r.starts_at}|${title.toLowerCase()}`;
+		const feedLabel =
+			typeof r.connecteam_feeds?.label === 'string' ? r.connecteam_feeds.label.trim() : '';
+		const people = [
+			...(Array.isArray(r.crew) ? r.crew : []).map((p: unknown) => String(p ?? '').trim()),
+			feedLabel
+		].filter(Boolean);
+		const existing = byKey.get(key);
+		if (existing) {
+			for (const p of people) if (!existing.people.includes(p)) existing.people.push(p);
+			if (!existing.location && r.location) existing.location = r.location;
+		} else {
+			byKey.set(key, {
+				start_ts: r.starts_at,
+				end_ts: r.ends_at ?? null,
+				job: title,
+				location: r.location ?? null,
+				people: [...new Set(people)]
+			});
+		}
+	}
+	return [...byKey.values()];
+}
+
+/**
  * Map each distinct Connecteam job site (often a bare surname like "Guikema")
  * to its CRM Deal name, so schedule answers speak in deal names instead of raw
  * site strings. Unmatched sites (Office, shop, partner sites) keep their name.
@@ -801,14 +854,8 @@ async function buildSchedulingBlock(): Promise<string> {
 	const nowIso = new Date().toISOString();
 	const horizonIso = new Date(Date.now() + 21 * 86400000).toISOString();
 
-	const [shiftsRes, rosterRes, tasksRes, crewRes] = await Promise.all([
-		supabase
-			.from('cpr_shifts')
-			.select('shift_date,job_site,employee,role,task,is_open')
-			.gte('start_ts', nowIso)
-			.lte('start_ts', horizonIso)
-			.order('start_ts'),
-		supabase.from('cpr_shifts').select('employee,role').not('employee', 'is', null),
+	const [liveShifts, tasksRes, crewRes] = await Promise.all([
+		fetchConnecteamShifts(nowIso, horizonIso),
 		supabase
 			.from('bot_documents')
 			.select('deal_id,subject,body')
@@ -834,7 +881,7 @@ async function buildSchedulingBlock(): Promise<string> {
 	if (crew.length) {
 		for (const c of crew) addRoster(c.name, c.role, c.skills);
 	} else {
-		for (const r of (rosterRes.data ?? []) as any[]) addRoster(r.employee, r.role, null);
+		for (const s of liveShifts) for (const p of s.people) addRoster(p, null, null);
 	}
 
 	const closedRe = /status:\s*(closed|completed|done|100%)/i;
@@ -871,14 +918,12 @@ async function buildSchedulingBlock(): Promise<string> {
 	}
 
 	lines.push('\n## Shifts already booked in the next 3 weeks (do NOT double-book these people)');
-	const shifts = (shiftsRes.data ?? []) as any[];
-	if (!shifts.length) lines.push('(none booked)');
-	const siteLabels = await buildJobSiteLabels(shifts.map((s) => s.job_site));
-	const siteLabel = (site: string | null) =>
-		site ? siteLabels.get(site) ?? site : '—';
-	for (const s of shifts) {
-		const who = s.is_open ? 'OPEN' : s.employee ?? 'unknown';
-		lines.push(`- ${s.shift_date} · ${siteLabel(s.job_site)}: ${who}${s.role ? ` (${s.role})` : ''} — ${s.task ?? ''}`);
+	if (!liveShifts.length) lines.push('(none booked)');
+	const siteLabels = await buildJobSiteLabels(liveShifts.map((s) => s.job));
+	const jobLabel = (job: string) => siteLabels.get(job) ?? job;
+	for (const s of liveShifts) {
+		const who = s.people.length ? s.people.join(', ') : 'OPEN';
+		lines.push(`- ${s.start_ts.slice(0, 10)} · ${jobLabel(s.job)}: ${who}`);
 	}
 
 	lines.push('\n## Open project tasks (work still needing scheduling)');
@@ -913,16 +958,7 @@ function isShiftInfoQuery(text: string): boolean {
 async function buildShiftsBlock(): Promise<string> {
 	const startIso = new Date(Date.now() - 7 * 86400000).toISOString();
 	const endIso = new Date(Date.now() + 9 * 86400000).toISOString();
-	const { data } = await supabase
-		.from('cpr_shifts')
-		.select('start_ts,job_site,employee,role,task,is_open,schedule')
-		.gte('start_ts', startIso)
-		.lte('start_ts', endIso)
-		.order('start_ts');
-	const rows = (data ?? []) as any[];
-	const n = (x: string | null | undefined) => (x ?? '').toLowerCase().trim();
-	// Drop open mirror placeholders whose only "task" is the schedule name.
-	const real = rows.filter((r) => !(r.is_open && (n(r.task) === '' || n(r.task) === n(r.schedule))));
+	const real = await fetchConnecteamShifts(startIso, endIso);
 	if (!real.length) return '';
 	const fmtDay = (iso: string) => {
 		try {
@@ -936,22 +972,18 @@ async function buildShiftsBlock(): Promise<string> {
 			return (iso ?? '').slice(0, 10);
 		}
 	};
-	// Label each job site with its Deal name so the answer speaks in deal
-	// names ("Mark Guikema - Project Created") instead of raw Connecteam site
-	// strings ("Guikema"). Unmatched sites (Office, shop) keep their own name.
-	const siteLabels = await buildJobSiteLabels(real.map((r) => r.job_site));
+	// Label each job with its Deal name so the answer speaks in deal names
+	// ("Mark Fonte - Project Created") instead of raw Connecteam shift titles
+	// ("Mark Fonte"). Unmatched jobs (Project Management, personal entries)
+	// keep their own title.
+	const siteLabels = await buildJobSiteLabels(real.map((r) => r.job));
 	const byJob = new Map<string, string[]>();
 	for (const r of real) {
-		const rawSite = r.job_site && String(r.job_site).trim() ? String(r.job_site) : null;
-		const job = rawSite
-			? siteLabels.has(rawSite)
-				? `${siteLabels.get(rawSite)} (job site: ${rawSite})`
-				: rawSite
-			: 'Office / Admin (no job site)';
-		const who = r.is_open
-			? 'OPEN (unassigned)'
-			: `${r.employee ?? 'Unknown'}${r.role ? ` (${r.role})` : ''}`;
-		const line = `- ${fmtDay(r.start_ts)}: ${who} — ${r.task ?? ''}`;
+		const job = siteLabels.has(r.job)
+			? `${siteLabels.get(r.job)} (job site: ${r.job})`
+			: r.job;
+		const who = r.people.length ? r.people.join(', ') : 'OPEN (unassigned)';
+		const line = `- ${fmtDay(r.start_ts)}: ${who}${r.location ? ` — ${r.location}` : ''}`;
 		let arr = byJob.get(job);
 		if (!arr) {
 			arr = [];
@@ -1179,8 +1211,8 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 					'\n# Answering who-is-working / schedule questions\n' +
 						'- The block above is the COMPLETE shift list for the surrounding two weeks. List EVERY shift for the period the user asked about — do not summarize, sample, or omit any. Include EVERY job site that has a shift in the period — never drop a site.\n' +
 						'- Group by job site using the EXACT group heading shown in the block. Headings labeled "<Deal name> (job site: <site>)" are CRM deals — refer to them by the deal name.\n' +
-						'- Format each as "<person> (role) — <task>, <day date>". An OPEN shift is unassigned; label it OPEN.\n' +
-						'- Include the "Office / Admin" group when the user asks who is working overall.\n' +
+						'- Format each as "<people> — <day date>" (include the site address when shown). An OPEN shift has no one assigned; label it OPEN.\n' +
+						'- Include non-project entries (e.g. "Project Management") when the user asks who is working overall.\n' +
 						'- For "this week" use Monday–Sunday containing today; for "today" / "tomorrow" / "next week" filter by the dates shown (today’s date is in the block).\n' +
 						'- This block is the authoritative source for schedule questions — prefer it over any shift chunk in the retrieved context.'
 				);
