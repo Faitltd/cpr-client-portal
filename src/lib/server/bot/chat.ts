@@ -898,7 +898,7 @@ async function buildSchedulingBlock(): Promise<string> {
 		for (const s of liveShifts) for (const p of s.people) addRoster(p, null, null);
 	}
 
-	const closedRe = /status:\s*(closed|completed|done|100%)/i;
+	const closedRe = /status:\s*(closed|complete[d]?|done|100%)/i;
 	const openTasks = ((tasksRes.data ?? []) as any[]).filter((t) => !closedRe.test(t.body ?? ''));
 
 	// Tasks were fetched from the active-deal list, so names come straight from
@@ -1033,7 +1033,7 @@ async function buildProjectsOverviewBlock(): Promise<string> {
 		.eq('source', 'zoho_projects_task')
 		.eq('status', 'active')
 		.in('deal_id', ids);
-	const closedRe = /status:\s*(closed|completed|done|100%)/i;
+	const closedRe = /status:\s*(closed|complete[d]?|done|100%)/i;
 	const openByDeal = new Map<string, number>();
 	for (const t of (taskRows ?? []) as any[]) {
 		if (!t.deal_id || closedRe.test(t.body ?? '')) continue;
