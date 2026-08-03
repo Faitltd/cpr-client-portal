@@ -985,15 +985,18 @@ async function buildSchedulingBlock(): Promise<string> {
 	const dateOnly = (d: Date) =>
 		`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 	let timeOff: TimeOffEntry[] | null = null;
+	let timeOffError = '';
 	try {
 		timeOff = await getApprovedTimeOff(dateOnly(monThis), dateOnly(addDays(monThis, 13)));
+		if (timeOff === null) timeOffError = 'CONNECTEAM_API_KEY env var is not set on the server';
 	} catch (err) {
 		console.warn('[bot/schedule] time-off fetch failed:', err);
+		timeOffError = err instanceof Error ? err.message : 'unknown error';
 		timeOff = null;
 	}
 	if (timeOff === null) {
 		lines.push(
-			'\n## Approved time off\n(UNKNOWN — the Connecteam API key is not configured or unreachable, so time off could NOT be checked. Say so and ask the user to confirm who is off.)'
+			`\n## Approved time off\n(UNKNOWN — time off could NOT be checked: ${timeOffError}. Report this exact reason to the user and ask them to confirm who is off.)`
 		);
 	} else if (timeOff.length) {
 		lines.push('\n## Approved time off (these people are OFF — NEVER schedule them on these dates)');
