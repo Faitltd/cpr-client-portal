@@ -11,6 +11,7 @@ import {
 	type CrossDealChunk
 } from './retrieve';
 import { shiftMatchesDeal } from './ingest-shifts';
+import { getApprovedTimeOff, type TimeOffEntry } from '$lib/server/connecteam';
 
 const ALL_SOURCES = [
 	'zoho_mail',
@@ -979,63 +980,89 @@ async function buildSchedulingBlock(): Promise<string> {
 		}
 	}
 
-	// The model kept building single-project weeks despite prose instructions,
-	// so compute the crew-day split HERE and hand it down as a binding quota:
-	// proportional to open-task count, minimum one crew-day per project.
-	const crewCount = Math.max(1, fieldCrew.length);
-	const totalCrewDays = crewCount * 5;
-	const totalOpen = [...byProject.values()].reduce((n, l) => n + l.length, 0);
-	if (byProject.size > 0 && totalOpen > 0) {
-		const alloc = [...byProject.entries()].map(([project, items]) => ({
-			project,
-			open: items.length,
-			days: Math.max(1, Math.round((items.length / totalOpen) * totalCrewDays))
-		}));
-		let sum = alloc.reduce((n, a) => n + a.days, 0);
-		while (sum > totalCrewDays) {
-			alloc.sort((a, b) => b.days - a.days);
-			if (alloc[0].days <= 1) break;
-			alloc[0].days -= 1;
-			sum -= 1;
-		}
+	// Approved time off from the Connecteam API — the ICS feeds don't carry it,
+	// so without the API the bot cannot know who is off.
+	const dateOnly = (d: Date) =>
+		`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	let timeOff: TimeOffEntry[] | null = null;
+	try {
+		timeOff = await getApprovedTimeOff(dateOnly(monThis), dateOnly(addDays(monThis, 13)));
+	} catch (err) {
+		console.warn('[bot/schedule] time-off fetch failed:', err);
+		timeOff = null;
+	}
+	if (timeOff === null) {
 		lines.push(
-			'\n## REQUIRED crew-day allocation for the week (BINDING quota — the plan MUST match these numbers)'
+			'\n## Approved time off\n(UNKNOWN — the Connecteam API key is not configured or unreachable, so time off could NOT be checked. Say so and ask the user to confirm who is off.)'
 		);
-		for (const a of alloc.sort((x, y) => y.days - x.days)) {
-			lines.push(`- ${a.project}: ${a.days} crew-day${a.days === 1 ? '' : 's'} (${a.open} open tasks)`);
+	} else if (timeOff.length) {
+		lines.push('\n## Approved time off (these people are OFF — NEVER schedule them on these dates)');
+		for (const t of timeOff) {
+			lines.push(
+				`- ${t.name}: ${t.startDate} → ${t.endDate}${t.isAllDay ? ' (all day)' : ` (${t.startTime}–${t.endTime})`}`
+			);
 		}
+	} else {
+		lines.push('\n## Approved time off\n(none in the next two weeks)');
+	}
 
-		// Pre-build the actual day-by-day plan so the model does zero allocation:
-		// smallest projects are covered first (they only need one visit), then the
-		// big ones fill the rest of the week. The model only maps Day 1–5 onto the
-		// requested week's dates and applies booked-shift conflicts.
-		const crewNames = fieldCrew;
-		if (crewNames.length > 0) {
-			const remaining = new Map(alloc.map((a) => [a.project, a.days]));
+	const normName = (s: string) => s.toLowerCase().trim();
+	const isOffOn = (person: string, date: string) =>
+		(timeOff ?? []).some(
+			(t) => normName(t.name) === normName(person) && t.startDate <= date && date <= t.endDate
+		);
+
+	// Pre-build a day-by-day plan for BOTH candidate weeks (this week and next)
+	// with real dates, skipping anyone on approved time off. Small projects are
+	// covered first; big ones fill the remaining crew-days. The model only
+	// presents the plan for the week the user asked about.
+	const totalOpen = [...byProject.values()].reduce((n, l) => n + l.length, 0);
+	if (byProject.size > 0 && totalOpen > 0 && fieldCrew.length > 0) {
+		const buildWeekPlan = (label: string, monday: Date) => {
+			const dates = [0, 1, 2, 3, 4].map((i) => addDays(monday, i));
+			const availByDay = dates.map((d) => fieldCrew.filter((p) => !isOffOn(p, dateOnly(d))));
+			const totalCrewDays = availByDay.reduce((n, a) => n + a.length, 0);
+			lines.push(`\n## PRE-BUILT draft plan — ${label}`);
+			if (totalCrewDays === 0) {
+				lines.push('(no field crew available — everyone is on approved time off this week)');
+				return;
+			}
+			const remaining = new Map<string, number>(
+				[...byProject.entries()].map(([p, items]) => [
+					p,
+					Math.max(1, Math.round((items.length / totalOpen) * totalCrewDays))
+				])
+			);
+			let sum = [...remaining.values()].reduce((a, b) => a + b, 0);
+			while (sum > totalCrewDays) {
+				const big = [...remaining.entries()].sort((a, b) => b[1] - a[1])[0];
+				if (big[1] <= 1) break;
+				remaining.set(big[0], big[1] - 1);
+				sum -= 1;
+			}
 			const queues = new Map([...byProject.entries()].map(([p, items]) => [p, [...items]]));
-			lines.push(
-				'\n## PRE-BUILT draft plan (Day 1 = Monday … Day 5 = Friday of the requested week)'
-			);
-			lines.push(
-				'This allocation is final. Reproduce it with real dates from the Calendar line. Only deviation allowed: if a person has a booked shift that day, swap tasks BETWEEN people on the same day — never move a visit off a project.'
-			);
-			for (let day = 1; day <= 5; day++) {
-				const assignments: string[] = [];
-				for (const person of crewNames) {
+			for (let i = 0; i < dates.length; i++) {
+				lines.push(`### ${fmtDate(dates[i])}`);
+				for (const p of fieldCrew.filter((x) => isOffOn(x, dateOnly(dates[i])))) {
+					lines.push(`- ${p}: OFF (approved time off) — do not assign`);
+				}
+				for (const person of availByDay[i]) {
 					const candidates = [...remaining.entries()]
 						.filter(([, d]) => d > 0)
 						.sort((a, b) => a[1] - b[1]); // fewest remaining first → small jobs covered early
 					if (!candidates.length) break;
 					const [proj, daysLeft] = candidates[0];
 					const task = (queues.get(proj) ?? []).shift() ?? 'continue remaining open tasks';
-					assignments.push(`- ${person} → ${task} at ${proj}`);
+					lines.push(`- ${person} → ${task} at ${proj}`);
 					remaining.set(proj, daysLeft - 1);
 				}
-				if (!assignments.length) break;
-				lines.push(`### Day ${day}`);
-				lines.push(...assignments);
 			}
-		}
+		};
+		buildWeekPlan(`THIS week (${fmtDate(monThis)} – ${fmtDate(addDays(monThis, 4))})`, monThis);
+		buildWeekPlan(
+			`NEXT week (${fmtDate(addDays(monThis, 7))} – ${fmtDate(addDays(monThis, 11))})`,
+			addDays(monThis, 7)
+		);
 	}
 
 	return lines.join('\n');
@@ -1288,8 +1315,9 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
 					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
-					'- USE THE PRE-BUILT PLAN: the "PRE-BUILT draft plan" section IS the schedule. Your job is presentation only: map Day 1–5 onto the correct weekday/date pairs from the Calendar line (this week or next week, whichever the user asked for), swap same-day tasks between people where a booked shift conflicts, and format it nicely. Do NOT reallocate projects, drop assignments, or invent dates. Ignore any earlier drafts in this conversation that deviated from the pre-built plan; they were mistakes.\n' +
-					'- We do NOT yet have formal availability or time-off data, so assume everyone on the roster is available unless they already have a booked shift. State that assumption plainly and ask the user to flag anyone who is off.\n' +
+					'- USE THE PRE-BUILT PLAN: two pre-built plans are provided, one for THIS week and one for NEXT week, already carrying real dates and time-off exclusions. Present the plan for the week the user asked about EXACTLY as written — same people, same tasks, same projects, same dates. The only change allowed: swap same-day tasks between people where a booked shift conflicts. Do NOT reallocate projects, drop assignments, or invent dates. Ignore any earlier drafts in this conversation that deviated; they were mistakes.\n' +
+					'- The "Approved time off" section is authoritative. NEVER assign anyone on a date they are off. If it says time off is UNKNOWN, state that plainly and ask the user to confirm who is off.\n' +
+					'- Availability = not on approved time off (see the Approved time off section) and not already on a booked shift. Do not ask the user to confirm availability unless time off is UNKNOWN.\n' +
 					'- Tasks have no hour estimates, so schedule at the DAY level (who is where each day), not hour-by-hour.\n' +
 					'- Finish with a short "Check before publishing" list of conflicts, gaps, or assumptions the user should confirm.'
 			);

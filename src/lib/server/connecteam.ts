@@ -1,7 +1,103 @@
+import { env } from '$env/dynamic/private';
 import { supabase } from '$lib/server/db';
 import { createLogger } from '$lib/server/logger';
 
 const log = createLogger('connecteam');
+
+// ---------------------------------------------------------------------------
+// Connecteam REST API (X-API-KEY) — time off.
+// The ICS schedule feeds do NOT carry time-off entries, so approved PTO must
+// come from the official API (Enterprise plan; key from Settings → API keys).
+// ---------------------------------------------------------------------------
+
+const CT_API_BASE = 'https://api.connecteam.com';
+
+export interface TimeOffEntry {
+	userId: number;
+	name: string;
+	startDate: string; // YYYY-MM-DD
+	endDate: string; // YYYY-MM-DD
+	isAllDay: boolean;
+	startTime: string | null;
+	endTime: string | null;
+}
+
+async function ctApiGet(
+	path: string,
+	params: Record<string, string | number>
+): Promise<any> {
+	const key = env.CONNECTEAM_API_KEY;
+	if (!key) throw new Error('CONNECTEAM_API_KEY not set');
+	const url = new URL(`${CT_API_BASE}${path}`);
+	for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+	const res = await fetch(url, { headers: { 'X-API-KEY': key, Accept: 'application/json' } });
+	if (!res.ok) throw new Error(`Connecteam API ${path} failed: HTTP ${res.status}`);
+	return res.json();
+}
+
+let ctUserCache: { at: number; byId: Map<number, string> } | null = null;
+
+async function getConnecteamUserNames(): Promise<Map<number, string>> {
+	if (ctUserCache && Date.now() - ctUserCache.at < 10 * 60_000) return ctUserCache.byId;
+	const byId = new Map<number, string>();
+	let offset = 0;
+	for (let page = 0; page < 20; page++) {
+		const body = await ctApiGet('/users/v1/users', { limit: 100, offset });
+		const users = body?.data?.users ?? [];
+		for (const u of users) {
+			if (u?.userId != null) {
+				byId.set(Number(u.userId), `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim());
+			}
+		}
+		const paging = body?.paging ?? {};
+		if (!users.length || paging.offset == null || paging.total == null || paging.offset >= paging.total) {
+			break;
+		}
+		offset = paging.offset;
+	}
+	ctUserCache = { at: Date.now(), byId };
+	return byId;
+}
+
+/**
+ * Approved time-off requests overlapping [startDate, endDate] (YYYY-MM-DD,
+ * overlap not containment). Returns null when no API key is configured, so
+ * callers can distinguish "no time off" from "cannot know".
+ */
+export async function getApprovedTimeOff(
+	startDate: string,
+	endDate: string
+): Promise<TimeOffEntry[] | null> {
+	if (!env.CONNECTEAM_API_KEY) return null;
+	const names = await getConnecteamUserNames().catch((err) => {
+		log.warn('Connecteam users fetch failed', { error: err instanceof Error ? err.message : String(err) });
+		return new Map<number, string>();
+	});
+	const out: TimeOffEntry[] = [];
+	let offset = 0;
+	for (let page = 0; page < 20; page++) {
+		const body = await ctApiGet('/time-off/v1/requests', { startDate, endDate, limit: 100, offset });
+		const reqs = body?.data?.requests ?? [];
+		for (const r of reqs) {
+			if (r?.status !== 'approved') continue;
+			out.push({
+				userId: Number(r.userId),
+				name: names.get(Number(r.userId)) ?? `User ${r.userId}`,
+				startDate: r.startDate,
+				endDate: r.endDate,
+				isAllDay: !!r.isAllDay,
+				startTime: r.startTime ?? null,
+				endTime: r.endTime ?? null
+			});
+		}
+		const paging = body?.paging ?? {};
+		if (!reqs.length || paging.offset == null || paging.total == null || paging.offset >= paging.total) {
+			break;
+		}
+		offset = paging.offset;
+	}
+	return out;
+}
 
 export interface ParsedShift {
 	uid: string;
