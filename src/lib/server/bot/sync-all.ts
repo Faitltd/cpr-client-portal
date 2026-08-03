@@ -165,6 +165,78 @@ async function stampDealStatus(dealId: string, stage: string): Promise<void> {
 	if (error) console.warn(`[bot/sync-all] status stamp failed for ${dealId}:`, error.message);
 }
 
+export interface PruneResult {
+	checked: number;
+	archived: number;
+	errors: number;
+}
+
+/**
+ * Archive documents belonging to deals that no longer exist in CRM (deleted or
+ * merged). Sync only ever ADDS; without this, a deleted deal's documents stay
+ * "active" forever and pollute cross-deal retrieval and the master assistant's
+ * scheduling block (e.g. a deleted test deal with 961 open tasks).
+ */
+async function pruneDeletedDealDocs(knownLiveIds: Set<string>): Promise<PruneResult> {
+	const out: PruneResult = { checked: 0, archived: 0, errors: 0 };
+	const { data, error } = await supabase
+		.from('bot_documents')
+		.select('deal_id')
+		.eq('status', 'active');
+	if (error) {
+		console.warn('[bot/sync-all] prune: deal_id fetch failed:', error.message);
+		out.errors += 1;
+		return out;
+	}
+	// Sentinel ids ("__cliq__<channel>") are company-wide pools, not Deals.
+	const ids = Array.from(
+		new Set(
+			((data ?? []) as { deal_id: string | null }[])
+				.map((r) => r.deal_id)
+				.filter((id): id is string => Boolean(id) && !id!.startsWith('__'))
+		)
+	).filter((id) => !knownLiveIds.has(id));
+
+	for (const id of ids) {
+		out.checked += 1;
+		let exists: boolean;
+		try {
+			const { accessToken, apiDomain } = await getValidAccessToken();
+			const res = await zohoApiCall(
+				accessToken,
+				`/Deals/${encodeURIComponent(id)}?fields=id`,
+				{},
+				apiDomain
+			);
+			exists = Array.isArray(res?.data) && res.data.length > 0;
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : '';
+			// Only a definitive not-found means deleted. Anything else (auth,
+			// rate limit, network) must NOT archive — skip and report.
+			if (/RESOURCE_NOT_FOUND|INVALID_URL_PATTERN/i.test(msg)) {
+				exists = false;
+			} else {
+				out.errors += 1;
+				continue;
+			}
+		}
+		if (!exists) {
+			const { error: upErr } = await supabase
+				.from('bot_documents')
+				.update({ status: 'archived' })
+				.eq('deal_id', id);
+			if (upErr) {
+				console.warn(`[bot/sync-all] prune: archive failed for ${id}:`, upErr.message);
+				out.errors += 1;
+			} else {
+				out.archived += 1;
+				console.log(`[bot/sync-all] prune: archived docs for deleted deal ${id}`);
+			}
+		}
+	}
+	return out;
+}
+
 export interface SyncAllOptions {
 	trigger: SyncTrigger;
 	sources?: SyncSource[];
@@ -321,6 +393,17 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 		dealSummaries.push(summary);
 	}
 
+	// Full runs (not a dealIds subset) also archive docs for deals that were
+	// deleted in CRM since they were synced.
+	let pruneResult: PruneResult | null = null;
+	if (!(opts.dealIds && opts.dealIds.length > 0)) {
+		try {
+			pruneResult = await pruneDeletedDealDocs(new Set(deals.map((d) => d.id)));
+		} catch (err) {
+			console.warn('[bot/sync-all] prune failed:', err);
+		}
+	}
+
 	const durationMs = Date.now() - startedAt;
 	await supabase
 		.from('bot_sync_runs')
@@ -331,7 +414,7 @@ export async function syncAll(opts: SyncAllOptions): Promise<SyncAllResult> {
 			ok_count: ok,
 			error_count: errs,
 			deals: dealSummaries,
-			summary: { sources, cliq_channels: cliqChannelsResult }
+			summary: { sources, cliq_channels: cliqChannelsResult, prune: pruneResult }
 		})
 		.eq('id', runId);
 

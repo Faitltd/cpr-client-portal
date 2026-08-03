@@ -791,6 +791,7 @@ async function buildSchedulingBlock(): Promise<string> {
 			.from('bot_documents')
 			.select('deal_id,subject,body')
 			.eq('source', 'zoho_projects_task')
+			.eq('status', 'active')
 			.limit(300),
 		supabase.from('cpr_crew').select('name,role,skills')
 	]);
@@ -820,17 +821,23 @@ async function buildSchedulingBlock(): Promise<string> {
 	const dealIds = Array.from(
 		new Set(openTasks.map((t) => t.deal_id).filter((id): id is string => Boolean(id)))
 	).slice(0, 15);
+	// Deals that no longer resolve in CRM (deleted/merged) must NOT feed the
+	// schedule — their tasks are stale. Drop them instead of falling back to an
+	// opaque "Deal <id>" label. (Sync's prune archives their docs; this guards
+	// the window before the next sync run.)
 	const namePairs = await Promise.all(
 		dealIds.map(async (id) => {
 			try {
 				const ctx = await getDealContext(id);
 				return [id, ctx.name?.trim() || `Deal ${id}`] as const;
 			} catch {
-				return [id, `Deal ${id}`] as const;
+				return [id, null] as const;
 			}
 		})
 	);
-	const dealName = new Map<string, string>(namePairs);
+	const dealName = new Map<string, string>(
+		namePairs.filter((p): p is readonly [string, string] => p[1] !== null)
+	);
 
 	const lines: string[] = [];
 	lines.push('## Crew roster (name — role — skills)');
@@ -853,6 +860,8 @@ async function buildSchedulingBlock(): Promise<string> {
 	if (!openTasks.length) lines.push('(no open tasks found)');
 	const byProject = new Map<string, string[]>();
 	for (const t of openTasks) {
+		// Skip tasks whose deal was deleted in CRM (name resolution failed above).
+		if (t.deal_id && !dealName.has(t.deal_id)) continue;
 		const proj = dealName.get(t.deal_id) ?? 'Unassigned project';
 		const list = byProject.get(proj) ?? [];
 		list.push(String(t.subject ?? '').replace(/^Task · /, ''));
@@ -962,6 +971,7 @@ async function buildProjectsOverviewBlock(): Promise<string> {
 		.from('bot_documents')
 		.select('deal_id, body')
 		.eq('source', 'zoho_projects_task')
+		.eq('status', 'active')
 		.in('deal_id', ids);
 	const closedRe = /status:\s*(closed|completed|done|100%)/i;
 	const openByDeal = new Map<string, number>();
