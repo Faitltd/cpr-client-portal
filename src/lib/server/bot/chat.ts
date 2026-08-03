@@ -906,7 +906,26 @@ async function buildSchedulingBlock(): Promise<string> {
 	const dealName = new Map<string, string>(activeDeals.map((d) => [d.id, d.name]));
 
 	const lines: string[] = [];
-	lines.push('## Crew roster (name — role — skills)');
+
+	// Real calendar anchors so the model never has to do date math (it gets
+	// weekday/date pairs wrong on its own).
+	const denverNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }));
+	const monThis = new Date(denverNow);
+	monThis.setDate(denverNow.getDate() - ((denverNow.getDay() + 6) % 7));
+	const addDays = (d: Date, n: number) => {
+		const x = new Date(d);
+		x.setDate(d.getDate() + n);
+		return x;
+	};
+	const fmtDate = (d: Date) =>
+		new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(d);
+	lines.push(
+		`(Calendar: THIS week runs Monday ${fmtDate(monThis)} through Friday ${fmtDate(addDays(monThis, 4))}. ` +
+			`NEXT week runs Monday ${fmtDate(addDays(monThis, 7))} through Friday ${fmtDate(addDays(monThis, 11))}. ` +
+			`Use these exact weekday/date pairs — do not compute your own.)`
+	);
+
+	lines.push('\n## Crew roster (name — role — skills)');
 	if (roster.size === 0) lines.push('(no crew on record)');
 	for (const [name, e] of roster) {
 		const role = e.roles.size ? ` — ${[...e.roles].join(', ')}` : '';
@@ -974,6 +993,38 @@ async function buildSchedulingBlock(): Promise<string> {
 		);
 		for (const a of alloc.sort((x, y) => y.days - x.days)) {
 			lines.push(`- ${a.project}: ${a.days} crew-day${a.days === 1 ? '' : 's'} (${a.open} open tasks)`);
+		}
+
+		// Pre-build the actual day-by-day plan so the model does zero allocation:
+		// smallest projects are covered first (they only need one visit), then the
+		// big ones fill the rest of the week. The model only maps Day 1–5 onto the
+		// requested week's dates and applies booked-shift conflicts.
+		const crewNames = [...roster.keys()];
+		if (crewNames.length > 0) {
+			const remaining = new Map(alloc.map((a) => [a.project, a.days]));
+			const queues = new Map([...byProject.entries()].map(([p, items]) => [p, [...items]]));
+			lines.push(
+				'\n## PRE-BUILT draft plan (Day 1 = Monday … Day 5 = Friday of the requested week)'
+			);
+			lines.push(
+				'This allocation is final. Reproduce it with real dates from the Calendar line. Only deviation allowed: if a person has a booked shift that day, swap tasks BETWEEN people on the same day — never move a visit off a project.'
+			);
+			for (let day = 1; day <= 5; day++) {
+				const assignments: string[] = [];
+				for (const person of crewNames) {
+					const candidates = [...remaining.entries()]
+						.filter(([, d]) => d > 0)
+						.sort((a, b) => a[1] - b[1]); // fewest remaining first → small jobs covered early
+					if (!candidates.length) break;
+					const [proj, daysLeft] = candidates[0];
+					const task = (queues.get(proj) ?? []).shift() ?? 'continue remaining open tasks';
+					assignments.push(`- ${person} → ${task} at ${proj}`);
+					remaining.set(proj, daysLeft - 1);
+				}
+				if (!assignments.length) break;
+				lines.push(`### Day ${day}`);
+				lines.push(...assignments);
+			}
 		}
 	}
 
@@ -1227,7 +1278,7 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
 					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
-					'- BINDING QUOTA: the "REQUIRED crew-day allocation" section is not advice — it is the answer key. Count the person-days at each project in your draft; they MUST equal the quota for that project. A draft where any quota line is unmet is WRONG — fix it before answering. Ignore any earlier drafts in this conversation that violated the quota; they were mistakes.\n' +
+					'- USE THE PRE-BUILT PLAN: the "PRE-BUILT draft plan" section IS the schedule. Your job is presentation only: map Day 1–5 onto the correct weekday/date pairs from the Calendar line (this week or next week, whichever the user asked for), swap same-day tasks between people where a booked shift conflicts, and format it nicely. Do NOT reallocate projects, drop assignments, or invent dates. Ignore any earlier drafts in this conversation that deviated from the pre-built plan; they were mistakes.\n' +
 					'- We do NOT yet have formal availability or time-off data, so assume everyone on the roster is available unless they already have a booked shift. State that assumption plainly and ask the user to flag anyone who is off.\n' +
 					'- Tasks have no hour estimates, so schedule at the DAY level (who is where each day), not hour-by-hour.\n' +
 					'- Finish with a short "Check before publishing" list of conflicts, gaps, or assumptions the user should confirm.'
