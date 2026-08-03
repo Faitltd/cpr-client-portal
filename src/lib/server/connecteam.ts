@@ -59,20 +59,12 @@ async function getConnecteamUserNames(): Promise<Map<number, string>> {
 	return byId;
 }
 
-/**
- * Approved time-off requests overlapping [startDate, endDate] (YYYY-MM-DD,
- * overlap not containment). Returns null when no API key is configured, so
- * callers can distinguish "no time off" from "cannot know".
- */
-export async function getApprovedTimeOff(
+/** Time Off API path (requires the Time Off API on the plan — may 403). */
+async function getTimeOffViaTimeOffApi(
 	startDate: string,
-	endDate: string
-): Promise<TimeOffEntry[] | null> {
-	if (!env.CONNECTEAM_API_KEY) return null;
-	const names = await getConnecteamUserNames().catch((err) => {
-		log.warn('Connecteam users fetch failed', { error: err instanceof Error ? err.message : String(err) });
-		return new Map<number, string>();
-	});
+	endDate: string,
+	names: Map<number, string>
+): Promise<TimeOffEntry[]> {
 	const out: TimeOffEntry[] = [];
 	let offset = 0;
 	for (let page = 0; page < 20; page++) {
@@ -97,6 +89,87 @@ export async function getApprovedTimeOff(
 		offset = paging.offset;
 	}
 	return out;
+}
+
+/**
+ * Scheduler API fallback: GET /scheduler/v1/schedulers/user-unavailability
+ * returns approved time-off (type "timeOff") AND manual unavailability
+ * entries per user — both mean "do not schedule". One call per user.
+ */
+async function getTimeOffViaScheduler(
+	startDate: string,
+	endDate: string,
+	names: Map<number, string>
+): Promise<TimeOffEntry[]> {
+	const startTs = Math.floor(Date.parse(`${startDate}T00:00:00Z`) / 1000) - 86400;
+	const endTs = Math.floor(Date.parse(`${endDate}T00:00:00Z`) / 1000) + 2 * 86400;
+	const out: TimeOffEntry[] = [];
+	for (const [userId] of names) {
+		let body: any;
+		try {
+			body = await ctApiGet('/scheduler/v1/schedulers/user-unavailability', {
+				userId,
+				startTime: startTs,
+				endTime: endTs
+			});
+		} catch (err) {
+			log.warn('Connecteam user-unavailability fetch failed', {
+				userId,
+				error: err instanceof Error ? err.message : String(err)
+			});
+			continue;
+		}
+		for (const u of body?.data?.userUnavailabilities ?? []) {
+			for (const a of u?.unavailabilities ?? []) {
+				const startTsA = a?.startTime?.timestamp;
+				const endTsA = a?.endTime?.timestamp;
+				if (!startTsA || !endTsA) continue;
+				const tz = a?.startTime?.timezone || 'America/Denver';
+				const dateInTz = (ts: number) =>
+					new Intl.DateTimeFormat('en-CA', {
+						timeZone: tz,
+						year: 'numeric',
+						month: '2-digit',
+						day: '2-digit'
+					}).format(new Date(ts * 1000));
+				out.push({
+					userId: Number(u.userId),
+					name: names.get(Number(u.userId)) ?? `User ${u.userId}`,
+					startDate: dateInTz(startTsA),
+					// endTime at midnight is an exclusive bound — back off a minute
+					// so a Mon–Fri absence doesn't bleed into Saturday.
+					endDate: dateInTz(endTsA - 60),
+					isAllDay: endTsA - startTsA >= 20 * 3600,
+					startTime: null,
+					endTime: null
+				});
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * Approved time-off (and manual unavailability) overlapping
+ * [startDate, endDate] (YYYY-MM-DD). Tries the Time Off API first; if the
+ * plan doesn't include it (HTTP 403), falls back to the Scheduler API's
+ * user-unavailability endpoint. Returns null when no API key is configured,
+ * so callers can distinguish "no time off" from "cannot know".
+ */
+export async function getApprovedTimeOff(
+	startDate: string,
+	endDate: string
+): Promise<TimeOffEntry[] | null> {
+	if (!env.CONNECTEAM_API_KEY) return null;
+	const names = await getConnecteamUserNames();
+	try {
+		return await getTimeOffViaTimeOffApi(startDate, endDate, names);
+	} catch (err) {
+		log.warn('Time Off API failed; falling back to Scheduler unavailability', {
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+	return getTimeOffViaScheduler(startDate, endDate, names);
 }
 
 export interface ParsedShift {
