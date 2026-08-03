@@ -92,7 +92,7 @@ function norm(s: string | null | undefined): string {
  * name contains that client (e.g. "Mark Guikema - Project Created"). Matches on
  * containment in either direction, or a shared word of length >= 4 (surname).
  */
-function shiftMatchesDeal(jobSite: string | null, dealName: string | null): boolean {
+export function shiftMatchesDeal(jobSite: string | null, dealName: string | null): boolean {
 	const j = norm(jobSite);
 	const d = norm(dealName);
 	if (!j || !d) return false;

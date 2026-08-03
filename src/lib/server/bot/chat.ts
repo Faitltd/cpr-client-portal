@@ -10,6 +10,7 @@ import {
 	type RetrievedChunk,
 	type CrossDealChunk
 } from './retrieve';
+import { shiftMatchesDeal } from './ingest-shifts';
 
 const ALL_SOURCES = [
 	'zoho_mail',
@@ -775,6 +776,27 @@ function isScheduleBuildRequest(text: string): boolean {
  * weeks (so the planner won't double-book), and every open project task. Pure
  * deterministic SELECTs against already-synced data.
  */
+/**
+ * Map each distinct Connecteam job site (often a bare surname like "Guikema")
+ * to its CRM Deal name, so schedule answers speak in deal names instead of raw
+ * site strings. Unmatched sites (Office, shop, partner sites) keep their name.
+ */
+async function buildJobSiteLabels(jobSites: (string | null)[]): Promise<Map<string, string>> {
+	const labels = new Map<string, string>();
+	const distinct = [...new Set(jobSites.filter((j): j is string => !!j && j.trim() !== ''))];
+	if (!distinct.length) return labels;
+	try {
+		const deals = await listActiveDealsBrief();
+		for (const site of distinct) {
+			const match = deals.find((d) => shiftMatchesDeal(site, d.name));
+			if (match) labels.set(site, match.name);
+		}
+	} catch (err) {
+		console.warn('[bot/shifts] job-site deal-name lookup failed:', err);
+	}
+	return labels;
+}
+
 async function buildSchedulingBlock(): Promise<string> {
 	const nowIso = new Date().toISOString();
 	const horizonIso = new Date(Date.now() + 21 * 86400000).toISOString();
@@ -851,9 +873,12 @@ async function buildSchedulingBlock(): Promise<string> {
 	lines.push('\n## Shifts already booked in the next 3 weeks (do NOT double-book these people)');
 	const shifts = (shiftsRes.data ?? []) as any[];
 	if (!shifts.length) lines.push('(none booked)');
+	const siteLabels = await buildJobSiteLabels(shifts.map((s) => s.job_site));
+	const siteLabel = (site: string | null) =>
+		site ? siteLabels.get(site) ?? site : '—';
 	for (const s of shifts) {
 		const who = s.is_open ? 'OPEN' : s.employee ?? 'unknown';
-		lines.push(`- ${s.shift_date} · ${s.job_site ?? '—'}: ${who}${s.role ? ` (${s.role})` : ''} — ${s.task ?? ''}`);
+		lines.push(`- ${s.shift_date} · ${siteLabel(s.job_site)}: ${who}${s.role ? ` (${s.role})` : ''} — ${s.task ?? ''}`);
 	}
 
 	lines.push('\n## Open project tasks (work still needing scheduling)');
@@ -911,12 +936,18 @@ async function buildShiftsBlock(): Promise<string> {
 			return (iso ?? '').slice(0, 10);
 		}
 	};
+	// Label each job site with its Deal name so the answer speaks in deal
+	// names ("Mark Guikema - Project Created") instead of raw Connecteam site
+	// strings ("Guikema"). Unmatched sites (Office, shop) keep their own name.
+	const siteLabels = await buildJobSiteLabels(real.map((r) => r.job_site));
 	const byJob = new Map<string, string[]>();
 	for (const r of real) {
-		const job =
-			r.job_site && String(r.job_site).trim()
-				? String(r.job_site)
-				: 'Office / Admin (no job site)';
+		const rawSite = r.job_site && String(r.job_site).trim() ? String(r.job_site) : null;
+		const job = rawSite
+			? siteLabels.has(rawSite)
+				? `${siteLabels.get(rawSite)} (job site: ${rawSite})`
+				: rawSite
+			: 'Office / Admin (no job site)';
 		const who = r.is_open
 			? 'OPEN (unassigned)'
 			: `${r.employee ?? 'Unknown'}${r.role ? ` (${r.role})` : ''}`;
@@ -1128,7 +1159,7 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 					'- Only schedule people listed in the Crew roster. Match the SKILLS a task needs to a person who has that skill (use role as a secondary signal). If no one on the roster has the skill a task needs, flag it instead of forcing the assignment.\n' +
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
-					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>".\n' +
+					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Cover EVERY job site that has open tasks, and always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
 					'- We do NOT yet have formal availability or time-off data, so assume everyone on the roster is available unless they already have a booked shift. State that assumption plainly and ask the user to flag anyone who is off.\n' +
 					'- Tasks have no hour estimates, so schedule at the DAY level (who is where each day), not hour-by-hour.\n' +
 					'- Finish with a short "Check before publishing" list of conflicts, gaps, or assumptions the user should confirm.'
@@ -1146,7 +1177,8 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 				);
 				promptParts.push(
 					'\n# Answering who-is-working / schedule questions\n' +
-						'- The block above is the COMPLETE shift list for the surrounding two weeks. List EVERY shift for the period the user asked about — do not summarize, sample, or omit any. Group by job site and keep the dates.\n' +
+						'- The block above is the COMPLETE shift list for the surrounding two weeks. List EVERY shift for the period the user asked about — do not summarize, sample, or omit any. Include EVERY job site that has a shift in the period — never drop a site.\n' +
+						'- Group by job site using the EXACT group heading shown in the block. Headings labeled "<Deal name> (job site: <site>)" are CRM deals — refer to them by the deal name.\n' +
 						'- Format each as "<person> (role) — <task>, <day date>". An OPEN shift is unassigned; label it OPEN.\n' +
 						'- Include the "Office / Admin" group when the user asks who is working overall.\n' +
 						'- For "this week" use Monday–Sunday containing today; for "today" / "tomorrow" / "next week" filter by the dates shown (today’s date is in the block).\n' +
