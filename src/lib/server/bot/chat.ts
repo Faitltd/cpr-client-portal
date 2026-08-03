@@ -950,6 +950,33 @@ async function buildSchedulingBlock(): Promise<string> {
 		}
 	}
 
+	// The model kept building single-project weeks despite prose instructions,
+	// so compute the crew-day split HERE and hand it down as a binding quota:
+	// proportional to open-task count, minimum one crew-day per project.
+	const crewCount = Math.max(1, roster.size);
+	const totalCrewDays = crewCount * 5;
+	const totalOpen = [...byProject.values()].reduce((n, l) => n + l.length, 0);
+	if (byProject.size > 0 && totalOpen > 0) {
+		const alloc = [...byProject.entries()].map(([project, items]) => ({
+			project,
+			open: items.length,
+			days: Math.max(1, Math.round((items.length / totalOpen) * totalCrewDays))
+		}));
+		let sum = alloc.reduce((n, a) => n + a.days, 0);
+		while (sum > totalCrewDays) {
+			alloc.sort((a, b) => b.days - a.days);
+			if (alloc[0].days <= 1) break;
+			alloc[0].days -= 1;
+			sum -= 1;
+		}
+		lines.push(
+			'\n## REQUIRED crew-day allocation for the week (BINDING quota — the plan MUST match these numbers)'
+		);
+		for (const a of alloc.sort((x, y) => y.days - x.days)) {
+			lines.push(`- ${a.project}: ${a.days} crew-day${a.days === 1 ? '' : 's'} (${a.open} open tasks)`);
+		}
+	}
+
 	return lines.join('\n');
 }
 
@@ -1200,7 +1227,7 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
 					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
-					'- MANDATORY COVERAGE: every project named in the "Projects needing coverage" line MUST receive at least one crew assignment during the week. A draft that leaves any listed project with zero assignments is WRONG — redo the allocation before answering. Allocate crew-days roughly in proportion to each project\'s open-task count, but never zero for any project. Only if there are truly fewer crew-days than projects, give the smallest projects one visit each first, and state the shortfall under "Check before publishing".\n' +
+					'- BINDING QUOTA: the "REQUIRED crew-day allocation" section is not advice — it is the answer key. Count the person-days at each project in your draft; they MUST equal the quota for that project. A draft where any quota line is unmet is WRONG — fix it before answering. Ignore any earlier drafts in this conversation that violated the quota; they were mistakes.\n' +
 					'- We do NOT yet have formal availability or time-off data, so assume everyone on the roster is available unless they already have a booked shift. State that assumption plainly and ask the user to flag anyone who is off.\n' +
 					'- Tasks have no hour estimates, so schedule at the DAY level (who is where each day), not hour-by-hour.\n' +
 					'- Finish with a short "Check before publishing" list of conflicts, gaps, or assumptions the user should confirm.'
