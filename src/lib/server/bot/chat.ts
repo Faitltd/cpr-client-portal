@@ -934,9 +934,20 @@ async function buildSchedulingBlock(): Promise<string> {
 		list.push(String(t.subject ?? '').replace(/^Task · /, ''));
 		byProject.set(proj, list);
 	}
+	// Lead with the coverage roll-up, then cap each client's task list so one
+	// huge project can't visually drown the small ones out of the draft.
+	if (byProject.size > 0) {
+		lines.push(
+			`Projects needing coverage this week (EVERY one must appear in the plan): ` +
+				[...byProject.entries()].map(([p, items]) => `${p} (${items.length} open)`).join('; ')
+		);
+	}
 	for (const [proj, items] of byProject) {
-		lines.push(`### ${proj}`);
-		for (const it of items.slice(0, 40)) lines.push(`- ${it}`);
+		lines.push(`### ${proj} — ${items.length} open task(s)`);
+		for (const it of items.slice(0, 12)) lines.push(`- ${it}`);
+		if (items.length > 12) {
+			lines.push(`- …and ${items.length - 12} more open tasks (schedule the listed ones first)`);
+		}
 	}
 
 	return lines.join('\n');
@@ -1189,7 +1200,7 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
 					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
-					'- Spread the week across ALL projects listed under "Open project tasks" — every project with open tasks must appear somewhere in the plan. Do NOT build the whole week around a single project unless it is the only one with open tasks; if there are more projects than crew-days, cover the most time-sensitive tasks from each and note what was left out.\n' +
+					'- MANDATORY COVERAGE: every project named in the "Projects needing coverage" line MUST receive at least one crew assignment during the week. A draft that leaves any listed project with zero assignments is WRONG — redo the allocation before answering. Allocate crew-days roughly in proportion to each project\'s open-task count, but never zero for any project. Only if there are truly fewer crew-days than projects, give the smallest projects one visit each first, and state the shortfall under "Check before publishing".\n' +
 					'- We do NOT yet have formal availability or time-off data, so assume everyone on the roster is available unless they already have a booked shift. State that assumption plainly and ask the user to flag anyone who is off.\n' +
 					'- Tasks have no hour estimates, so schedule at the DAY level (who is where each day), not hour-by-hour.\n' +
 					'- Finish with a short "Check before publishing" list of conflicts, gaps, or assumptions the user should confirm.'
