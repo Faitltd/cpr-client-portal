@@ -898,6 +898,15 @@ async function buildSchedulingBlock(): Promise<string> {
 		for (const s of liveShifts) for (const p of s.people) addRoster(p, null, null);
 	}
 
+	// Only field crew get scheduled for site work. Office staff (Office, PM,
+	// VP, Designer, Admin) stay in the roster for context but are never
+	// assigned. If no roles are recorded at all (shift-derived fallback
+	// roster), assume everyone is field crew rather than scheduling no one.
+	const isFieldCrew = (e: RosterEntry) =>
+		[...e.roles].some((r) => /\b(crew|field|labor|installer?|tech)\b/i.test(r));
+	let fieldCrew = [...roster.entries()].filter(([, e]) => isFieldCrew(e)).map(([n]) => n);
+	if (fieldCrew.length === 0) fieldCrew = [...roster.keys()];
+
 	const closedRe = /status:\s*(closed|complete[d]?|done|100%)/i;
 	const openTasks = ((tasksRes.data ?? []) as any[]).filter((t) => !closedRe.test(t.body ?? ''));
 
@@ -930,7 +939,8 @@ async function buildSchedulingBlock(): Promise<string> {
 	for (const [name, e] of roster) {
 		const role = e.roles.size ? ` — ${[...e.roles].join(', ')}` : '';
 		const skills = e.skills.size ? ` — skills: ${[...e.skills].join(', ')}` : ' — skills: (none recorded)';
-		lines.push(`- ${name}${role}${skills}`);
+		const office = fieldCrew.includes(name) ? '' : ' — OFFICE: do NOT schedule for site work';
+		lines.push(`- ${name}${role}${skills}${office}`);
 	}
 
 	lines.push('\n## Shifts already booked in the next 3 weeks (do NOT double-book these people)');
@@ -972,7 +982,7 @@ async function buildSchedulingBlock(): Promise<string> {
 	// The model kept building single-project weeks despite prose instructions,
 	// so compute the crew-day split HERE and hand it down as a binding quota:
 	// proportional to open-task count, minimum one crew-day per project.
-	const crewCount = Math.max(1, roster.size);
+	const crewCount = Math.max(1, fieldCrew.length);
 	const totalCrewDays = crewCount * 5;
 	const totalOpen = [...byProject.values()].reduce((n, l) => n + l.length, 0);
 	if (byProject.size > 0 && totalOpen > 0) {
@@ -999,7 +1009,7 @@ async function buildSchedulingBlock(): Promise<string> {
 		// smallest projects are covered first (they only need one visit), then the
 		// big ones fill the rest of the week. The model only maps Day 1–5 onto the
 		// requested week's dates and applies booked-shift conflicts.
-		const crewNames = [...roster.keys()];
+		const crewNames = fieldCrew;
 		if (crewNames.length > 0) {
 			const remaining = new Map(alloc.map((a) => [a.project, a.days]));
 			const queues = new Map([...byProject.entries()].map(([p, items]) => [p, [...items]]));
@@ -1274,7 +1284,7 @@ Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved cont
 			promptParts.push(
 				'\n# Scheduling task\n' +
 					'The user is asking you to DRAFT a crew schedule. Output it as TEXT ONLY — you are not writing it into any system. Use the Scheduling data block above as the complete source of truth.\n' +
-					'- Only schedule people listed in the Crew roster. Match the SKILLS a task needs to a person who has that skill (use role as a secondary signal). If no one on the roster has the skill a task needs, flag it instead of forcing the assignment.\n' +
+					'- Only schedule the people who appear in the PRE-BUILT draft plan. Anyone marked "OFFICE: do NOT schedule for site work" in the roster must NEVER be assigned a site task — not even when crew capacity runs short. If capacity runs short, note the gap instead.\n' +
 					'- Never double-book someone who already has a booked shift (see the booked-shifts list).\n' +
 					'- Draw the work from the Open project tasks; prioritise active job sites and tasks that look time-sensitive.\n' +
 					'- Produce a day-by-day plan for the week the user asked about: for each working day list "<person> (role) → <task> at <project / job site>". Always use the DEAL NAME shown in the Scheduling data as the job-site label — never a raw Zoho id.\n' +
