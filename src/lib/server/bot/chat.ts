@@ -1023,6 +1023,16 @@ export async function runMasterChatNonStreaming(opts: {
 			: isScheduleBuildRequest(lastUser.content)
 				? null
 				: routeQuerySources(lastUser.content);
+	// The Comms assistant is folded into the master: company-wide Cliq channels
+	// are in scope, so comms-routed queries must include them. (COMMS_SOURCES
+	// already has the channel source; only patch the intent-routed list.)
+	if (
+		mode !== 'comms' &&
+		routedSources &&
+		routedSources.some((s) => s === 'zoho_mail' || s.startsWith('zoho_cliq'))
+	) {
+		routedSources.push('zoho_cliq_channel');
+	}
 	// Default to active projects; only reach into completed/archived work when the
 	// question explicitly asks for past/finished/old projects.
 	const wantsCompleted =
@@ -1033,9 +1043,9 @@ export async function runMasterChatNonStreaming(opts: {
 		query: retrievalQuery || lastUser.content,
 		k: 18,
 		includeSources: routedSources,
-		// The deal master stays strictly deal-scoped — company-wide Cliq channels
-		// belong to the Comms assistant, not here.
-		excludeSources: mode === 'deal' ? ['zoho_cliq_channel'] : null,
+		// Nothing excluded: the master now covers everything, including the
+		// company-wide Cliq channels that used to belong to the Comms assistant.
+		excludeSources: null,
 		includeCompleted: wantsCompleted
 	}).catch((err) => {
 		console.warn('[bot/master] retrieval failed:', err);
@@ -1081,7 +1091,7 @@ export async function runMasterChatNonStreaming(opts: {
 	const scopeBlurb =
 		mode === 'comms'
 			? 'You are the CPR Communications Assistant. The retrieved context below is drawn ONLY from email and Cliq messages across the whole company. Use it to answer questions about conversations, threads, who said what, follow-ups, and action items — and to summarize recent communications as a status update for a project, client, or group of projects when asked (e.g. "give me an update on <client>"): report what was discussed and decided in email/Cliq, clearly framed as a communications summary. Each passage is tagged with the project or channel it came from as "[Project: <name>]". Attribute facts to that source. If the retrieved context does not contain the answer, say so plainly instead of guessing.'
-			: 'You are the CPR master assistant. The retrieved context below is pulled from ALL projects at once; each passage is tagged with the project it came from as "[Project: <name>]". Answer across projects, and ALWAYS attribute facts to the named project they came from (never leave a job unattributed). If asked which project something is for, use the project name from the tag. If the retrieved context does not contain the answer, say so plainly instead of guessing.';
+			: 'You are the CPR master assistant. The retrieved context below is pulled from ALL projects at once — project tasks, schedule, invoices, documents, contracts, CRM notes, and every email and Cliq conversation (including company-wide channels). Each passage is tagged with the project or channel it came from as "[Project: <name>]". Answer across projects, and ALWAYS attribute facts to the named project they came from (never leave a job unattributed). If asked which project something is for, use the project name from the tag. If the retrieved context does not contain the answer, say so plainly instead of guessing.';
 	const GROUNDING_RULES = `
 # Grounding rules (STRICT — these override any urge to be helpful or complete)
 Every concrete claim MUST trace to a numbered [#N] passage in the Retrieved context. If it isn't in a passage, you do not know it.

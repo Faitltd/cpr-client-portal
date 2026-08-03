@@ -5,16 +5,47 @@
 	let input = $state('');
 	let busy = $state(false);
 	let error = $state('');
+	let syncing = $state(false);
+	let syncStatus = $state('');
 
 	// Cross-project starter questions, phrased to route to the right source and
-	// map to data we sync (scheduling, money, project status, scope/contracts).
+	// map to data we sync (scheduling, money, project status, scope/contracts,
+	// and — now that the Comms assistant is folded in — email and Cliq).
 	const MASTER_PROMPTS = [
 		'Who is working across all jobs this week?',
 		"Draft next week's crew schedule from open tasks and our crew.",
 		'What is outstanding to invoice or collect across all projects?',
 		'Which active projects are behind or waiting on us?',
-		'Which projects have contracts still unsigned?'
+		'Which projects have contracts still unsigned?',
+		'Summarize recent email and Cliq activity across all projects.'
 	];
+
+	function resetThread() {
+		messages = [];
+		error = '';
+	}
+
+	// Fire the org-wide sync detached: the server kicks it off and returns
+	// immediately, so the button never sits on a multi-minute request.
+	async function syncAllNow() {
+		if (syncing) return;
+		syncing = true;
+		syncStatus = 'Starting sync…';
+		try {
+			const res = await fetch('/api/admin/bot/sync-all', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ detached: true })
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+			syncStatus = 'Sync started — all deals are refreshing in the background.';
+		} catch (e) {
+			syncStatus = `Sync failed to start: ${e instanceof Error ? e.message : 'unknown'}`;
+		} finally {
+			syncing = false;
+		}
+	}
 
 	async function send(preset?: string) {
 		const text = (preset ?? input).trim();
@@ -52,6 +83,22 @@
 </script>
 
 <div class="master">
+	<div class="head">
+		<span class="head-title">All projects</span>
+		<div class="head-actions">
+			<button class="sync-btn" type="button" onclick={syncAllNow} disabled={syncing || busy}>
+				{syncing ? 'Starting…' : 'Sync All'}
+			</button>
+			<button class="reset-btn" type="button" onclick={resetThread} disabled={busy}>
+				New conversation
+			</button>
+		</div>
+	</div>
+
+	{#if syncStatus}
+		<div class="sync-status">{syncStatus}</div>
+	{/if}
+
 	<div class="messages">
 		{#if messages.length === 0}
 			<div class="empty">
@@ -97,6 +144,63 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 420px;
+	}
+
+	.head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f9fafb;
+		border-radius: 0.75rem 0.75rem 0 0;
+	}
+
+	.head-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #111827;
+	}
+
+	.head-actions {
+		display: inline-flex;
+		gap: 0.4rem;
+		align-items: center;
+	}
+
+	.sync-btn,
+	.reset-btn {
+		font-size: 0.85rem;
+		padding: 0.35rem 0.7rem;
+		border: 1px solid #d1d5db;
+		border-radius: 0.4rem;
+		background: #ffffff;
+		cursor: pointer;
+		align-self: auto;
+		color: #111827;
+		font-weight: 600;
+	}
+
+	.sync-btn {
+		background: #2563eb;
+		border-color: #2563eb;
+		color: #ffffff;
+		font-weight: 700;
+	}
+
+	.sync-btn:disabled,
+	.reset-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.sync-status {
+		padding: 0.5rem 1rem;
+		border-bottom: 1px solid #e5e7eb;
+		background: #f0f9ff;
+		color: #075985;
+		font-size: 0.8rem;
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	}
 
 	.messages {
