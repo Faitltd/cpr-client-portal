@@ -108,6 +108,48 @@ Trade partners sign in at `/auth/trade` using email + password. Accounts live in
 - Set/reset passwords in `/admin/clients` under Trade Partner Passwords.
 - Sessions are stored in `trade_sessions`.
 
+## CAD Converter (ProKitchen → Chief Architect)
+
+Designers convert a ProKitchen DWG export into a Chief Architect import-ready DXF at
+`/designer/cad-converter`. The tab is visible to staff with the `designer` role and to admins.
+
+Workflow: ProKitchen → Export DWG → drop on the page → download DXF → Chief Architect
+**File → Import → Import Drawing (DWG, DXF)**.
+
+The output is a CAD drawing, not a Chief Architect plan. Cabinets, walls, and appliances arrive
+as linework; Chief Architect's CAD-to-Walls can convert some of it afterwards.
+
+### How it works
+
+- Conversion engine: GNU LibreDWG `dwg2dxf`, compiled from the pinned GNU tarball in the
+  `libredwg` stage of the `Dockerfile` (Alpine has no libredwg package). Bump `LIBREDWG_VERSION`
+  to upgrade; the image build fails if the compile or `dwg2dxf --version` fails.
+- Endpoint: `POST /api/designer/cad-convert` (multipart, field `file`) returns the DXF as a
+  download. `GET` on the same path is a health probe reporting converter availability.
+- Uploads are validated by extension, size, and DWG header bytes, written to a random temp
+  directory, converted with an argument array (never a shell string), and the directory is
+  removed in a `finally` block. Nothing is stored.
+- Failures return plain-language copy plus a job reference like `CAD-7F39A21C`; LibreDWG exit
+  codes and stderr go to the server log only.
+
+### Configuration
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `DXF_VERSION` | `r2018` | One of r12, r14, r2000, r2004, r2007, r2010, r2013, r2018 |
+| `MAX_UPLOAD_MB` | `25` | Application-level upload ceiling |
+| `CONVERSION_TIMEOUT_SECONDS` | `60` | Must stay below the platform request timeout |
+| `DWG2DXF_PATH` | `dwg2dxf` | Override only if the binary is not on `PATH` |
+
+### Troubleshooting
+
+- Converter reported unavailable: shell into the Render instance and run
+  `dwg2dxf --version`. Missing binary means the `libredwg` build stage did not run.
+- Bad scale after import: check a known dimension (island width, for example) in Chief
+  Architect. Files not drawn 1:1 need a custom unit setting during import.
+- Objects missing: `dwg2dxf` covers roughly 90% of DWG. External references and ACIS solids
+  are not imported by Chief Architect regardless of the converter.
+
 ## Architecture
 
 ### Admin OAuth

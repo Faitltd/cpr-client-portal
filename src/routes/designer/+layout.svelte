@@ -49,6 +49,13 @@
 					>Schedule</a
 				>
 			{/if}
+			{#if data.tabs.cadConverter}
+				<a
+					class="tab"
+					class:active={pathname === '/designer/cad-converter'}
+					href="/designer/cad-converter">CAD Converter</a
+				>
+			{/if}
 			<!-- Admins use the amber Assistant tab instead of the designer CPR Assistant tab -->
 			{#if data.canChat && !data.isAdmin}
 				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Assistant</a>
