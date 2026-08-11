@@ -47,7 +47,8 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 		tasks: isAdmin || role === 'designer' || role === 'ops',
 		financials: isAdmin || role === 'ops' || role === 'finance',
 		finance: isAdmin || role === 'finance',
-		schedule: !isAdmin && (role === 'designer' || role === 'ops')
+		schedule: !isAdmin && (role === 'designer' || role === 'ops'),
+		cadConverter: isAdmin || role === 'designer'
 	};
 
 	return {
