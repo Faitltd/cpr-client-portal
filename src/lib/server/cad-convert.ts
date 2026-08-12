@@ -1,24 +1,18 @@
 /**
  * ProKitchen DWG → Chief Architect DXF conversion.
  *
- * Wraps GNU LibreDWG's `dwg2dxf` binary (compiled into the container image;
- * see the `libredwg` stage in the Dockerfile). Everything runs in a throwaway
- * temp directory that is removed whether the conversion succeeds or fails —
- * client drawings are never persisted.
+ * The portal runs on Render's Node runtime, which cannot execute a Dockerfile,
+ * so the LibreDWG binary lives in a separate Docker service (see `converter/`).
+ * This module holds the designer-facing rules — validation, filenames, error
+ * copy, job IDs — and forwards the bytes to that service over a shared token.
+ * Neither side stores anything.
  */
 
-import { execFile } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { constants as fsConstants } from 'node:fs';
-import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
+import { randomBytes } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { createLogger } from '$lib/server/logger';
 
 const log = createLogger('cad-convert');
-const run = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -65,9 +59,17 @@ export function conversionTimeoutMs(): number {
 	return Math.floor(seconds * 1000);
 }
 
-function converterPath(): string {
-	const raw = (env.DWG2DXF_PATH ?? '').trim();
-	return raw || 'dwg2dxf';
+/** Base URL of the converter service, e.g. https://cpr-cad-converter.onrender.com */
+export function converterBaseUrl(): string {
+	return (env.CAD_CONVERTER_URL ?? '').trim().replace(/\/+$/, '');
+}
+
+function converterToken(): string {
+	return (env.CAD_CONVERTER_TOKEN ?? '').trim();
+}
+
+export function converterConfigured(): boolean {
+	return Boolean(converterBaseUrl() && converterToken());
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +96,8 @@ export const CONVERT_ERROR_MESSAGES: Record<ConvertErrorCode, string> = {
 	conversion_failed:
 		'The drawing could not be converted. The DWG may contain objects that the converter does not support.',
 	timeout: 'The drawing took too long to process. Try exporting a simpler DWG from ProKitchen.',
-	converter_missing: 'The converter is not available right now. Please tell Ray.',
+	converter_missing:
+		'The converter is offline — nothing is wrong with your file. This is a server setup issue.',
 	server_error: 'The converter encountered an unexpected error. No file was saved.'
 };
 
@@ -224,17 +227,26 @@ export type ConversionResult = {
 	durationMs: number;
 };
 
-type ExecError = Error & {
-	code?: number | string;
-	killed?: boolean;
-	signal?: string | null;
-	stderr?: string;
-	stdout?: string;
-};
+/** Error codes the converter service is allowed to hand back. */
+const REMOTE_CODES = new Set<ConvertErrorCode>([
+	'invalid_extension',
+	'empty_file',
+	'too_large',
+	'invalid_dwg',
+	'conversion_failed',
+	'timeout',
+	'server_error'
+]);
+
+function remoteCode(value: unknown): ConvertErrorCode | null {
+	return typeof value === 'string' && REMOTE_CODES.has(value as ConvertErrorCode)
+		? (value as ConvertErrorCode)
+		: null;
+}
 
 /**
- * Convert DWG bytes to DXF. Throws `ConversionError` for every failure path.
- * The temp directory is always removed.
+ * Convert DWG bytes to DXF via the converter service.
+ * Throws `ConversionError` for every failure path.
  */
 export async function convertDwgToDxf(input: {
 	bytes: Uint8Array;
@@ -252,82 +264,85 @@ export async function convertDwgToDxf(input: {
 	});
 	if (invalid) throw new ConversionError(invalid, jobId);
 
-	const version = dxfVersion();
-	const timeout = conversionTimeoutMs();
+	if (!converterConfigured()) {
+		log.error('converter not configured', {
+			jobId,
+			hasUrl: Boolean(converterBaseUrl()),
+			hasToken: Boolean(env.CAD_CONVERTER_TOKEN)
+		});
+		throw new ConversionError('converter_missing', jobId);
+	}
+
 	const startedAt = Date.now();
-
-	// Random isolated directory — the uploaded name never touches a path.
-	const dir = join(tmpdir(), 'cad-converter', randomUUID());
-	const inputPath = join(dir, 'input.dwg');
-	const outputPath = join(dir, 'output.dxf');
-
 	log.info('conversion started', {
 		jobId,
 		uploadBytes: input.bytes.byteLength,
-		dwgVersion: dwgVersionMarker(head),
-		dxfVersion: version
+		dwgVersion: dwgVersionMarker(head)
 	});
 
+	// Allow the converter to hit its own timeout first so its error wins.
+	const deadline = conversionTimeoutMs() + 15000;
+
+	// Blob needs an ArrayBuffer-backed view; this constructor copies into one.
+	const body = new Uint8Array(input.bytes);
+	const form = new FormData();
+	form.append('file', new Blob([body.buffer]), `${baseName}.dwg`);
+
+	let response: Response;
 	try {
-		await mkdir(dir, { recursive: true, mode: 0o700 });
-		await writeFile(inputPath, input.bytes, { mode: 0o600 });
-
-		try {
-			// Argument array, never a shell string.
-			await run(converterPath(), ['--as', version, '-y', '-o', outputPath, inputPath], {
-				timeout,
-				killSignal: 'SIGKILL',
-				maxBuffer: 4 * 1024 * 1024,
-				windowsHide: true
-			});
-		} catch (err) {
-			const execErr = err as ExecError;
-			const timedOut = Boolean(execErr.killed) || execErr.signal === 'SIGKILL';
-			const missing = execErr.code === 'ENOENT';
-			log.error('dwg2dxf failed', {
-				jobId,
-				exitCode: typeof execErr.code === 'number' ? execErr.code : null,
-				signal: execErr.signal ?? null,
-				timedOut,
-				durationMs: Date.now() - startedAt,
-				stderr: (execErr.stderr ?? '').slice(0, 2000)
-			});
-			if (missing) throw new ConversionError('converter_missing', jobId);
-			if (timedOut) throw new ConversionError('timeout', jobId);
-			throw new ConversionError('conversion_failed', jobId);
-		}
-
-		// Exit code 0 does not guarantee a usable file.
-		let outputSize = 0;
-		try {
-			outputSize = (await stat(outputPath)).size;
-		} catch {
-			outputSize = 0;
-		}
-		if (outputSize <= 0) {
-			log.error('dwg2dxf produced no output', { jobId, durationMs: Date.now() - startedAt });
-			throw new ConversionError('conversion_failed', jobId);
-		}
-
-		const dxf = await readFile(outputPath);
-		const durationMs = Date.now() - startedAt;
-		log.info('conversion succeeded', { jobId, outputBytes: dxf.byteLength, durationMs });
-		return { dxf, baseName, jobId, durationMs };
+		response = await fetch(`${converterBaseUrl()}/convert`, {
+			method: 'POST',
+			headers: {
+				'X-Converter-Token': env.CAD_CONVERTER_TOKEN?.trim() ?? '',
+				'X-Job-Id': jobId
+			},
+			body: form,
+			signal: AbortSignal.timeout(deadline)
+		});
 	} catch (err) {
-		if (err instanceof ConversionError) throw err;
-		log.error('conversion errored', {
+		const aborted = err instanceof Error && err.name === 'TimeoutError';
+		log.error('converter request failed', {
 			jobId,
+			aborted,
+			durationMs: Date.now() - startedAt,
 			error: err instanceof Error ? err.message : String(err)
 		});
-		throw new ConversionError('server_error', jobId);
-	} finally {
-		await rm(dir, { recursive: true, force: true }).catch((err) => {
-			log.warn('temp cleanup failed', {
-				jobId,
-				error: err instanceof Error ? err.message : String(err)
-			});
-		});
+		throw new ConversionError(aborted ? 'timeout' : 'converter_missing', jobId);
 	}
+
+	if (!response.ok) {
+		let code: ConvertErrorCode | null = null;
+		try {
+			const payload = await response.json();
+			code = remoteCode(payload?.code);
+		} catch {
+			/* non-JSON error body */
+		}
+		log.error('converter returned an error', {
+			jobId,
+			status: response.status,
+			code,
+			durationMs: Date.now() - startedAt
+		});
+		// 401/503 mean the service is misconfigured or asleep, not a bad drawing.
+		if (!code) {
+			throw new ConversionError(
+				response.status === 401 || response.status === 503 ? 'converter_missing' : 'server_error',
+				jobId
+			);
+		}
+		throw new ConversionError(code, jobId);
+	}
+
+	const dxf = Buffer.from(await response.arrayBuffer());
+	if (dxf.byteLength === 0) {
+		log.error('converter returned an empty body', { jobId });
+		throw new ConversionError('conversion_failed', jobId);
+	}
+
+	const durationMs = Date.now() - startedAt;
+	log.info('conversion succeeded', { jobId, outputBytes: dxf.byteLength, durationMs });
+	return { dxf, baseName, jobId, durationMs };
 }
 
 // ---------------------------------------------------------------------------
@@ -339,54 +354,40 @@ export type ConverterHealth = {
 	version: string | null;
 	/** Why the probe failed, so a bad deploy can be diagnosed without shell access. */
 	detail: string | null;
-	/** Whether the expected binary is present on disk, independent of running it. */
-	binaryPresent: boolean;
+	/** Whether the portal has both the URL and the token. */
+	configured: boolean;
 };
 
-const CANDIDATE_PATHS = ['/usr/local/bin/dwg2dxf', '/usr/bin/dwg2dxf'];
-
-/** Confirms `dwg2dxf` exists and runs. */
+/** Asks the converter service whether it can run dwg2dxf. */
 export async function converterHealth(): Promise<ConverterHealth> {
-	const configured = converterPath();
-	const probes = configured.includes('/') ? [configured] : CANDIDATE_PATHS;
-
-	let binaryPresent = false;
-	for (const candidate of probes) {
-		try {
-			await access(candidate, fsConstants.X_OK);
-			binaryPresent = true;
-			break;
-		} catch {
-			/* keep looking */
-		}
+	const configured = converterConfigured();
+	if (!configured) {
+		const detail = `CAD_CONVERTER_URL ${converterBaseUrl() ? 'set' : 'missing'}, CAD_CONVERTER_TOKEN ${
+			env.CAD_CONVERTER_TOKEN?.trim() ? 'set' : 'missing'
+		}`;
+		log.error('converter not configured', { detail });
+		return { available: false, version: null, detail, configured };
 	}
 
 	try {
-		const { stdout, stderr } = await run(configured, ['--version'], {
-			timeout: 5000,
-			maxBuffer: 256 * 1024,
-			windowsHide: true
+		const response = await fetch(`${converterBaseUrl()}/health`, {
+			signal: AbortSignal.timeout(20000)
 		});
-		const line = `${stdout}${stderr}`.split('\n').find((l) => l.trim().length > 0);
+		const payload = (await response.json()) as {
+			converter?: string;
+			version?: string | null;
+		};
+		const available = response.ok && payload?.converter === 'available';
 		return {
-			available: true,
-			version: line ? line.trim().slice(0, 120) : null,
-			detail: null,
-			binaryPresent: true
+			available,
+			version: payload?.version ?? null,
+			detail: available ? null : `converter responded ${response.status}`,
+			configured
 		};
 	} catch (err) {
-		const execErr = err as ExecError;
-		const detail = [
-			`path=${configured}`,
-			`present=${binaryPresent}`,
-			execErr.code !== undefined ? `code=${execErr.code}` : null,
-			execErr.signal ? `signal=${execErr.signal}` : null,
-			(execErr.stderr ?? '').trim() ? `stderr=${(execErr.stderr ?? '').trim().slice(0, 200)}` : null,
-			!execErr.code && err instanceof Error ? `error=${err.message.slice(0, 200)}` : null
-		]
-			.filter(Boolean)
-			.join(' ');
+		// A sleeping free-tier instance can exceed the probe timeout on first hit.
+		const detail = err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : String(err);
 		log.error('converter health check failed', { detail });
-		return { available: false, version: null, detail, binaryPresent };
+		return { available: false, version: null, detail, configured };
 	}
 }

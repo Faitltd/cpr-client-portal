@@ -119,34 +119,72 @@ Workflow: ProKitchen → Export DWG → drop on the page → download DXF → Ch
 The output is a CAD drawing, not a Chief Architect plan. Cabinets, walls, and appliances arrive
 as linework; Chief Architect's CAD-to-Walls can convert some of it afterwards.
 
-### How it works
+### Architecture
 
-- Conversion engine: GNU LibreDWG `dwg2dxf`, compiled from the pinned GNU tarball in the
-  `libredwg` stage of the `Dockerfile` (Alpine has no libredwg package). Bump `LIBREDWG_VERSION`
-  to upgrade; the image build fails if the compile or `dwg2dxf --version` fails.
-- Endpoint: `POST /api/designer/cad-convert` (multipart, field `file`) returns the DXF as a
-  download. `GET` on the same path is a health probe reporting converter availability.
-- Uploads are validated by extension, size, and DWG header bytes, written to a random temp
-  directory, converted with an argument array (never a shell string), and the directory is
-  removed in a `finally` block. Nothing is stored.
-- Failures return plain-language copy plus a job reference like `CAD-7F39A21C`; LibreDWG exit
-  codes and stderr go to the server log only.
+The portal runs on Render's **Node** runtime, which never executes a Dockerfile, so the
+LibreDWG binary cannot live in the portal image. It runs in a second Render service built
+from `converter/` (Docker runtime):
+
+```
+browser → portal /api/designer/cad-convert → cpr-cad-converter /convert → dwg2dxf
+```
+
+- The portal owns the designer session, the size limit, DWG header validation, filename
+  sanitizing, job IDs, and all user-facing copy. It never shells out.
+- The converter service accepts only requests carrying the shared `X-Converter-Token`,
+  re-validates the payload, runs `dwg2dxf` with an argument list, and deletes its temp
+  directory in a `finally` block. Neither side stores a drawing.
+- `GET /api/designer/cad-convert` proxies the converter's health probe and returns a
+  `detail` field naming the failure, so a broken deploy is diagnosable from the browser.
+
+### The converter service (`converter/`)
+
+Flask + gunicorn, with LibreDWG compiled from the pinned GNU tarball in a build stage. The
+image runs `dwg2dxf --version` in the final stage, so a missing binary fails the build
+instead of shipping a dead converter.
+
+Run it locally:
+
+```bash
+cd converter
+docker build -t cpr-cad-converter .
+docker run -p 8080:8080 -e CONVERTER_TOKEN=dev-token cpr-cad-converter
+curl localhost:8080/health
+```
+
+Point the portal at it with `CAD_CONVERTER_URL=http://localhost:8080` and
+`CAD_CONVERTER_TOKEN=dev-token`.
 
 ### Configuration
 
+Portal service:
+
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `DXF_VERSION` | `r2013` | LibreDWG 0.13.3 accepts r12, r14, r2000, r2004, r2007, r2010, r2013. It lists r2018 as "planned" and rejects `--as r2018`, so R2013 is the newest usable target. Chief Architect X17 imports AutoCAD 2025 and earlier. |
+| `CAD_CONVERTER_URL` | — | Base URL of the converter service, no trailing slash |
+| `CAD_CONVERTER_TOKEN` | — | Must match `CONVERTER_TOKEN` on the converter |
 | `MAX_UPLOAD_MB` | `25` | Application-level upload ceiling |
-| `CONVERSION_TIMEOUT_SECONDS` | `60` | Must stay below the platform request timeout |
-| `DWG2DXF_PATH` | `dwg2dxf` | Override only if the binary is not on `PATH` |
+| `CONVERSION_TIMEOUT_SECONDS` | `60` | The portal waits 15s longer than this before giving up |
+
+Converter service:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `CONVERTER_TOKEN` | — | Required. Unset means every request is refused |
+| `DXF_VERSION` | `r2013` | LibreDWG 0.13.3 accepts r12, r14, r2000, r2004, r2007, r2010, r2013. It lists r2018 as "planned" and rejects `--as r2018`, so R2013 is the newest usable target. Chief Architect X17 imports AutoCAD 2025 and earlier. |
+| `MAX_UPLOAD_MB` | `25` | Second line of defence behind the portal's limit |
+| `CONVERSION_TIMEOUT_SECONDS` | `60` | `dwg2dxf` subprocess timeout |
 
 ### Troubleshooting
 
-- Converter reported unavailable: shell into the Render instance and run
-  `dwg2dxf --version`. Missing binary means the `libredwg` build stage did not run.
-- Bad scale after import: check a known dimension (island width, for example) in Chief
-  Architect. Files not drawn 1:1 need a custom unit setting during import.
+Load `/api/designer/cad-convert` in the browser while signed in as a designer. The `detail`
+field names the problem:
+
+- `CAD_CONVERTER_URL missing` — the portal env vars were never set.
+- `converter responded 503` — the binary is missing inside the converter image.
+- `TimeoutError` — a free-tier converter instance was asleep. Retry; first wake takes ~50s.
+- Bad scale after import: check a known dimension (island width, for example). Files not
+  drawn 1:1 need a custom unit setting during import.
 - Objects missing: `dwg2dxf` covers roughly 90% of DWG. External references and ACIS solids
   are not imported by Chief Architect regardless of the converter.
 

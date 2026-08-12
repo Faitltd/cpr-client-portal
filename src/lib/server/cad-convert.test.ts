@@ -5,6 +5,8 @@ import {
 	ConversionError,
 	SUPPORTED_DXF_VERSIONS,
 	contentDispositionFor,
+	converterConfigured,
+	converterHealth,
 	convertDwgToDxf,
 	dwgVersionMarker,
 	dxfVersion,
@@ -167,17 +169,20 @@ describe('convertDwgToDxf validation path', () => {
 		).rejects.toMatchObject({ code: 'empty_file' });
 	});
 
-	it('reports converter_missing when the binary is absent', async () => {
-		// Only meaningful where dwg2dxf is not installed (local dev, CI).
-		const { execFile } = await import('node:child_process');
-		const installed = await new Promise<boolean>((resolve) => {
-			execFile('dwg2dxf', ['--version'], (err) => resolve(!err));
-		});
-		if (installed) return;
-
+	it('reports converter_missing when the service is not configured', async () => {
+		// No CAD_CONVERTER_URL / CAD_CONVERTER_TOKEN in the test env, so this
+		// must fail before any network call is attempted.
+		expect(converterConfigured()).toBe(false);
 		await expect(
 			convertDwgToDxf({ bytes: dwgBytes(), fileName: 'Kitchen.dwg' })
 		).rejects.toMatchObject({ code: 'converter_missing' });
+	});
+
+	it('reports converter_missing from the health probe when unconfigured', async () => {
+		const health = await converterHealth();
+		expect(health.available).toBe(false);
+		expect(health.configured).toBe(false);
+		expect(health.detail).toContain('CAD_CONVERTER_URL');
 	});
 });
 
