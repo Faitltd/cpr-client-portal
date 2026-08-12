@@ -52,7 +52,10 @@ WORKDIR /app
 RUN apk add --no-cache ffmpeg cairo pango libjpeg-turbo giflib librsvg pixman
 
 # dwg2dxf is statically linked against libredwg, so the single binary is enough.
+# The version call runs it here, in the runtime image, so a missing shared
+# library or a bad copy fails the build instead of shipping a dead converter.
 COPY --from=libredwg /usr/local/bin/dwg2dxf /usr/local/bin/dwg2dxf
+RUN /usr/local/bin/dwg2dxf --version
 
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/worker ./worker

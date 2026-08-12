@@ -3,9 +3,11 @@ import {
 	CONVERT_ERROR_MESSAGES,
 	CONVERT_ERROR_STATUS,
 	ConversionError,
+	SUPPORTED_DXF_VERSIONS,
 	contentDispositionFor,
 	convertDwgToDxf,
 	dwgVersionMarker,
+	dxfVersion,
 	hasDwgExtension,
 	looksLikeDwg,
 	maxUploadBytes,
@@ -197,6 +199,16 @@ describe('error surface', () => {
 		expect(err.userMessage).toBe(CONVERT_ERROR_MESSAGES.timeout);
 		expect(err.status).toBe(504);
 		expect(err.jobId).toBe('CAD-12345678');
+	});
+});
+
+describe('dxfVersion', () => {
+	it('defaults to a target LibreDWG 0.13.3 actually accepts', () => {
+		expect(SUPPORTED_DXF_VERSIONS).toContain(dxfVersion());
+	});
+
+	it('excludes r2018, which 0.13.3 lists as planned and rejects', () => {
+		expect(SUPPORTED_DXF_VERSIONS).not.toContain('r2018');
 	});
 });
 

@@ -32,6 +32,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
 	return json({
 		status: health.available ? 'ok' : 'unavailable',
 		converter: health.available ? 'available' : 'unavailable',
+		version: health.version,
+		binaryPresent: health.binaryPresent,
+		detail: health.detail,
 		dxfVersion: dxfVersion(),
 		maxUploadMb: Math.round(maxUploadBytes() / (1024 * 1024))
 	});

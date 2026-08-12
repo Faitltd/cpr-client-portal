@@ -9,7 +9,8 @@
 
 import { execFile } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -23,7 +24,13 @@ const run = promisify(execFile);
 // Configuration
 // ---------------------------------------------------------------------------
 
-/** DXF targets `dwg2dxf` accepts. R2018 is the production default. */
+/**
+ * DXF targets `dwg2dxf` actually accepts in LibreDWG 0.13.3 (the pinned build).
+ * Its `--help` lists r2018 under "Planned versions", not valid ones —
+ * `--as r2018` is rejected as an invalid version and exits 1. R2013 is the
+ * newest real target, and Chief Architect X17 imports AutoCAD 2025 and earlier,
+ * so R2013 is comfortably within range.
+ */
 export const SUPPORTED_DXF_VERSIONS = [
 	'r12',
 	'r14',
@@ -31,13 +38,12 @@ export const SUPPORTED_DXF_VERSIONS = [
 	'r2004',
 	'r2007',
 	'r2010',
-	'r2013',
-	'r2018'
+	'r2013'
 ] as const;
 
 export type DxfVersion = (typeof SUPPORTED_DXF_VERSIONS)[number];
 
-const DEFAULT_DXF_VERSION: DxfVersion = 'r2018';
+const DEFAULT_DXF_VERSION: DxfVersion = 'r2013';
 
 export function dxfVersion(): DxfVersion {
 	const raw = (env.DXF_VERSION ?? '').trim().toLowerCase();
@@ -331,22 +337,56 @@ export async function convertDwgToDxf(input: {
 export type ConverterHealth = {
 	available: boolean;
 	version: string | null;
+	/** Why the probe failed, so a bad deploy can be diagnosed without shell access. */
+	detail: string | null;
+	/** Whether the expected binary is present on disk, independent of running it. */
+	binaryPresent: boolean;
 };
 
-/** Confirms `dwg2dxf` exists and runs. Version string is logged, not exposed. */
+const CANDIDATE_PATHS = ['/usr/local/bin/dwg2dxf', '/usr/bin/dwg2dxf'];
+
+/** Confirms `dwg2dxf` exists and runs. */
 export async function converterHealth(): Promise<ConverterHealth> {
+	const configured = converterPath();
+	const probes = configured.includes('/') ? [configured] : CANDIDATE_PATHS;
+
+	let binaryPresent = false;
+	for (const candidate of probes) {
+		try {
+			await access(candidate, fsConstants.X_OK);
+			binaryPresent = true;
+			break;
+		} catch {
+			/* keep looking */
+		}
+	}
+
 	try {
-		const { stdout, stderr } = await run(converterPath(), ['--version'], {
+		const { stdout, stderr } = await run(configured, ['--version'], {
 			timeout: 5000,
 			maxBuffer: 256 * 1024,
 			windowsHide: true
 		});
 		const line = `${stdout}${stderr}`.split('\n').find((l) => l.trim().length > 0);
-		return { available: true, version: line ? line.trim().slice(0, 120) : null };
+		return {
+			available: true,
+			version: line ? line.trim().slice(0, 120) : null,
+			detail: null,
+			binaryPresent: true
+		};
 	} catch (err) {
-		log.error('converter health check failed', {
-			error: err instanceof Error ? err.message : String(err)
-		});
-		return { available: false, version: null };
+		const execErr = err as ExecError;
+		const detail = [
+			`path=${configured}`,
+			`present=${binaryPresent}`,
+			execErr.code !== undefined ? `code=${execErr.code}` : null,
+			execErr.signal ? `signal=${execErr.signal}` : null,
+			(execErr.stderr ?? '').trim() ? `stderr=${(execErr.stderr ?? '').trim().slice(0, 200)}` : null,
+			!execErr.code && err instanceof Error ? `error=${err.message.slice(0, 200)}` : null
+		]
+			.filter(Boolean)
+			.join(' ');
+		log.error('converter health check failed', { detail });
+		return { available: false, version: null, detail, binaryPresent };
 	}
 }

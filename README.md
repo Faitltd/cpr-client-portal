@@ -136,7 +136,7 @@ as linework; Chief Architect's CAD-to-Walls can convert some of it afterwards.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `DXF_VERSION` | `r2018` | One of r12, r14, r2000, r2004, r2007, r2010, r2013, r2018 |
+| `DXF_VERSION` | `r2013` | LibreDWG 0.13.3 accepts r12, r14, r2000, r2004, r2007, r2010, r2013. It lists r2018 as "planned" and rejects `--as r2018`, so R2013 is the newest usable target. Chief Architect X17 imports AutoCAD 2025 and earlier. |
 | `MAX_UPLOAD_MB` | `25` | Application-level upload ceiling |
 | `CONVERSION_TIMEOUT_SECONDS` | `60` | Must stay below the platform request timeout |
 | `DWG2DXF_PATH` | `dwg2dxf` | Override only if the binary is not on `PATH` |
