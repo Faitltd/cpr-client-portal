@@ -1002,7 +1002,7 @@
 					</div>
 					<div>
 						<h4>Garage Code</h4>
-						<p>{selectedDeal.Garage_Code || 'Not available'}</p>
+						<p>{selectedDeal.Garage_Code || selectedDeal.Access_Notes || 'Not available'}</p>
 					</div>
 					<div>
 						<h4>WiFi</h4>

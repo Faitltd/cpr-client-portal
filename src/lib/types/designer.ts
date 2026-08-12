@@ -132,7 +132,8 @@ export const DESIGNER_DEAL_FIELD_DESCRIPTORS: readonly DealFieldDescriptor[] = [
 	{ key: 'Zip_Code', label: 'Zip / postal', kind: 'text', group: 'address', editable: true },
 
 	// ── Access / links ────────────────────────────────────────────────────
-	{ key: 'Garage_Code', label: 'Garage code', kind: 'text', group: 'access', editable: true },
+	{ key: 'Garage_Code', label: 'Entry code', kind: 'text', group: 'access', editable: true },
+	{ key: 'Access_Notes', label: 'Access notes', kind: 'textarea', group: 'access', editable: true },
 	{ key: 'WiFi', label: 'Wi-Fi', kind: 'text', group: 'access', editable: true },
 	{
 		key: 'Client_Portal_Folder',

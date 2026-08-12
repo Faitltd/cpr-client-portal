@@ -33,7 +33,7 @@ async function refreshProjectCache(
 	cacheKey: string
 ) {
 	// Fetch deal details — explicitly include photo-link fields so they are always cached
-	const dealFields = 'Deal_Name,Stage,Closing_Date,Owner,Refined_Scope,WiFi,Garage_Code,Description,Client_Portal_Folder,External_Link,Designs';
+	const dealFields = 'Deal_Name,Stage,Closing_Date,Owner,Refined_Scope,WiFi,Garage_Code,Access_Notes,Description,Client_Portal_Folder,External_Link,Designs';
 	const dealResponse = await zohoApiCall(
 		accessToken,
 		`/Deals/${dealId}?fields=${encodeURIComponent(dealFields)}`,

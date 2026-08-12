@@ -203,7 +203,7 @@
 			documents = data.documents;
 			notes = data.notes;
 			wifiInput = project?.WiFi || '';
-			doorCodeInput = project?.Garage_Code || '';
+			doorCodeInput = project?.Garage_Code || project?.Access_Notes || '';
 
 			if (contractsRes.ok) {
 				const contractsData = await contractsRes.json();

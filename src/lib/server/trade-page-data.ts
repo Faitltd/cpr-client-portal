@@ -84,7 +84,7 @@ function hasTradeDealUsefulData(deal: any, includeDetailFields: boolean) {
 	);
 	if (baseData) return true;
 	if (!includeDetailFields) return false;
-	return Boolean(deal?.Garage_Code || deal?.WiFi || deal?.Refined_Scope);
+	return Boolean(deal?.Garage_Code || deal?.Access_Notes || deal?.WiFi || deal?.Refined_Scope);
 }
 
 function hasGarageCodeValue(value: unknown) {
@@ -150,7 +150,8 @@ export function shouldHydrateTradeDeal(deal: any, includeDetailFields = false) {
 	// For dashboard detail cards, the trade path needs the same ball-in-court
 	// fields the designer dashboard already relies on.
 	if (includeDetailFields) {
-		if (!hasGarageCodeValue(deal?.Garage_Code)) return true;
+		if (!hasGarageCodeValue(deal?.Garage_Code) && !hasGarageCodeValue(deal?.Access_Notes))
+			return true;
 		if (!hasTradeDetailValue(deal?.Ball_In_Court)) return true;
 		if (!hasTradeDetailValue(deal?.Ball_In_Court_Note)) return true;
 	}

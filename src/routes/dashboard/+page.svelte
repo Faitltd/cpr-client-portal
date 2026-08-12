@@ -640,7 +640,7 @@
 				if (detailRes.ok) {
 					const detail = await detailRes.json();
 					wifiInput = detail.deal?.WiFi || '';
-					doorCodeInput = detail.deal?.Garage_Code || '';
+					doorCodeInput = detail.deal?.Garage_Code || detail.deal?.Access_Notes || '';
 					projectDocuments = detail.documents || [];
 					clientPortalUrl = getClientPortalUrl(detail.deal);
 				}
