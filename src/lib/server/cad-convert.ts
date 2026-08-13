@@ -21,9 +21,13 @@ const log = createLogger('cad-convert');
 /**
  * DXF targets `dwg2dxf` actually accepts in LibreDWG 0.13.3 (the pinned build).
  * Its `--help` lists r2018 under "Planned versions", not valid ones —
- * `--as r2018` is rejected as an invalid version and exits 1. R2013 is the
- * newest real target, and Chief Architect X17 imports AutoCAD 2025 and earlier,
- * so R2013 is comfortably within range.
+ * `--as r2018` is rejected as an invalid version and exits 1.
+ *
+ * Its r2013 *writer* is also broken: it exits 0 but emits a DXF with no
+ * ENTITIES section and no EOF (verified against 0.13.3), which Chief Architect
+ * then hangs on. r2000 is the newest target whose writer produces a
+ * structurally complete DXF, so it is the default. Chief Architect X17 imports
+ * AutoCAD R2000 DXF without issue.
  */
 export const SUPPORTED_DXF_VERSIONS = [
 	'r12',
@@ -37,7 +41,7 @@ export const SUPPORTED_DXF_VERSIONS = [
 
 export type DxfVersion = (typeof SUPPORTED_DXF_VERSIONS)[number];
 
-const DEFAULT_DXF_VERSION: DxfVersion = 'r2013';
+const DEFAULT_DXF_VERSION: DxfVersion = 'r2000';
 
 export function dxfVersion(): DxfVersion {
 	const raw = (env.DXF_VERSION ?? '').trim().toLowerCase();

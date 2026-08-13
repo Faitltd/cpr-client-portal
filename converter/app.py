@@ -28,8 +28,11 @@ logging.basicConfig(
 log = logging.getLogger("converter")
 
 # LibreDWG 0.13.3 lists r2018 under "Planned versions" and rejects --as r2018.
+# Its r2013 DXF *writer* is also broken: it emits a file with no ENTITIES
+# section and no EOF (verified against 0.13.3). r2000 is the newest target
+# whose writer produces a structurally complete DXF, so it is the default.
 SUPPORTED_DXF_VERSIONS = ("r12", "r14", "r2000", "r2004", "r2007", "r2010", "r2013")
-DEFAULT_DXF_VERSION = "r2013"
+DEFAULT_DXF_VERSION = "r2000"
 
 DWG2DXF = os.environ.get("DWG2DXF_PATH") or "/usr/local/bin/dwg2dxf"
 
