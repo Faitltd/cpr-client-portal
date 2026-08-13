@@ -23,7 +23,7 @@ RUN set -eux; \
         --disable-python \
         --disable-docs \
         --disable-dependency-tracking; \
-    make -j2; \
+    make -j1 CFLAGS="-O1 -g0"; \
     make install; \
     strip /usr/local/bin/dwg2dxf; \
     /usr/local/bin/dwg2dxf --version
