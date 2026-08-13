@@ -2,10 +2,10 @@
  * ProKitchen DWG → Chief Architect DXF conversion.
  *
  * The portal runs on Render's Node runtime, which cannot execute a Dockerfile,
- * so the LibreDWG binary lives in a separate Docker service (see `converter/`).
- * This module holds the designer-facing rules — validation, filenames, error
- * copy, job IDs — and forwards the bytes to that service over a shared token.
- * Neither side stores anything.
+ * so the CAD engine (ODA File Converter) lives in a separate Docker service
+ * (see `converter/`). This module holds the designer-facing rules — validation,
+ * filenames, error copy, job IDs — and forwards the bytes to that service over
+ * a shared token. Neither side stores anything.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -19,15 +19,11 @@ const log = createLogger('cad-convert');
 // ---------------------------------------------------------------------------
 
 /**
- * DXF targets `dwg2dxf` actually accepts in LibreDWG 0.13.3 (the pinned build).
- * Its `--help` lists r2018 under "Planned versions", not valid ones —
- * `--as r2018` is rejected as an invalid version and exits 1.
- *
- * Its r2013 *writer* is also broken: it exits 0 but emits a DXF with no
- * ENTITIES section and no EOF (verified against 0.13.3), which Chief Architect
- * then hangs on. r2000 is the newest target whose writer produces a
- * structurally complete DXF, so it is the default. Chief Architect X17 imports
- * AutoCAD R2000 DXF without issue.
+ * DXF targets supported by the converter service. The service now runs ODA File
+ * Converter, which reads every DWG version and writes any of these DXF targets
+ * cleanly (the old LibreDWG engine could not read ProKitchen's AutoCAD 2018
+ * DWGs at all). r2000 stays the default because Chief Architect X17 imports it
+ * without issue; the value is passed through as the `DXF_VERSION` env var.
  */
 export const SUPPORTED_DXF_VERSIONS = [
 	'r12',
@@ -36,7 +32,8 @@ export const SUPPORTED_DXF_VERSIONS = [
 	'r2004',
 	'r2007',
 	'r2010',
-	'r2013'
+	'r2013',
+	'r2018'
 ] as const;
 
 export type DxfVersion = (typeof SUPPORTED_DXF_VERSIONS)[number];
@@ -90,7 +87,7 @@ export type ConvertErrorCode =
 	| 'converter_missing'
 	| 'server_error';
 
-/** Designer-facing copy. Raw LibreDWG / Node output never reaches the browser. */
+/** Designer-facing copy. Raw converter / Node output never reaches the browser. */
 export const CONVERT_ERROR_MESSAGES: Record<ConvertErrorCode, string> = {
 	invalid_extension: 'Please upload a DWG file exported from ProKitchen.',
 	empty_file: 'That file is empty. Try exporting the design from ProKitchen again.',
@@ -190,7 +187,7 @@ export function hasDwgExtension(fileName: string): boolean {
 /**
  * DWG files open with a 6-byte ASCII version marker (`AC1015`, `AC1032`, …).
  * Checking it rejects executables and PDFs renamed to `.dwg` before the file
- * ever reaches LibreDWG.
+ * ever reaches the converter.
  */
 export function looksLikeDwg(head: Uint8Array): boolean {
 	if (!head || head.length < 6) return false;
@@ -362,7 +359,7 @@ export type ConverterHealth = {
 	configured: boolean;
 };
 
-/** Asks the converter service whether it can run dwg2dxf. */
+/** Asks the converter service whether the CAD engine is present and runnable. */
 export async function converterHealth(): Promise<ConverterHealth> {
 	const configured = converterConfigured();
 	if (!configured) {

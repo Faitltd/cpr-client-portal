@@ -208,12 +208,12 @@ describe('error surface', () => {
 });
 
 describe('dxfVersion', () => {
-	it('defaults to a target LibreDWG 0.13.3 actually accepts', () => {
+	it('defaults to a supported target', () => {
 		expect(SUPPORTED_DXF_VERSIONS).toContain(dxfVersion());
 	});
 
-	it('excludes r2018, which 0.13.3 lists as planned and rejects', () => {
-		expect(SUPPORTED_DXF_VERSIONS).not.toContain('r2018');
+	it('includes r2018, which ODA File Converter writes cleanly', () => {
+		expect(SUPPORTED_DXF_VERSIONS).toContain('r2018');
 	});
 });
 

@@ -23,7 +23,7 @@ function failure(code: keyof typeof CONVERT_ERROR_MESSAGES, jobId: string) {
 	);
 }
 
-/** Health probe: is the LibreDWG binary present and runnable? */
+/** Health probe: is the CAD converter binary present and runnable? */
 export const GET: RequestHandler = async ({ cookies }) => {
 	const auth = await requireDesigner(cookies);
 	if (!auth.ok) return auth.response;
