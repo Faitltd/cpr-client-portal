@@ -60,6 +60,38 @@ def dxf_version() -> str:
     return DEFAULT_DXF_VERSION
 
 
+# LibreDWG's DXF writer stamps the DWG "uninitialized double" sentinel (1e20)
+# into every extent field it never computed: the header EXTMIN/EXTMAX and
+# PEXTMIN/PEXTMAX, plus the stored extents on each LAYOUT object. Chief
+# Architect's Teigha importer then tries to fit an infinite bounding box on
+# load and hangs. 1e20 drawing units is not a plausible coordinate, so any
+# value at that magnitude is the sentinel and is safe to zero. Only numeric
+# *value* lines are touched (group codes are integers and never match); entity
+# geometry, handles, and CRLF endings are left byte-for-byte intact.
+_SENTINEL_MAGNITUDE = 1e19  # anything this large is LibreDWG's ~1e20 marker
+
+
+def neutralize_extents(data: bytes) -> tuple[bytes, int]:
+    """Zero LibreDWG's 1e20 extent sentinels. Returns (dxf, values_patched)."""
+    eol = b"\r\n" if b"\r\n" in data else b"\n"
+    lines = data.split(eol)
+    patched = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # Scientific notation is the only way a magnitude this big is written,
+        # so gate on "E+" to skip float-parsing ordinary coordinates.
+        if b"E+" not in stripped and b"e+" not in stripped:
+            continue
+        try:
+            value = float(stripped)
+        except ValueError:
+            continue
+        if abs(value) >= _SENTINEL_MAGNITUDE:
+            lines[i] = b"0.0"
+            patched += 1
+    return eol.join(lines), patched
+
+
 def max_upload_bytes() -> int:
     try:
         megabytes = float(os.environ.get("MAX_UPLOAD_MB") or 25)
@@ -193,10 +225,15 @@ def convert():
         with open(output_path, "rb") as handle:
             dxf = handle.read()
 
+        # Repair LibreDWG's poisoned drawing extents before the file leaves the
+        # service, or Chief Architect hangs fitting an infinite box on import.
+        dxf, patched = neutralize_extents(dxf)
+
         log.info(
-            "job %s succeeded bytes=%d duration=%.1fs",
+            "job %s succeeded bytes=%d extents_patched=%d duration=%.1fs",
             job_id,
             len(dxf),
+            patched,
             time.monotonic() - started,
         )
 
