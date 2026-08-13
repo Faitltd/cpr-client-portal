@@ -29,6 +29,7 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         xvfb \
+        xauth \
         ca-certificates \
         fontconfig \
         fonts-dejavu-core \
@@ -39,6 +40,8 @@ RUN apt-get update \
         libx11-6 \
         libx11-xcb1 \
         libxcb1 \
+        libxcb-glx0 \
+        libxcb-util1 \
         libxcb-icccm4 \
         libxcb-image0 \
         libxcb-keysyms1 \
