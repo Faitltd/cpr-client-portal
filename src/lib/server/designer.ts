@@ -120,7 +120,8 @@ export function isStaffAdmin(cookies: Cookies, email: string | null | undefined)
 
 /** Default landing page per staff role. */
 export function staffLandingFor(role: StaffRole): string {
-	return role === 'finance' ? '/designer/finance' : '/designer';
+	// Pipeline is the consolidated staff home (it carries the CRM deal detail).
+	return role === 'finance' ? '/designer/finance' : '/designer/team-pipeline';
 }
 
 export type StaffContext = {
