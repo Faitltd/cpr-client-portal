@@ -225,7 +225,6 @@
 			<thead>
 				<tr>
 					<th>Deal</th>
-					<th>Client</th>
 					<th>Stage</th>
 					<th class="num">Contract</th>
 					<th class="num">Quoted</th>
@@ -252,7 +251,6 @@
 								{row.name}
 							</button>
 						</td>
-						<td>{row.contactName ?? '—'}</td>
 						<td>{#if row.stage}<span class="badge">{row.stage}</span>{:else}—{/if}</td>
 						<td class="num">{money(row.amount)}</td>
 						<td class="num">{booksLoading ? '…' : money(books?.quoted)}</td>
@@ -263,7 +261,7 @@
 					</tr>
 					{#if expandedDealId === row.id}
 						<tr class="detail-row">
-							<td colspan="9">
+							<td colspan="8">
 								{#if booksLoading}
 									<p class="detail-muted">Loading…</p>
 								{:else if !rowEmail}
