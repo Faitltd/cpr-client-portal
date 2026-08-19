@@ -36,6 +36,13 @@
 					pathname === '/designer/on-hold'}
 				href="/designer">CRM</a
 			>
+			{#if data.tabs.pipeline}
+				<a
+					class="tab"
+					class:active={pathname === '/designer/team-pipeline'}
+					href="/designer/team-pipeline">Pipeline</a
+				>
+			{/if}
 			{#if data.tabs.tasks}
 				<a class="tab" class:active={pathname === '/designer/tasks'} href="/designer/tasks">Tasks</a>
 			{/if}

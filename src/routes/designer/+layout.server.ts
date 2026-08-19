@@ -44,6 +44,7 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 		fieldDashboard: isAdmin || role === 'ops',
 		fieldUpdate: (isAdmin || role === 'designer' || role === 'ops') && hasTradeRecord,
 		crm: true,
+		pipeline: true,
 		tasks: isAdmin || role === 'designer' || role === 'ops',
 		financials: isAdmin || role === 'ops' || role === 'finance',
 		finance: isAdmin || role === 'finance',
