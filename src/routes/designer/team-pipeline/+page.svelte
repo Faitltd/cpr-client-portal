@@ -7,6 +7,34 @@
 
 	const STALE_DAYS = 14;
 
+	// Canonical CRM pipeline stage order (from the Deals "Standard" pipeline).
+	// Used to sort the list and order the stage chips the way the pipeline flows.
+	const STAGE_ORDER = [
+		'Ballpark Needed',
+		'Ballpark Revision',
+		'Ballpark Review Needed',
+		'Ballpark Review Booked',
+		'PDA Needed',
+		'PDA Sent',
+		'Selections',
+		'Design Needed',
+		'Redesign Needed',
+		'Estimate Needed',
+		'Estimate Review Needed',
+		'Estimate Review Booked',
+		'Estimate Revision Needed',
+		'Quoted',
+		'Contract Needed',
+		'Contract Sent',
+		'On Hold'
+	];
+	const stageRank = (stage: string | null) => {
+		const i = stage ? STAGE_ORDER.indexOf(stage) : -1;
+		return i === -1 ? 999 : i;
+	};
+	// Stages hidden by default (still available via the chips).
+	const DEFAULT_HIDDEN_STAGES = new Set(['On Hold']);
+
 	// Full deal records keyed by id, so a row can expand into the same detail
 	// card the CRM tab uses (contact, address, fields, notes, editing) — no need
 	// to leave the portal, which matters for mobile staff without Zoho accounts.
@@ -32,23 +60,25 @@
 	$: kpiOverdue = allRows.reduce((sum, r) => sum + r.overdueTasks, 0);
 	$: kpiNoNextStep = allRows.filter((r) => r.activeTasks === 0).length;
 
-	$: allStages = Array.from(new Set(allRows.map((r) => stageKey(r.stage)))).sort((a, b) =>
-		a === NONE ? 1 : b === NONE ? -1 : a.localeCompare(b)
-	);
+	$: allStages = Array.from(new Set(allRows.map((r) => stageKey(r.stage)))).sort((a, b) => {
+		if (a === NONE) return 1;
+		if (b === NONE) return -1;
+		return stageRank(a) - stageRank(b) || a.localeCompare(b);
+	});
 
-	// Filters: all stages selected by default; plus a free-text search and an
-	// optional "stale only" toggle.
+	// Filters: all stages except the default-hidden ones (On Hold) are selected
+	// on load; plus a free-text search and an optional "stale only" toggle.
 	let selected: Set<string> = new Set();
 	let initialized = false;
 	$: if (!initialized && allStages.length > 0) {
-		selected = new Set(allStages);
+		selected = new Set(allStages.filter((key) => !DEFAULT_HIDDEN_STAGES.has(key)));
 		initialized = true;
 	}
 
 	let query = '';
 	let staleOnly = false;
-	// Default: least-recent contact first, so the most neglected deals surface.
-	let sortDir: 'oldest' | 'recent' = 'oldest';
+	// Default sort: follow the pipeline stage order.
+	let sortMode: 'stage' | 'oldest' | 'recent' = 'stage';
 
 	function toggle(key: string) {
 		const next = new Set(selected);
@@ -73,14 +103,23 @@
 		return true;
 	});
 
-	// Sort by last point of contact. Deals with nothing logged yet (null) always
-	// sit at the bottom since they have no date to order on.
-	$: sortedRows = [...visibleRows].sort((a, b) => {
+	// Compare by last point of contact; nulls (nothing logged) always sink to the
+	// bottom since they have no date to order on. Positive => a after b.
+	const byContactOldestFirst = (a: { lastContact: string | null }, b: { lastContact: string | null }) => {
 		if (a.lastContact === null && b.lastContact === null) return 0;
 		if (a.lastContact === null) return 1;
 		if (b.lastContact === null) return -1;
-		const cmp = a.lastContact < b.lastContact ? -1 : a.lastContact > b.lastContact ? 1 : 0;
-		return sortDir === 'oldest' ? cmp : -cmp;
+		return a.lastContact < b.lastContact ? -1 : a.lastContact > b.lastContact ? 1 : 0;
+	};
+
+	$: sortedRows = [...visibleRows].sort((a, b) => {
+		if (sortMode === 'stage') {
+			const s = stageRank(a.stage) - stageRank(b.stage);
+			// Within a stage, show the least-recently-contacted first.
+			return s !== 0 ? s : byContactOldestFirst(a, b);
+		}
+		const cmp = byContactOldestFirst(a, b);
+		return sortMode === 'oldest' ? cmp : -cmp;
 	});
 
 	const fmtDate = (value: string | null) => {
@@ -149,7 +188,8 @@
 		</label>
 		<label class="sort-control">
 			Sort
-			<select bind:value={sortDir}>
+			<select bind:value={sortMode}>
+				<option value="stage">Pipeline stage</option>
 				<option value="oldest">Least recent contact</option>
 				<option value="recent">Most recent contact</option>
 			</select>
