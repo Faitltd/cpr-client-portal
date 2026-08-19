@@ -102,6 +102,13 @@
 		// Check on mount in case a previous edit was cached but never pushed
 		// (e.g. browser closed mid-edit, Zoho was down).
 		void refreshPendingStatus();
+		// When a card is rendered already-expanded (the Pipeline page opens its
+		// detail inline), mirror toggle() so notes and the editor are ready
+		// without a second tap. CRM usage never starts expanded, so it's a no-op there.
+		if (expanded && !readonly) {
+			if (notes.length === 0 && !notesError && !loadingNotes) void loadNotes();
+			if (Object.keys(draft).length === 0) seedDraft();
+		}
 	});
 
 	// All descriptors — we render every one. The form treats non-editable

@@ -1,10 +1,22 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import DealCard from '$lib/components/designer/DealCard.svelte';
+	import type { DesignerDealSummary } from '$lib/types/designer';
 
 	export let data: PageData;
 
-	const CRM_DEAL_BASE = 'https://crm.zoho.com/crm/org846437691/tab/Potentials/';
 	const STALE_DAYS = 14;
+
+	// Full deal records keyed by id, so a row can expand into the same detail
+	// card the CRM tab uses (contact, address, fields, notes, editing) — no need
+	// to leave the portal, which matters for mobile staff without Zoho accounts.
+	$: summaryById = new Map<string, DesignerDealSummary>((data.deals ?? []).map((d) => [d.id, d]));
+
+	// Which deal row is expanded (inline detail). Only one open at a time.
+	let expandedId: string | null = null;
+	function toggleExpand(id: string) {
+		expandedId = expandedId === id ? null : id;
+	}
 
 	const NONE = '__none__';
 	const stageKey = (stage: string | null) => (stage && stage.trim() ? stage : NONE);
@@ -35,6 +47,8 @@
 
 	let query = '';
 	let staleOnly = false;
+	// Default: least-recent contact first, so the most neglected deals surface.
+	let sortDir: 'oldest' | 'recent' = 'oldest';
 
 	function toggle(key: string) {
 		const next = new Set(selected);
@@ -57,6 +71,16 @@
 			if (!hay.includes(needle)) return false;
 		}
 		return true;
+	});
+
+	// Sort by last point of contact. Deals with nothing logged yet (null) always
+	// sit at the bottom since they have no date to order on.
+	$: sortedRows = [...visibleRows].sort((a, b) => {
+		if (a.lastContact === null && b.lastContact === null) return 0;
+		if (a.lastContact === null) return 1;
+		if (b.lastContact === null) return -1;
+		const cmp = a.lastContact < b.lastContact ? -1 : a.lastContact > b.lastContact ? 1 : 0;
+		return sortDir === 'oldest' ? cmp : -cmp;
 	});
 
 	const fmtDate = (value: string | null) => {
@@ -123,6 +147,13 @@
 			<input type="checkbox" bind:checked={staleOnly} />
 			Stale only ({STALE_DAYS}+ days)
 		</label>
+		<label class="sort-control">
+			Sort
+			<select bind:value={sortDir}>
+				<option value="oldest">Least recent contact</option>
+				<option value="recent">Most recent contact</option>
+			</select>
+		</label>
 		<div class="filter-actions">
 			<button type="button" class="link" on:click={selectAll}>All stages</button>
 			<button type="button" class="link" on:click={clearAll}>None</button>
@@ -158,15 +189,19 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each visibleRows as row (row.id)}
-					<tr>
+				{#each sortedRows as row (row.id)}
+					<tr class="deal-row" class:open={expandedId === row.id}>
 						<td class="name">
-							<a
-								class="deal-link"
-								href={CRM_DEAL_BASE + row.id}
-								target="_blank"
-								rel="noopener noreferrer">{row.name}</a
+							<button
+								type="button"
+								class="name-btn"
+								on:click={() => toggleExpand(row.id)}
+								aria-expanded={expandedId === row.id}
+								title="Show deal details"
 							>
+								<span class="caret">{expandedId === row.id ? '▾' : '▸'}</span>
+								{row.name}
+							</button>
 						</td>
 						<td>{#if row.stage}<span class="badge">{row.stage}</span>{:else}—{/if}</td>
 						<td>{row.owner ?? '—'}</td>
@@ -179,13 +214,32 @@
 							{#if row.overdueTasks > 0}<span class="od">{row.overdueTasks} overdue</span>{/if}
 						</td>
 					</tr>
+					{#if expandedId === row.id}
+						{@const summary = summaryById.get(row.id)}
+						<tr class="detail-row">
+							<td colspan="5">
+								{#if summary}
+									<DealCard
+										deal={summary}
+										fieldDescriptors={data.fieldDescriptors}
+										expanded={true}
+									/>
+								{:else}
+									<p class="detail-muted">
+										Full details for this deal aren’t loaded yet — reload in a moment.
+									</p>
+								{/if}
+							</td>
+						</tr>
+					{/if}
 				{/each}
 			</tbody>
 		</table>
 	</div>
 	<p class="caption">
-		Live from Zoho CRM. Last point of contact is the most recent note, past meeting, or call on
-		the deal. Active deals exclude Lost, Completed, and Project Created. Active tasks are
+		Tap a deal name to open its full details, notes, and ball-in-court right here — no Zoho
+		login needed. Last point of contact is the most recent note, past meeting, or call on the
+		deal. Active deals exclude Lost, Completed, and Project Created. Active tasks are
 		deal-linked tasks not marked Completed.
 	</p>
 {/if}
@@ -348,13 +402,61 @@
 		white-space: normal;
 	}
 
-	.deal-link {
+	.name-btn {
+		display: inline-flex;
+		align-items: flex-start;
+		gap: 0.35rem;
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		font-weight: 600;
 		color: #1d4ed8;
-		text-decoration: none;
+		cursor: pointer;
+		text-align: left;
 	}
 
-	.deal-link:hover {
+	.name-btn:hover {
 		text-decoration: underline;
+	}
+
+	.caret {
+		color: #9ca3af;
+		font-size: 0.75rem;
+		padding-top: 0.15rem;
+	}
+
+	.deal-row.open td {
+		background: #f8fafc;
+	}
+
+	.detail-row td {
+		background: #f8fafc;
+		padding: 0.5rem 0.75rem 1rem;
+	}
+
+	.detail-muted {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.88rem;
+	}
+
+	.sort-control {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.85rem;
+		color: #374151;
+		white-space: nowrap;
+	}
+
+	.sort-control select {
+		font: inherit;
+		font-size: 0.85rem;
+		padding: 0.3rem 0.5rem;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		background: #fff;
 	}
 
 	.num {
