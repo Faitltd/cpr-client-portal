@@ -51,6 +51,32 @@
 	$: description = asText(f.Refined_Scope) ?? asText(f.Description);
 	$: accessNotes = asText(f.Access_Notes);
 
+	const asUrl = (v: unknown): string | null => {
+		const s = asText(v);
+		return s && /^https?:\/\//i.test(s) ? s : null;
+	};
+
+	// Document / folder links from the deal — so mobile staff can open files
+	// without a Zoho login. Deduped (workdriveUrl is derived from one of these).
+	$: links = (() => {
+		const out: { label: string; url: string }[] = [];
+		const seen = new Set<string>();
+		const add = (label: string, url: string | null) => {
+			if (url && !seen.has(url)) {
+				seen.add(url);
+				out.push({ label, url });
+			}
+		};
+		add('WorkDrive folder', deal.workdriveUrl);
+		add('Client portal folder', asUrl(f.Client_Portal_Folder));
+		add('Designs', asUrl(f.WD_Designs));
+		add('Scope of work', asUrl(f.WD_SOW));
+		add('Change orders', asUrl(f.WD_Change_Orders));
+		add('Progress photos', asUrl(f.Progress_Photos));
+		add('Link', asUrl(f.External_Link));
+		return out;
+	})();
+
 	const fmtTime = (v: string | null | undefined) => {
 		if (!v) return '';
 		const d = new Date(v);
@@ -134,6 +160,16 @@
 		<p class="para"><span class="para-label">Scope</span>{description}</p>
 	{/if}
 
+	{#if links.length}
+		<div class="links">
+			{#each links as link (link.url)}
+				<a class="link-chip" href={link.url} target="_blank" rel="noopener noreferrer">
+					{link.label}
+				</a>
+			{/each}
+		</div>
+	{/if}
+
 	<div class="notes">
 		<div class="notes-head">Notes</div>
 		<form class="composer" on:submit={addNote}>
@@ -211,6 +247,35 @@
 		color: #6b7280;
 		font-weight: 700;
 		margin-bottom: 0.15rem;
+	}
+
+	.links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+
+	.link-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.35rem 0.7rem;
+		border-radius: 999px;
+		border: 1px solid #c7d2fe;
+		background: #eef2ff;
+		color: #3730a3;
+		font-size: 0.82rem;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.link-chip::before {
+		content: '🔗';
+		font-size: 0.75rem;
+	}
+
+	.link-chip:hover {
+		background: #e0e7ff;
 	}
 
 	.notes {

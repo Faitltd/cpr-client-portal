@@ -29,17 +29,11 @@
 					>Finance</a
 				>
 			{/if}
-			<a
-				class="tab"
-				class:active={pathname === '/designer' ||
-					pathname === '/designer/projects' ||
-					pathname === '/designer/on-hold'}
-				href="/designer">CRM</a
-			>
 			{#if data.tabs.pipeline}
 				<a
 					class="tab"
-					class:active={pathname === '/designer/team-pipeline'}
+					class:active={pathname === '/designer' ||
+						pathname === '/designer/team-pipeline'}
 					href="/designer/team-pipeline">Pipeline</a
 				>
 			{/if}
