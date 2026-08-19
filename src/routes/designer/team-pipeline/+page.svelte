@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import DealCard from '$lib/components/designer/DealCard.svelte';
+	import DealDetail from '$lib/components/pipeline/DealDetail.svelte';
 	import type { DesignerDealSummary } from '$lib/types/designer';
 
 	export let data: PageData;
@@ -219,11 +219,7 @@
 						<tr class="detail-row">
 							<td colspan="5">
 								{#if summary}
-									<DealCard
-										deal={summary}
-										fieldDescriptors={data.fieldDescriptors}
-										expanded={true}
-									/>
+									<DealDetail deal={summary} />
 								{:else}
 									<p class="detail-muted">
 										Full details for this deal aren’t loaded yet — reload in a moment.

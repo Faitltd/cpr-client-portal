@@ -1,10 +1,6 @@
 import { getCrmDeals, requireStaffPage } from '$lib/server/designer';
 import { getTeamPipeline, type PipelineRow } from '$lib/server/pipeline';
-import {
-	DESIGNER_DEAL_FIELD_DESCRIPTORS,
-	type DealFieldDescriptor,
-	type DesignerDealSummary
-} from '$lib/types/designer';
+import type { DesignerDealSummary } from '$lib/types/designer';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ cookies }) => {
@@ -22,8 +18,8 @@ export const load: PageServerLoad = async ({ cookies }) => {
 				: 'Could not load the pipeline from Zoho. Try reloading in a moment.';
 	}
 
-	// Full deal records for the inline detail cards (same data the CRM tab uses),
-	// limited to the deals shown in the pipeline so the payload stays small.
+	// Full deal records for the inline detail panel (contact, address, scope,
+	// notes), limited to the deals shown so the payload stays small.
 	let deals: DesignerDealSummary[] = [];
 	if (rows.length > 0) {
 		try {
@@ -35,14 +31,5 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		}
 	}
 
-	const fieldDescriptors: DealFieldDescriptor[] = DESIGNER_DEAL_FIELD_DESCRIPTORS.map((d) => ({
-		key: d.key,
-		label: d.label,
-		kind: d.kind,
-		group: d.group,
-		editable: d.editable,
-		helpText: d.helpText
-	}));
-
-	return { rows, deals, fieldDescriptors, warning };
+	return { rows, deals, warning };
 };
