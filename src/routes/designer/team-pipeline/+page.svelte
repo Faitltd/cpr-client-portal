@@ -83,7 +83,7 @@
 </script>
 
 <svelte:head>
-	<title>Team Pipeline · Designer · CPR Portal</title>
+	<title>Pipeline · Designer · CPR Portal</title>
 </svelte:head>
 
 {#if data.warning}<div class="warning">{data.warning}</div>{/if}
