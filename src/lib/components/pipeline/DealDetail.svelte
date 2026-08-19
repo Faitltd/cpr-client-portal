@@ -1,25 +1,57 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import type { DesignerDealSummary, DesignerNote } from '$lib/types/designer';
 
-	// Clean inline detail for the Pipeline list — a light summary of the deal
-	// plus its notes (view + add). Deliberately NOT the heavy CRM DealCard.
+	// Clean inline detail for the Pipeline list — a light summary of the deal,
+	// its tasks, and its notes. Deliberately NOT the heavy CRM DealCard.
 	export let deal: DesignerDealSummary;
+	export let activeTasks = 0;
+	export let overdueTasks = 0;
 
+	type TaskItem = {
+		id: string;
+		subject: string;
+		status: string | null;
+		dueDate: string | null;
+		owner: string | null;
+		closed: boolean;
+		overdue: boolean;
+	};
+
+	// Collapsible sections — both closed by default; each loads on first open.
+	let tasksOpen = false;
+	let tasksLoaded = false;
+	let tasks: TaskItem[] = [];
+	let loadingTasks = false;
+	let tasksError = '';
+
+	let notesOpen = false;
+	let notesLoaded = false;
 	let notes: DesignerNote[] = [];
-	let loadingNotes = true;
+	let loadingNotes = false;
 	let notesError = '';
 
 	let composer = '';
 	let submitting = false;
 	let submitError = '';
 
+	function toggleTasks() {
+		tasksOpen = !tasksOpen;
+		if (tasksOpen && !tasksLoaded) {
+			tasksLoaded = true;
+			void loadTasks();
+		}
+	}
+
+	function toggleNotes() {
+		notesOpen = !notesOpen;
+		if (notesOpen && !notesLoaded) {
+			notesLoaded = true;
+			void loadNotes();
+		}
+	}
+
 	const asText = (v: unknown): string | null =>
-		typeof v === 'string' && v.trim()
-			? v.trim()
-			: typeof v === 'number'
-				? String(v)
-				: null;
+		typeof v === 'string' && v.trim() ? v.trim() : typeof v === 'number' ? String(v) : null;
 
 	function asMoney(v: unknown): string | null {
 		const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[^0-9.-]/g, ''));
@@ -57,7 +89,7 @@
 	};
 
 	// Document / folder links from the deal — so mobile staff can open files
-	// without a Zoho login. Deduped (workdriveUrl is derived from one of these).
+	// without a Zoho login.
 	$: links = (() => {
 		const out: { label: string; url: string }[] = [];
 		const seen = new Set<string>();
@@ -88,6 +120,32 @@
 					minute: '2-digit'
 				});
 	};
+
+	const fmtDay = (v: string | null) => {
+		if (!v) return '';
+		const d = new Date(v + 'T00:00:00');
+		return Number.isNaN(d.valueOf())
+			? v
+			: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	};
+
+	async function loadTasks() {
+		loadingTasks = true;
+		tasksError = '';
+		try {
+			const res = await fetch(`/api/designer/deals/${encodeURIComponent(deal.id)}/tasks`);
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				tasksError = data.message || `Couldn't load tasks (${res.status}).`;
+				return;
+			}
+			tasks = Array.isArray(data.tasks) ? data.tasks : [];
+		} catch (err) {
+			tasksError = err instanceof Error ? err.message : "Couldn't load tasks.";
+		} finally {
+			loadingTasks = false;
+		}
+	}
 
 	async function loadNotes() {
 		loadingNotes = true;
@@ -132,8 +190,6 @@
 			submitting = false;
 		}
 	}
-
-	onMount(loadNotes);
 </script>
 
 <div class="detail">
@@ -168,34 +224,81 @@
 		</div>
 	{/if}
 
-	<div class="notes">
-		<div class="notes-head">Notes</div>
-		<form class="composer" on:submit={addNote}>
-			<textarea bind:value={composer} rows="2" placeholder="Add a note…"></textarea>
-			<button type="submit" disabled={submitting || !composer.trim()}>
-				{submitting ? 'Saving…' : 'Add note'}
-			</button>
-		</form>
-		{#if submitError}<p class="err">{submitError}</p>{/if}
+	<!-- Tasks (collapsed by default) -->
+	<div class="section">
+		<button class="section-head" type="button" on:click={toggleTasks} aria-expanded={tasksOpen}>
+			<span class="caret">{tasksOpen ? '▾' : '▸'}</span>
+			<span class="section-title">Tasks</span>
+			<span class="section-sub">
+				{activeTasks} active{overdueTasks > 0 ? ` · ${overdueTasks} overdue` : ''}
+			</span>
+		</button>
+		{#if tasksOpen}
+			<div class="section-body">
+				{#if loadingTasks}
+					<p class="muted">Loading tasks…</p>
+				{:else if tasksError}
+					<p class="err">{tasksError}</p>
+				{:else if tasks.length === 0}
+					<p class="muted">No tasks on this deal.</p>
+				{:else}
+					<ul class="task-list">
+						{#each tasks as t (t.id)}
+							<li class:done={t.closed}>
+								<div class="task-subject">{t.subject}</div>
+								<div class="task-meta">
+									{#if t.overdue}<span class="tag overdue">Overdue</span>{/if}
+									{#if t.closed}<span class="tag done">Completed</span>
+									{:else if t.status}<span class="tag">{t.status}</span>{/if}
+									{#if t.dueDate}<span class="task-due">Due {fmtDay(t.dueDate)}</span>{/if}
+									{#if t.owner}<span class="task-owner">· {t.owner}</span>{/if}
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		{/if}
+	</div>
 
-		{#if loadingNotes}
-			<p class="muted">Loading notes…</p>
-		{:else if notesError}
-			<p class="err">{notesError}</p>
-		{:else if notes.length === 0}
-			<p class="muted">No notes yet.</p>
-		{:else}
-			<ul class="note-list">
-				{#each notes as n (n.id)}
-					<li>
-						{#if n.Note_Title}<div class="note-title">{n.Note_Title}</div>{/if}
-						<div class="note-body">{n.Note_Content}</div>
-						<div class="note-meta">
-							{n.owner_name ?? ''}{n.owner_name && n.Created_Time ? ' · ' : ''}{fmtTime(n.Created_Time)}
-						</div>
-					</li>
-				{/each}
-			</ul>
+	<!-- Notes (collapsed by default) -->
+	<div class="section">
+		<button class="section-head" type="button" on:click={toggleNotes} aria-expanded={notesOpen}>
+			<span class="caret">{notesOpen ? '▾' : '▸'}</span>
+			<span class="section-title">Notes</span>
+		</button>
+		{#if notesOpen}
+			<div class="section-body">
+				<form class="composer" on:submit={addNote}>
+					<textarea bind:value={composer} rows="2" placeholder="Add a note…"></textarea>
+					<button type="submit" disabled={submitting || !composer.trim()}>
+						{submitting ? 'Saving…' : 'Add note'}
+					</button>
+				</form>
+				{#if submitError}<p class="err">{submitError}</p>{/if}
+
+				{#if loadingNotes}
+					<p class="muted">Loading notes…</p>
+				{:else if notesError}
+					<p class="err">{notesError}</p>
+				{:else if notes.length === 0}
+					<p class="muted">No notes yet.</p>
+				{:else}
+					<ul class="note-list">
+						{#each notes as n (n.id)}
+							<li>
+								{#if n.Note_Title}<div class="note-title">{n.Note_Title}</div>{/if}
+								<div class="note-body">{n.Note_Content}</div>
+								<div class="note-meta">
+									{n.owner_name ?? ''}{n.owner_name && n.Created_Time ? ' · ' : ''}{fmtTime(
+										n.Created_Time
+									)}
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
 		{/if}
 	</div>
 </div>
@@ -276,20 +379,112 @@
 		background: #e0e7ff;
 	}
 
-	.notes {
+	/* Collapsible sections */
+	.section {
 		border-top: 1px solid #e5e7eb;
-		padding-top: 0.75rem;
+		padding-top: 0.6rem;
 	}
 
-	.notes-head {
-		font-size: 0.72rem;
+	.section-head {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		width: 100%;
+		background: none;
+		border: none;
+		padding: 0.15rem 0;
+		font: inherit;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.caret {
+		color: #9ca3af;
+		font-size: 0.8rem;
+	}
+
+	.section-title {
+		font-size: 0.78rem;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-		color: #6b7280;
+		color: #374151;
 		font-weight: 700;
-		margin-bottom: 0.5rem;
 	}
 
+	.section-sub {
+		font-size: 0.82rem;
+		color: #6b7280;
+	}
+
+	.section-body {
+		padding: 0.6rem 0 0.2rem;
+	}
+
+	/* Tasks */
+	.task-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.task-list li {
+		border: 1px solid #eef2f7;
+		border-radius: 8px;
+		background: #fff;
+		padding: 0.55rem 0.7rem;
+	}
+
+	.task-list li.done {
+		opacity: 0.6;
+	}
+
+	.task-subject {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #0f172a;
+	}
+
+	.task-meta {
+		margin-top: 0.3rem;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.78rem;
+		color: #6b7280;
+	}
+
+	.tag {
+		border-radius: 999px;
+		padding: 0.05rem 0.5rem;
+		font-weight: 600;
+		font-size: 0.72rem;
+		background: #eef2f7;
+		color: #374151;
+	}
+
+	.tag.overdue {
+		background: #fee2e2;
+		color: #b91c1c;
+	}
+
+	.tag.done {
+		background: #dcfce7;
+		color: #166534;
+	}
+
+	.task-due {
+		color: #6b7280;
+	}
+
+	.task-owner {
+		color: #9ca3af;
+	}
+
+	/* Notes */
 	.composer {
 		display: flex;
 		gap: 0.5rem;

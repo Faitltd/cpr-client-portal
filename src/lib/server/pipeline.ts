@@ -85,3 +85,64 @@ export async function getTeamPipeline(): Promise<PipelineRow[]> {
 		};
 	});
 }
+
+export type PipelineTask = {
+	id: string;
+	subject: string;
+	status: string | null;
+	dueDate: string | null; // yyyy-MM-dd
+	owner: string | null;
+	closed: boolean;
+	overdue: boolean;
+};
+
+/**
+ * Fetch the Tasks related to a single deal (the same related list the nightly
+ * rollup counts). Sorted overdue → open → completed. Returns [] when there are
+ * none (Zoho answers 204).
+ */
+export async function getDealTasks(dealId: string): Promise<PipelineTask[]> {
+	const valid = await ensureValidZohoToken();
+	if (!valid) {
+		throw new Error('No Zoho admin tokens stored. Complete admin OAuth first.');
+	}
+
+	const response = await zohoApiCall(
+		valid.accessToken,
+		`/Deals/${encodeURIComponent(dealId)}/Tasks?fields=Subject,Status,Due_Date,Owner&per_page=200`,
+		{ signal: AbortSignal.timeout(15000) },
+		valid.apiDomain
+	);
+
+	const data = Array.isArray(response?.data) ? response.data : [];
+	const today = new Date().toISOString().slice(0, 10);
+
+	const tasks: PipelineTask[] = data.map((t: any): PipelineTask => {
+		const status = typeof t?.Status === 'string' && t.Status.trim() ? t.Status : null;
+		const dueDate =
+			typeof t?.Due_Date === 'string' && t.Due_Date.trim() ? t.Due_Date.slice(0, 10) : null;
+		const closed = status === 'Completed';
+		return {
+			id: String(t?.id ?? ''),
+			subject: typeof t?.Subject === 'string' && t.Subject.trim() ? t.Subject : '(no subject)',
+			status,
+			dueDate,
+			owner: t?.Owner && typeof t.Owner === 'object' ? (t.Owner.name ?? null) : null,
+			closed,
+			overdue: !closed && !!dueDate && dueDate < today
+		};
+	});
+
+	// overdue (0) → open (1) → completed (2); then by due date ascending, nulls last.
+	const rank = (t: PipelineTask) => (t.closed ? 2 : t.overdue ? 0 : 1);
+	tasks.sort((a, b) => {
+		const r = rank(a) - rank(b);
+		if (r !== 0) return r;
+		if (!a.dueDate && !b.dueDate) return 0;
+		if (!a.dueDate) return 1;
+		if (!b.dueDate) return -1;
+		return a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0;
+	});
+
+	return tasks;
+}

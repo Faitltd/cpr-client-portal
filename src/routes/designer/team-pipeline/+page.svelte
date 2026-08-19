@@ -259,7 +259,11 @@
 						<tr class="detail-row">
 							<td colspan="5">
 								{#if summary}
-									<DealDetail deal={summary} />
+									<DealDetail
+										deal={summary}
+										activeTasks={row.activeTasks}
+										overdueTasks={row.overdueTasks}
+									/>
 								{:else}
 									<p class="detail-muted">
 										Full details for this deal aren’t loaded yet — reload in a moment.
