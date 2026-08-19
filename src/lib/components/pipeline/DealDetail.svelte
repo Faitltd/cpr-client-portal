@@ -67,13 +67,11 @@
 				out.push({ label, url });
 			}
 		};
-		add('WorkDrive folder', deal.workdriveUrl);
-		add('Client portal folder', asUrl(f.Client_Portal_Folder));
+		add('WorkDrive folder', asUrl(f.External_Link));
 		add('Designs', asUrl(f.WD_Designs));
 		add('Scope of work', asUrl(f.WD_SOW));
 		add('Change orders', asUrl(f.WD_Change_Orders));
 		add('Progress photos', asUrl(f.Progress_Photos));
-		add('Link', asUrl(f.External_Link));
 		return out;
 	})();
 
