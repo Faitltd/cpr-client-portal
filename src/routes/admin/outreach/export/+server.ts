@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { isValidAdminSession } from '$lib/server/admin';
 import { getOutreachDashboard, normalizeView } from '$lib/server/outreach';
+import { titleCaseAddress } from '$lib/addressCase';
 import type { RequestHandler } from './$types';
 
 function csvCell(v: string): string {
@@ -30,7 +31,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 	const rows = [['First Name', 'Last Name', 'Address']];
 	for (const l of leads) {
 		const { first, last } = splitName(l.owner_name);
-		rows.push([first, last, l.address ?? '']);
+		rows.push([first, last, titleCaseAddress(l.address)]);
 	}
 
 	const csv = rows.map((r) => r.map(csvCell).join(',')).join('\r\n');

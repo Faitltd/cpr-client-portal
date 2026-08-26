@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { titleCaseAddress } from '$lib/addressCase';
+
 	export let data;
 
 	$: leads = data.leads ?? [];
@@ -69,7 +71,7 @@
 							<div class="name">{l.owner_name ?? '—'}</div>
 							{#if l.score_reason}<div class="reason">{l.score_reason}</div>{/if}
 						</td>
-						<td class="addr">{l.address ?? '—'}</td>
+						<td class="addr">{titleCaseAddress(l.address) || '—'}</td>
 						<td><span class="status status-{l.status}">{l.status}</span></td>
 						<td class="num">{l.contacted_count || '—'}</td>
 						<td>{fmtDate(l.last_contacted_at)}</td>
