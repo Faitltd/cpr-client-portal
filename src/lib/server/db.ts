@@ -30,6 +30,14 @@ function getSupabase() {
 	return supabaseClient;
 }
 
+/**
+ * Exported accessor for the shared service-role Supabase client, for other
+ * server-only modules that need to call RPCs (e.g. the admin Outreach tab).
+ */
+export function getServiceSupabase(): SupabaseClient<any, any, any> {
+	return getSupabase();
+}
+
 function normalizeAuthRecord<T extends EmailRecord>(record: T): T {
 	if (!record) return record;
 

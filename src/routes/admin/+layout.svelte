@@ -35,6 +35,7 @@
 					<span class="admin-group" aria-label="Admin tabs">
 						<a class="tab tab-admin" class:active={isActive('/admin/clients')} href="/admin/clients">Client Admin</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/leads')} href="/admin/leads">Leads</a>
+						<a class="tab tab-admin" class:active={isActive('/admin/outreach')} href="/admin/outreach">Outreach</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/bot')} href="/admin/bot">CPR Assistant</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/schedule')} href="/admin/schedule">Schedule</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/process-map')} href="/admin/process-map">Process Map</a>
