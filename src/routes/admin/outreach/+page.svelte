@@ -26,6 +26,9 @@
 	<header class="head">
 		<h1>Outreach</h1>
 		<span class="count">{leads.length} shown</span>
+		<a class="download" href={`/admin/outreach/export?view=${view}`} data-sveltekit-reload>
+			Download CSV
+		</a>
 	</header>
 
 	<nav class="filters" aria-label="Lead views">
@@ -140,6 +143,20 @@
 		border: 1px solid #fed7aa;
 		padding: 0.15rem 0.55rem;
 		border-radius: 999px;
+	}
+	.download {
+		margin-left: auto;
+		background: #166534;
+		color: #fff;
+		border-radius: 8px;
+		padding: 0.4rem 0.85rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+	.download:hover {
+		background: #14532d;
 	}
 
 	.filters {
