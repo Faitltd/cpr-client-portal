@@ -3,10 +3,19 @@
 
 	$: leads = data.leads ?? [];
 	$: lastRun = data.lastRun;
-	$: totalLeads = data.totalLeads ?? leads.length;
+	$: counts = data.counts ?? { active: 0, rejected: 0, archived: 0, all: 0 };
+	$: view = data.view ?? 'active';
 
 	const fmtDateTime = (d: string | null) => (d ? new Date(d).toLocaleString() : '—');
 	const fmtDate = (d: string | null) => (d ? new Date(d).toLocaleDateString() : '—');
+
+	const VIEWS: { key: string; label: string }[] = [
+		{ key: 'active', label: 'Active' },
+		{ key: 'rejected', label: 'Rejected' },
+		{ key: 'archived', label: 'Archived' },
+		{ key: 'all', label: 'All' }
+	];
+	const countFor = (k: string) => (counts as Record<string, number>)[k] ?? 0;
 </script>
 
 <svelte:head>
@@ -16,13 +25,21 @@
 <section class="outreach">
 	<header class="head">
 		<h1>Outreach</h1>
-		<span class="count">{totalLeads} lead{totalLeads === 1 ? '' : 's'}</span>
+		<span class="count">{leads.length} shown</span>
 	</header>
+
+	<nav class="filters" aria-label="Lead views">
+		{#each VIEWS as v (v.key)}
+			<a class="filter" class:active={view === v.key} href={`/admin/outreach?view=${v.key}`}>
+				{v.label} <span class="n">{countFor(v.key)}</span>
+			</a>
+		{/each}
+	</nav>
 
 	{#if lastRun}
 		<p class="run">
-			Last run {fmtDateTime(lastRun.started_at)} — fetched {lastRun.fetched},
-			new {lastRun.new_leads}, qualified {lastRun.qualified}, needs review {lastRun.needs_review}{#if lastRun.finished_at}, finished {fmtDateTime(lastRun.finished_at)}{/if}{#if lastRun.error}<span class="err"> · error: {lastRun.error}</span>{/if}
+			Last run {fmtDateTime(lastRun.started_at)} — fetched {lastRun.fetched}, new {lastRun.new_leads},
+			qualified {lastRun.qualified}, needs review {lastRun.needs_review}{#if lastRun.error}<span class="err"> · error: {lastRun.error}</span>{/if}
 		</p>
 	{:else}
 		<p class="run">No runs recorded yet.</p>
@@ -33,56 +50,88 @@
 			<thead>
 				<tr>
 					<th class="num">Score</th>
-					<th>Owner</th>
+					<th>Owner &amp; reason</th>
 					<th>Address</th>
 					<th>Status</th>
 					<th class="num">Contacted</th>
-					<th>Last contacted</th>
-					<th>Added</th>
+					<th>Last</th>
+					<th class="act-col">Actions</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#each leads as l (l.id)}
-					<tr>
+					<tr class:done={l.contacted_count > 0}>
 						<td class="num">{l.score ?? '—'}</td>
-						<td>{l.owner_name ?? '—'}</td>
-						<td>{l.address ?? '—'}</td>
+						<td class="owner">
+							<div class="name">{l.owner_name ?? '—'}</div>
+							{#if l.score_reason}<div class="reason">{l.score_reason}</div>{/if}
+						</td>
+						<td class="addr">{l.address ?? '—'}</td>
 						<td><span class="status status-{l.status}">{l.status}</span></td>
-						<td class="num">{l.contacted_count}</td>
-						<td>{fmtDateTime(l.last_contacted_at)}</td>
-						<td>{fmtDate(l.created_at)}</td>
+						<td class="num">{l.contacted_count || '—'}</td>
+						<td>{fmtDate(l.last_contacted_at)}</td>
+						<td class="actions">
+							{#if l.contacted_count > 0}
+								<form method="POST" action="?/undo">
+									<input type="hidden" name="id" value={l.id} />
+									<input type="hidden" name="view" value={view} />
+									<button class="ghost" title="Undo last touch">↺ contacted</button>
+								</form>
+							{:else}
+								<form method="POST" action="?/contact">
+									<input type="hidden" name="id" value={l.id} />
+									<input type="hidden" name="view" value={view} />
+									<button class="ok">Mark contacted</button>
+								</form>
+							{/if}
+
+							{#if l.status !== 'qualified'}
+								<form method="POST" action="?/qualify">
+									<input type="hidden" name="id" value={l.id} />
+									<input type="hidden" name="view" value={view} />
+									<button>Qualify</button>
+								</form>
+							{/if}
+							{#if l.status !== 'rejected'}
+								<form method="POST" action="?/reject">
+									<input type="hidden" name="id" value={l.id} />
+									<input type="hidden" name="view" value={view} />
+									<button>Reject</button>
+								</form>
+							{/if}
+							{#if l.status !== 'archived'}
+								<form method="POST" action="?/archive">
+									<input type="hidden" name="id" value={l.id} />
+									<input type="hidden" name="view" value={view} />
+									<button class="ghost">Archive</button>
+								</form>
+							{/if}
+						</td>
 					</tr>
 				{:else}
-					<tr><td colspan="7" class="empty">No leads yet.</td></tr>
+					<tr><td colspan="7" class="empty">No leads in this view.</td></tr>
 				{/each}
 			</tbody>
 		</table>
 	</div>
-
-	{#if totalLeads > leads.length}
-		<p class="note">Showing top {leads.length} of {totalLeads} by score.</p>
-	{/if}
 </section>
 
 <style>
 	.outreach {
 		width: 100%;
 	}
-
 	.head {
 		display: flex;
 		align-items: baseline;
 		gap: 0.75rem;
-		margin-bottom: 0.25rem;
+		margin-bottom: 0.5rem;
 	}
-
 	h1 {
 		font-size: 1.4rem;
 		font-weight: 800;
 		color: #111827;
 		margin: 0;
 	}
-
 	.count {
 		font-size: 0.85rem;
 		font-weight: 600;
@@ -93,12 +142,40 @@
 		border-radius: 999px;
 	}
 
+	.filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 0.75rem;
+	}
+	.filter {
+		text-decoration: none;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #334155;
+		background: #eef2f7;
+		padding: 0.3rem 0.7rem;
+		border-radius: 999px;
+		border: 1px solid transparent;
+	}
+	.filter:hover {
+		background: #dbe3ee;
+	}
+	.filter.active {
+		background: #92400e;
+		color: #fff;
+		border-color: #92400e;
+	}
+	.filter .n {
+		opacity: 0.75;
+		font-variant-numeric: tabular-nums;
+	}
+
 	.run {
 		color: #555;
 		font-size: 0.9rem;
-		margin: 0.25rem 0 1rem;
+		margin: 0 0 1rem;
 	}
-
 	.err {
 		color: #c00;
 	}
@@ -109,42 +186,52 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 0.6rem;
 	}
-
 	table {
 		border-collapse: collapse;
 		width: 100%;
 		font-size: 0.9rem;
 	}
-
 	th,
 	td {
 		text-align: left;
 		padding: 0.55rem 0.75rem;
 		border-bottom: 1px solid #f0f0f0;
-		white-space: nowrap;
+		vertical-align: top;
 	}
-
-	td:nth-child(3) {
-		white-space: normal;
-		min-width: 220px;
-	}
-
 	thead th {
-		position: sticky;
-		top: 0;
 		background: #f8fafc;
 		color: #334155;
 		font-weight: 700;
 		border-bottom: 1px solid #e5e7eb;
+		white-space: nowrap;
 	}
-
 	tbody tr:hover {
 		background: #fcfcfd;
 	}
-
+	tr.done td {
+		color: #6b7280;
+	}
 	.num {
 		text-align: right;
 		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+	.owner {
+		min-width: 220px;
+	}
+	.owner .name {
+		font-weight: 600;
+		color: #111827;
+	}
+	.owner .reason {
+		color: #6b7280;
+		font-size: 0.8rem;
+		margin-top: 0.15rem;
+		max-width: 340px;
+	}
+	.addr {
+		min-width: 200px;
+		color: #555;
 	}
 
 	.status {
@@ -156,32 +243,70 @@
 		background: #eef2f7;
 		color: #334155;
 		text-transform: capitalize;
+		white-space: nowrap;
 	}
-
-	.status-new {
-		background: #ecfdf5;
-		color: #065f46;
-	}
-
-	.status-contacted {
-		background: #eff6ff;
-		color: #1e40af;
-	}
-
 	.status-qualified {
 		background: #fff7ed;
 		color: #92400e;
+	}
+	.status-needs_review {
+		background: #eff6ff;
+		color: #1e40af;
+	}
+	.status-approved {
+		background: #ecfdf5;
+		color: #065f46;
+	}
+	.status-rejected {
+		background: #f3f4f6;
+		color: #6b7280;
+	}
+	.status-archived {
+		background: #f3f4f6;
+		color: #9ca3af;
+	}
+
+	.act-col {
+		width: 1%;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		justify-content: flex-end;
+	}
+	.actions form {
+		margin: 0;
+	}
+	button {
+		cursor: pointer;
+		border-radius: 7px;
+		border: 1px solid #d1d5db;
+		padding: 0.28rem 0.55rem;
+		font: inherit;
+		font-size: 0.8rem;
+		background: #fff;
+		color: #374151;
+		white-space: nowrap;
+	}
+	button:hover {
+		background: #f9fafb;
+	}
+	.ok {
+		background: #92400e;
+		color: #fff;
+		border-color: #92400e;
+	}
+	.ok:hover {
+		background: #7c2d12;
+	}
+	.ghost {
+		color: #6b7280;
 	}
 
 	.empty {
 		text-align: center;
 		color: #9ca3af;
 		padding: 1.5rem;
-	}
-
-	.note {
-		color: #9ca3af;
-		font-size: 0.8rem;
-		margin-top: 0.6rem;
 	}
 </style>

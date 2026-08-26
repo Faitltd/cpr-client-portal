@@ -1,13 +1,11 @@
 import { getServiceSupabase } from './db';
 
 /**
- * Read access to the `outreach` schema for the admin Outreach tab.
+ * Admin Outreach tab data + actions.
  *
- * The outreach schema is intentionally NOT exposed to PostgREST, and its client
- * roles are revoked. Reads go through `public.outreach_admin_dashboard()`, a
- * SECURITY DEFINER function whose EXECUTE privilege is granted only to
- * `service_role`. So only this server-side, service-role call can reach the
- * data — keep every use behind an admin guard.
+ * The `outreach` schema is not exposed to PostgREST; everything goes through
+ * service_role-only SECURITY DEFINER RPCs (`outreach_*`). Keep every call here
+ * behind the admin guard in the route.
  */
 export type OutreachLead = {
 	id: string;
@@ -32,31 +30,64 @@ export type OutreachRun = {
 	error: string | null;
 };
 
+export type OutreachCounts = { active: number; rejected: number; archived: number; all: number };
+
+export type OutreachView = 'active' | 'rejected' | 'archived' | 'all';
+export const OUTREACH_VIEWS: OutreachView[] = ['active', 'rejected', 'archived', 'all'];
+
 export type OutreachDashboard = {
 	leads: OutreachLead[];
 	lastRun: OutreachRun | null;
-	totalLeads: number;
+	counts: OutreachCounts;
+	view: OutreachView;
 };
 
-export async function getOutreachDashboard(limit = 200): Promise<OutreachDashboard> {
-	const { data, error } = await getServiceSupabase().rpc('outreach_admin_dashboard', {
-		p_limit: limit
-	});
+// Statuses an admin may set from the tab.
+const SETTABLE_STATUSES = new Set(['qualified', 'needs_review', 'approved', 'rejected', 'archived']);
 
-	if (error) {
-		throw new Error(`outreach dashboard query failed: ${error.message}`);
-	}
+export function normalizeView(v: string | null | undefined): OutreachView {
+	return (OUTREACH_VIEWS as string[]).includes(v ?? '') ? (v as OutreachView) : 'active';
+}
+
+export async function getOutreachDashboard(
+	view: OutreachView = 'active',
+	limit = 500
+): Promise<OutreachDashboard> {
+	const { data, error } = await getServiceSupabase().rpc('outreach_admin_dashboard', {
+		p_limit: limit,
+		p_view: view
+	});
+	if (error) throw new Error(`outreach dashboard query failed: ${error.message}`);
 
 	const payload = (data ?? {}) as {
 		leads?: OutreachLead[];
 		last_run?: OutreachRun | null;
-		total?: number;
+		counts?: OutreachCounts;
 	};
 
-	const leads = payload.leads ?? [];
 	return {
-		leads,
+		leads: payload.leads ?? [],
 		lastRun: payload.last_run ?? null,
-		totalLeads: payload.total ?? leads.length
+		counts: payload.counts ?? { active: 0, rejected: 0, archived: 0, all: 0 },
+		view
 	};
+}
+
+export async function markContacted(id: string): Promise<void> {
+	const { error } = await getServiceSupabase().rpc('outreach_mark_contacted', { p_id: id });
+	if (error) throw new Error(`mark contacted failed: ${error.message}`);
+}
+
+export async function unmarkContacted(id: string): Promise<void> {
+	const { error } = await getServiceSupabase().rpc('outreach_unmark_contacted', { p_id: id });
+	if (error) throw new Error(`unmark contacted failed: ${error.message}`);
+}
+
+export async function setLeadStatus(id: string, status: string): Promise<void> {
+	if (!SETTABLE_STATUSES.has(status)) throw new Error(`invalid status: ${status}`);
+	const { error } = await getServiceSupabase().rpc('outreach_update_lead', {
+		p_id: id,
+		p_patch: { status }
+	});
+	if (error) throw new Error(`set status failed: ${error.message}`);
 }
