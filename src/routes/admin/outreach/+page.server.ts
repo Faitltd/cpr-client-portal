@@ -1,4 +1,5 @@
-import { redirect } from '@sveltejs/kit';
+import { redirect, fail } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { isValidAdminSession } from '$lib/server/admin';
 import {
 	getOutreachDashboard,
@@ -59,5 +60,39 @@ export const actions: Actions = {
 		const { id, view } = await readIdAndView(request);
 		if (id) await setLeadStatus(id, 'archived');
 		throw redirect(303, `/admin/outreach?view=${view}`);
+	},
+	run: async ({ cookies }) => {
+		requireAdmin(cookies);
+		const url = env.OUTREACH_RUN_URL;
+		const secret = env.OUTREACH_RUN_SECRET;
+		if (!url || !secret) {
+			return fail(500, {
+				ok: false,
+				runMessage: 'Run isn’t configured yet. Set OUTREACH_RUN_URL and OUTREACH_RUN_SECRET.'
+			});
+		}
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), 90_000);
+		try {
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: { authorization: `Bearer ${secret}` },
+				signal: controller.signal
+			});
+			if (!res.ok) {
+				return fail(502, { ok: false, runMessage: `Agent responded ${res.status}. Check its logs.` });
+			}
+			return { ok: true, runMessage: 'Search complete. Any new leads are in the list below.' };
+		} catch (err) {
+			if ((err as Error).name === 'AbortError') {
+				return {
+					ok: true,
+					runMessage: 'Search kicked off — still running. Refresh in a minute to see new leads.'
+				};
+			}
+			return fail(502, { ok: false, runMessage: 'Could not reach the agent.' });
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 };

@@ -45,6 +45,13 @@
 					>Financials</a
 				>
 			{/if}
+			{#if data.isAdmin}
+				<a
+					class="tab"
+					class:active={pathname.startsWith('/admin/outreach')}
+					href="/admin/outreach">Outreach</a
+				>
+			{/if}
 			{#if data.tabs.schedule}
 				<a class="tab" class:active={pathname === '/designer/schedule'} href="/designer/schedule"
 					>Schedule</a
@@ -65,7 +72,6 @@
 				<span class="admin-group" aria-label="Admin tabs">
 					<a class="tab tab-admin" href="/admin/clients">Client Admin</a>
 					<a class="tab tab-admin" href="/admin/leads">Leads</a>
-					<a class="tab tab-admin" href="/admin/outreach">Outreach</a>
 					<a class="tab tab-admin" href="/admin/bot">CPR Assistant</a>
 					<a class="tab tab-admin" href="/admin/schedule">Schedule</a>
 					<a class="tab tab-admin" href="/admin/process-map">Process Map</a>

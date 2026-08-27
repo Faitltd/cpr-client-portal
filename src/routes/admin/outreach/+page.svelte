@@ -2,6 +2,7 @@
 	import { titleCaseAddress } from '$lib/addressCase';
 
 	export let data;
+	export let form;
 
 	$: leads = data.leads ?? [];
 	$: lastRun = data.lastRun;
@@ -28,10 +29,19 @@
 	<header class="head">
 		<h1>Outreach</h1>
 		<span class="count">{leads.length} shown</span>
-		<a class="download" href={`/admin/outreach/export?view=${view}`} data-sveltekit-reload>
-			Download CSV
-		</a>
+		<div class="head-actions">
+			<form method="POST" action="?/run">
+				<button class="run-btn">Run search</button>
+			</form>
+			<a class="download" href={`/admin/outreach/export?view=${view}`} data-sveltekit-reload>
+				Download CSV
+			</a>
+		</div>
 	</header>
+
+	{#if form?.runMessage}
+		<p class="run-msg" class:err={!form.ok}>{form.runMessage}</p>
+	{/if}
 
 	<nav class="filters" aria-label="Lead views">
 		{#each VIEWS as v (v.key)}
@@ -146,8 +156,42 @@
 		padding: 0.15rem 0.55rem;
 		border-radius: 999px;
 	}
-	.download {
+	.head-actions {
 		margin-left: auto;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.run-btn {
+		cursor: pointer;
+		background: #92400e;
+		color: #fff;
+		border: 1px solid #92400e;
+		border-radius: 8px;
+		padding: 0.4rem 0.85rem;
+		font: inherit;
+		font-size: 0.85rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.run-btn:hover {
+		background: #7c2d12;
+	}
+	.run-msg {
+		margin: 0 0 0.75rem;
+		font-size: 0.88rem;
+		color: #065f46;
+		background: #ecfdf5;
+		border: 1px solid #a7f3d0;
+		padding: 0.45rem 0.7rem;
+		border-radius: 8px;
+	}
+	.run-msg.err {
+		color: #991b1b;
+		background: #fef2f2;
+		border-color: #fecaca;
+	}
+	.download {
 		background: #166534;
 		color: #fff;
 		border-radius: 8px;
