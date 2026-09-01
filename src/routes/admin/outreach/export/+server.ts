@@ -56,21 +56,24 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 	}
 
 	const view = normalizeView(url.searchParams.get('view'));
+	const uncontactedOnly = url.searchParams.get('uncontacted') === '1';
 	const { leads } = await getOutreachDashboard(view, 1000);
+	const selected = uncontactedOnly ? leads.filter((l) => (l.contacted_count ?? 0) === 0) : leads;
 
 	const rows = [['First Name', 'Last Name', 'Address']];
-	for (const l of leads) {
+	for (const l of selected) {
 		const { first, last } = splitName(l.owner_name);
 		rows.push([first, last, titleCaseAddress(l.address)]);
 	}
 
 	const csv = rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 	const date = new Date().toISOString().slice(0, 10);
+	const label = uncontactedOnly ? `${view}-uncontacted` : view;
 
 	return new Response(csv, {
 		headers: {
 			'Content-Type': 'text/csv; charset=utf-8',
-			'Content-Disposition': `attachment; filename="outreach-${view}-${date}.csv"`
+			'Content-Disposition': `attachment; filename="outreach-${label}-${date}.csv"`
 		}
 	});
 };

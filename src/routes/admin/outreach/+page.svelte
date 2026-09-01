@@ -36,6 +36,13 @@
 			<a class="download" href={`/admin/outreach/export?view=${view}`} data-sveltekit-reload>
 				Download CSV
 			</a>
+			<a
+				class="download download-alt"
+				href={`/admin/outreach/export?view=${view}&uncontacted=1`}
+				data-sveltekit-reload
+			>
+				Download uncontacted
+			</a>
 		</div>
 	</header>
 
@@ -203,6 +210,14 @@
 	}
 	.download:hover {
 		background: #14532d;
+	}
+	.download-alt {
+		background: #fff;
+		color: #166534;
+		border: 1px solid #166534;
+	}
+	.download-alt:hover {
+		background: #f0fdf4;
 	}
 
 	.filters {
