@@ -11,7 +11,8 @@
 		!isEmbed &&
 		pathname !== '/' &&
 		!pathname.startsWith('/admin') &&
-		!pathname.startsWith('/auth');
+		!pathname.startsWith('/auth') &&
+		!pathname.startsWith('/moodboard');
 	$: isTradePortal = pathname.startsWith('/trade');
 	$: hasTradeSession = Boolean($page.data?.hasTradeSession);
 	$: accountHref = isTradePortal ? '/trade/account' : '/account';
