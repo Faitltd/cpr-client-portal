@@ -8,19 +8,39 @@ let nav={level:'home',color:null,style:null}; // level: home|color|style|search|
 
 function escapeHTML(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-// ---------- favorites (per-viewer, localStorage) ----------
-const FAV_KEY='cpr_moodboard_favs';
+// ---------- client link + cloud sync ----------
+// With ?c=<key> the picks save to Supabase (sync across the client's devices,
+// visible to the CPR team). Without it, picks stay local to this browser.
+const clientKey=((new URLSearchParams(location.search)).get('c')||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'').slice(0,60);
+const online=!!clientKey;
+const SUPA_URL='https://dhjbpebtjtdicevnkjpd.supabase.co';
+const SUPA_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoamJwZWJ0anRkaWNldm5ranBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDE5MDYsImV4cCI6MjA4NTYxNzkwNn0.p9D-N4C8Hpqe5mdD7cHB3VHCZ746spywLP7a3ciuqVo';
+function supaHeaders(extra){return Object.assign({'apikey':SUPA_ANON,'Authorization':'Bearer '+SUPA_ANON,'Content-Type':'application/json'},extra||{});}
+function supaWrite(id){const body=JSON.stringify({client_key:clientKey,board_id:id,favorite:isFav(id),note:getNote(id)});
+  fetch(SUPA_URL+'/rest/v1/moodboard_selections',{method:'POST',headers:supaHeaders({'Prefer':'resolution=merge-duplicates'}),body}).catch(()=>{});}
+function supaDelete(id){fetch(SUPA_URL+'/rest/v1/moodboard_selections?client_key=eq.'+encodeURIComponent(clientKey)+'&board_id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:supaHeaders()}).catch(()=>{});}
+function persist(id){if(!online)return;if(isFav(id)||getNote(id))supaWrite(id);else supaDelete(id);}
+async function supaLoad(){try{
+  const r=await fetch(SUPA_URL+'/rest/v1/moodboard_selections?client_key=eq.'+encodeURIComponent(clientKey)+'&select=board_id,favorite,note',{headers:supaHeaders()});
+  if(!r.ok)return false;const rows=await r.json();
+  favs=new Set();notes={};
+  rows.forEach(x=>{if(x.favorite)favs.add(x.board_id);if(x.note)notes[x.board_id]=x.note;});
+  saveFavs();saveNotes();return true;
+}catch(e){return false;}}
+
+// ---------- favorites (localStorage cache; cloud when ?c=) ----------
+const FAV_KEY=online?('cpr_mb_favs_'+clientKey):'cpr_moodboard_favs';
 function loadFavs(){try{return new Set(JSON.parse(localStorage.getItem(FAV_KEY)||'[]'));}catch(e){return new Set();}}
 let favs=loadFavs();
 function saveFavs(){try{localStorage.setItem(FAV_KEY,JSON.stringify([...favs]));}catch(e){}}
 function isFav(id){return favs.has(id);}
-function toggleFav(id){if(favs.has(id))favs.delete(id);else favs.add(id);saveFavs();updateFavBadge();}
+function toggleFav(id){if(favs.has(id))favs.delete(id);else favs.add(id);saveFavs();persist(id);updateFavBadge();}
 function updateFavBadge(){const b=document.getElementById('favCount');if(b){b.textContent=favs.size;b.hidden=favs.size===0;}
   const btn=document.getElementById('favBtn');if(btn)btn.classList.toggle('on',nav.level==='favorites');}
 function heartSVG(f){return `<svg viewBox="0 0 24 24" width="17" height="17" fill="${f?'currentColor':'none'}" stroke="currentColor" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;}
 
-// ---------- notes (per-viewer, localStorage) ----------
-const NOTE_KEY='cpr_moodboard_notes';
+// ---------- notes (localStorage cache; cloud when ?c=) ----------
+const NOTE_KEY=online?('cpr_mb_notes_'+clientKey):'cpr_moodboard_notes';
 function loadNotes(){try{return JSON.parse(localStorage.getItem(NOTE_KEY)||'{}');}catch(e){return {};}}
 let notes=loadNotes();
 function saveNotes(){try{localStorage.setItem(NOTE_KEY,JSON.stringify(notes));}catch(e){}}
@@ -270,8 +290,10 @@ document.getElementById('lbClose').onclick=closeLb;
 document.getElementById('lbPrev').onclick=()=>{if(curIdx>0){curIdx--;renderLb();}};
 document.getElementById('lbNext').onclick=()=>{if(curIdx<curStyle.boards.length-1){curIdx++;renderLb();}};
 lbFav.onclick=()=>{toggleFav(curBoard().id);renderLbFav();};
+let noteTimer=null;
 if(lbNote)lbNote.addEventListener('input',()=>{const id=curBoard().id;setNote(id,lbNote.value);
-  if(lbNote.value.trim()&&!isFav(id)){favs.add(id);saveFavs();updateFavBadge();renderLbFav();}});
+  if(lbNote.value.trim()&&!isFav(id)){favs.add(id);saveFavs();updateFavBadge();renderLbFav();}
+  if(online){clearTimeout(noteTimer);noteTimer=setTimeout(()=>persist(id),600);}});
 lbImg.addEventListener('click',()=>lbWrap.classList.toggle('zoom'));
 lb.addEventListener('click',e=>{if(e.target===lb)closeLb();});
 document.addEventListener('keydown',e=>{
@@ -298,6 +320,20 @@ let dark=matchMedia('(prefers-color-scheme:dark)').matches;
 themeBtn.onclick=()=>{dark=!dark;rootEl.setAttribute('data-theme',dark?'dark':'light');iconFor(dark);};
 iconFor(dark);
 
+// ---------- client chip ----------
+function addClientChip(){
+  const favB=document.getElementById('favBtn');if(!favB||!favB.parentNode)return;
+  const chip=el(`<span class="clientchip" title="Your favorites and notes are saved and shared with the CPR team">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+      Saving for ${escapeHTML(clientKey)}</span>`);
+  favB.parentNode.insertBefore(chip,favB);
+}
+
 // ---------- boot ----------
 stage.appendChild(renderHome());renderCrumbs();updateFavBadge();
+if(online){
+  addClientChip();
+  supaLoad().then(ok=>{updateFavBadge();
+    if(ok&&(nav.level==='favorites'||nav.level==='style')){const scr=stage.querySelector('.screen');if(scr)scr.replaceWith(buildScreen(nav));}});
+}
 }

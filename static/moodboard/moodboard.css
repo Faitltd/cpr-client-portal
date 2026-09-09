@@ -208,3 +208,10 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
   .lb-notes{padding:8px 12px}
   .lb-notes textarea{min-height:40px}
 }
+
+/* client-link chip */
+.clientchip{display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 12px;border-radius:9px;
+  background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent);
+  border:1px solid color-mix(in srgb,var(--accent) 34%,transparent);font-size:12px;font-weight:600;white-space:nowrap}
+.clientchip svg{flex:none}
+@media (max-width:600px){.clientchip{display:none}}

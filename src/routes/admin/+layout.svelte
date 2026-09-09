@@ -40,6 +40,7 @@
 						<a class="tab tab-admin" class:active={isActive('/admin/schedule')} href="/admin/schedule">Schedule</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/process-map')} href="/admin/process-map">Process Map</a>
 						<a class="tab tab-admin" class:active={isActive('/admin/takeoffs')} href="/admin/takeoffs">Est./T.O.'s</a>
+						<a class="tab tab-admin" class:active={isActive('/admin/moodboard')} href="/admin/moodboard">Mood Board</a>
 					</span>
 				</nav>
 			</div>
