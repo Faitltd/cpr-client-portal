@@ -35,13 +35,16 @@ DATA.colors.forEach(c=>c.styles.forEach(st=>st.boards.forEach((b,i)=>{pageIndex[
 // ---------- helpers ----------
 function el(html){const d=document.createElement('div');d.innerHTML=html.trim();return d.firstElementChild;}
 function firstImgs(boards,n){return boards.slice(0,n).map(b=>b.img);}
+// resized thumbnail via Supabase image transformation (full-res stays for the lightbox)
+function thumb(url,w){return url.indexOf('/object/public/')<0?url:url.replace('/object/public/','/render/image/public/')+'?width='+w+'&quality=72&resize=contain';}
+function imgTag(url,w,alt,cls){const t=thumb(url,w);return `<img${cls?` class="${cls}"`:''} src="${t}" onerror="this.onerror=null;this.src='${url}'" alt="${alt||''}" loading="lazy" decoding="async">`;}
 
 function boardCard(st,i,cid,opts){
   opts=opts||{};
   const b=st.boards[i];
   const fav=isFav(b.id), note=hasNote(b.id);
   const card=el(`<div class="bcard">
-      <button class="bthumb" aria-label="Enlarge ${b.tag} board"><img src="${b.img}" alt="${st.name} ${b.tag} board" loading="lazy"><span class="bnum">${b.tag}</span>${note?'<span class="notedot" title="Has a note">&#9998;</span>':''}</button>
+      <button class="bthumb" aria-label="Enlarge board ${b.src}${b.tag}">${imgTag(b.img,400,st.name+' board '+b.src+b.tag)}<span class="bnum">${b.src}${b.tag}</span>${note?'<span class="notedot" title="Has a note">&#9998;</span>':''}</button>
       <button class="fav ${fav?'on':''}" aria-label="Save to favorites" aria-pressed="${fav}">${heartSVG(fav)}</button>
     </div>`);
   card.querySelector('.bthumb').addEventListener('click',()=>openLightbox(st,i,cid));
@@ -66,7 +69,7 @@ function renderHome(){
   DATA.colors.forEach(c=>{
     const peek=[];c.styles.forEach(st=>st.boards.forEach(b=>peek.push(b.img)));
     const card=el(`<button class="ccard" style="--cc:var(${CW[c.id]})">
-        <div class="band"><div class="peekrow">${peek.slice(0,4).map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div><span class="swbig"></span></div>
+        <div class="band"><div class="peekrow">${peek.slice(0,4).map(i=>imgTag(i,240,'')).join('')}</div><span class="swbig"></span></div>
         <div class="body"><div class="cnm">${c.name}</div>
           <div class="cmeta">${c.count} boards &middot; ${c.styles.length} style${c.styles.length>1?'s':''}</div></div>
         <span class="go"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
@@ -96,7 +99,7 @@ function renderColor(id){
     const cls=st.boards.length===1?'one':st.boards.length===2?'two':'';
     const imgs=firstImgs(st.boards,n);
     const card=el(`<button class="scard" style="--cc:var(${CW[c.id]})">
-        <div class="sgrid ${cls}">${imgs.map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div>
+        <div class="sgrid ${cls}">${imgs.map(i=>imgTag(i,240,'')).join('')}</div>
         <div class="sb"><span class="stripe"></span><span class="snm">${st.name}</span>
           <span class="scount">${st.boards.length}</span></div>
       </button>`);
@@ -142,7 +145,7 @@ function renderSearch(term){
     const cls=st.boards.length===1?'one':st.boards.length===2?'two':'';
     const imgs=firstImgs(st.boards,n);
     const card=el(`<button class="scard" style="--cc:var(${CW[c.id]})">
-        <div class="sgrid ${cls}">${imgs.map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div>
+        <div class="sgrid ${cls}">${imgs.map(i=>imgTag(i,240,'')).join('')}</div>
         <div class="sb"><span class="stripe"></span><span class="snm">${st.name}</span>
           <span class="scount">${st.boards.length}</span></div>
       </button>`);
@@ -252,9 +255,9 @@ function renderLbFav(){const on=isFav(curBoard().id);
   lbFav.classList.toggle('on',on);lbFav.setAttribute('aria-pressed',on);lbFav.innerHTML=heartSVG(on);}
 function renderLb(){const b=curBoard();
   lbWrap.classList.remove('zoom');
-  lbImg.src=b.img;lbTitle.textContent=curStyle.name;lbPage.textContent='p.'+b.src+' · '+b.tag;
+  lbImg.src=b.img;lbTitle.textContent=curStyle.name;lbPage.textContent=b.src+b.tag;
   lbSw.style.background='var('+CW[curColor]+')';lbCount.textContent=(curIdx+1)+' / '+curStyle.boards.length;
-  const fname=slug(curStyle.name)+'-'+b.src+'-'+b.tag.toLowerCase()+'.jpg';
+  const fname=slug(curStyle.name)+'-'+b.src+b.tag+'.jpg';
   lbDownload.href=b.img+(b.img.includes('?')?'&':'?')+'download='+encodeURIComponent(fname);
   lbDownload.setAttribute('download',fname);
   document.getElementById('lbPrev').disabled=curIdx===0;
