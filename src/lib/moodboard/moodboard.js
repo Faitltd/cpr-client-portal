@@ -4,25 +4,55 @@ export function initMoodboard(DATA){
 const CW={white:'--c-white',gray:'--c-gray',blue:'--c-blue',black:'--c-black',wood:'--c-wood'};
 const stage=document.getElementById('stage'), crumbs=document.getElementById('crumbs');
 const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
-let nav={level:'home',color:null,style:null}; // level: home|color|style
-let searchResults=null;
+let nav={level:'home',color:null,style:null}; // level: home|color|style|search|favorites
 
-// ---------- renderers ----------
+// ---------- favorites (per-viewer, localStorage) ----------
+const FAV_KEY='cpr_moodboard_favs';
+function loadFavs(){try{return new Set(JSON.parse(localStorage.getItem(FAV_KEY)||'[]'));}catch(e){return new Set();}}
+let favs=loadFavs();
+function saveFavs(){try{localStorage.setItem(FAV_KEY,JSON.stringify([...favs]));}catch(e){}}
+function isFav(pg){return favs.has(pg);}
+function toggleFav(pg){if(favs.has(pg))favs.delete(pg);else favs.add(pg);saveFavs();updateFavBadge();}
+function updateFavBadge(){const b=document.getElementById('favCount');if(b){b.textContent=favs.size;b.hidden=favs.size===0;}
+  const btn=document.getElementById('favBtn');if(btn)btn.classList.toggle('on',nav.level==='favorites');}
+function heartSVG(f){return `<svg viewBox="0 0 24 24" width="17" height="17" fill="${f?'currentColor':'none'}" stroke="currentColor" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;}
+
+// index: page number -> {c, st, i}
+const pageIndex={};
+DATA.colors.forEach(c=>c.styles.forEach(st=>st.boards.forEach((b,i)=>{pageIndex[b.page]={c,st,i};})));
+
+// ---------- helpers ----------
 function el(html){const d=document.createElement('div');d.innerHTML=html.trim();return d.firstElementChild;}
 function firstImgs(boards,n){return boards.slice(0,n).map(b=>b.img);}
 
+function boardCard(st,i,cid){
+  const b=st.boards[i];
+  const card=el(`<div class="bcard">
+      <button class="bthumb" aria-label="Enlarge board ${i+1}"><img src="${b.img}" alt="${st.name} board ${i+1}" loading="lazy"><span class="bnum">${i+1}</span></button>
+      <button class="fav ${isFav(b.page)?'on':''}" aria-label="Save to favorites" aria-pressed="${isFav(b.page)}">${heartSVG(isFav(b.page))}</button>
+    </div>`);
+  card.querySelector('.bthumb').addEventListener('click',()=>openLightbox(st,i,cid));
+  const fb=card.querySelector('.fav');
+  fb.addEventListener('click',e=>{e.stopPropagation();toggleFav(b.page);
+    const on=isFav(b.page);fb.classList.toggle('on',on);fb.setAttribute('aria-pressed',on);fb.innerHTML=heartSVG(on);
+    if(nav.level==='favorites'&&!on){const scr=stage.querySelector('.screen');scr.replaceWith(renderFavorites());}
+  });
+  return card;
+}
+
+// ---------- renderers ----------
 function renderHome(){
   const s=el('<div class="screen"><div class="wrap"></div></div>');
   const w=s.querySelector('.wrap');
   w.appendChild(el(`<div class="screen-head"><div class="htxt">
       <div class="eyebrow">Mood Board Catalog</div>
       <h1>Kitchen Mood Boards</h1>
-      <div class="meta">${DATA.total} boards &middot; 5 cabinet colors &middot; click a color to zoom in</div></div></div>`));
+      <div class="meta">${DATA.total} boards &middot; 5 cabinet colors &middot; tap a color to zoom in</div></div></div>`));
   const grid=el('<div class="colorgrid"></div>');
   DATA.colors.forEach(c=>{
     const peek=[];c.styles.forEach(st=>st.boards.forEach(b=>peek.push(b.img)));
     const card=el(`<button class="ccard" style="--cc:var(${CW[c.id]})">
-        <div class="band"><div class="peekrow">${peek.slice(0,4).map(i=>`<img src="${i}" alt="">`).join('')}</div><span class="swbig"></span></div>
+        <div class="band"><div class="peekrow">${peek.slice(0,4).map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div><span class="swbig"></span></div>
         <div class="body"><div class="cnm">${c.name}</div>
           <div class="cmeta">${c.count} boards &middot; ${c.styles.length} style${c.styles.length>1?'s':''}</div></div>
         <span class="go"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
@@ -41,7 +71,7 @@ function renderColor(id){
   const w=s.querySelector('.wrap');
   const head=el(`<div class="screen-head">
       <button class="backbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg> All colors</button>
-      <div class="htxt"><div class="eyebrow" style="color:var(${CW[c.id]})">Cabinet color</div>
+      <div class="htxt"><div class="eyebrow">Cabinet color</div>
       <h1>${c.name}</h1>
       <div class="meta">${c.count} boards &middot; ${c.styles.length} style${c.styles.length>1?'s':''}</div></div></div>`);
   head.querySelector('.backbtn').addEventListener('click',()=>go({level:'home'},null,true));
@@ -52,7 +82,7 @@ function renderColor(id){
     const cls=st.boards.length===1?'one':st.boards.length===2?'two':'';
     const imgs=firstImgs(st.boards,n);
     const card=el(`<button class="scard" style="--cc:var(${CW[c.id]})">
-        <div class="sgrid ${cls}">${imgs.map(i=>`<img src="${i}" alt="">`).join('')}</div>
+        <div class="sgrid ${cls}">${imgs.map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div>
         <div class="sb"><span class="stripe"></span><span class="snm">${st.name}</span>
           <span class="scount">${st.boards.length}</span></div>
       </button>`);
@@ -70,17 +100,13 @@ function renderStyle(cid,name){
   const w=s.querySelector('.wrap');
   const head=el(`<div class="screen-head">
       <button class="backbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg> ${c.name}</button>
-      <div class="htxt"><div class="eyebrow" style="color:var(${CW[c.id]})">${c.name} cabinets</div>
+      <div class="htxt"><div class="eyebrow">${c.name} cabinets</div>
       <h1>${st.name}</h1>
-      <div class="meta">${st.boards.length} board${st.boards.length>1?'s':''} &middot; click any board to enlarge</div></div></div>`);
+      <div class="meta">${st.boards.length} board${st.boards.length>1?'s':''} &middot; tap any board to enlarge</div></div></div>`);
   head.querySelector('.backbtn').addEventListener('click',()=>go({level:'color',color:cid,style:null},null,true));
   w.appendChild(head);
   const grid=el('<div class="boardgrid"></div>');
-  st.boards.forEach((b,i)=>{
-    const card=el(`<button class="bcard"><img src="${b.img}" alt="${st.name} board ${i+1}"><span class="bnum">${i+1}</span></button>`);
-    card.addEventListener('click',()=>openLightbox(st,i,c.id));
-    grid.appendChild(card);
-  });
+  st.boards.forEach((b,i)=>grid.appendChild(boardCard(st,i,c.id)));
   w.appendChild(grid);
   return s;
 }
@@ -102,13 +128,31 @@ function renderSearch(term){
     const cls=st.boards.length===1?'one':st.boards.length===2?'two':'';
     const imgs=firstImgs(st.boards,n);
     const card=el(`<button class="scard" style="--cc:var(${CW[c.id]})">
-        <div class="sgrid ${cls}">${imgs.map(i=>`<img src="${i}" alt="">`).join('')}</div>
+        <div class="sgrid ${cls}">${imgs.map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div>
         <div class="sb"><span class="stripe"></span><span class="snm">${st.name}</span>
           <span class="scount">${st.boards.length}</span></div>
       </button>`);
     card.addEventListener('click',()=>go({level:'style',color:c.id,style:st.name},card));
     grid.appendChild(card);
   });
+  w.appendChild(grid);
+  return s;
+}
+
+function renderFavorites(){
+  const s=el('<div class="screen"><div class="wrap"></div></div>');
+  const w=s.querySelector('.wrap');
+  const items=[...favs].map(pg=>pageIndex[pg]).filter(Boolean);
+  const head=el(`<div class="screen-head">
+      <button class="backbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg> All colors</button>
+      <div class="htxt"><div class="eyebrow" style="color:var(--accent)">Saved</div>
+      <h1>Favorites</h1>
+      <div class="meta">${items.length} board${items.length===1?'':'s'} saved</div></div></div>`);
+  head.querySelector('.backbtn').addEventListener('click',()=>go({level:'home'},null,true));
+  w.appendChild(head);
+  if(!items.length){w.appendChild(el('<div class="empty">No favorites yet. Tap the heart on any board to save it here.</div>'));return s;}
+  const grid=el('<div class="boardgrid"></div>');
+  items.forEach(({st,i,c})=>grid.appendChild(boardCard(st,i,c.id)));
   w.appendChild(grid);
   return s;
 }
@@ -122,6 +166,7 @@ function renderCrumbs(){
   };
   const sep=()=>crumbs.appendChild(el('<span class="sep">/</span>'));
   add('All colors',()=>go({level:'home'},null,true),nav.level==='home');
+  if(nav.level==='favorites'){sep();add('Favorites',null,true);}
   if(nav.level==='color'||nav.level==='style'){
     sep();const c=colorObj(nav.color);
     add(c.name,()=>go({level:'color',color:nav.color,style:null},null,true),nav.level==='color',CW[c.id]);
@@ -136,31 +181,37 @@ function buildScreen(state){
   if(state.level==='color')return renderColor(state.color);
   if(state.level==='style')return renderStyle(state.color,state.style);
   if(state.level==='search')return renderSearch(state.term);
+  if(state.level==='favorites')return renderFavorites();
 }
 function go(state,originEl,out){
   if(animating)return;
   const cur=stage.querySelector('.screen');
   const next=buildScreen(state);
   stage.appendChild(next);
-  nav=state;renderCrumbs();
+  nav=state;renderCrumbs();updateFavBadge();
   if(reduce||!cur){if(cur)cur.remove();return;}
   animating=true;
-  // origin point for zoom (center of clicked card, relative to stage)
   const sr=stage.getBoundingClientRect();
   let ox=sr.width/2,oy=sr.height*0.32;
   if(originEl){const r=originEl.getBoundingClientRect();ox=r.left-sr.left+r.width/2;oy=r.top-sr.top+r.height/2;}
   next.style.transformOrigin=`${ox}px ${oy}px`;
   cur.style.transformOrigin=`${ox}px ${oy}px`;
   const dur=340,ease='cubic-bezier(.4,0,.2,1)';
-  if(!out){ // zoom IN: old grows & fades, new comes from small
+  if(!out){
     cur.animate([{transform:'scale(1)',opacity:1},{transform:'scale(1.35)',opacity:0}],{duration:dur,easing:ease}).onfinish=()=>cur.remove();
     next.animate([{transform:'scale(.55)',opacity:0},{transform:'scale(1)',opacity:1}],{duration:dur,easing:ease}).onfinish=()=>{animating=false;};
-  }else{ // zoom OUT: old shrinks to point, new fades from slightly big
+  }else{
     cur.style.zIndex=2;
     cur.animate([{transform:'scale(1)',opacity:1},{transform:'scale(.55)',opacity:0}],{duration:dur,easing:ease}).onfinish=()=>cur.remove();
     next.animate([{transform:'scale(1.25)',opacity:0},{transform:'scale(1)',opacity:1}],{duration:dur,easing:ease}).onfinish=()=>{animating=false;};
   }
 }
+
+// ---------- toolbar: favorites ----------
+document.getElementById('favBtn').addEventListener('click',()=>{
+  if(nav.level==='favorites')return;
+  go({level:'favorites'},null,nav.level!=='home');
+});
 
 // ---------- search ----------
 const q=document.getElementById('q');
@@ -177,24 +228,36 @@ q.addEventListener('input',()=>{
 // ---------- lightbox ----------
 const lb=document.getElementById('lb'),lbImg=document.getElementById('lbImg'),
   lbTitle=document.getElementById('lbTitle'),lbPage=document.getElementById('lbPage'),
-  lbCount=document.getElementById('lbCount'),lbSw=document.getElementById('lbSw'),lbWrap=document.getElementById('lbImgWrap');
+  lbCount=document.getElementById('lbCount'),lbSw=document.getElementById('lbSw'),lbWrap=document.getElementById('lbImgWrap'),
+  lbFav=document.getElementById('lbFav'),lbDownload=document.getElementById('lbDownload');
 let curStyle=null,curIdx=0,curColor=null;
 function openLightbox(st,i,cid){curStyle=st;curIdx=i;curColor=cid;renderLb();lb.classList.add('on');document.getElementById('lbClose').focus();}
+function slug(t){return t.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'');}
+function renderLbFav(){const on=isFav(curStyle.boards[curIdx].page);
+  lbFav.classList.toggle('on',on);lbFav.setAttribute('aria-pressed',on);lbFav.innerHTML=heartSVG(on);}
 function renderLb(){const b=curStyle.boards[curIdx];
+  lbWrap.classList.remove('zoom');
   lbImg.src=b.img;lbTitle.textContent=curStyle.name;lbPage.textContent='p.'+b.page;
   lbSw.style.background='var('+CW[curColor]+')';lbCount.textContent=(curIdx+1)+' / '+curStyle.boards.length;
+  const fname=slug(curStyle.name)+'-'+(curIdx+1)+'.jpg';
+  lbDownload.href=b.img+(b.img.includes('?')?'&':'?')+'download='+encodeURIComponent(fname);
+  lbDownload.setAttribute('download',fname);
   document.getElementById('lbPrev').disabled=curIdx===0;
-  document.getElementById('lbNext').disabled=curIdx===curStyle.boards.length-1;lbWrap.scrollTop=0;}
-function closeLb(){lb.classList.remove('on');}
+  document.getElementById('lbNext').disabled=curIdx===curStyle.boards.length-1;
+  lbWrap.scrollTop=0;renderLbFav();}
+function closeLb(){lb.classList.remove('on');lbWrap.classList.remove('zoom');}
 document.getElementById('lbClose').onclick=closeLb;
 document.getElementById('lbPrev').onclick=()=>{if(curIdx>0){curIdx--;renderLb();}};
 document.getElementById('lbNext').onclick=()=>{if(curIdx<curStyle.boards.length-1){curIdx++;renderLb();}};
+lbFav.onclick=()=>{toggleFav(curStyle.boards[curIdx].page);renderLbFav();};
+lbImg.addEventListener('click',()=>lbWrap.classList.toggle('zoom'));
 lb.addEventListener('click',e=>{if(e.target===lb)closeLb();});
 document.addEventListener('keydown',e=>{
   if(lb.classList.contains('on')){
     if(e.key==='Escape')closeLb();
     else if(e.key==='ArrowLeft')document.getElementById('lbPrev').click();
     else if(e.key==='ArrowRight')document.getElementById('lbNext').click();
+    else if(e.key==='f'||e.key==='F')lbFav.click();
     return;
   }
   if(e.key==='Escape'&&nav.level!=='home'){
@@ -213,5 +276,5 @@ themeBtn.onclick=()=>{dark=!dark;rootEl.setAttribute('data-theme',dark?'dark':'l
 iconFor(dark);
 
 // ---------- boot ----------
-stage.appendChild(renderHome());renderCrumbs();
+stage.appendChild(renderHome());renderCrumbs();updateFavBadge();
 }
