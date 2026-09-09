@@ -6,37 +6,51 @@ const stage=document.getElementById('stage'), crumbs=document.getElementById('cr
 const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
 let nav={level:'home',color:null,style:null}; // level: home|color|style|search|favorites
 
+function escapeHTML(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
 // ---------- favorites (per-viewer, localStorage) ----------
 const FAV_KEY='cpr_moodboard_favs';
 function loadFavs(){try{return new Set(JSON.parse(localStorage.getItem(FAV_KEY)||'[]'));}catch(e){return new Set();}}
 let favs=loadFavs();
 function saveFavs(){try{localStorage.setItem(FAV_KEY,JSON.stringify([...favs]));}catch(e){}}
-function isFav(pg){return favs.has(pg);}
-function toggleFav(pg){if(favs.has(pg))favs.delete(pg);else favs.add(pg);saveFavs();updateFavBadge();}
+function isFav(id){return favs.has(id);}
+function toggleFav(id){if(favs.has(id))favs.delete(id);else favs.add(id);saveFavs();updateFavBadge();}
 function updateFavBadge(){const b=document.getElementById('favCount');if(b){b.textContent=favs.size;b.hidden=favs.size===0;}
   const btn=document.getElementById('favBtn');if(btn)btn.classList.toggle('on',nav.level==='favorites');}
 function heartSVG(f){return `<svg viewBox="0 0 24 24" width="17" height="17" fill="${f?'currentColor':'none'}" stroke="currentColor" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;}
 
-// index: page number -> {c, st, i}
+// ---------- notes (per-viewer, localStorage) ----------
+const NOTE_KEY='cpr_moodboard_notes';
+function loadNotes(){try{return JSON.parse(localStorage.getItem(NOTE_KEY)||'{}');}catch(e){return {};}}
+let notes=loadNotes();
+function saveNotes(){try{localStorage.setItem(NOTE_KEY,JSON.stringify(notes));}catch(e){}}
+function getNote(id){return notes[id]||'';}
+function hasNote(id){return !!notes[id];}
+function setNote(id,txt){txt=txt.trim();if(txt)notes[id]=txt;else delete notes[id];saveNotes();}
+
+// index: board id -> {c, st, i}
 const pageIndex={};
-DATA.colors.forEach(c=>c.styles.forEach(st=>st.boards.forEach((b,i)=>{pageIndex[b.page]={c,st,i};})));
+DATA.colors.forEach(c=>c.styles.forEach(st=>st.boards.forEach((b,i)=>{pageIndex[b.id]={c,st,i};})));
 
 // ---------- helpers ----------
 function el(html){const d=document.createElement('div');d.innerHTML=html.trim();return d.firstElementChild;}
 function firstImgs(boards,n){return boards.slice(0,n).map(b=>b.img);}
 
-function boardCard(st,i,cid){
+function boardCard(st,i,cid,opts){
+  opts=opts||{};
   const b=st.boards[i];
+  const fav=isFav(b.id), note=hasNote(b.id);
   const card=el(`<div class="bcard">
-      <button class="bthumb" aria-label="Enlarge board ${i+1}"><img src="${b.img}" alt="${st.name} board ${i+1}" loading="lazy"><span class="bnum">${i+1}</span></button>
-      <button class="fav ${isFav(b.page)?'on':''}" aria-label="Save to favorites" aria-pressed="${isFav(b.page)}">${heartSVG(isFav(b.page))}</button>
+      <button class="bthumb" aria-label="Enlarge ${b.tag} board"><img src="${b.img}" alt="${st.name} ${b.tag} board" loading="lazy"><span class="bnum">${b.tag}</span>${note?'<span class="notedot" title="Has a note">&#9998;</span>':''}</button>
+      <button class="fav ${fav?'on':''}" aria-label="Save to favorites" aria-pressed="${fav}">${heartSVG(fav)}</button>
     </div>`);
   card.querySelector('.bthumb').addEventListener('click',()=>openLightbox(st,i,cid));
   const fb=card.querySelector('.fav');
-  fb.addEventListener('click',e=>{e.stopPropagation();toggleFav(b.page);
-    const on=isFav(b.page);fb.classList.toggle('on',on);fb.setAttribute('aria-pressed',on);fb.innerHTML=heartSVG(on);
+  fb.addEventListener('click',e=>{e.stopPropagation();toggleFav(b.id);
+    const on=isFav(b.id);fb.classList.toggle('on',on);fb.setAttribute('aria-pressed',on);fb.innerHTML=heartSVG(on);
     if(nav.level==='favorites'&&!on){const scr=stage.querySelector('.screen');scr.replaceWith(renderFavorites());}
   });
+  if(opts.note&&note){card.appendChild(el(`<div class="bnote">${escapeHTML(getNote(b.id))}</div>`));}
   return card;
 }
 
@@ -119,7 +133,7 @@ function renderSearch(term){
     if(st.name.toLowerCase().includes(term)||c.name.toLowerCase().includes(term))matches.push({c,st});
   }));
   w.appendChild(el(`<div class="screen-head"><div class="htxt">
-      <div class="eyebrow">Search</div><h1>&ldquo;${term}&rdquo;</h1>
+      <div class="eyebrow">Search</div><h1>&ldquo;${escapeHTML(term)}&rdquo;</h1>
       <div class="meta">${matches.length} style${matches.length===1?'':'s'} found</div></div></div>`));
   if(!matches.length){w.appendChild(el('<div class="empty">No styles match that search.</div>'));return s;}
   const grid=el('<div class="stylegrid"></div>');
@@ -142,7 +156,7 @@ function renderSearch(term){
 function renderFavorites(){
   const s=el('<div class="screen"><div class="wrap"></div></div>');
   const w=s.querySelector('.wrap');
-  const items=[...favs].map(pg=>pageIndex[pg]).filter(Boolean);
+  const items=[...favs].map(id=>pageIndex[id]).filter(Boolean);
   const head=el(`<div class="screen-head">
       <button class="backbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg> All colors</button>
       <div class="htxt"><div class="eyebrow" style="color:var(--accent)">Saved</div>
@@ -150,9 +164,9 @@ function renderFavorites(){
       <div class="meta">${items.length} board${items.length===1?'':'s'} saved</div></div></div>`);
   head.querySelector('.backbtn').addEventListener('click',()=>go({level:'home'},null,true));
   w.appendChild(head);
-  if(!items.length){w.appendChild(el('<div class="empty">No favorites yet. Tap the heart on any board to save it here.</div>'));return s;}
+  if(!items.length){w.appendChild(el('<div class="empty">No favorites yet. Tap the heart on any board — or add a note — to save it here.</div>'));return s;}
   const grid=el('<div class="boardgrid"></div>');
-  items.forEach(({st,i,c})=>grid.appendChild(boardCard(st,i,c.id)));
+  items.forEach(({st,i,c})=>grid.appendChild(boardCard(st,i,c.id,{note:true})));
   w.appendChild(grid);
   return s;
 }
@@ -161,7 +175,7 @@ function renderFavorites(){
 function renderCrumbs(){
   crumbs.innerHTML='';
   const add=(label,fn,here,dotVar)=>{
-    const b=el(`<button class="cb ${here?'here':''}">${dotVar?`<span class="dot" style="background:var(${dotVar})"></span>`:''}${label}</button>`);
+    const b=el(`<button class="cb ${here?'here':''}">${dotVar?`<span class="dot" style="background:var(${dotVar})"></span>`:''}${escapeHTML(label)}</button>`);
     if(fn&&!here)b.addEventListener('click',fn);crumbs.appendChild(b);
   };
   const sep=()=>crumbs.appendChild(el('<span class="sep">/</span>'));
@@ -229,31 +243,37 @@ q.addEventListener('input',()=>{
 const lb=document.getElementById('lb'),lbImg=document.getElementById('lbImg'),
   lbTitle=document.getElementById('lbTitle'),lbPage=document.getElementById('lbPage'),
   lbCount=document.getElementById('lbCount'),lbSw=document.getElementById('lbSw'),lbWrap=document.getElementById('lbImgWrap'),
-  lbFav=document.getElementById('lbFav'),lbDownload=document.getElementById('lbDownload');
+  lbFav=document.getElementById('lbFav'),lbDownload=document.getElementById('lbDownload'),lbNote=document.getElementById('lbNote');
 let curStyle=null,curIdx=0,curColor=null;
+function curBoard(){return curStyle.boards[curIdx];}
 function openLightbox(st,i,cid){curStyle=st;curIdx=i;curColor=cid;renderLb();lb.classList.add('on');document.getElementById('lbClose').focus();}
 function slug(t){return t.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'');}
-function renderLbFav(){const on=isFav(curStyle.boards[curIdx].page);
+function renderLbFav(){const on=isFav(curBoard().id);
   lbFav.classList.toggle('on',on);lbFav.setAttribute('aria-pressed',on);lbFav.innerHTML=heartSVG(on);}
-function renderLb(){const b=curStyle.boards[curIdx];
+function renderLb(){const b=curBoard();
   lbWrap.classList.remove('zoom');
-  lbImg.src=b.img;lbTitle.textContent=curStyle.name;lbPage.textContent='p.'+b.page;
+  lbImg.src=b.img;lbTitle.textContent=curStyle.name;lbPage.textContent='p.'+b.src+' · '+b.tag;
   lbSw.style.background='var('+CW[curColor]+')';lbCount.textContent=(curIdx+1)+' / '+curStyle.boards.length;
-  const fname=slug(curStyle.name)+'-'+(curIdx+1)+'.jpg';
+  const fname=slug(curStyle.name)+'-'+b.src+'-'+b.tag.toLowerCase()+'.jpg';
   lbDownload.href=b.img+(b.img.includes('?')?'&':'?')+'download='+encodeURIComponent(fname);
   lbDownload.setAttribute('download',fname);
   document.getElementById('lbPrev').disabled=curIdx===0;
   document.getElementById('lbNext').disabled=curIdx===curStyle.boards.length-1;
-  lbWrap.scrollTop=0;renderLbFav();}
-function closeLb(){lb.classList.remove('on');lbWrap.classList.remove('zoom');}
+  lbWrap.scrollTop=0;renderLbFav();
+  if(lbNote)lbNote.value=getNote(b.id);}
+function closeLb(){lb.classList.remove('on');lbWrap.classList.remove('zoom');
+  if(nav.level==='favorites'){const scr=stage.querySelector('.screen');if(scr)scr.replaceWith(renderFavorites());}}
 document.getElementById('lbClose').onclick=closeLb;
 document.getElementById('lbPrev').onclick=()=>{if(curIdx>0){curIdx--;renderLb();}};
 document.getElementById('lbNext').onclick=()=>{if(curIdx<curStyle.boards.length-1){curIdx++;renderLb();}};
-lbFav.onclick=()=>{toggleFav(curStyle.boards[curIdx].page);renderLbFav();};
+lbFav.onclick=()=>{toggleFav(curBoard().id);renderLbFav();};
+if(lbNote)lbNote.addEventListener('input',()=>{const id=curBoard().id;setNote(id,lbNote.value);
+  if(lbNote.value.trim()&&!isFav(id)){favs.add(id);saveFavs();updateFavBadge();renderLbFav();}});
 lbImg.addEventListener('click',()=>lbWrap.classList.toggle('zoom'));
 lb.addEventListener('click',e=>{if(e.target===lb)closeLb();});
 document.addEventListener('keydown',e=>{
   if(lb.classList.contains('on')){
+    if(document.activeElement===lbNote)return;
     if(e.key==='Escape')closeLb();
     else if(e.key==='ArrowLeft')document.getElementById('lbPrev').click();
     else if(e.key==='ArrowRight')document.getElementById('lbNext').click();
