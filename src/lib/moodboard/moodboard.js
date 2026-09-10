@@ -316,7 +316,10 @@ const rootEl=document.documentElement,themeBtn=document.getElementById('theme');
 function iconFor(dark){document.getElementById('themeIcon').outerHTML=dark
   ?'<svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
   :'<svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></svg>';}
-let dark=matchMedia('(prefers-color-scheme:dark)').matches;
+// Default to the light paper theme (readable dark text) regardless of the
+// viewer's OS setting; the toggle still switches to dark on demand.
+let dark=false;
+rootEl.setAttribute('data-theme','light');
 themeBtn.onclick=()=>{dark=!dark;rootEl.setAttribute('data-theme',dark?'dark':'light');iconFor(dark);};
 iconFor(dark);
 
