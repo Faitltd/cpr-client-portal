@@ -40,6 +40,7 @@
 			{#if data.tabs.tasks}
 				<a class="tab" class:active={pathname === '/designer/tasks'} href="/designer/tasks">Tasks</a>
 			{/if}
+			<a class="tab" class:active={pathname === '/designer/moodboard'} href="/designer/moodboard">Mood Board</a>
 			{#if data.tabs.financials}
 				<a class="tab" class:active={pathname === '/designer/financials'} href="/designer/financials"
 					>Financials</a
