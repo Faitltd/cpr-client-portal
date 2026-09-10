@@ -1,7 +1,7 @@
 export function initMoodboard(DATA){
 "use strict";
 
-const CW={white:'--c-white',gray:'--c-gray',blue:'--c-blue',black:'--c-black',wood:'--c-wood'};
+const CW={white:'--c-white',gray:'--c-gray',blue:'--c-blue',black:'--c-black',wood:'--c-wood',green:'--c-green'};
 const stage=document.getElementById('stage'), crumbs=document.getElementById('crumbs');
 const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
 let nav={level:'home',color:null,style:null}; // level: home|color|style|search|favorites
@@ -92,7 +92,7 @@ function renderHome(){
   w.appendChild(el(`<div class="screen-head"><div class="htxt">
       <div class="eyebrow">Mood Board Catalog</div>
       <h1>Kitchen Mood Boards</h1>
-      <div class="meta">${DATA.total} boards &middot; 5 cabinet colors &middot; tap a color to zoom in</div></div></div>`));
+      <div class="meta">${DATA.total} boards &middot; ${DATA.colors.length} cabinet colors &middot; tap a color to zoom in</div></div></div>`));
   const grid=el('<div class="colorgrid"></div>');
   DATA.colors.forEach(c=>{
     const peek=[];c.styles.forEach(st=>st.boards.forEach(b=>peek.push(b.img)));
