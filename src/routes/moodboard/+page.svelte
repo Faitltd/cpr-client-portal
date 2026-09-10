@@ -48,8 +48,8 @@
       <button class="navbtn x" id="lbClose" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
     <div class="lb-img" id="lbImgWrap"><img id="lbImg" alt="Mood board"></div>
-    <div class="lb-notes">
-      <textarea id="lbNote" rows="2" placeholder="Add a note — what do you like about this board? (saved on this device)"></textarea>
+    <div class="lb-notes" hidden>
+      <textarea id="lbNote" rows="2" placeholder="What do you like about this board?"></textarea>
     </div>
     <div class="lb-foot">
       <button class="navbtn" id="lbPrev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg> Prev</button>

@@ -108,12 +108,12 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .scard .scount{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--muted)}
 
 /* board grid */
-.boardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.boardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
 .bcard{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2);
   cursor:pointer;box-shadow:var(--shadow);transition:transform .16s ease,box-shadow .16s ease}
 .bcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg)}
 .bcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.bcard img{width:100%;aspect-ratio:3/2;object-fit:contain;display:block;background:var(--surface-2)}
+.bcard img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}
 .bcard .bnum{position:absolute;left:8px;top:8px;font-family:"JetBrains Mono",monospace;font-size:10.5px;font-weight:500;
   color:#fff;background:rgba(0,0,0,.5);border-radius:5px;padding:2px 7px}
 
@@ -186,19 +186,25 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
   .lb-card{max-width:100vw;width:100vw;max-height:100dvh;height:100dvh;border-radius:0}
   .lb-img{flex:1}
   .lb-head .lm{display:none}
-  .boardgrid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .boardgrid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px}
 }
 
 /* ============ v3: split boards (Top/Bottom), notes ============ */
 /* Top/Bottom pill on board tiles */
 .bcard .bnum{left:8px;top:8px;font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
   color:#fff;background:rgba(0,0,0,.55);border-radius:5px;padding:2px 7px;font-family:"Instrument Sans",sans-serif}
-.bcard .notedot{position:absolute;left:8px;bottom:8px;width:22px;height:22px;border-radius:50%;
-  background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;z-index:2;
-  box-shadow:0 1px 4px rgba(0,0,0,.3)}
-.bnote{padding:8px 10px 2px;font-size:12px;line-height:1.4;color:var(--muted);white-space:pre-wrap;word-break:break-word}
+/* inline note on a board tile — appears only once hearted */
+.cardnote{display:none;padding:8px 10px 10px;background:var(--surface)}
+.bcard.faved{cursor:default}
+.bcard.faved .cardnote{display:block}
+.cardnote textarea{width:100%;box-sizing:border-box;border:1px solid var(--line-strong);border-radius:9px;
+  background:var(--surface-2);color:var(--ink);font-family:inherit;font-size:12.5px;line-height:1.4;
+  padding:8px 10px;resize:vertical;min-height:38px;outline:none}
+.cardnote textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+.cardnote textarea::placeholder{color:var(--muted)}
 
 /* lightbox notes field */
+.lb-notes[hidden]{display:none}
 .lb-notes{border-top:1px solid var(--line);padding:10px 14px;background:var(--surface)}
 .lb-notes textarea{width:100%;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface-2);
   color:var(--ink);font-family:inherit;font-size:13.5px;line-height:1.45;padding:9px 11px;resize:vertical;min-height:44px;outline:none}
@@ -218,11 +224,3 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 
 /* push the portal "Home CPR" watermark down so its logo clears the toolbar (this page only) */
 .app-bg{background-position:center calc(50% + 120px)!important}
-
-/* bigger back/close targets on phones (swipe left to go back is also enabled) */
-@media (max-width:640px){
-  .backbtn{height:44px;padding:0 18px;font-size:14.5px}
-  .crumbs .cb{padding:8px 10px}
-  #lbClose{min-width:44px;height:44px}
-  #lbFav,#lbDownload{min-width:42px;height:42px}
-}

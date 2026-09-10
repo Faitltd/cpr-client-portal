@@ -62,18 +62,26 @@ function imgTag(url,w,alt,cls){const t=thumb(url,w);return `<img${cls?` class="$
 function boardCard(st,i,cid,opts){
   opts=opts||{};
   const b=st.boards[i];
-  const fav=isFav(b.id), note=hasNote(b.id);
-  const card=el(`<div class="bcard">
-      <button class="bthumb" aria-label="Enlarge board ${b.src}${b.tag}">${imgTag(b.img,400,st.name+' board '+b.src+b.tag)}<span class="bnum">${b.src}${b.tag}</span>${note?'<span class="notedot" title="Has a note">&#9998;</span>':''}</button>
+  const fav=isFav(b.id);
+  const card=el(`<div class="bcard${fav?' faved':''}">
+      <button class="bthumb" aria-label="Enlarge board ${b.src}${b.tag}">${imgTag(b.img,400,st.name+' board '+b.src+b.tag)}<span class="bnum">${b.src}${b.tag}</span></button>
       <button class="fav ${fav?'on':''}" aria-label="Save to favorites" aria-pressed="${fav}">${heartSVG(fav)}</button>
+      <div class="cardnote"><textarea rows="2" placeholder="What do you like about this one?"></textarea></div>
     </div>`);
   card.querySelector('.bthumb').addEventListener('click',()=>openLightbox(st,i,cid));
+  const ta=card.querySelector('.cardnote textarea');
+  ta.value=getNote(b.id);
+  ta.addEventListener('click',e=>e.stopPropagation());
+  let ct=null;
+  ta.addEventListener('input',()=>{setNote(b.id,ta.value);
+    if(online){clearTimeout(ct);ct=setTimeout(()=>persist(b.id),600);}});
   const fb=card.querySelector('.fav');
   fb.addEventListener('click',e=>{e.stopPropagation();toggleFav(b.id);
     const on=isFav(b.id);fb.classList.toggle('on',on);fb.setAttribute('aria-pressed',on);fb.innerHTML=heartSVG(on);
+    card.classList.toggle('faved',on);
+    if(on){ta.value=getNote(b.id);setTimeout(()=>ta.focus(),20);}
     if(nav.level==='favorites'&&!on){const scr=stage.querySelector('.screen');scr.replaceWith(renderFavorites());}
   });
-  if(opts.note&&note){card.appendChild(el(`<div class="bnote">${escapeHTML(getNote(b.id))}</div>`));}
   return card;
 }
 
@@ -267,6 +275,7 @@ const lb=document.getElementById('lb'),lbImg=document.getElementById('lbImg'),
   lbTitle=document.getElementById('lbTitle'),lbPage=document.getElementById('lbPage'),
   lbCount=document.getElementById('lbCount'),lbSw=document.getElementById('lbSw'),lbWrap=document.getElementById('lbImgWrap'),
   lbFav=document.getElementById('lbFav'),lbDownload=document.getElementById('lbDownload'),lbNote=document.getElementById('lbNote');
+const lbNotes=lbNote?lbNote.closest('.lb-notes'):null;
 let curStyle=null,curIdx=0,curColor=null;
 function curBoard(){return curStyle.boards[curIdx];}
 function openLightbox(st,i,cid){curStyle=st;curIdx=i;curColor=cid;renderLb();lb.classList.add('on');document.getElementById('lbClose').focus();}
@@ -283,13 +292,16 @@ function renderLb(){const b=curBoard();
   document.getElementById('lbPrev').disabled=curIdx===0;
   document.getElementById('lbNext').disabled=curIdx===curStyle.boards.length-1;
   lbWrap.scrollTop=0;renderLbFav();
-  if(lbNote)lbNote.value=getNote(b.id);}
+  if(lbNote)lbNote.value=getNote(b.id);
+  if(lbNotes)lbNotes.hidden=!isFav(b.id);}
 function closeLb(){lb.classList.remove('on');lbWrap.classList.remove('zoom');
   if(nav.level==='favorites'){const scr=stage.querySelector('.screen');if(scr)scr.replaceWith(renderFavorites());}}
 document.getElementById('lbClose').onclick=closeLb;
 document.getElementById('lbPrev').onclick=()=>{if(curIdx>0){curIdx--;renderLb();}};
 document.getElementById('lbNext').onclick=()=>{if(curIdx<curStyle.boards.length-1){curIdx++;renderLb();}};
-lbFav.onclick=()=>{toggleFav(curBoard().id);renderLbFav();};
+lbFav.onclick=()=>{const id=curBoard().id;toggleFav(id);renderLbFav();
+  const on=isFav(id);if(lbNotes)lbNotes.hidden=!on;
+  if(on&&lbNote)setTimeout(()=>lbNote.focus(),20);};
 let noteTimer=null;
 if(lbNote)lbNote.addEventListener('input',()=>{const id=curBoard().id;setNote(id,lbNote.value);
   if(lbNote.value.trim()&&!isFav(id)){favs.add(id);saveFavs();updateFavBadge();renderLbFav();}
@@ -319,14 +331,14 @@ function goBack(){
 }
 
 // ---------- touch gestures ----------
-// On a screen: swipe left to go back a level.
+// On a screen: swipe right to go back a level.
 // In the enlarged view: swipe left/right = next/prev board, swipe down = close.
 let _tx=0,_ty=0,_tmulti=false;
 stage.addEventListener('touchstart',e=>{_tmulti=e.touches.length>1;if(_tmulti)return;const t=e.touches[0];_tx=t.clientX;_ty=t.clientY;},{passive:true});
 stage.addEventListener('touchend',e=>{
   if(_tmulti||lb.classList.contains('on'))return;
   const t=e.changedTouches[0],dx=t.clientX-_tx,dy=t.clientY-_ty;
-  if(dx<-60&&Math.abs(dx)>Math.abs(dy)*1.6)goBack();
+  if(dx>60&&Math.abs(dx)>Math.abs(dy)*1.6)goBack();
 },{passive:true});
 
 let _lx=0,_ly=0,_lmulti=false,_lnote=false;
