@@ -215,3 +215,6 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
   border:1px solid color-mix(in srgb,var(--accent) 34%,transparent);font-size:12px;font-weight:600;white-space:nowrap}
 .clientchip svg{flex:none}
 @media (max-width:600px){.clientchip{display:none}}
+
+/* push the portal "Home CPR" watermark down so its logo clears the toolbar (this page only) */
+.app-bg{background-position:center calc(50% + 120px)!important}
