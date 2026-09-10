@@ -5,80 +5,105 @@
 	export let data: LayoutData;
 
 	$: pathname = $page.url.pathname;
+
+	// Role-dependent destinations. Dedupes Schedule / Assistant, which used to
+	// appear in both the designer row and the admin row.
+	$: scheduleHref = data.isAdmin ? '/admin/schedule' : '/designer/schedule';
+	$: assistantHref = data.isAdmin ? '/admin/bot' : '/designer/chat';
+
+	type Child = { label: string; href: string; match?: () => boolean };
+	type Group = { id: string; label: string; children: Child[] };
+
+	// Top row = groups. Second row = children of the active group.
+	$: groups = [
+		{
+			id: 'pipeline',
+			label: 'Pipeline',
+			children: [
+				{ label: 'CRM', href: '/designer', match: () => pathname === '/designer' },
+				{ label: 'Pipeline', href: '/designer/team-pipeline' },
+				data.tabs.tasks && { label: 'Tasks', href: '/designer/tasks' },
+				// Previously not surfaced in the bar. Delete these two if unwanted:
+				{ label: 'On-Hold', href: '/designer/on-hold' },
+				{ label: 'Projects', href: '/designer/projects' }
+			].filter(Boolean) as Child[]
+		},
+		{
+			id: 'field',
+			label: 'Field',
+			children: [
+				data.tabs.fieldDashboard && { label: 'Field Dashboard', href: '/designer/trade-dashboard' },
+				data.tabs.fieldUpdate && { label: 'Field Update', href: '/designer/field-update' },
+				(data.isAdmin || data.tabs.schedule) && { label: 'Schedule', href: scheduleHref }
+			].filter(Boolean) as Child[]
+		},
+		{
+			id: 'design',
+			label: 'Design',
+			children: [
+				{ label: 'Mood Board', href: '/designer/moodboard' },
+				data.tabs.cadConverter && { label: 'CAD Converter', href: '/designer/cad-converter' }
+			].filter(Boolean) as Child[]
+		},
+		{
+			id: 'money',
+			label: 'Money',
+			children: [
+				data.tabs.finance && { label: 'Finance', href: '/designer/finance' },
+				data.tabs.financials && { label: 'Financials', href: '/designer/financials' }
+			].filter(Boolean) as Child[]
+		},
+		{
+			id: 'assistant',
+			label: 'CPR Assistant',
+			children: [
+				(data.isAdmin || data.canChat) && { label: 'CPR Assistant', href: assistantHref }
+			].filter(Boolean) as Child[]
+		},
+		{
+			id: 'admin',
+			label: 'Admin',
+			children: data.isAdmin
+				? [
+						{ label: 'Client Admin', href: '/admin/clients' },
+						{ label: 'Leads', href: '/admin/leads' },
+						{ label: 'Process Map', href: '/admin/process-map' },
+						{
+							label: 'Outreach',
+							href: '/admin/outreach',
+							match: () => pathname.startsWith('/admin/outreach')
+						}
+					]
+				: []
+		}
+	].filter((g) => g.children.length > 0) as Group[];
+
+	const isChildActive = (c: Child) => (c.match ? c.match() : pathname === c.href);
+
+	$: activeGroup = groups.find((g) => g.children.some(isChildActive)) ?? groups[0];
+	$: subtabs = activeGroup && activeGroup.children.length > 1 ? activeGroup.children : [];
 </script>
 
 <header class="designer-bar">
 	<div class="bar-inner">
 		<nav class="tabs" aria-label="Staff views">
-			{#if data.tabs.fieldDashboard}
+			{#each groups as group (group.id)}
 				<a
 					class="tab"
-					class:active={pathname === '/designer/trade-dashboard'}
-					href="/designer/trade-dashboard">Field Dashboard</a
+					class:active={group.id === activeGroup?.id}
+					class:tab-admin={group.id === 'admin'}
+					href={group.children[0].href}>{group.label}</a
 				>
-			{/if}
-			{#if data.tabs.fieldUpdate}
-				<a
-					class="tab"
-					class:active={pathname === '/designer/field-update'}
-					href="/designer/field-update">Field Update</a
-				>
-			{/if}
-			{#if data.tabs.finance}
-				<a class="tab" class:active={pathname === '/designer/finance'} href="/designer/finance"
-					>Finance</a
-				>
-			{/if}
-			{#if data.tabs.pipeline}
-				<a
-					class="tab"
-					class:active={pathname === '/designer' ||
-						pathname === '/designer/team-pipeline'}
-					href="/designer/team-pipeline">Pipeline</a
-				>
-			{/if}
-			{#if data.tabs.tasks}
-				<a class="tab" class:active={pathname === '/designer/tasks'} href="/designer/tasks">Tasks</a>
-			{/if}
-			<a class="tab" class:active={pathname === '/designer/moodboard'} href="/designer/moodboard">Mood Board</a>
-			{#if data.tabs.financials}
-				<a class="tab" class:active={pathname === '/designer/financials'} href="/designer/financials"
-					>Financials</a
-				>
-			{/if}
-			{#if data.isAdmin}
-				<a
-					class="tab"
-					class:active={pathname.startsWith('/admin/outreach')}
-					href="/admin/outreach">Outreach</a
-				>
-			{/if}
-			{#if data.tabs.schedule}
-				<a class="tab" class:active={pathname === '/designer/schedule'} href="/designer/schedule"
-					>Schedule</a
-				>
-			{/if}
-			{#if data.tabs.cadConverter}
-				<a
-					class="tab"
-					class:active={pathname === '/designer/cad-converter'}
-					href="/designer/cad-converter">CAD Converter</a
-				>
-			{/if}
-			<!-- Admins use the amber Assistant tab instead of the designer CPR Assistant tab -->
-			{#if data.canChat && !data.isAdmin}
-				<a class="tab" class:active={pathname === '/designer/chat'} href="/designer/chat">CPR Assistant</a>
-			{/if}
-			{#if data.isAdmin}
-				<span class="admin-group" aria-label="Admin tabs">
-					<a class="tab tab-admin" href="/admin/clients">Client Admin</a>
-					<a class="tab tab-admin" href="/admin/leads">Leads</a>
-					<a class="tab tab-admin" href="/admin/bot">CPR Assistant</a>
-					<a class="tab tab-admin" href="/admin/schedule">Schedule</a>
-					<a class="tab tab-admin" href="/admin/process-map">Process Map</a>
-				</span>
-			{/if}
+			{/each}
 		</nav>
+
+		{#if subtabs.length}
+			<nav class="subtabs" aria-label="Section views">
+				{#each subtabs as child (child.href)}
+					<a class="subtab" class:active={isChildActive(child)} href={child.href}>{child.label}</a>
+				{/each}
+			</nav>
+		{/if}
 	</div>
 </header>
 
@@ -132,14 +157,9 @@
 		border-color: #111827;
 	}
 
-	.admin-group {
-		margin-left: auto;
-		display: inline-flex;
-		gap: 0.4rem;
-		flex-wrap: wrap;
-	}
-
+	/* Admin group sits at the far right, amber outline, like before. */
 	.tab-admin {
+		margin-left: auto;
 		border-color: #b45309;
 		color: #92400e;
 	}
@@ -147,6 +167,39 @@
 	.tab-admin:hover {
 		background: #fff7ed;
 		color: #7c2d12;
+	}
+
+	.tab-admin.active {
+		background: #111827;
+		color: #ffffff;
+		border-color: #111827;
+	}
+
+	/* Contextual second row: light underline tabs for the active group. */
+	.subtabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1.25rem;
+		padding: 0.6rem 0.6rem 0.1rem;
+	}
+
+	.subtab {
+		padding: 0.35rem 0.1rem;
+		color: #64748b;
+		font-weight: 600;
+		font-size: 0.85rem;
+		text-decoration: none;
+		border-bottom: 2px solid transparent;
+		transition: color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.subtab:hover {
+		color: #0f172a;
+	}
+
+	.subtab.active {
+		color: #111827;
+		border-bottom-color: #111827;
 	}
 
 	.designer-content {
