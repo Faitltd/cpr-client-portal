@@ -1,13 +1,46 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
+	const SUPA_URL = 'https://dhjbpebtjtdicevnkjpd.supabase.co';
+	const SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoamJwZWJ0anRkaWNldm5ranBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDE5MDYsImV4cCI6MjA4NTYxNzkwNn0.p9D-N4C8Hpqe5mdD7cHB3VHCZ746spywLP7a3ciuqVo';
+
+	// Regroup each color by its saved countertop tags (Wood / Dark / Light).
+	// Colors with no tags keep their original style groups.
+	function regroup(DATA: any, tags: Record<string, string>) {
+		for (const c of DATA.colors) {
+			const boards = c.styles.flatMap((st: any) => st.boards);
+			if (!boards.some((b: any) => tags[b.id])) continue;
+			const order = (b: any) => b.src * 10 + (b.tag === 'A' ? 0 : 1);
+			const bk: Record<string, any[]> = { wood: [], dark: [], light: [], more: [] };
+			for (const b of boards) (bk[tags[b.id]] ?? bk.more).push(b);
+			const groups: any[] = [];
+			const add = (k: string, label: string) => {
+				if (bk[k].length) groups.push({ name: label, boards: bk[k].sort((a: any, b: any) => order(a) - order(b)) });
+			};
+			add('wood', c.name + ' + Wood');
+			add('dark', c.name + ' + Dark');
+			add('light', c.name + ' + Light');
+			add('more', c.name + ' + Unsorted');
+			c.styles = groups;
+			c.count = boards.length;
+		}
+		return DATA;
+	}
+
 	onMount(async () => {
-		const [{ initMoodboard }, res] = await Promise.all([
+		const [{ initMoodboard }, res, tagRes] = await Promise.all([
 			import('$lib/moodboard/moodboard.js'),
-			fetch('/moodboard/data.json')
+			fetch('/moodboard/data.json'),
+			fetch(SUPA_URL + '/rest/v1/moodboard_board_tags?select=board_id,counter', {
+				headers: { apikey: SUPA_ANON, Authorization: 'Bearer ' + SUPA_ANON }
+			}).catch(() => null)
 		]);
 		const DATA = await res.json();
-		initMoodboard(DATA);
+		const tags: Record<string, string> = {};
+		try {
+			if (tagRes && tagRes.ok) for (const r of await tagRes.json()) tags[r.board_id] = r.counter;
+		} catch (e) {}
+		initMoodboard(regroup(DATA, tags));
 	});
 </script>
 

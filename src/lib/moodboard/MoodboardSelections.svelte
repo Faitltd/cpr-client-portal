@@ -73,6 +73,7 @@
 				What each client has hearted and noted. Send a client their board with a link like
 				<code>/moodboard?c=their-name</code>.
 			</p>
+			<a class="sortlink" href="/designer/moodboard/sort">Sort boards by countertop &rarr;</a>
 		</div>
 		<div class="stat">
 			<span class="n">{data.clients.length}</span>
@@ -182,6 +183,21 @@
 		color: #6b7280;
 		font-size: 0.9rem;
 		max-width: 60ch;
+	}
+	.sortlink {
+		display: inline-block;
+		margin-top: 0.7rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #a9744f;
+		text-decoration: none;
+		border: 1px solid #e7d9cb;
+		background: #faf5ef;
+		padding: 0.4rem 0.8rem;
+		border-radius: 9px;
+	}
+	.sortlink:hover {
+		border-color: #a9744f;
 	}
 	code {
 		background: #f3f4f6;
