@@ -311,6 +311,37 @@ document.addEventListener('keydown',e=>{
   }
 });
 
+// ---------- go back one level ----------
+function goBack(){
+  if(lb.classList.contains('on')){closeLb();return;}
+  if(nav.level==='style')go({level:'color',color:nav.color},null,true);
+  else if(nav.level!=='home')go({level:'home'},null,true);
+}
+
+// ---------- touch gestures ----------
+// On a screen: swipe left to go back a level.
+// In the enlarged view: swipe left/right = next/prev board, swipe down = close.
+let _tx=0,_ty=0,_tmulti=false;
+stage.addEventListener('touchstart',e=>{_tmulti=e.touches.length>1;if(_tmulti)return;const t=e.touches[0];_tx=t.clientX;_ty=t.clientY;},{passive:true});
+stage.addEventListener('touchend',e=>{
+  if(_tmulti||lb.classList.contains('on'))return;
+  const t=e.changedTouches[0],dx=t.clientX-_tx,dy=t.clientY-_ty;
+  if(dx<-60&&Math.abs(dx)>Math.abs(dy)*1.6)goBack();
+},{passive:true});
+
+let _lx=0,_ly=0,_lmulti=false,_lnote=false;
+lb.addEventListener('touchstart',e=>{_lmulti=e.touches.length>1;if(_lmulti)return;
+  const t=e.touches[0];_lx=t.clientX;_ly=t.clientY;
+  _lnote=!!(e.target&&e.target.closest&&e.target.closest('.lb-notes'));},{passive:true});
+lb.addEventListener('touchend',e=>{
+  if(_lmulti||_lnote||!lb.classList.contains('on')||lbWrap.classList.contains('zoom'))return;
+  const t=e.changedTouches[0],dx=t.clientX-_lx,dy=t.clientY-_ly;
+  if(Math.abs(dx)>Math.abs(dy)){
+    if(dx<-45)document.getElementById('lbNext').click();
+    else if(dx>45)document.getElementById('lbPrev').click();
+  }else if(dy>90)closeLb();
+},{passive:true});
+
 // ---------- theme ----------
 const rootEl=document.documentElement,themeBtn=document.getElementById('theme');
 function iconFor(dark){document.getElementById('themeIcon').outerHTML=dark

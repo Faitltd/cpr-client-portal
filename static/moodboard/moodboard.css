@@ -218,3 +218,11 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 
 /* push the portal "Home CPR" watermark down so its logo clears the toolbar (this page only) */
 .app-bg{background-position:center calc(50% + 120px)!important}
+
+/* bigger back/close targets on phones (swipe left to go back is also enabled) */
+@media (max-width:640px){
+  .backbtn{height:44px;padding:0 18px;font-size:14.5px}
+  .crumbs .cb{padding:8px 10px}
+  #lbClose{min-width:44px;height:44px}
+  #lbFav,#lbDownload{min-width:42px;height:42px}
+}
