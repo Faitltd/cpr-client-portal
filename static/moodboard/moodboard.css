@@ -81,11 +81,9 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .ccard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ccard .band{height:96px;display:flex;align-items:flex-end;padding:14px;position:relative}
 .ccard .peekrow{position:absolute;inset:0;display:flex;opacity:.9}
-.ccard .peekrow img{flex:1;height:100%;object-fit:cover;filter:saturate(.96)}
+.ccard .peekrow img{flex:1;min-width:0;height:100%;object-fit:cover;filter:saturate(.96)}
 .ccard .band::after{content:"";position:absolute;inset:0;
-  background:
-    linear-gradient(90deg,color-mix(in srgb,var(--cc) 34%,transparent) 0%,transparent 16%,transparent 84%,color-mix(in srgb,var(--cc) 34%,transparent) 100%),
-    linear-gradient(180deg,color-mix(in srgb,var(--cc) 34%,transparent),color-mix(in srgb,var(--cc) 78%,transparent))}
+  background:linear-gradient(180deg,color-mix(in srgb,var(--cc) 14%,transparent),color-mix(in srgb,var(--cc) 64%,transparent))}
 .ccard .swbig{position:relative;z-index:1;width:40px;height:40px;border-radius:11px;background:var(--cc);
   box-shadow:0 3px 10px rgba(0,0,0,.28),inset 0 0 0 1.5px rgba(255,255,255,.5)}
 .ccard .body{padding:15px 16px 17px}
