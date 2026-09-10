@@ -103,7 +103,7 @@
 		overflow-x: clip;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 		--bg-fade: 0.78;
-		background: url('/images/cpr-bg.png') center/contain no-repeat;
+		background: url('/images/cpr-bg.png') center calc(50% + 120px)/62% no-repeat;
 		background-attachment: scroll;
 	}
 
