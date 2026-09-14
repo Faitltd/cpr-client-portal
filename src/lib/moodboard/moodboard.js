@@ -93,6 +93,7 @@ function renderHome(){
       <div class="eyebrow">Mood Board Catalog</div>
       <h1>Kitchen Mood Boards</h1>
       <div class="meta">${DATA.total} boards &middot; ${DATA.colors.length} cabinet colors &middot; tap a color to zoom in</div></div></div>`));
+  const _saved=renderSavedSection();if(_saved)w.appendChild(_saved);
   const grid=el('<div class="colorgrid"></div>');
   DATA.colors.forEach(c=>{
     const peek=[];c.styles.forEach(st=>st.boards.forEach(b=>peek.push(b.img)));
@@ -184,6 +185,27 @@ function renderSearch(term){
   return s;
 }
 
+function savedItems(){
+  const ids=new Set([...favs, ...Object.keys(notes)]);
+  return [...ids].map(id=>pageIndex[id]).filter(Boolean);
+}
+function savedCard(st,i,cid){
+  const b=st.boards[i];const fav=isFav(b.id),note=getNote(b.id);
+  const card=el(`<div class="scard">
+      <button class="scard-img" aria-label="Enlarge board ${b.src}${b.tag}">${imgTag(b.img,600,st.name+' board '+b.src+b.tag)}<span class="bnum">${b.src}${b.tag}</span>${fav?`<span class="scard-heart">${heartSVG(true)}</span>`:''}</button>
+      ${note?`<div class="scard-note">${escapeHTML(note)}</div>`:''}
+    </div>`);
+  card.querySelector('.scard-img').addEventListener('click',()=>openLightbox(st,i,cid));
+  return card;
+}
+function renderSavedSection(){
+  if(!online)return null;
+  const items=savedItems();if(!items.length)return null;
+  const sec=el(`<div class="saved-sec"><div class="saved-head"><h2>Saved selections</h2><span class="saved-meta">${items.length} board${items.length===1?'':'s'} hearted or noted</span></div><div class="boardgrid savedgrid"></div></div>`);
+  const grid=sec.querySelector('.savedgrid');
+  items.forEach(({st,i,c})=>grid.appendChild(savedCard(st,i,c.id)));
+  return sec;
+}
 function renderFavorites(){
   const s=el('<div class="screen"><div class="wrap"></div></div>');
   const w=s.querySelector('.wrap');
@@ -380,6 +402,8 @@ stage.appendChild(renderHome());renderCrumbs();updateFavBadge();
 if(online){
   addClientChip();
   supaLoad().then(ok=>{updateFavBadge();
-    if(ok&&(nav.level==='favorites'||nav.level==='style')){const scr=stage.querySelector('.screen');if(scr)scr.replaceWith(buildScreen(nav));}});
+    if(!ok)return;const scr=stage.querySelector('.screen');if(!scr)return;
+    if(nav.level==='home')scr.replaceWith(renderHome());
+    else if(nav.level==='favorites'||nav.level==='style')scr.replaceWith(buildScreen(nav));});
 }
 }
