@@ -21,10 +21,11 @@
 		loadError?: string;
 	};
 
-	const thumb = (url: string, w = 300) =>
+	// Sharper, landscape-friendly thumbnail (full board visible, higher res)
+	const thumb = (url: string, w = 700) =>
 		!url || url.indexOf('/object/public/') < 0
 			? url
-			: url.replace('/object/public/', '/render/image/public/') + `?width=${w}&quality=72&resize=contain`;
+			: url.replace('/object/public/', '/render/image/public/') + `?width=${w}&quality=82&resize=contain`;
 
 	const fmt = (iso: string | null) => {
 		if (!iso) return '';
@@ -40,6 +41,20 @@
 	};
 
 	const totalBoards = data.clients.reduce((n, c) => n + c.count, 0);
+
+	// Lightbox: click a board to expand it full size
+	let lbImg: string | null = null;
+	let lbCap = '';
+	function openLb(item: { img: string; styleName: string; label: string; colorName: string }) {
+		lbImg = item.img;
+		lbCap = `${item.styleName} · ${item.label} · ${item.colorName}`;
+	}
+	function closeLb() {
+		lbImg = null;
+	}
+	function onKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') closeLb();
+	}
 
 	// Client link generator: key = first name + house number (e.g. Ray6565 -> ray6565)
 	let firstName = '';
@@ -64,6 +79,7 @@
 </script>
 
 <svelte:head><title>Mood Board Selections</title></svelte:head>
+<svelte:window on:keydown={onKey} />
 
 <div class="mb-admin">
 	<header class="head">
@@ -134,7 +150,10 @@
 					{#each client.items as item (item.board_id)}
 						<figure class="board" class:hasnote={!!(item.note && item.note.trim())}>
 							{#if item.img}
-								<img src={thumb(item.img)} alt={`${item.styleName} ${item.label}`} loading="lazy" />
+								<button class="board-img" type="button" on:click={() => openLb(item)} aria-label={`Expand ${item.styleName} ${item.label}`}>
+									<img src={thumb(item.img)} alt={`${item.styleName} ${item.label}`} loading="lazy" />
+									<span class="zoom" aria-hidden="true">⤢</span>
+								</button>
 							{:else}
 								<div class="noimg">{item.label}</div>
 							{/if}
@@ -155,6 +174,16 @@
 		{/each}
 	{/if}
 </div>
+
+{#if lbImg}
+	<div class="lb" role="dialog" aria-modal="true" tabindex="-1" on:click={closeLb}>
+		<button class="lb-close" type="button" on:click={closeLb} aria-label="Close">×</button>
+		<figure class="lb-fig" on:click|stopPropagation>
+			<img src={lbImg} alt={lbCap} />
+			<figcaption>{lbCap}</figcaption>
+		</figure>
+	</div>
+{/if}
 
 <style>
 	.mb-admin {
@@ -366,7 +395,7 @@
 
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 		gap: 0.9rem;
 	}
 	.board {
@@ -374,7 +403,7 @@
 		border: 1px solid #e5e7eb;
 		border-radius: 12px;
 		overflow: hidden;
-		background: #f9fafb;
+		background: #fff;
 		display: flex;
 		flex-direction: column;
 	}
@@ -382,13 +411,46 @@
 		border-color: #e7d9cb;
 		box-shadow: 0 0 0 2px rgba(169, 116, 79, 0.15);
 	}
-	.board img,
+	.board-img {
+		position: relative;
+		display: block;
+		width: 100%;
+		padding: 0;
+		border: none;
+		background: #fff;
+		cursor: zoom-in;
+	}
+	.board-img img,
 	.board .noimg {
 		width: 100%;
-		aspect-ratio: 3 / 4;
-		object-fit: cover;
+		aspect-ratio: 3 / 2;
+		object-fit: contain;
 		display: block;
-		background: #eceff3;
+		background: #f4f2ef;
+	}
+	.board-img .zoom {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		width: 26px;
+		height: 26px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 7px;
+		background: rgba(31, 41, 55, 0.55);
+		color: #fff;
+		font-size: 14px;
+		opacity: 0;
+		transition: opacity 0.15s ease;
+	}
+	.board-img:hover .zoom,
+	.board-img:focus-visible .zoom {
+		opacity: 1;
+	}
+	.board-img:focus-visible {
+		outline: 2px solid #a9744f;
+		outline-offset: -2px;
 	}
 	.board .noimg {
 		display: flex;
@@ -435,9 +497,62 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
+
+	/* Lightbox */
+	.lb {
+		position: fixed;
+		inset: 0;
+		z-index: 1000;
+		background: rgba(17, 20, 26, 0.82);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 3vh 3vw;
+		cursor: zoom-out;
+	}
+	.lb-fig {
+		margin: 0;
+		max-width: 94vw;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.7rem;
+		cursor: default;
+	}
+	.lb-fig img {
+		max-width: 94vw;
+		max-height: 82vh;
+		object-fit: contain;
+		border-radius: 10px;
+		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+		background: #fff;
+	}
+	.lb-fig figcaption {
+		color: #f3f4f6;
+		font-size: 0.9rem;
+		text-align: center;
+		text-transform: capitalize;
+	}
+	.lb-close {
+		position: fixed;
+		top: 14px;
+		right: 18px;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		border: none;
+		background: rgba(255, 255, 255, 0.14);
+		color: #fff;
+		font-size: 24px;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.lb-close:hover {
+		background: rgba(255, 255, 255, 0.28);
+	}
 	@media (max-width: 640px) {
 		.grid {
-			grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+			grid-template-columns: 1fr;
 		}
 	}
 </style>
