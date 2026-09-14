@@ -226,7 +226,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .app-bg{background-position:center calc(50% + 120px)!important}
 
 /* Saved selections section (client-link mode) */
-.saved-sec{margin:0 0 26px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--surface-2)}
+.saved-sec{margin:0 0 18px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--surface-2)}
 .saved-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .saved-head h2{margin:0;font-family:"Fraunces",serif;font-weight:600;font-size:19px;color:var(--ink)}
 .saved-meta{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--muted)}
